@@ -1,4 +1,3 @@
-```markdown
 # LARGA: Integrated Taxi Operations Management System
 
 > **A Capstone Project for BLM Taxi (Talisay City, Cebu, Philippines)**  
@@ -35,20 +34,18 @@ The system is split into two primary client applications backed by a serverless 
 
 This repository strictly enforces a modified **GitFlow** branching strategy. Direct commits to `main` and `develop` are blocked by branch protection rules.
 
-
-```
-
+```text
 main (Production / Stable Releases)
 │
-├── release/v1.0.0
-│     └── (Staging & Defense Builds)
+├── release/v1.0.0 ──────────────> Merged to main & back to develop (Defense/Staging)
 │
+└── hotfix/patch-odometer-ocr ───> Branched from main, merged to main & develop
+     ^
 develop (Active Integration Branch)
 │
-├── feature/EPIC01-driver-auth
-├── feature/EPIC02-boundary-calc
-└── hotfix/patch-odometer-ocr
-
+├── feature/STORY01-driver-auth ──> Branched from develop, merged back to develop
+├── feature/STORY02-boundary-calc ─> Branched from develop, merged back to develop
+└── feature/STORY06-fuel-ocr ─────> Branched from develop, merged back to develop
 ```
 
 ### 1. Standard Branch Types & Naming
