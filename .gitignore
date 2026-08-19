@@ -10,9 +10,17 @@
 *.userosscache
 *.sln.docstates
 *.env
+*.ide/
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
+
+## --- Sensitive Credentials & Configuration ---
+# Uncomment if managing private Firebase service files locally
+# google-services.json
+# GoogleService-Info.plist
+*.pfx
+*.publishsettings
 
 # Mono auto generated files
 mono_crash.*
@@ -249,6 +257,9 @@ AppPackages/
 BundleArtifacts/
 Package.StoreAssociation.xml
 _pkginfo.txt
+*.apk
+*.aab
+*.keystore
 *.appx
 *.appxbundle
 *.appxupload
