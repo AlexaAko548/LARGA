@@ -1,0 +1,36 @@
+@page "/fleet-map"
+@rendermode InteractiveServer
+@inject IJSRuntime JSRuntime
+@inject IConfiguration Configuration
+
+<PageTitle>Fleet Map</PageTitle>
+
+<h3>Live Fleet Map</h3>
+
+<div id="fleet-map" style="width: 100%; height: 600px; border-radius: 8px;"></div>
+
+@code {
+    private IJSObjectReference? _mapModule;
+    private string _mapTilerApiKey = string.Empty;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _mapTilerApiKey = Configuration["MapTiler:ApiKey"] ?? string.Empty;
+
+            if (string.IsNullOrEmpty(_mapTilerApiKey))
+            {
+                Console.WriteLine("Warning: MapTiler API key is not configured.");
+                return;
+            }
+
+            _mapModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                "import", "./js/mapInterop.js");
+
+            string styleUrl = $"https://api.maptiler.com/maps/streets-v2/style.json?key={_mapTilerApiKey}";
+
+            await _mapModule.InvokeVoidAsync("initMap", "fleet-map", styleUrl, 123.8333, 10.2439, 13);
+        }
+    }
+}
