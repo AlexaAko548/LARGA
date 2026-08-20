@@ -8,8 +8,11 @@
 
   <ItemGroup>
     <PackageReference Include="FirebaseAdmin" Version="3.6.0" />
-    <PackageReference Include="FirebaseAuthentication.net" Version="4.1.0" />
     <PackageReference Include="Google.Cloud.Firestore" Version="4.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LARGA.Shared.Models\LARGA.Shared.Models.csproj" />
   </ItemGroup>
 
 </Project>

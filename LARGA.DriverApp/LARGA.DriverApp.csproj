@@ -60,14 +60,13 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<PackageReference Include="FirebaseAuthentication.net" Version="4.1.0" />
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.9" />
 		<PackageReference Include="Plugin.Firebase.CloudMessaging" Version="4.0.1" />
-		<PackageReference Include="Xamarin.Google.MLKit.TextRecognition" Version="116.0.1.8" />
-	</ItemGroup>
-
+		<PackageReference Include="Xamarin.Google.MLKit.TextRecognition" Version="116.0.1.8" Condition="$(TargetFramework.Contains('-android'))" />	</ItemGroup>
 	<ItemGroup>
-	  <ProjectReference Include="..\LARGA.SharedCore\LARGA.SharedCore.csproj" />
+	  <ProjectReference Include="..\LARGA.Shared.Models\LARGA.Shared.Models.csproj" />
 	</ItemGroup>
 
 </Project>

@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\LARGA.SharedCore\LARGA.SharedCore.csproj" />
+    <ProjectReference Include="..\LARGA.Shared.Models\LARGA.Shared.Models.csproj" />
   </ItemGroup>
 
 </Project>
