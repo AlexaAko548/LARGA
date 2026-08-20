@@ -65,4 +65,8 @@
 		<PackageReference Include="Plugin.Firebase.CloudMessaging" Version="4.0.1" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <ProjectReference Include="..\LARGA.SharedCore\LARGA.SharedCore.csproj" />
+	</ItemGroup>
+
 </Project>

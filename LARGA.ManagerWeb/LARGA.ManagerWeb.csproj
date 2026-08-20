@@ -10,4 +10,8 @@
     <PackageReference Include="MudBlazor" Version="9.8.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\LARGA.SharedCore\LARGA.SharedCore.csproj" />
+  </ItemGroup>
+
 </Project>
