@@ -12,4 +12,8 @@
     <PackageReference Include="Google.Cloud.Firestore" Version="4.4.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\LARGA.Shared.Models\LARGA.Shared.Models.csproj" />
+  </ItemGroup>
+
 </Project>
