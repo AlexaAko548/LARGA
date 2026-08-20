@@ -28,6 +28,10 @@
 *.pfx
 *.publishsettings
 
+# App configuration files with local secrets
+appsettings.Development.json
+appsettings.*.local.json
+
 # Mono auto generated files
 mono_crash.*
 
