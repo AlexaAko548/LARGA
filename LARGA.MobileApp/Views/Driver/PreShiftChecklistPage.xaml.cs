@@ -1,6 +1,6 @@
 using LARGA.Shared.Models;
 
-namespace LARGA.MobileApp.Views;
+namespace LARGA.MobileApp.Views.Driver;
 
 public partial class PreShiftChecklistPage : ContentPage
 {

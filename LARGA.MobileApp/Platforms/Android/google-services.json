@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "915330549672",
+    "project_id": "larga-blmtaxi",
+    "storage_bucket": "larga-blmtaxi.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:915330549672:android:54095b57b237880377ff9d",
+        "android_client_info": {
+          "package_name": "com.blmtaxi.larga.driver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBnIm9vZjFllG_a3nPRdSLTFq2qN1Xl93U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:915330549672:android:58e27ed54184f29377ff9d",
+        "android_client_info": {
+          "package_name": "com.blmtaxi.larga.manager"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBnIm9vZjFllG_a3nPRdSLTFq2qN1Xl93U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
