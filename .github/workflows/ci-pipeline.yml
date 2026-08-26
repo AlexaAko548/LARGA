@@ -33,7 +33,7 @@ jobs:
         run: dotnet restore "LARGA.sln"
 
       - name: Build solution (Release)
-        run: dotnet build "LARGA.sln" --configuration Release --no-restore
+        run: dotnet build "LARGA.sln" --configuration Release
 
       - name: Run tests
         run: dotnet test "LARGA.sln" --configuration Release --no-build --verbosity normal
