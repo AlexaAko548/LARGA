@@ -572,3 +572,12 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+## Ignore Firebase config files for local development
+Platforms/*/Android/google-services.json
+## Visual Studio & user files
+*.slnx
+## NuGet local packages (short path used for development)
+C:.nuget/packages/
+## Build outputs
+bin/
+obj/
