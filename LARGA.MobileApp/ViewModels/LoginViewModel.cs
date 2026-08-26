@@ -16,11 +16,11 @@ public interface IFirebaseAuthService
 public class LoginViewModel : INotifyPropertyChanged
 {
     private readonly IFirebaseAuthService _authService;
-    private string _email;
-    private string _password;
-    private string _errorMessage;
+    private string _email = string.Empty;
+    private string _password = string.Empty;
+    private string _errorMessage = string.Empty;
 
-    public event PropertyChangedEventHandler PropertyChanged;
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public string Email
     {

@@ -3,12 +3,12 @@
     x:Class="LARGA.MobileApp.AppShell"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-    xmlns:local="clr-namespace:LARGA.MobileApp"
+    xmlns:views="clr-namespace:LARGA.MobileApp.Views"
     Title="LARGA.MobileApp">
 
     <ShellContent
-        Title="Home"
-        ContentTemplate="{DataTemplate local:MainPage}"
-        Route="MainPage" />
+        Title="Welcome"
+        ContentTemplate="{DataTemplate views:LandingPage}"
+        Route="landing" />
 
 </Shell>
