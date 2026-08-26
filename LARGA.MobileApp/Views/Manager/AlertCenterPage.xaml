@@ -19,10 +19,10 @@
             <CollectionView x:Name="AlertsCollectionView">
                 <CollectionView.ItemTemplate>
                     <DataTemplate>
-                        <Frame BorderColor="#1976D2"
+                        <Border Stroke="#1976D2"
                                BackgroundColor="#E3F2FD"
                                Padding="12"
-                               CornerRadius="8"
+                               StrokeShape="RoundRectangle 8"
                                Margin="0,5">
                             <VerticalStackLayout Spacing="6">
 
@@ -58,7 +58,7 @@
                                 </HorizontalStackLayout>
 
                             </VerticalStackLayout>
-                        </Frame>
+                        </Border>
                     </DataTemplate>
                 </CollectionView.ItemTemplate>
             </CollectionView>
