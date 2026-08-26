@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="LARGA.MobileApp.Views.PreShiftChecklistPage"
+             Title="Pre-Shift Inspection">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="15">
+
+            <Label Text="Pre-Shift Inspection"
+                   FontSize="24"
+                   FontAttributes="Bold" />
+
+            <Label Text="Check each item before starting your shift."
+                   FontSize="14"
+                   TextColor="Gray" />
+
+            <BoxView HeightRequest="1" Color="LightGray" Margin="0,10" />
+
+            <!-- Checklist Items -->
+            <Grid ColumnDefinitions="*,Auto" RowSpacing="12">
+                <Label Text="Tire Condition" Grid.Row="0" Grid.Column="0" VerticalOptions="Center" />
+                <CheckBox x:Name="TireConditionCheckBox" Grid.Row="0" Grid.Column="1" />
+
+                <Label Text="Oil Level" Grid.Row="1" Grid.Column="0" VerticalOptions="Center" />
+                <CheckBox x:Name="OilLevelCheckBox" Grid.Row="1" Grid.Column="1" />
+
+                <Label Text="Coolant Level" Grid.Row="2" Grid.Column="0" VerticalOptions="Center" />
+                <CheckBox x:Name="CoolantLevelCheckBox" Grid.Row="2" Grid.Column="1" />
+
+                <Label Text="Interior Cleanliness" Grid.Row="3" Grid.Column="0" VerticalOptions="Center" />
+                <CheckBox x:Name="InteriorCleanlinessCheckBox" Grid.Row="3" Grid.Column="1" />
+
+                <Label Text="Exterior Scratches / Damage" Grid.Row="4" Grid.Column="0" VerticalOptions="Center" />
+                <CheckBox x:Name="ExteriorScratchesCheckBox" Grid.Row="4" Grid.Column="1" />
+            </Grid>
+
+            <BoxView HeightRequest="1" Color="LightGray" Margin="0,10" />
+
+            <!-- Fuel Verification -->
+            <Label Text="Fuel Level" FontAttributes="Bold" />
+            <Picker x:Name="FuelVerificationPicker" Title="Select fuel level">
+                <Picker.ItemsSource>
+                    <x:Array Type="{x:Type x:String}">
+                        <x:String>Half-tank</x:String>
+                        <x:String>Below half-tank</x:String>
+                    </x:Array>
+                </Picker.ItemsSource>
+            </Picker>
+
+            <!-- Photo Uploads -->
+            <Button x:Name="UploadScratchesPhotoButton"
+                    Text="Upload Scratches/Damage Photo"
+                    Clicked="OnUploadScratchesPhotoClicked" />
+
+            <Button x:Name="UploadFuelDashboardPhotoButton"
+                    Text="Upload Fuel Dashboard Photo"
+                    Clicked="OnUploadFuelDashboardPhotoClicked" />
+
+            <BoxView HeightRequest="1" Color="LightGray" Margin="0,10" />
+
+            <!-- Defect Report (optional, if any item failed) -->
+            <Label Text="Report an Issue (if applicable)" FontAttributes="Bold" />
+            <Entry x:Name="IssueTitleEntry" Placeholder="Failed item (e.g., Tire Condition)" />
+            <Editor x:Name="IssueDescriptionEditor" Placeholder="Describe the issue" HeightRequest="80" />
+            <Picker x:Name="PriorityPicker" Title="Priority Level">
+                <Picker.ItemsSource>
+                    <x:Array Type="{x:Type x:String}">
+                        <x:String>Low</x:String>
+                        <x:String>Medium</x:String>
+                        <x:String>High</x:String>
+                    </x:Array>
+                </Picker.ItemsSource>
+            </Picker>
+
+            <Button x:Name="SubmitButton"
+                    Text="Submit Report"
+                    Clicked="OnSubmitClicked"
+                    BackgroundColor="#1976D2"
+                    TextColor="White"
+                    Margin="0,20,0,0" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>
