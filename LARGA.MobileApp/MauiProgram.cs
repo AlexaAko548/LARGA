@@ -2,6 +2,7 @@
 using LARGA.MobileApp.ViewModels;
 using LARGA.MobileApp.Views;
 using LARGA.MobileApp.Services;
+using CommunityToolkit.Maui;
 
 namespace LARGA.MobileApp;
 
@@ -12,6 +13,7 @@ public static class MauiProgram
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
+            .UseMauiCommunityToolkit()
 			.ConfigureFonts(fonts =>
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");

@@ -1,11 +1,33 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels"
              x:Class="LARGA.MobileApp.Views.LandingPage"
-             Title="Welcome to LARGA">
-    <VerticalStackLayout Spacing="20" Padding="30" VerticalOptions="Center">
-        <Label Text="LARGA" FontSize="32" FontAttributes="Bold" HorizontalOptions="Center" />
-        <Label Text="Taxi Management System" FontSize="18" HorizontalOptions="Center" />
-        <Button Text="Go to Login" Clicked="OnLoginClicked" />
-    </VerticalStackLayout>
+             NavigationPage.HasNavigationBar="False">
+
+    <ContentPage.BindingContext>
+        <vm:LandingViewModel />
+    </ContentPage.BindingContext>
+
+    <Grid RowDefinitions="*, Auto">
+        <!-- Top Half -->
+        <Border Grid.Row="0" 
+                BackgroundColor="{StaticResource LargaLightBlue}"
+                StrokeShape="RoundRectangle 0,0,50,50"
+                StrokeThickness="0"
+                Margin="0,0,0,40">
+            <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="0">
+                <Image Source="dotnet_bot.png" WidthRequest="200" HeightRequest="200" />
+            </VerticalStackLayout>
+        </Border>
+
+        <!-- Bottom Half -->
+        <VerticalStackLayout Grid.Row="1" Padding="30" Spacing="10">
+            <Button Text="Driver" Style="{StaticResource LargaButtonStyle}" 
+                    Command="{Binding SelectRoleCommand}" CommandParameter="Driver"/>
+            <Button Text="Manager" Style="{StaticResource LargaButtonStyle}"
+                    Command="{Binding SelectRoleCommand}" CommandParameter="Manager"/>
+        </VerticalStackLayout>
+    </Grid>
+
 </ContentPage>
