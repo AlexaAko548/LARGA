@@ -572,6 +572,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+<<<<<<< HEAD
 ## Ignore Firebase config files for local development
 Platforms/*/Android/google-services.json
 ## Visual Studio & user files
@@ -581,3 +582,8 @@ C:.nuget/packages/
 ## Build outputs
 bin/
 obj/
+=======
+
+# Firebase Android configuration (keep local; do not commit)
+**/Platforms/Android/google-services.json
+>>>>>>> feat/firebase-mobileapp
