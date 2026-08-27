@@ -75,11 +75,8 @@
 	  <ProjectReference Include="..\LARGA.SharedCore\LARGA.SharedCore.csproj" />
 	</ItemGroup>
 
-	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
-		<GoogleServicesJson Include="Platforms\Android\google-services.json" />
-	</ItemGroup>
-
 	<ItemGroup Condition="'$(TargetFramework)' == 'net9.0-android'">
+		<GoogleServicesJson Include="Platforms\Android\google-services.json" Condition="Exists('Platforms\Android\google-services.json')" />
 		<PackageReference Include="Xamarin.Google.MLKit.TextRecognition" Version="116.0.0.9" />
 	</ItemGroup>
 
