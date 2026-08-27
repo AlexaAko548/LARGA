@@ -572,3 +572,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Firebase Android configuration (keep local; do not commit)
+**/Platforms/Android/google-services.json
