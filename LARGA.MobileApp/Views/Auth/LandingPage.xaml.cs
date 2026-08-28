@@ -1,8 +1,8 @@
-using LARGA.MobileApp.ViewModels;
+using LARGA.MobileApp.ViewModels.Auth;
 using Microsoft.Maui.Controls;
 using System;
 
-namespace LARGA.MobileApp.Views;
+namespace LARGA.MobileApp.Views.Auth;
 
 public partial class LandingPage : ContentPage
 {

@@ -1,8 +1,11 @@
 ﻿using Microsoft.Extensions.Logging;
-using LARGA.MobileApp.ViewModels;
-using LARGA.MobileApp.Views;
+using LARGA.MobileApp.Views.Auth;
+using LARGA.MobileApp.Views.Driver;
+using LARGA.MobileApp.Views.Manager;
 using LARGA.SharedCore.Services;
 using CommunityToolkit.Maui;
+using LARGA.MobileApp.ViewModels.Driver;
+using LARGA.MobileApp.ViewModels.Auth;
 
 namespace LARGA.MobileApp;
 
@@ -18,6 +21,7 @@ public static class MauiProgram
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+                fonts.AddFont("MaterialIcons-Regular.ttf", "MaterialIcons");
             });
 
         // Register Services
@@ -27,15 +31,20 @@ public static class MauiProgram
         builder.Services.AddTransient<LandingViewModel>();
         builder.Services.AddTransient<LoginViewModel>();
         builder.Services.AddTransient<ForgotPasswordViewModel>();
+        builder.Services.AddTransient<DriverDashboardViewModel>();
+        builder.Services.AddTransient<ProfileViewModel>();
+        builder.Services.AddTransient<MessageManagerViewModel>();
 
         // Register Views (CRITICAL: Make sure LandingPage is here!)
         builder.Services.AddTransient<LandingPage>();
         builder.Services.AddTransient<LoginPage>();
         builder.Services.AddTransient<ForgotPasswordEmailPage>();
-        builder.Services.AddTransient<ForgotPasswordVerifyPage>();
-        builder.Services.AddTransient<ForgotPasswordNewPasswordPage>();
         builder.Services.AddTransient<DriverDashboardPage>();
         builder.Services.AddTransient<ManagerDashboardPage>();
+        builder.Services.AddTransient<LedgerPage>();
+        builder.Services.AddTransient<ReportsPage>();
+        builder.Services.AddTransient<ProfilePage>();
+        builder.Services.AddTransient<MessageManagerPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();

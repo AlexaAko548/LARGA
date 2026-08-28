@@ -1,44 +1,51 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels"
-             x:Class="LARGA.MobileApp.Views.LoginPage"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Auth"
+             x:Class="LARGA.MobileApp.Views.Auth.LoginPage"
              x:DataType="vm:LoginViewModel"
-             NavigationPage.HasNavigationBar="False"
+             Shell.NavBarIsVisible="False"
              BackgroundColor="White">
 
-    <Grid RowDefinitions="7*, 3*">
+    <Grid RowDefinitions="*, Auto">
         <!-- Top Blue Area -->
         <Border Grid.Row="0"
                 BackgroundColor="{StaticResource LargaLightBlue}"
-                StrokeShape="RoundRectangle 0,0,40,40"
+                StrokeShape="RoundRectangle 0,0,50,50"
                 StrokeThickness="0">
             <Grid RowDefinitions="Auto, *">
                 <!-- Header -->
-                <Grid Grid.Row="0" Padding="20">
-                    <ImageButton Source="back_icon.png" HorizontalOptions="Start" WidthRequest="24" HeightRequest="24" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
+                <Grid Grid.Row="0" Padding="10,20,20,0">
+                    <ImageButton Source="back_icon.png" 
+                     HorizontalOptions="Start" 
+                     WidthRequest="24" 
+                     HeightRequest="24" 
+                     Aspect="AspectFit"
+                     Padding="4"
+                     BackgroundColor="Transparent" 
+                     Clicked="OnBackButtonClicked" />   
                 </Grid>
 
                 <!-- Content Inside Blue Area -->
-                <VerticalStackLayout Grid.Row="1" Padding="30, 10, 30, 30" Spacing="15" VerticalOptions="Center">
+                <VerticalStackLayout Grid.Row="1" Padding="30, 0, 30, 30" Spacing="15" VerticalOptions="Center">
                     <Label Text="Welcome back!" 
-                           FontSize="32" 
+                           FontSize="36" 
                            FontAttributes="Bold" 
-                           TextColor="{StaticResource LargaDarkText}"
+                           TextColor="Black"
                            HorizontalOptions="Center" 
                            Margin="0, 0, 0, 30" />
 
-                    <!-- Blue filled input field -->
+                    <!-- Blue filled input fields -->
                     <Border BackgroundColor="#0099CC" StrokeShape="RoundRectangle 10" StrokeThickness="0" HeightRequest="50">
-                        <Entry Placeholder="Email" Text="{Binding Email}" PlaceholderColor="White" TextColor="White" Keyboard="Email" VerticalOptions="Center" Margin="15,0" BackgroundColor="Transparent" />
+                        <Entry Placeholder="Email" Text="{Binding Email}" PlaceholderColor="#E0E0E0" TextColor="White" Keyboard="Email" VerticalOptions="Center" Margin="15,0" BackgroundColor="Transparent" />
                     </Border>
 
                     <Border BackgroundColor="#0099CC" StrokeShape="RoundRectangle 10" StrokeThickness="0" HeightRequest="50">
-                        <Entry Placeholder="Password" Text="{Binding Password}" IsPassword="True" PlaceholderColor="White" TextColor="White" VerticalOptions="Center" Margin="15,0" BackgroundColor="Transparent" />
+                        <Entry Placeholder="Password" Text="{Binding Password}" IsPassword="True" PlaceholderColor="#E0E0E0" TextColor="White" VerticalOptions="Center" Margin="15,0" BackgroundColor="Transparent" />
                     </Border>
 
                     <Label Text="Forgot password?" 
-                           TextColor="{StaticResource LargaDarkText}"
+                           TextColor="Black"
                            HorizontalOptions="End" 
                            TextDecorations="Underline"
                            FontSize="14">
@@ -51,9 +58,10 @@
         </Border>
 
         <!-- Bottom White Area -->
-        <VerticalStackLayout Grid.Row="1" Padding="30" Spacing="15" VerticalOptions="Center">
+        <VerticalStackLayout Grid.Row="1" Padding="30,20,30,40" Spacing="15">
             <Label Text="{Binding ErrorMessage}" TextColor="Red" HorizontalOptions="Center" />
-            <Button Text="Login" Style="{StaticResource LargaButtonStyle}" Command="{Binding LoginCommand}" WidthRequest="200" HorizontalOptions="Center"/>
+
+            <Button Text="Login" BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="50" FontAttributes="Bold" Command="{Binding LoginCommand}" WidthRequest="250" HorizontalOptions="Center"/>
 
             <Label Text="Don't have an account?&#10;Please refer to your manager to open your account."
                    HorizontalTextAlignment="Center"

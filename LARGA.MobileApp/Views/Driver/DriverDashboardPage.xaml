@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
+             x:Class="LARGA.MobileApp.Views.Driver.DriverDashboardPage"
+             x:DataType="vm:DriverDashboardViewModel"
+             BackgroundColor="{StaticResource LargaWhite}"
+             NavigationPage.HasNavigationBar="False">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="15">
+            <!-- Header -->
+            <Label Text="Thursday, 23 Jul 2026" TextColor="{StaticResource LargaDarkText}" FontSize="14" Margin="0,10,0,0" />
+            <Label Text="Welcome back,&#10;Maykaila." TextColor="{StaticResource LargaDarkText}" FontSize="32" FontAttributes="Bold" LineHeight="1.1" />
+
+            <!-- Status Card -->
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20">
+                <Grid ColumnDefinitions="Auto, *" RowDefinitions="Auto, Auto">
+                    <!-- Status Indicator Dot -->
+                    <Ellipse Grid.Row="0" Grid.Column="0" Fill="{StaticResource LargaDarkText}" WidthRequest="12" HeightRequest="12" VerticalOptions="Center" Margin="0,0,10,0" />
+
+                    <HorizontalStackLayout Grid.Row="0" Grid.Column="1" Spacing="5">
+                        <Label Text="Status:" FontAttributes="Bold" FontSize="18" TextColor="{StaticResource LargaDarkText}" />
+                        <!-- Toggle Text and TextColor based on shift state (Red for OFFLINE, Green for ONLINE) -->
+                        <Label Text="OFFLINE" FontAttributes="Bold" FontSize="18" TextColor="Red" />
+                    </HorizontalStackLayout>
+
+                    <Label Grid.Row="1" Grid.Column="1" Text="GPS inactive · Last login 07:12" TextColor="{StaticResource LargaDarkText}" FontSize="14" Margin="0,5,0,0" />
+                </Grid>
+            </Border>
+
+            <!-- Assigned Unit Card -->
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20">
+                <VerticalStackLayout Spacing="10">
+                    <Grid ColumnDefinitions="*, Auto">
+                        <VerticalStackLayout Grid.Column="0">
+                            <Label Text="ASSIGNED UNIT" TextColor="{StaticResource LargaDarkText}" FontSize="12" />
+                            <Label Text="GHK·4471·MP" TextColor="{StaticResource LargaDarkText}" FontSize="28" FontAttributes="Bold" />
+                        </VerticalStackLayout>
+                        <Border Grid.Column="1" BackgroundColor="{StaticResource LargaPrimaryBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" WidthRequest="50" HeightRequest="40">
+                            <Image Source="car_icon.png" WidthRequest="24" HeightRequest="24" VerticalOptions="Center" HorizontalOptions="Center" />
+                        </Border>
+                    </Grid>
+
+                    <Label Text="2023 Toyota Corolla Hybrid · White" TextColor="{StaticResource LargaDarkText}" FontSize="14" />
+                    <BoxView HeightRequest="1" Color="{StaticResource LargaDarkText}" Margin="0,10" />
+
+                    <Grid ColumnDefinitions="*, Auto">
+                        <Label Grid.Column="0" Text="MAINTENANCE STATUS :" TextColor="{StaticResource LargaDarkText}" FontSize="12" VerticalOptions="Center" />
+                        <Border Grid.Column="1" BackgroundColor="{StaticResource LargaPrimaryBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 15" Padding="15,5">
+                            <Label Text="Cleared" TextColor="{StaticResource LargaWhite}" FontSize="14" />
+                        </Border>
+                    </Grid>
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Manager Note -->
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20">
+                <Grid ColumnDefinitions="Auto, *">
+                    <Image Grid.Column="0" Source="warning_icon.png" WidthRequest="20" HeightRequest="20" VerticalOptions="Start" Margin="0,0,10,0" />
+                    <VerticalStackLayout Grid.Column="1" Spacing="5">
+                        <Label Text="Manager Note" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" FontSize="16" />
+                        <Label Text="No notes yet." TextColor="Gray" FontSize="14" />
+                    </VerticalStackLayout>
+                </Grid>
+            </Border>
+
+            <!-- Action Buttons -->
+            <VerticalStackLayout Spacing="10" Margin="0,40,0,0">
+                <Button Text="💬 Message Manager" BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="{StaticResource LargaWhite}" CornerRadius="10" HorizontalOptions="End" Padding="15,10" Command="{Binding OpenMessagesCommand}" />
+
+                <!-- OFFLINE UI: Clock In Button -->
+                <VerticalStackLayout Spacing="10">
+                    <Button Text="🕒 CLOCK IN   >" BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="{StaticResource LargaWhite}" CornerRadius="25" HeightRequest="60" FontSize="18" FontAttributes="Bold" Command="{Binding ClockInCommand}" />
+                    <Label Text="A vehicle checklist is required before your shift begins." TextColor="{StaticResource LargaDarkText}" FontSize="12" HorizontalTextAlignment="Center" />
+                </VerticalStackLayout>
+
+                <!-- ONLINE UI: Active Shift Screen Button (Bind IsVisible to toggle between this and Clock In) -->
+                <!-- 
+                <Button Text="ACTIVE SHIFT SCREEN   >" BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="{StaticResource LargaWhite}" CornerRadius="25" HeightRequest="60" FontSize="18" FontAttributes="Bold" Command="{Binding ActiveShiftCommand}" />
+                -->
+            </VerticalStackLayout>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

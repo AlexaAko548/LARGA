@@ -1,12 +1,12 @@
-using LARGA.MobileApp.ViewModels;
+using LARGA.MobileApp.ViewModels.Auth;
 using Microsoft.Maui.Controls;
 using System;
 
-namespace LARGA.MobileApp.Views;
+namespace LARGA.MobileApp.Views.Auth;
 
-public partial class ForgotPasswordVerifyPage : ContentPage
+public partial class ForgotPasswordEmailPage : ContentPage
 {
-    public ForgotPasswordVerifyPage(ForgotPasswordViewModel viewModel)
+    public ForgotPasswordEmailPage(ForgotPasswordViewModel viewModel)
     {
         InitializeComponent();
         BindingContext = viewModel;

@@ -9,6 +9,7 @@ public interface IFirebaseAuthService
 {
     Task<string> LoginAsync(string email, string password);
     Task<string> GetUserRoleAsync(string userId);
+    Task<bool> SendPasswordResetEmailAsync(string email);
 }
 
 public class FirebaseAuthService : IFirebaseAuthService
@@ -48,6 +49,20 @@ public class FirebaseAuthService : IFirebaseAuthService
         {
             System.Diagnostics.Debug.WriteLine($"Firestore Deserialization Error: {ex.Message}");
             return string.Empty;
+        }
+    }
+
+    public async Task<bool> SendPasswordResetEmailAsync(string email)
+    {
+        try
+        {
+            await Plugin.Firebase.Auth.CrossFirebaseAuth.Current.SendPasswordResetEmailAsync(email);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Firebase Password Reset Error: {ex.Message}");
+            return false;
         }
     }
 }

@@ -1,29 +1,30 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels"
-             x:Class="LARGA.MobileApp.Views.LandingPage"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Auth"
+             x:Class="LARGA.MobileApp.Views.Auth.LandingPage"
              x:DataType="vm:LandingViewModel"
-             NavigationPage.HasNavigationBar="False"
+             Shell.NavBarIsVisible="False"
              BackgroundColor="White">
 
-    <Grid RowDefinitions="7*, 3*">
+    <Grid RowDefinitions="*, Auto">
         <!-- Top Blue Area -->
         <Border Grid.Row="0"
                 BackgroundColor="{StaticResource LargaLightBlue}"
-                StrokeShape="RoundRectangle 0,0,40,40"
+                StrokeShape="RoundRectangle 0,0,50,50"
                 StrokeThickness="0">
             <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center">
-                <!-- Using the taxi logo rather than the default .NET bot -->
-                <Image Source="larga_logo.webp" WidthRequest="250" HeightRequest="250" Aspect="AspectFit" />
+                <Image Source="larga_logo.webp" WidthRequest="300" Aspect="AspectFit" />
             </VerticalStackLayout>
         </Border>
 
         <!-- Bottom White Area -->
-        <VerticalStackLayout Grid.Row="1" Padding="30" Spacing="15" VerticalOptions="Center">
-            <Button Text="Driver" Style="{StaticResource LargaButtonStyle}" 
+        <VerticalStackLayout Grid.Row="1" Padding="30,20,30,40" Spacing="15">
+            <Button Text="Driver" 
+                    BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="50" FontAttributes="Bold"
                     Command="{Binding SelectRoleCommand}" CommandParameter="Driver"/>
-            <Button Text="Manager" Style="{StaticResource LargaButtonStyle}"
+            <Button Text="Manager" 
+                    BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="50" FontAttributes="Bold"
                     Command="{Binding SelectRoleCommand}" CommandParameter="Manager"/>
         </VerticalStackLayout>
     </Grid>

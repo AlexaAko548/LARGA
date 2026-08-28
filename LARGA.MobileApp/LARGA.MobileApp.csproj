@@ -87,4 +87,54 @@
 		<PackageReference Include="Xamarin.Google.MLKit.TextRecognition" Version="116.0.0.9" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <Compile Update="Views\Driver\DriverDashboardPage.xaml.cs">
+	    <DependentUpon>DriverDashboardPage.xaml</DependentUpon>
+	  </Compile>
+	  <Compile Update="Views\Driver\LedgerPage.xaml.cs">
+	    <DependentUpon>LedgerPage.xaml</DependentUpon>
+	  </Compile>
+	  <Compile Update="Views\Manager\ManagerDashboardPage.xaml.cs">
+	    <DependentUpon>ManagerDashboardPage.xaml</DependentUpon>
+	  </Compile>
+	  <Compile Update="Views\Driver\MessageManagerPage.xaml.cs">
+	    <DependentUpon>MessageManagerPage.xaml</DependentUpon>
+	  </Compile>
+	  <Compile Update="Views\Driver\ReportsPage.xaml.cs">
+	    <DependentUpon>ReportsPage.xaml</DependentUpon>
+	  </Compile>
+	  <Compile Update="Views\Driver\ProfilePage.xaml.cs">
+	    <DependentUpon>ProfilePage.xaml</DependentUpon>
+	  </Compile>
+	</ItemGroup>
+
+	<ItemGroup>
+	  <MauiXaml Update="ViewModels\Driver\NewPage1.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </MauiXaml>
+	  <MauiXaml Update="Views\Driver\DriverDashboardPage.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </MauiXaml>
+	  <MauiXaml Update="Views\Driver\LedgerPage.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </MauiXaml>
+	  <MauiXaml Update="Views\Manager\ManagerDashboardPage.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </MauiXaml>
+	  <MauiXaml Update="Views\Driver\MessageManagerPage.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </MauiXaml>
+	  <MauiXaml Update="Views\Driver\ReportsPage.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </MauiXaml>
+	  <MauiXaml Update="Views\Driver\ProfilePage.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </MauiXaml>
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Folder Include="NewFolder\" />
+	  <Folder Include="ViewModels\Manager\" />
+	</ItemGroup>
+
 </Project>

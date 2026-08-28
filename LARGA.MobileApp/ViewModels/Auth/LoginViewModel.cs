@@ -7,7 +7,7 @@ using Microsoft.Maui.ApplicationModel; // Required for MainThread execution
 using Microsoft.Maui.Controls;
 using LARGA.SharedCore.Services;
 
-namespace LARGA.MobileApp.ViewModels;
+namespace LARGA.MobileApp.ViewModels.Auth;
 
 public class LoginViewModel : INotifyPropertyChanged
 {
