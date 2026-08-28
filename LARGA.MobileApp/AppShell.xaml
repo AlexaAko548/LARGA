@@ -4,11 +4,28 @@
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:views="clr-namespace:LARGA.MobileApp.Views"
+    xmlns:driver="clr-namespace:LARGA.MobileApp.Views.Driver"
+    xmlns:manager="clr-namespace:LARGA.MobileApp.Views.Manager"
     Title="LARGA.MobileApp">
 
     <ShellContent
         Title="Welcome"
         ContentTemplate="{DataTemplate views:LandingPage}"
         Route="landing" />
+
+    <ShellContent
+        Title="Login"
+        ContentTemplate="{DataTemplate views:LoginPage}"
+        Route="login" />
+
+    <ShellContent
+        Title="Pre-Shift Checklist"
+        ContentTemplate="{DataTemplate driver:PreShiftChecklistPage}"
+        Route="preshiftchecklist" />
+
+    <ShellContent
+        Title="Alert Center"
+        ContentTemplate="{DataTemplate manager:AlertCenterPage}"
+        Route="alertcenter" />
 
 </Shell>

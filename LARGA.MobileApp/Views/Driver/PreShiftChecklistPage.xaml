@@ -2,84 +2,152 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="LARGA.MobileApp.Views.Driver.PreShiftChecklistPage"
-             Title="Pre-Shift Inspection">
+             Title="Pre-Shift Inspection"
+             BackgroundColor="White">
 
-    <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="15">
+    <Grid RowDefinitions="Auto,*">
 
-            <Label Text="Pre-Shift Inspection"
-                   FontSize="24"
-                   FontAttributes="Bold" />
+        <!-- Header -->
+        <VerticalStackLayout Grid.Row="0" Padding="20,15" Spacing="8">
+            <Label Text="{Binding StepLabel}" FontSize="12" TextColor="Gray" FontAttributes="Bold" />
+            <Label Text="Pre-Shift Inspection" FontSize="26" FontAttributes="Bold" />
+            <Label Text="{Binding UnitSubtitle}" FontSize="13" TextColor="Gray" />
 
-            <Label Text="Check each item before starting your shift."
-                   FontSize="14"
-                   TextColor="Gray" />
+            <ProgressBar x:Name="StepProgressBar" Progress="0.0" ProgressColor="#1976D2" HeightRequest="4" />
 
-            <BoxView HeightRequest="1" Color="LightGray" Margin="0,10" />
-
-            <!-- Checklist Items -->
-            <Grid ColumnDefinitions="*,Auto" RowSpacing="12">
-                <Label Text="Tire Condition" Grid.Row="0" Grid.Column="0" VerticalOptions="Center" />
-                <CheckBox x:Name="TireConditionCheckBox" Grid.Row="0" Grid.Column="1" />
-
-                <Label Text="Oil Level" Grid.Row="1" Grid.Column="0" VerticalOptions="Center" />
-                <CheckBox x:Name="OilLevelCheckBox" Grid.Row="1" Grid.Column="1" />
-
-                <Label Text="Coolant Level" Grid.Row="2" Grid.Column="0" VerticalOptions="Center" />
-                <CheckBox x:Name="CoolantLevelCheckBox" Grid.Row="2" Grid.Column="1" />
-
-                <Label Text="Interior Cleanliness" Grid.Row="3" Grid.Column="0" VerticalOptions="Center" />
-                <CheckBox x:Name="InteriorCleanlinessCheckBox" Grid.Row="3" Grid.Column="1" />
-
-                <Label Text="Exterior Scratches / Damage" Grid.Row="4" Grid.Column="0" VerticalOptions="Center" />
-                <CheckBox x:Name="ExteriorScratchesCheckBox" Grid.Row="4" Grid.Column="1" />
-            </Grid>
-
-            <BoxView HeightRequest="1" Color="LightGray" Margin="0,10" />
-
-            <!-- Fuel Verification -->
-            <Label Text="Fuel Level" FontAttributes="Bold" />
-            <Picker x:Name="FuelVerificationPicker" Title="Select fuel level">
-                <Picker.ItemsSource>
-                    <x:Array Type="{x:Type x:String}">
-                        <x:String>Half-tank</x:String>
-                        <x:String>Below half-tank</x:String>
-                    </x:Array>
-                </Picker.ItemsSource>
-            </Picker>
-
-            <!-- Photo Uploads -->
-            <Button x:Name="UploadScratchesPhotoButton"
-                    Text="Upload Scratches/Damage Photo"
-                    Clicked="OnUploadScratchesPhotoClicked" />
-
-            <Button x:Name="UploadFuelDashboardPhotoButton"
-                    Text="Upload Fuel Dashboard Photo"
-                    Clicked="OnUploadFuelDashboardPhotoClicked" />
-
-            <BoxView HeightRequest="1" Color="LightGray" Margin="0,10" />
-
-            <!-- Defect Report (optional, if any item failed) -->
-            <Label Text="Report an Issue (if applicable)" FontAttributes="Bold" />
-            <Entry x:Name="IssueTitleEntry" Placeholder="Failed item (e.g., Tire Condition)" />
-            <Editor x:Name="IssueDescriptionEditor" Placeholder="Describe the issue" HeightRequest="80" />
-            <Picker x:Name="PriorityPicker" Title="Priority Level">
-                <Picker.ItemsSource>
-                    <x:Array Type="{x:Type x:String}">
-                        <x:String>Low</x:String>
-                        <x:String>Medium</x:String>
-                        <x:String>High</x:String>
-                    </x:Array>
-                </Picker.ItemsSource>
-            </Picker>
-
-            <Button x:Name="SubmitButton"
-                    Text="Submit Report"
-                    Clicked="OnSubmitClicked"
-                    BackgroundColor="#1976D2"
-                    TextColor="White"
-                    Margin="0,20,0,0" />
-
+            <Label x:Name="CompletionCountLabel" Text="0 / 5 completed" FontSize="13" TextColor="Gray" />
         </VerticalStackLayout>
-    </ScrollView>
+
+        <!-- Step Content -->
+        <ScrollView Grid.Row="1">
+            <VerticalStackLayout Padding="20,0,20,20" Spacing="12">
+
+                <!-- STEP 1: Checklist Items -->
+                <VerticalStackLayout x:Name="Step1Panel" Spacing="12">
+
+                    <Frame BackgroundColor="#E3F2FD" BorderColor="Transparent" CornerRadius="12" Padding="15">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <VerticalStackLayout Grid.Column="0" Spacing="2">
+                                <Label Text="Tire Condition" FontAttributes="Bold" FontSize="16" />
+                                <Label Text="All 4 tires inspected + Spare tire in trunk." FontSize="12" TextColor="Gray" />
+                            </VerticalStackLayout>
+                            <CheckBox x:Name="TireConditionCheck" Grid.Column="1" VerticalOptions="Center"
+                                      CheckedChanged="OnChecklistItemChanged" />
+                        </Grid>
+                    </Frame>
+
+                    <Frame BackgroundColor="#E3F2FD" BorderColor="Transparent" CornerRadius="12" Padding="15">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <VerticalStackLayout Grid.Column="0" Spacing="2">
+                                <Label Text="Under the Hood" FontAttributes="Bold" FontSize="16" />
+                                <Label Text="Oil level (dipstick) + Coolant/Water OK." FontSize="12" TextColor="Gray" />
+                            </VerticalStackLayout>
+                            <CheckBox x:Name="UnderHoodCheck" Grid.Column="1" VerticalOptions="Center"
+                                      CheckedChanged="OnChecklistItemChanged" />
+                        </Grid>
+                    </Frame>
+
+                    <Frame BackgroundColor="#E3F2FD" BorderColor="Transparent" CornerRadius="12" Padding="15">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <VerticalStackLayout Grid.Column="0" Spacing="2">
+                                <Label Text="Lights &amp; Electronics" FontAttributes="Bold" FontSize="16" />
+                                <Label Text="Headlights, signals, and horn are working. No dashboard warning lights." FontSize="12" TextColor="Gray" />
+                            </VerticalStackLayout>
+                            <CheckBox x:Name="LightsElectronicsCheck" Grid.Column="1" VerticalOptions="Center"
+                                      CheckedChanged="OnChecklistItemChanged" />
+                        </Grid>
+                    </Frame>
+
+                    <Frame BackgroundColor="#E3F2FD" BorderColor="Transparent" CornerRadius="12" Padding="15">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <VerticalStackLayout Grid.Column="0" Spacing="2">
+                                <Label Text="Interior &amp; Comfort" FontAttributes="Bold" FontSize="16" />
+                                <Label Text="Seats/floors clean + AC is cooling." FontSize="12" TextColor="Gray" />
+                            </VerticalStackLayout>
+                            <CheckBox x:Name="InteriorComfortCheck" Grid.Column="1" VerticalOptions="Center"
+                                      CheckedChanged="OnChecklistItemChanged" />
+                        </Grid>
+                    </Frame>
+
+                    <Frame BackgroundColor="#E3F2FD" BorderColor="Transparent" CornerRadius="12" Padding="15">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <VerticalStackLayout Grid.Column="0" Spacing="2">
+                                <Label Text="Exterior Scratches / Dents" FontAttributes="Bold" FontSize="16" />
+                                <Label Text="Walk-around completed" FontSize="12" TextColor="Gray" />
+                            </VerticalStackLayout>
+                            <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                                <CheckBox x:Name="ExteriorScratchesCheck" CheckedChanged="OnChecklistItemChanged" />
+                                <Button Text="✕" WidthRequest="32" HeightRequest="32" Padding="0"
+                                        CornerRadius="16" BackgroundColor="#1976D2" TextColor="White"
+                                        Clicked="OnReportDamageClicked" />
+                            </HorizontalStackLayout>
+                        </Grid>
+                    </Frame>
+
+                    <Button x:Name="NextButton"
+                            Text="Next  ›"
+                            Clicked="OnNextClicked"
+                            BackgroundColor="#90CAF9"
+                            TextColor="#0D47A1"
+                            CornerRadius="25"
+                            HeightRequest="50"
+                            Margin="0,10,0,0" />
+                </VerticalStackLayout>
+
+                <!-- STEP 2: Starting Metrics + Fuel Verification -->
+                <VerticalStackLayout x:Name="Step2Panel" Spacing="12" IsVisible="False">
+
+                    <Frame BackgroundColor="#E3F2FD" BorderColor="Transparent" CornerRadius="12" Padding="15">
+                        <VerticalStackLayout Spacing="8">
+                            <Label Text="Starting Metrics" FontAttributes="Bold" FontSize="16" />
+                            <Label Text="Starting Odometer:" FontSize="13" TextColor="Gray" />
+                            <Button x:Name="ScanOdometerButton"
+                                    Text="📷  Scan odometer dashboard"
+                                    Clicked="OnScanOdometerClicked"
+                                    BackgroundColor="Transparent"
+                                    BorderColor="#1976D2"
+                                    BorderWidth="1"
+                                    TextColor="#1976D2"
+                                    CornerRadius="20" />
+                        </VerticalStackLayout>
+                    </Frame>
+
+                    <Frame BackgroundColor="#E3F2FD" BorderColor="Transparent" CornerRadius="12" Padding="15">
+                        <VerticalStackLayout Spacing="8">
+                            <Label Text="Fuel Verification" FontAttributes="Bold" FontSize="16" />
+                            <Label Text="Checked fuel gauge dashboard" FontSize="12" TextColor="Gray" />
+
+                            <RadioButton x:Name="HalfTankRadio" Content="Half-tank" GroupName="FuelLevel" />
+                            <VerticalStackLayout Spacing="0">
+                                <RadioButton x:Name="BelowHalfTankRadio" Content="Below half-tank" GroupName="FuelLevel"
+                                             CheckedChanged="OnBelowHalfTankChecked" />
+                                <Label Text="(Penalty to the previous driver: ₱ 50.00)"
+                                       FontSize="11" TextColor="Red" Margin="28,0,0,0" IsVisible="False"
+                                       x:Name="PenaltyNoteLabel" />
+                            </VerticalStackLayout>
+
+                            <Button x:Name="AttachFuelPhotoButton"
+                                    Text="📷  Attach photo"
+                                    Clicked="OnAttachFuelPhotoClicked"
+                                    BackgroundColor="Transparent"
+                                    BorderColor="#1976D2"
+                                    BorderWidth="1"
+                                    TextColor="#1976D2"
+                                    CornerRadius="20" />
+                        </VerticalStackLayout>
+                    </Frame>
+
+                    <Button x:Name="ConfirmStartShiftButton"
+                            Text="🛡  Confirm &amp; Start Shift"
+                            Clicked="OnConfirmStartShiftClicked"
+                            BackgroundColor="#90CAF9"
+                            TextColor="#0D47A1"
+                            CornerRadius="25"
+                            HeightRequest="50"
+                            Margin="0,10,0,0" />
+                </VerticalStackLayout>
+
+            </VerticalStackLayout>
+        </ScrollView>
+    </Grid>
 </ContentPage>
