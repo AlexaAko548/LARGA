@@ -3,32 +3,28 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels"
              x:Class="LARGA.MobileApp.Views.LandingPage"
-			 x:DataType="vm:LandingViewModel"
-             NavigationPage.HasNavigationBar="False">
+             x:DataType="vm:LandingViewModel"
+             NavigationPage.HasNavigationBar="False"
+             BackgroundColor="White">
 
-    <ContentPage.BindingContext>
-        <vm:LandingViewModel />
-    </ContentPage.BindingContext>
-
-    <Grid RowDefinitions="*, Auto">
-        <!-- Top Half -->
-        <Border Grid.Row="0" 
+    <Grid RowDefinitions="7*, 3*">
+        <!-- Top Blue Area -->
+        <Border Grid.Row="0"
                 BackgroundColor="{StaticResource LargaLightBlue}"
-                StrokeShape="RoundRectangle 0,0,50,50"
-                StrokeThickness="0"
-                Margin="0,0,0,40">
-            <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="0">
-                <Image Source="dotnet_bot.png" WidthRequest="200" HeightRequest="200" />
+                StrokeShape="RoundRectangle 0,0,40,40"
+                StrokeThickness="0">
+            <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center">
+                <!-- Using the taxi logo rather than the default .NET bot -->
+                <Image Source="larga_logo.webp" WidthRequest="250" HeightRequest="250" Aspect="AspectFit" />
             </VerticalStackLayout>
         </Border>
 
-        <!-- Bottom Half -->
-        <VerticalStackLayout Grid.Row="1" Padding="30" Spacing="10">
+        <!-- Bottom White Area -->
+        <VerticalStackLayout Grid.Row="1" Padding="30" Spacing="15" VerticalOptions="Center">
             <Button Text="Driver" Style="{StaticResource LargaButtonStyle}" 
                     Command="{Binding SelectRoleCommand}" CommandParameter="Driver"/>
             <Button Text="Manager" Style="{StaticResource LargaButtonStyle}"
                     Command="{Binding SelectRoleCommand}" CommandParameter="Manager"/>
         </VerticalStackLayout>
     </Grid>
-
 </ContentPage>

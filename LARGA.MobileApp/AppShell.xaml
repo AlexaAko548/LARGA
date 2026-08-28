@@ -6,9 +6,24 @@
     xmlns:views="clr-namespace:LARGA.MobileApp.Views"
     Title="LARGA.MobileApp">
 
+    <!-- The initial startup page -->
     <ShellContent
         Title="Welcome"
         ContentTemplate="{DataTemplate views:LandingPage}"
         Route="landing" />
+
+    <!-- Driver Dashboard Route -->
+    <ShellContent
+        Title="Driver Dashboard"
+        ContentTemplate="{DataTemplate views:DriverDashboardPage}"
+        Route="driver-dashboard" 
+        FlyoutItemIsVisible="False" />
+
+    <!-- Manager Dashboard Route -->
+    <ShellContent
+        Title="Manager Dashboard"
+        ContentTemplate="{DataTemplate views:ManagerDashboardPage}"
+        Route="manager-dashboard" 
+        FlyoutItemIsVisible="False" />
 
 </Shell>

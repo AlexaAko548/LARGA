@@ -3,60 +3,62 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels"
              x:Class="LARGA.MobileApp.Views.LoginPage"
-			 x:DataType="vm:LoginViewModel"
-             NavigationPage.HasNavigationBar="False">
+             x:DataType="vm:LoginViewModel"
+             NavigationPage.HasNavigationBar="False"
+             BackgroundColor="White">
 
-    <Grid RowDefinitions="Auto, *">
-        <!-- Curved Background -->
-        <Border Grid.Row="0" Grid.RowSpan="2" 
+    <Grid RowDefinitions="7*, 3*">
+        <!-- Top Blue Area -->
+        <Border Grid.Row="0"
                 BackgroundColor="{StaticResource LargaLightBlue}"
-                StrokeShape="RoundRectangle 0,0,50,50"
-                StrokeThickness="0"
-                VerticalOptions="Start"
-                HeightRequest="500" />
+                StrokeShape="RoundRectangle 0,0,40,40"
+                StrokeThickness="0">
+            <Grid RowDefinitions="Auto, *">
+                <!-- Header -->
+                <Grid Grid.Row="0" Padding="20">
+                    <ImageButton Source="back_icon.png" HorizontalOptions="Start" WidthRequest="24" HeightRequest="24" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
+                </Grid>
 
-        <!-- Header -->
-        <Grid Grid.Row="0" ColumnDefinitions="Auto, *" Padding="20">
-            <ImageButton Source="back_icon.png" HorizontalOptions="Start" WidthRequest="24" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
-        </Grid>
+                <!-- Content Inside Blue Area -->
+                <VerticalStackLayout Grid.Row="1" Padding="30, 10, 30, 30" Spacing="15" VerticalOptions="Center">
+                    <Label Text="Welcome back!" 
+                           FontSize="32" 
+                           FontAttributes="Bold" 
+                           TextColor="{StaticResource LargaDarkText}"
+                           HorizontalOptions="Center" 
+                           Margin="0, 0, 0, 30" />
 
-        <VerticalStackLayout Grid.Row="1" Padding="30" Spacing="0" VerticalOptions="FillAndExpand">
-            
-            <Label Text="Welcome back!" 
-                   FontSize="32" 
-                   FontAttributes="Bold" 
-                   TextColor="{StaticResource LargaDarkText}"
-                   HorizontalOptions="Center" 
-                   Margin="0, 40, 0, 50" />
+                    <!-- Blue filled input field -->
+                    <Border BackgroundColor="#0099CC" StrokeShape="RoundRectangle 10" StrokeThickness="0" HeightRequest="50">
+                        <Entry Placeholder="Email" Text="{Binding Email}" PlaceholderColor="White" TextColor="White" Keyboard="Email" VerticalOptions="Center" Margin="15,0" BackgroundColor="Transparent" />
+                    </Border>
 
-            <Border Style="{StaticResource LargaEntryBorderStyle}">
-                <Entry Placeholder="Email" Text="{Binding Email}" Style="{StaticResource LargaEntryStyle}" Keyboard="Email" />
-            </Border>
+                    <Border BackgroundColor="#0099CC" StrokeShape="RoundRectangle 10" StrokeThickness="0" HeightRequest="50">
+                        <Entry Placeholder="Password" Text="{Binding Password}" IsPassword="True" PlaceholderColor="White" TextColor="White" VerticalOptions="Center" Margin="15,0" BackgroundColor="Transparent" />
+                    </Border>
 
-            <Border Style="{StaticResource LargaEntryBorderStyle}">
-                <Entry Placeholder="Password" Text="{Binding Password}" Style="{StaticResource LargaEntryStyle}" IsPassword="True" />
-            </Border>
+                    <Label Text="Forgot password?" 
+                           TextColor="{StaticResource LargaDarkText}"
+                           HorizontalOptions="End" 
+                           TextDecorations="Underline"
+                           FontSize="14">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding ForgotPasswordCommand}" />
+                        </Label.GestureRecognizers>
+                    </Label>
+                </VerticalStackLayout>
+            </Grid>
+        </Border>
 
-            <Label Text="Forgot password?" 
-                   TextColor="{StaticResource LargaDarkText}"
-                   HorizontalOptions="End" 
-                   TextDecorations="Underline"
-                   Margin="0,0,0,20">
-                <Label.GestureRecognizers>
-                    <TapGestureRecognizer Command="{Binding ForgotPasswordCommand}" />
-                </Label.GestureRecognizers>
-            </Label>
-
-            <!-- Bottom Spacer to push Login button down-->
-            <BoxView HeightRequest="1" Color="Transparent" VerticalOptions="FillAndExpand" />
-
+        <!-- Bottom White Area -->
+        <VerticalStackLayout Grid.Row="1" Padding="30" Spacing="15" VerticalOptions="Center">
+            <Label Text="{Binding ErrorMessage}" TextColor="Red" HorizontalOptions="Center" />
             <Button Text="Login" Style="{StaticResource LargaButtonStyle}" Command="{Binding LoginCommand}" WidthRequest="200" HorizontalOptions="Center"/>
-            
+
             <Label Text="Don't have an account?&#10;Please refer to your manager to open your account."
                    HorizontalTextAlignment="Center"
                    FontSize="12"
-                   TextColor="Gray"
-                   Margin="0,10,0,0"/>
+                   TextColor="Gray" />
         </VerticalStackLayout>
     </Grid>
 </ContentPage>

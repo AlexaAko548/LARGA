@@ -3,15 +3,11 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using Microsoft.Maui.ApplicationModel; // Required for MainThread execution
 using Microsoft.Maui.Controls;
+using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.ViewModels;
-
-public interface IFirebaseAuthService
-{
-    Task<string> LoginAsync(string email, string password);
-    Task<string> GetUserRoleAsync(string userId);
-}
 
 public class LoginViewModel : INotifyPropertyChanged
 {
@@ -74,14 +70,20 @@ public class LoginViewModel : INotifyPropertyChanged
                 // Fetch the user's role from Firestore
                 var role = await _authService.GetUserRoleAsync(userId);
 
-                // Route explicitly based on role
+                // Route explicitly based on role, forcing execution on the UI thread
                 if (role?.Equals("Driver", StringComparison.OrdinalIgnoreCase) == true)
                 {
-                    await Shell.Current.GoToAsync("//driver-dashboard");
+                    MainThread.BeginInvokeOnMainThread(async () =>
+                    {
+                        await Shell.Current.GoToAsync("//driver-dashboard");
+                    });
                 }
                 else if (role?.Equals("Manager", StringComparison.OrdinalIgnoreCase) == true)
                 {
-                    await Shell.Current.GoToAsync("//manager-dashboard");
+                    MainThread.BeginInvokeOnMainThread(async () =>
+                    {
+                        await Shell.Current.GoToAsync("//manager-dashboard");
+                    });
                 }
                 else
                 {
