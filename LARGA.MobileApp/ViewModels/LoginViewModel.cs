@@ -41,11 +41,18 @@ public class LoginViewModel : INotifyPropertyChanged
     }
 
     public ICommand LoginCommand { get; }
+    public ICommand ForgotPasswordCommand { get; }
 
     public LoginViewModel(IFirebaseAuthService authService)
     {
         _authService = authService;
         LoginCommand = new Command(async () => await OnLoginAsync());
+        ForgotPasswordCommand = new Command(async () => await OnForgotPasswordAsync());
+    }
+
+    private async Task OnForgotPasswordAsync()
+    {
+        await Shell.Current.GoToAsync("forgot-password-email");
     }
 
     private async Task OnLoginAsync()

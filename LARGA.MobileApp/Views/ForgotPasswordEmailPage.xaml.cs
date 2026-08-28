@@ -2,9 +2,9 @@ using LARGA.MobileApp.ViewModels;
 
 namespace LARGA.MobileApp.Views;
 
-public partial class LoginPage : ContentPage
+public partial class ForgotPasswordEmailPage : ContentPage
 {
-    public LoginPage(LoginViewModel viewModel)
+    public ForgotPasswordEmailPage(ForgotPasswordViewModel viewModel)
     {
         InitializeComponent();
         BindingContext = viewModel;
