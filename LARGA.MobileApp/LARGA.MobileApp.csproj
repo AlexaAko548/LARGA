@@ -76,9 +76,10 @@
 	</ItemGroup>
 
 	<ItemGroup Condition="'$(TargetFramework)' == 'net9.0-android'">
-		<GoogleServicesJson Include="Platforms\Android\google-services.json" Condition="Exists('Platforms\Android\google-services.json')" />
-		<PackageReference Include="Xamarin.Google.MLKit.TextRecognition" Version="116.0.0.9" />
-	</ItemGroup>
+      <PackageReference Include="Xamarin.Firebase.Messaging" Version="124.0.0.2" />
+      <PackageReference Include="Xamarin.Google.MLKit.TextRecognition" Version="116.0.0.9" />
+      <PackageReference Include="Plugin.Firebase.Firestore" Version="4.0.0" />
+    </ItemGroup>
 	
 	<ItemGroup Condition="'$(TargetFramework)' == 'net9.0-android'">
     	<GoogleServicesJson Include="Platforms\Android\google-services.json" />

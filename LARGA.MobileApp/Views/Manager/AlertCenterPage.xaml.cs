@@ -1,61 +1,54 @@
-using LARGA.Shared.Models;
-using System.Collections.ObjectModel;
-
 namespace LARGA.MobileApp.Views.Manager;
-
-public class ShiftApprovalAlert
-{
-    public string ChecklistId { get; set; } = string.Empty;
-    public string DriverName { get; set; } = string.Empty;
-    public string UnitLabel { get; set; } = string.Empty;
-    public string FailedItemLabel { get; set; } = string.Empty;
-    public string PriorityLabel { get; set; } = string.Empty;
-    public string DriverDescription { get; set; } = string.Empty;
-}
 
 public partial class AlertCenterPage : ContentPage
 {
-    public ObservableCollection<ShiftApprovalAlert> Alerts { get; set; } = new();
-
     public AlertCenterPage()
     {
         InitializeComponent();
-        AlertsCollectionView.ItemsSource = Alerts;
-
-        // TODO: replace with real data pulled from Firebase
-        LoadMockData();
     }
 
-    private void LoadMockData()
+    private void OnDismissSosClicked(object sender, EventArgs e)
     {
-        Alerts.Add(new ShiftApprovalAlert
-        {
-            ChecklistId = "sample-checklist-id",
-            DriverName = "Juan Dela Cruz · Unit 02",
-            UnitLabel = "10:45 AM",
-            FailedItemLabel = "FAILED ITEM: Tire Condition",
-            PriorityLabel = "PRIORITY: High",
-            DriverDescription = "Right passenger side rear tire is completely flat. Found a nail in it during walk-around."
-        });
+        // TODO: mark SOS alert as resolved in Firestore, remove card
+    }
 
-        ActiveNotificationsLabel.Text = $"{Alerts.Count} active notifications";
+    private async void OnViewLocationClicked(object sender, EventArgs e)
+    {
+        // TODO: navigate to fleet map centered on this driver's location
+    }
+
+    private async void OnCallDriverClicked(object sender, EventArgs e)
+    {
+        // TODO: trigger phone call to driver's registered number
+    }
+
+    private async void OnMessageDriverClicked(object sender, EventArgs e)
+    {
+        // TODO: open chat/message thread with driver
+    }
+
+    private void OnDismissFuelAlertClicked(object sender, EventArgs e)
+    {
+        // TODO: mark fuel discrepancy alert as dismissed in Firestore, remove card
+    }
+
+    private void OnDismissApprovalClicked(object sender, EventArgs e)
+    {
+        // TODO: dismiss without action (edge case, may not be allowed per business rules)
+    }
+
+    private async void OnViewEvidenceClicked(object sender, EventArgs e)
+    {
+        // TODO: open photo viewer showing the attached damage evidence photo
     }
 
     private void OnApproveClicked(object sender, EventArgs e)
     {
-        if (sender is Button button && button.CommandParameter is string checklistId)
-        {
-            // TODO: update ShiftLog/HandoverChecklist status to approved in Firebase
-            // then remove from Alerts collection
-        }
+        // TODO: update ShiftLog/HandoverChecklist status to approved in Firestore, remove card
     }
 
     private void OnDenyClicked(object sender, EventArgs e)
     {
-        if (sender is Button button && button.CommandParameter is string checklistId)
-        {
-            // TODO: update ShiftLog status, create/link MaintenanceRecord,
-            // notify driver the shift is denied, then remove from Alerts collection
-        }
+        // TODO: update ShiftLog status to denied, create/link MaintenanceRecord, notify driver, remove card
     }
 }

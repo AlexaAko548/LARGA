@@ -2,67 +2,207 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="LARGA.MobileApp.Views.Manager.AlertCenterPage"
-             Title="Alert Center">
+             Title="Alert Center"
+             BackgroundColor="White">
 
-    <ScrollView>
-        <VerticalStackLayout Padding="15" Spacing="12">
+    <Grid RowDefinitions="*,Auto">
 
-            <Label Text="Alert Center"
-                   FontSize="24"
-                   FontAttributes="Bold" />
+        <ScrollView Grid.Row="0">
+            <VerticalStackLayout Padding="16,14" Spacing="14">
 
-            <Label x:Name="ActiveNotificationsLabel"
-                   Text="0 active notifications"
-                   FontSize="14"
-                   TextColor="Gray" />
+                <Label Text="Alert Center"
+                       FontSize="28"
+                       FontAttributes="Bold"
+                       TextColor="#1D1D1D" />
 
-            <CollectionView x:Name="AlertsCollectionView">
-                <CollectionView.ItemTemplate>
-                    <DataTemplate>
-                        <Border Stroke="#1976D2"
-                               BackgroundColor="#E3F2FD"
-                               Padding="12"
-                               StrokeShape="RoundRectangle 8"
-                               Margin="0,5">
-                            <VerticalStackLayout Spacing="6">
+                <Label Text="3 active notifications"
+                       FontSize="14"
+                       FontFamily="monospace"
+                       TextColor="#9E9E9E"
+                       Margin="0,0,0,4" />
 
-                                <Label Text="SHIFT APPROVAL REQUIRED"
-                                       FontAttributes="Bold"
-                                       FontSize="12"
-                                       TextColor="#D32F2F" />
+                <!-- SOS ALERT CARD -->
+                <Frame BackgroundColor="#59019BCF" BorderColor="Transparent" CornerRadius="12" Padding="16" HasShadow="False">
+                    <VerticalStackLayout Spacing="10">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Border Grid.Column="0" WidthRequest="40" HeightRequest="40" BackgroundColor="White"
+                                    StrokeShape="RoundRectangle 10" Padding="0" HorizontalOptions="Start">
+                                <Label Text="&#9888;" FontSize="20" TextColor="#1D1D1D" HorizontalTextAlignment="Center"
+                                       VerticalTextAlignment="Center" HorizontalOptions="Center" VerticalOptions="Center" />
+                            </Border>
+                            <Label Grid.Column="1" Text="EMERGENCY SOS ALERT" FontAttributes="Bold" FontSize="15"
+                                   FontFamily="monospace" TextColor="#1D1D1D" Margin="10,0,0,0" VerticalOptions="Center" />
+                            <Border Grid.Column="2" WidthRequest="34" HeightRequest="34" BackgroundColor="White"
+                                    StrokeShape="RoundRectangle 10" Padding="0" HorizontalOptions="End">
+                                <Button Text="&#10005;" FontSize="15" BackgroundColor="Transparent" TextColor="#9E9E9E"
+                                        Padding="0" Clicked="OnDismissSosClicked" />
+                            </Border>
+                        </Grid>
+                        <Label Text="Juan Dela Cruz · Unit 02" FontAttributes="Bold" FontSize="19" TextColor="#1D1D1D" Margin="0,4,0,0" />
+                        <Label Text="University of San Carlos - Downtown" FontSize="14" FontFamily="monospace" TextColor="#616161" />
+                        <Label Text="&#128337; 10:45 AM" FontSize="14" FontFamily="monospace" TextColor="#757575" />
 
-                                <Label Text="{Binding DriverName}"
-                                       FontAttributes="Bold" />
+                        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10" Margin="4,8,4,0">
+                            <Border Grid.Column="0" BackgroundColor="White" StrokeShape="RoundRectangle 12" Padding="0" HeightRequest="48">
+                                <Button Text="&#128205;" FontSize="19" BackgroundColor="Transparent" TextColor="#1D1D1D"
+                                        Padding="0" Clicked="OnViewLocationClicked" />
+                            </Border>
+                            <Border Grid.Column="1" BackgroundColor="White" StrokeShape="RoundRectangle 12" Padding="0" HeightRequest="48">
+                                <Button Text="&#128222;" FontSize="19" BackgroundColor="Transparent" TextColor="#1D1D1D"
+                                        Padding="0" Clicked="OnCallDriverClicked" />
+                            </Border>
+                            <Border Grid.Column="2" BackgroundColor="White" StrokeShape="RoundRectangle 12" Padding="0" HeightRequest="48">
+                                <Button Text="&#128172;" FontSize="19" BackgroundColor="Transparent" TextColor="#1D1D1D"
+                                        Padding="0" Clicked="OnMessageDriverClicked" />
+                            </Border>
+                        </Grid>
+                    </VerticalStackLayout>
+                </Frame>
 
-                                <Label Text="{Binding UnitLabel}"
-                                       FontSize="13"
-                                       TextColor="Gray" />
+                <!-- FUEL DISCREPANCY CARD -->
+                <Frame BackgroundColor="#59019BCF" BorderColor="Transparent" CornerRadius="12" Padding="16" HasShadow="False">
+                    <VerticalStackLayout Spacing="10">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Border Grid.Column="0" WidthRequest="40" HeightRequest="40" BackgroundColor="White"
+                                    StrokeShape="RoundRectangle 10" Padding="0" HorizontalOptions="Start">
+                                <Label Text="&#9878;" FontSize="20" TextColor="#1D1D1D" HorizontalTextAlignment="Center"
+                                       VerticalTextAlignment="Center" HorizontalOptions="Center" VerticalOptions="Center" />
+                            </Border>
+                            <Label Grid.Column="1" Text="FUEL DISCREPANCY" FontAttributes="Bold" FontSize="15"
+                                   FontFamily="monospace" TextColor="#1D1D1D" Margin="10,0,0,0" VerticalOptions="Center" />
+                            <Border Grid.Column="2" WidthRequest="34" HeightRequest="34" BackgroundColor="White"
+                                    StrokeShape="RoundRectangle 10" Padding="0" HorizontalOptions="End">
+                                <Button Text="&#10005;" FontSize="15" BackgroundColor="Transparent" TextColor="#9E9E9E"
+                                        Padding="0" Clicked="OnDismissFuelAlertClicked" />
+                            </Border>
+                        </Grid>
+                        <Label Text="Maria Santos · Unit 03" FontAttributes="Bold" FontSize="19" TextColor="#1D1D1D" Margin="0,4,0,0" />
+                        <Label Text="Unit started with &lt; 50% fuel." FontSize="14" FontFamily="monospace" TextColor="#616161" />
+                        <Label Text="&#128337; 09:22 AM" FontSize="14" FontFamily="monospace" TextColor="#757575" />
 
-                                <BoxView HeightRequest="1" Color="LightGray" />
-
-                                <Label Text="{Binding FailedItemLabel}" FontSize="13" />
-                                <Label Text="{Binding PriorityLabel}" FontSize="13" />
-                                <Label Text="{Binding DriverDescription}" FontSize="13" />
-
-                                <HorizontalStackLayout Spacing="10" Margin="0,8,0,0">
-                                    <Button Text="Deny &amp; Send to Garage"
-                                            BackgroundColor="#D32F2F"
-                                            TextColor="White"
-                                            CommandParameter="{Binding ChecklistId}"
-                                            Clicked="OnDenyClicked" />
-                                    <Button Text="Approve Shift"
-                                            BackgroundColor="#388E3C"
-                                            TextColor="White"
-                                            CommandParameter="{Binding ChecklistId}"
-                                            Clicked="OnApproveClicked" />
-                                </HorizontalStackLayout>
-
-                            </VerticalStackLayout>
+                        <Border BackgroundColor="White" StrokeShape="RoundRectangle 12" Padding="0"
+                                Margin="4,8,4,0" HeightRequest="48">
+                            <Button Text="DISMISS"
+                                    Clicked="OnDismissFuelAlertClicked"
+                                    BackgroundColor="Transparent"
+                                    TextColor="#1D1D1D"
+                                    FontAttributes="Bold"
+                                    FontFamily="monospace"
+                                    FontSize="15" />
                         </Border>
-                    </DataTemplate>
-                </CollectionView.ItemTemplate>
-            </CollectionView>
+                    </VerticalStackLayout>
+                </Frame>
 
-        </VerticalStackLayout>
-    </ScrollView>
+                <!-- SHIFT APPROVAL REQUIRED CARD -->
+                <Frame BackgroundColor="#59019BCF" BorderColor="Transparent" CornerRadius="12" Padding="16" HasShadow="False">
+                    <VerticalStackLayout Spacing="10">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Border Grid.Column="0" WidthRequest="40" HeightRequest="40" BackgroundColor="White"
+                                    StrokeShape="RoundRectangle 10" Padding="0" HorizontalOptions="Start">
+                                <Label Text="&#9888;" FontSize="20" TextColor="#1D1D1D" HorizontalTextAlignment="Center"
+                                       VerticalTextAlignment="Center" HorizontalOptions="Center" VerticalOptions="Center" />
+                            </Border>
+                            <Label Grid.Column="1" Text="SHIFT APPROVAL REQUIRED" FontAttributes="Bold" FontSize="15"
+                                   FontFamily="monospace" TextColor="#1D1D1D" Margin="10,0,0,0" VerticalOptions="Center" />
+                            <Border Grid.Column="2" WidthRequest="34" HeightRequest="34" BackgroundColor="White"
+                                    StrokeShape="RoundRectangle 10" Padding="0" HorizontalOptions="End">
+                                <Button Text="&#10005;" FontSize="15" BackgroundColor="Transparent" TextColor="#9E9E9E"
+                                        Padding="0" Clicked="OnDismissApprovalClicked" />
+                            </Border>
+                        </Grid>
+                        <Label Text="Juan Dela Cruz · Unit 02" FontAttributes="Bold" FontSize="19" TextColor="#1D1D1D" Margin="0,4,0,0" />
+                        <Label Text="&#128337; 10:45 AM" FontSize="14" FontFamily="monospace" TextColor="#757575" />
+
+                        <BoxView HeightRequest="1" Color="#8FC3E0" Margin="0,8" />
+
+                        <HorizontalStackLayout Spacing="6">
+                            <BoxView WidthRequest="9" HeightRequest="9" CornerRadius="4.5" Color="#E53935" VerticalOptions="Center" />
+                            <Label Text="PRE-SHIFT DEFECT REPORTED" FontAttributes="Bold" FontSize="13"
+                                   FontFamily="monospace" TextColor="#E53935" />
+                        </HorizontalStackLayout>
+
+                        <Grid ColumnDefinitions="115,*" RowDefinitions="Auto,Auto" RowSpacing="6" Margin="0,6,0,0">
+                            <Label Grid.Row="0" Grid.Column="0" Text="FAILED ITEM:" FontSize="13" FontFamily="monospace" TextColor="#757575" />
+                            <Label Grid.Row="0" Grid.Column="1" Text="Tire Condition" FontSize="16" TextColor="#1D1D1D" />
+                            <Label Grid.Row="1" Grid.Column="0" Text="PRIORITY:" FontSize="13" FontFamily="monospace" TextColor="#757575" />
+                            <Label Grid.Row="1" Grid.Column="1" Text="High" FontSize="16" TextColor="#1D1D1D" />
+                        </Grid>
+
+                        <Label Text="DRIVER'S DESCRIPTION:" FontSize="13" FontFamily="monospace" TextColor="#757575" Margin="0,6,0,0" />
+                        <Label Text="Right passenger side rear tire is completely flat. Found a nail in it during walk-around."
+                               FontSize="16" TextColor="#1D1D1D" />
+
+                        <Border BackgroundColor="White" StrokeShape="RoundRectangle 12" Padding="0" HeightRequest="48"
+                                Margin="0,8,0,0" HorizontalOptions="Start" WidthRequest="220">
+                            <Button Text="&#128247; ATTACHED EVIDENCE"
+                                    Clicked="OnViewEvidenceClicked"
+                                    BackgroundColor="Transparent"
+                                    TextColor="#1D1D1D"
+                                    FontSize="14"
+                                    FontFamily="monospace"
+                                    FontAttributes="Bold"
+                                    Padding="12,0" />
+                        </Border>
+
+                        <BoxView HeightRequest="1" Color="#8FC3E0" Margin="0,8" />
+
+                        <Label Text="MANAGER ACTION:" FontSize="13" FontFamily="monospace" TextColor="#757575" />
+                        <Label Text="This driver's clock-in is paused. Please evaluate the vehicle's safety to proceed."
+                               FontSize="16" TextColor="#1D1D1D" />
+
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Margin="4,10,4,0">
+                            <Border Grid.Column="0" BackgroundColor="White" StrokeShape="RoundRectangle 12" HeightRequest="50">
+                                <Button Text="Deny &amp; Send to Garage"
+                                        BackgroundColor="Transparent"
+                                        TextColor="#1D1D1D"
+                                        FontSize="13"
+                                        FontAttributes="Bold"
+                                        Clicked="OnDenyClicked" />
+                            </Border>
+                            <Border Grid.Column="1" BackgroundColor="White" StrokeShape="RoundRectangle 12" HeightRequest="50">
+                                <Button Text="Approve Shift"
+                                        BackgroundColor="Transparent"
+                                        TextColor="#1D1D1D"
+                                        FontSize="14"
+                                        FontAttributes="Bold"
+                                        Clicked="OnApproveClicked" />
+                            </Border>
+                        </Grid>
+                    </VerticalStackLayout>
+                </Frame>
+
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <!-- BOTTOM NAV BAR -->
+        <Grid Grid.Row="1" ColumnDefinitions="*,*,*,*,*" HeightRequest="68" BackgroundColor="White">
+            <BoxView Grid.ColumnSpan="5" HeightRequest="1" Color="#E0E0E0" VerticalOptions="Start" />
+
+            <VerticalStackLayout Grid.Column="0" VerticalOptions="Center" Spacing="3">
+                <Label Text="&#128506;" FontSize="20" HorizontalOptions="Center" TextColor="#9E9E9E" />
+                <Label Text="Map" FontSize="11" FontFamily="monospace" HorizontalOptions="Center" TextColor="#9E9E9E" />
+            </VerticalStackLayout>
+
+            <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="3">
+                <Label Text="&#128172;" FontSize="20" HorizontalOptions="Center" TextColor="#9E9E9E" />
+                <Label Text="Chats" FontSize="11" FontFamily="monospace" HorizontalOptions="Center" TextColor="#9E9E9E" />
+            </VerticalStackLayout>
+
+            <VerticalStackLayout Grid.Column="2" VerticalOptions="Center" Spacing="3">
+                <Label Text="&#128203;" FontSize="20" HorizontalOptions="Center" TextColor="#9E9E9E" />
+                <Label Text="Ledger" FontSize="11" FontFamily="monospace" HorizontalOptions="Center" TextColor="#9E9E9E" />
+            </VerticalStackLayout>
+
+            <VerticalStackLayout Grid.Column="3" VerticalOptions="Center" Spacing="3">
+                <Label Text="&#128276;" FontSize="20" HorizontalOptions="Center" TextColor="#019BCF" />
+                <Label Text="Alerts" FontSize="11" FontFamily="monospace" HorizontalOptions="Center" TextColor="#019BCF" FontAttributes="Bold" />
+            </VerticalStackLayout>
+
+            <VerticalStackLayout Grid.Column="4" VerticalOptions="Center" Spacing="3">
+                <Label Text="&#128100;" FontSize="20" HorizontalOptions="Center" TextColor="#9E9E9E" />
+                <Label Text="Profile" FontSize="11" FontFamily="monospace" HorizontalOptions="Center" TextColor="#9E9E9E" />
+            </VerticalStackLayout>
+        </Grid>
+
+    </Grid>
 </ContentPage>
