@@ -1,6 +1,6 @@
 using System.Windows.Input;
 
-namespace LARGA.MobileApp.ViewModels;
+namespace LARGA.MobileApp.ViewModels.Auth;
 
 public class LandingViewModel
 {
