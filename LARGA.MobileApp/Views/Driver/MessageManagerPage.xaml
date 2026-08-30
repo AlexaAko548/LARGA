@@ -10,7 +10,7 @@
         <Grid Grid.Row="0" BackgroundColor="{StaticResource LargaLightBlue}" Padding="15,10" ColumnDefinitions="Auto, *, Auto">
             <ImageButton Grid.Column="0" Source="back_icon.png" WidthRequest="36" HeightRequest="36" Aspect="AspectFit" Padding="8" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
             <Label Grid.Column="1" Text="Manager" TextColor="{StaticResource LargaDarkText}" FontAttributes="Bold" FontSize="18" VerticalOptions="Center" Margin="10,0,0,0" />
-            <ImageButton Grid.Column="2" Source="phone.png" WidthRequest="36" HeightRequest="36" Aspect="AspectFit" Padding="8" BackgroundColor="Transparent" />
+            <ImageButton Grid.Column="2" Source="phone.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="8" BackgroundColor="Transparent" Command="{Binding CallManagerCommand}" />
         </Grid>
 
         <!-- Chat Area -->

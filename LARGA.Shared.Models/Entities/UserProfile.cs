@@ -42,4 +42,7 @@ public class UserProfile
 
     [FirestoreProperty("performanceScore")]
     public int PerformanceScore { get; set; }
+
+    [FirestoreProperty("deviceTokens")]
+    public List<string> DeviceTokens { get; set; } = new();
 }

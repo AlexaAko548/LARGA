@@ -26,6 +26,7 @@ public static class MauiProgram
 
         // Register Services
         builder.Services.AddSingleton<IFirebaseAuthService, FirebaseAuthService>();
+        builder.Services.AddSingleton<IChatService, ChatService>();
 
         // Register ViewModels (CRITICAL: Make sure LandingViewModel is here!)
         builder.Services.AddTransient<LandingViewModel>();

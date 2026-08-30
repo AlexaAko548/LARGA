@@ -6,7 +6,7 @@ namespace LARGA.MobileApp.Views.Driver;
 
 public partial class MessageManagerPage : ContentPage
 {
-    public MessageManagerPage(ViewModels.Driver.MessageManagerViewModel viewModel)
+    public MessageManagerPage(MessageManagerViewModel viewModel)
     {
         InitializeComponent();
         BindingContext = viewModel;
@@ -15,11 +15,5 @@ public partial class MessageManagerPage : ContentPage
     private async void OnBackButtonClicked(object sender, EventArgs e)
     {
         await Shell.Current.GoToAsync("..");
-    }
-
-    public class ChatMessage
-    {
-        public string Text { get; set; }
-        public bool IsDriver { get; set; } // True = Blue/Right, False = Gray/Left
     }
 }
