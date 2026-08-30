@@ -1,6 +1,4 @@
-﻿using LARGA.MobileApp.Views.Auth;
-using LARGA.MobileApp.Views.Driver;
-using LARGA.MobileApp.Views.Manager;
+﻿using LARGA.MobileApp.Views;
 
 namespace LARGA.MobileApp;
 
@@ -11,9 +9,7 @@ public partial class AppShell : Shell
 		InitializeComponent();
 
 		Routing.RegisterRoute("login", typeof(LoginPage));
-		Routing.RegisterRoute("forgot-password-email", typeof(ForgotPasswordEmailPage));
-        Routing.RegisterRoute("message-manager", typeof(MessageManagerPage));
-        Routing.RegisterRoute("driver-dashboard", typeof(DriverDashboardPage));
-		Routing.RegisterRoute("manager-dashboard", typeof(ManagerDashboardPage));
+		// Routing.RegisterRoute("driver-dashboard", typeof(DriverDashboardPage));
+		// Routing.RegisterRoute("manager-dashboard", typeof(ManagerDashboardPage));
 	}
 }

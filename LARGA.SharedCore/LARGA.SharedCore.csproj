@@ -15,8 +15,4 @@
     <ProjectReference Include="..\LARGA.Shared.Models\LARGA.Shared.Models.csproj" />
   </ItemGroup>
 
-	<ItemGroup>
-		<PackageReference Include="Plugin.Firebase" Version="4.1.0" />
-	</ItemGroup>
-
 </Project>

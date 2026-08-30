@@ -1,7 +1,7 @@
 # LARGA: Integrated Taxi Operations Management System
 
 > **A Capstone Project for BLM Taxi (Talisay City, Cebu, Philippines)**  
-> Developed by students under the Department of Computer, Information Sciences and Mathematics — University of San Carlos.
+> Developed by the Department of Computer, Information Sciences and Mathematics — University of San Carlos.
 
 ---
 
