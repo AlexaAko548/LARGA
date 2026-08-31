@@ -35,6 +35,8 @@ public static class MauiProgram
         builder.Services.AddTransient<DriverDashboardViewModel>();
         builder.Services.AddTransient<ProfileViewModel>();
         builder.Services.AddTransient<MessageManagerViewModel>();
+        builder.Services.AddTransient<PreShiftStep1ViewModel>();
+        builder.Services.AddTransient<PreShiftStep2ViewModel>();
 
         // Register Views (CRITICAL: Make sure LandingPage is here!)
         builder.Services.AddTransient<LandingPage>();
@@ -46,6 +48,8 @@ public static class MauiProgram
         builder.Services.AddTransient<ReportsPage>();
         builder.Services.AddTransient<ProfilePage>();
         builder.Services.AddTransient<MessageManagerPage>();
+        builder.Services.AddTransient<PreShiftStep1Page>();
+        builder.Services.AddTransient<PreShiftStep2Page>();
 
 #if DEBUG
         builder.Logging.AddDebug();

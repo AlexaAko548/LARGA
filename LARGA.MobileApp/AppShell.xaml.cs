@@ -15,5 +15,7 @@ public partial class AppShell : Shell
         Routing.RegisterRoute("message-manager", typeof(MessageManagerPage));
         Routing.RegisterRoute("driver-dashboard", typeof(DriverDashboardPage));
 		Routing.RegisterRoute("manager-dashboard", typeof(ManagerDashboardPage));
-	}
+        Routing.RegisterRoute("pre-shift-step1", typeof(Views.Driver.PreShiftStep1Page));
+        Routing.RegisterRoute("pre-shift-step2", typeof(Views.Driver.PreShiftStep2Page));
+    }
 }

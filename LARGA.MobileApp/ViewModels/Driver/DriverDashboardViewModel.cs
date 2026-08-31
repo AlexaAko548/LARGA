@@ -32,7 +32,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged
     public DriverDashboardViewModel()
     {
         // Temporarily toggles the UI state to Online
-        ClockInCommand = new Command(() => IsOffline = false);
+        ClockInCommand = new Command(async () => await Shell.Current.GoToAsync("pre-shift-step1"));
 
         // Navigates to the message screen
         OpenMessagesCommand = new Command(async () => await Shell.Current.GoToAsync("message-manager"));

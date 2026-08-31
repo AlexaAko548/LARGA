@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
+             x:Class="LARGA.MobileApp.Views.Driver.PreShiftStep2Page"
+             x:DataType="vm:PreShiftStep2ViewModel"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="White">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="15">
+            <Grid ColumnDefinitions="Auto, *">
+                <ImageButton Source="back_icon.png" WidthRequest="24" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
+            </Grid>
+
+            <Label Text="STEP 2 OF 2" TextColor="Gray" FontSize="12" />
+            <Label Text="Pre-Shift Inspection" FontSize="32" FontAttributes="Bold" TextColor="Black" LineHeight="1.1" />
+            <Label Text="GHK·4471·MP · Complete all items before starting your shift" FontSize="12" TextColor="Gray" />
+
+            <Label Text="1 / 2 completed" FontSize="14" FontAttributes="Bold" TextColor="Black" Margin="0,5,0,0" />
+
+            <!-- Starting Metrics Card -->
+            <Border BackgroundColor="#AEE2F0" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="20">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="Starting Metrics" FontAttributes="Bold" FontSize="16" TextColor="Black" />
+                    <Label Text="Starting Odometer:" FontSize="12" TextColor="Gray" />
+                    <Button Text="📷 Scan odometer dashboard" Command="{Binding ScanOdometerCommand}" 
+                            BackgroundColor="White" TextColor="Black" CornerRadius="10" HeightRequest="45" HorizontalOptions="Fill" />
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Fuel Verification Card -->
+            <Border BackgroundColor="#AEE2F0" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="20">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="Fuel Verification" FontAttributes="Bold" FontSize="16" TextColor="Black" />
+                    <Label Text="Checked fuel gauge dashboard" FontSize="12" TextColor="Gray" />
+
+                    <HorizontalStackLayout Spacing="10" VerticalOptions="Center">
+                        <RadioButton IsChecked="{Binding IsHalfTankSelected}" />
+                        <Label Text="Half-tank" TextColor="Black" VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+
+                    <HorizontalStackLayout Spacing="10" VerticalOptions="Center">
+                        <RadioButton />
+                        <VerticalStackLayout>
+                            <Label Text="Below half-tank" TextColor="Black" />
+                            <Label Text="(Penalty to the previous driver : ₱ 50.00)" TextColor="Blue" TextDecorations="Underline" FontSize="10" />
+                        </VerticalStackLayout>
+                    </HorizontalStackLayout>
+
+                    <Button Text="📷 Attach photo" Command="{Binding AttachPhotoCommand}" 
+                            BackgroundColor="White" TextColor="Black" CornerRadius="10" HeightRequest="45" HorizontalOptions="Fill" Margin="0,5,0,0" />
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Confirm & Start Shift Button -->
+            <Button Text="🛡️ Confirm &amp; Start Shift" Command="{Binding ConfirmStartShiftCommand}" 
+                    BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="55" FontAttributes="Bold" FontSize="16" Margin="0,15,0,0" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>
