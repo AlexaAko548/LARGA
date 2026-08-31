@@ -1,0 +1,121 @@
+@page "/login"
+@using System.Text.Json
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<PageTitle>Login - web</PageTitle>
+
+<div class="auth-page">
+    <div class="back-link">
+        <a href="/">← Back to Home</a>
+    </div>
+
+    <EditForm Model="_model" FormName="manager-login" OnValidSubmit="HandleLogin" class="auth-card">
+        <DataAnnotationsValidator />
+
+        <div class="brand-lockup">
+            <img class="mini-logo" src="/images/larga-logo-taxi.png" alt="LARGA Fleet OS logo" />
+            <div class="brand-title">Manager Portal</div>
+        </div>
+
+        <h2>Welcome back</h2>
+        <p>Sign in to your manager account to continue.</p>
+
+        @if (!string.IsNullOrWhiteSpace(_errorMessage))
+        {
+            <div class="login-error">@_errorMessage</div>
+        }
+
+        <div class="form-block">
+            <label for="email">EMAIL ADDRESS</label>
+            <InputText id="email" @bind-Value="_model.Email" class="form-control" type="email" placeholder="manager@company.com" />
+        </div>
+
+        <div class="form-block">
+            <label for="password">PASSWORD</label>
+            <InputText id="password" @bind-Value="_model.Password" class="form-control" type="password" placeholder="Enter your password" />
+        </div>
+
+        <div class="inline-action">
+            <a href="/login">Forgot password?</a>
+        </div>
+
+        <button class="primary-btn full-width" type="submit" disabled="@_isSubmitting">
+            @(_isSubmitting ? "SIGNING IN..." : "SIGN IN TO DASHBOARD")
+        </button>
+
+        <div class="auth-divider"><span>OR</span></div>
+
+        <div class="switch-copy">
+            Don't have a manager account? <a href="/register">Request Access</a>
+        </div>
+    </EditForm>
+
+    <div class="portal-note">
+        <span class="shield-icon">◈</span>
+        <span>Manager-only portal</span>
+        <span class="dot-separator">•</span>
+        <span>Drivers use the mobile app</span>
+    </div>
+</div>
+
+@code {
+    private readonly LoginFormModel _model = new();
+    private bool _isSubmitting;
+    private string? _errorMessage;
+    private IJSObjectReference? _firebaseModule;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+        }
+    }
+
+    private async Task HandleLogin()
+    {
+        _errorMessage = string.Empty;
+        _isSubmitting = true;
+
+        try
+        {
+            if (_firebaseModule is null)
+            {
+                _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+            }
+
+            var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseSignIn", _model.Email, _model.Password);
+
+            if (result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True)
+            {
+                Navigation.NavigateTo("/dashboard", forceLoad: false);
+                return;
+            }
+
+            if (result.TryGetProperty("message", out var msgProp) && msgProp.ValueKind == JsonValueKind.String)
+            {
+                _errorMessage = msgProp.GetString();
+            }
+            else
+            {
+                _errorMessage = "Unable to log in with Firebase. Please check your Firebase configuration.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    private class LoginFormModel
+    {
+        public string Email { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+}

@@ -1,0 +1,306 @@
+@page "/dashboard"
+@rendermode InteractiveServer
+
+<PageTitle>Executive Dashboard</PageTitle>
+
+<div class="dashboard-shell">
+    <aside class="dashboard-sidebar">
+        <div class="sidebar-brand">
+            <div class="sidebar-logo">L</div>
+            <div>
+                <div class="brand-name">LARGA</div>
+                <div class="brand-subtext">Fleet Ops</div>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <button class="nav-item active" type="button">
+                <span class="nav-icon">◫</span>
+                <span>Dashboard</span>
+            </button>
+            <button class="nav-item" type="button">
+                <span class="nav-icon">☰</span>
+                <span>Driver &amp; Shifts</span>
+            </button>
+            <button class="nav-item" type="button">
+                <span class="nav-icon">◌</span>
+                <span>Fin. Ledger</span>
+            </button>
+            <button class="nav-item" type="button">
+                <span class="nav-icon">◔</span>
+                <span>Garage</span>
+            </button>
+            <button class="nav-item" type="button">
+                <span class="nav-icon">▣</span>
+                <span>Inventory</span>
+            </button>
+            <button class="nav-item" type="button">
+                <span class="nav-icon">✓</span>
+                <span>Fuel Verification</span>
+            </button>
+            <button class="nav-item" type="button">
+                <span class="nav-icon">◍</span>
+                <span>Audit Logs</span>
+            </button>
+        </nav>
+
+        <div class="user-card">
+            <div class="user-avatar">RC</div>
+            <div class="user-meta">
+                <div class="user-name">Regina Cruz</div>
+                <div class="user-role">Manager</div>
+            </div>
+            <button class="user-menu" type="button">•••</button>
+        </div>
+    </aside>
+
+    <main class="dashboard-main">
+        <header class="dashboard-header">
+            <div class="header-title-wrap">
+                <h1>EXECUTIVE DASHBOARD</h1>
+                <div class="header-date">Tuesday, Jul 20, 2026</div>
+            </div>
+
+            <div class="header-actions">
+                <button class="icon-btn" type="button" aria-label="Notifications">◌</button>
+                <button class="icon-btn" type="button" aria-label="Messages">✉</button>
+                <div class="manager-pill">
+                    <span class="manager-dot"></span>
+                    <span>Manager</span>
+                    <span class="caret">▾</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="status-strip">
+            <div class="status-pill status-success"><span class="dot"></span> Fleet status</div>
+            <div class="status-pill status-warning"><span class="dot"></span> 3 Active</div>
+            <div class="status-pill status-warning alt"><span class="dot"></span> 1 Maintenance</div>
+            <div class="status-pill status-danger"><span class="dot"></span> 1 On Break</div>
+            <div class="status-pill status-neutral"><span class="dot"></span> 1 SOS</div>
+            <div class="status-pill status-neutral idle"><span class="dot"></span> Idle</div>
+            <button class="generate-btn" type="button" @onclick="OpenReportModal">✦ Generate Reports</button>
+        </div>
+
+        <section class="stats-grid">
+            <article class="stat-card">
+                <div class="stat-icon blue">P</div>
+                <div class="stat-body">
+                    <div class="stat-trend up">↗ +12%</div>
+                    <div class="stat-value">₱ 41,300</div>
+                    <div class="stat-label">Weekly Revenue</div>
+                </div>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-icon blue">A</div>
+                <div class="stat-body">
+                    <div class="stat-trend up">↗ 80%</div>
+                    <div class="stat-value">4 / 5</div>
+                    <div class="stat-label">Active Drivers</div>
+                </div>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-icon blue">C</div>
+                <div class="stat-body">
+                    <div class="stat-trend up">↗ 5%</div>
+                    <div class="stat-value">5,770 km</div>
+                    <div class="stat-label">Fleet Mileage</div>
+                </div>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-icon blue">△</div>
+                <div class="stat-body">
+                    <div class="stat-trend down">↘ -1</div>
+                    <div class="stat-value">2</div>
+                    <div class="stat-label">Open Incidents</div>
+                </div>
+            </article>
+        </section>
+
+        <section class="panel-grid">
+            <article class="chart-panel">
+                <div class="panel-header">
+                    <span>Boundary Collections</span>
+                    <strong>Paid vs. Outstanding</strong>
+                    <button type="button" aria-label="Expand">↗</button>
+                </div>
+                <div class="chart-area chart-lines muted-lines">
+                    <div class="chart-badge">AK</div>
+                </div>
+            </article>
+
+            <article class="chart-panel">
+                <div class="panel-header">
+                    <span>Fuel Consumption</span>
+                    <strong>Verified Receipts</strong>
+                    <button type="button" aria-label="Expand">↗</button>
+                </div>
+                <div class="chart-area chart-lines">
+                    <div class="chart-badge">⟲</div>
+                </div>
+            </article>
+
+            <article class="chart-panel">
+                <div class="panel-header">
+                    <span>Fleet Mileage</span>
+                    <strong>Distance Covered</strong>
+                    <button type="button" aria-label="Expand">↗</button>
+                </div>
+                <div class="chart-area chart-lines muted-lines"></div>
+            </article>
+
+            <article class="chart-panel">
+                <div class="panel-header">
+                    <span>Maintenance Expenses</span>
+                    <strong>Parts &amp; Repairs</strong>
+                    <button type="button" aria-label="Expand">↗</button>
+                </div>
+                <div class="chart-area chart-lines"></div>
+            </article>
+        </section>
+
+        <section class="leaderboard-panel">
+            <div class="leaderboard-header">
+                <div class="leaderboard-title">Top Driver Standings</div>
+                <div class="leaderboard-crest">◈</div>
+            </div>
+
+            <div class="leaderboard-list">
+                @foreach (var driver in Drivers)
+                {
+                    <div class="leader-row">
+                        <div class="rank-badge">@driver.Rank</div>
+                        <div class="driver-info">
+                            <div class="driver-name">@driver.Name</div>
+                            <div class="driver-plate">@driver.Plate</div>
+                        </div>
+                        <div class="driver-metrics">
+                            <span>Punctual</span>
+                            <strong>@driver.Punctual</strong>
+                            <span>Incidents</span>
+                            <strong>@driver.Incidents</strong>
+                            <span>Boundaries Remitted</span>
+                            <strong>₱ @driver.Boundaries.ToString("#,##0.00")</strong>
+                        </div>
+                    </div>
+                }
+            </div>
+        </section>
+    </main>
+</div>
+
+@if (_showReportModal)
+{
+    <div class="report-overlay" @onclick="CloseReportModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Generate System Reports</h3>
+                <button type="button" class="close-modal" @onclick="CloseReportModal">×</button>
+            </div>
+
+            <div class="report-body">
+                <div class="report-section">
+                    <label>1. Select report type</label>
+                    <div class="option-list">
+                        @foreach (var option in ReportOptions)
+                        {
+                            <label class="report-option @(option == _selectedReportType ? "selected" : "")">
+                                <input type="radio" name="reportType" checked="@(_selectedReportType == option)" @onchange="() => SelectReport(option)" />
+                                <span>@option</span>
+                            </label>
+                        }
+                    </div>
+                </div>
+
+                <div class="report-section compact">
+                    <label>2. Select date range</label>
+                    <div class="date-range">
+                        <div class="date-field">
+                            <span>From</span>
+                            <input type="date" value="2026-07-01" />
+                        </div>
+                        <div class="date-field">
+                            <span>To</span>
+                            <input type="date" value="2026-07-31" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="report-section compact">
+                    <label>3. Select export format</label>
+                    <div class="format-list">
+                        @foreach (var format in ExportFormats)
+                        {
+                            <label class="export-option @(format == _selectedExportFormat ? "selected" : "")">
+                                <input type="radio" name="exportFormat" checked="@(_selectedExportFormat == format)" @onchange="() => SelectExportFormat(format)" />
+                                <span>@format</span>
+                            </label>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="CloseReportModal">Cancel</button>
+                <button class="download-btn" type="button" @onclick="CloseReportModal">Export &amp; Download</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _showReportModal;
+    private string _selectedReportType = "Financial Summary";
+    private string _selectedExportFormat = "PDF Document";
+
+    private readonly List<DriverStanding> Drivers = new()
+    {
+        new() { Rank = 1, Name = "Maria Santos", Plate = "TX-105", Punctual = "98%", Incidents = 0, Boundaries = 8420 },
+        new() { Rank = 2, Name = "Juan Dela Cruz", Plate = "TX-102", Punctual = "98%", Incidents = 0, Boundaries = 8420 },
+        new() { Rank = 3, Name = "Fatima Al-Rashid", Plate = "TX-103", Punctual = "98%", Incidents = 0, Boundaries = 8420 },
+        new() { Rank = 4, Name = "Marcus Dlamini", Plate = "TX-101", Punctual = "98%", Incidents = 0, Boundaries = 8420 },
+        new() { Rank = 5, Name = "Sihpo Nkosi", Plate = "TX-104", Punctual = "98%", Incidents = 0, Boundaries = 8420 }
+    };
+
+    private readonly List<string> ReportOptions = new()
+    {
+        "Financial Summary",
+        "Maintenance History",
+        "Fuel & Mileage Analysis",
+        "Driver Performance",
+        "Full Audit Trail"
+    };
+
+    private readonly List<string> ExportFormats = new()
+    {
+        "PDF Document",
+        "Excel Spreadsheet",
+        "CSV File"
+    };
+
+    private void OpenReportModal() => _showReportModal = true;
+    private void CloseReportModal() => _showReportModal = false;
+
+    private void SelectReport(string selected)
+    {
+        _selectedReportType = selected;
+    }
+
+    private void SelectExportFormat(string selected)
+    {
+        _selectedExportFormat = selected;
+    }
+
+    private class DriverStanding
+    {
+        public int Rank { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Plate { get; set; } = string.Empty;
+        public string Punctual { get; set; } = string.Empty;
+        public int Incidents { get; set; }
+        public decimal Boundaries { get; set; }
+    }
+}
