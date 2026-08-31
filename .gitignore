@@ -22,6 +22,10 @@
 *.userprefs
 
 ## --- Sensitive Credentials & Configuration ---
+# Firebase web app config and local secrets must stay out of Git
+LARGA.ManagerWeb/wwwroot/firebase-auth.js
+LARGA.ManagerWeb/wwwroot/firebase-auth.local.js
+LARGA.ManagerWeb/wwwroot/firebase-config.*
 # Uncomment if managing private Firebase service files locally
 # google-services.json
 # GoogleService-Info.plist
