@@ -8,10 +8,10 @@
              NavigationPage.HasNavigationBar="False">
 
     <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="15">
+        <VerticalStackLayout Padding="20" Spacing="10">
             <!-- Header -->
             <Label Text="Thursday, 23 Jul 2026" TextColor="{StaticResource LargaDarkText}" FontSize="14" Margin="0,10,0,0" />
-            <Label Text="Welcome back,&#10;Maykaila." TextColor="{StaticResource LargaDarkText}" FontSize="32" FontAttributes="Bold" LineHeight="1.1" />
+            <Label Text="Welcome back,&#10;Maykaila." Style="{StaticResource HeaderTitleStyle}" FontSize="35" LineHeight="1.1" />
 
             <!-- Status Card -->
             <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20">
@@ -22,7 +22,7 @@
                     <HorizontalStackLayout Grid.Row="0" Grid.Column="1" Spacing="5">
                         <Label Text="Status:" FontAttributes="Bold" FontSize="18" TextColor="{StaticResource LargaDarkText}" />
                         <!-- Toggle Text and TextColor based on shift state (Red for OFFLINE, Green for ONLINE) -->
-                        <Label Text="OFFLINE" FontAttributes="Bold" FontSize="18" TextColor="Red" />
+                        <Label Text="OFFLINE" Style="{StaticResource StatusDataStyle}" TextColor="Red" FontSize="18" />
                     </HorizontalStackLayout>
 
                     <Label Grid.Row="1" Grid.Column="1" Text="GPS inactive · Last login 07:12" TextColor="{StaticResource LargaDarkText}" FontSize="14" Margin="0,5,0,0" />
@@ -35,7 +35,7 @@
                     <Grid ColumnDefinitions="*, Auto">
                         <VerticalStackLayout Grid.Column="0">
                             <Label Text="ASSIGNED UNIT" TextColor="{StaticResource LargaDarkText}" FontSize="12" />
-                            <Label Text="GHK·4471·MP" TextColor="{StaticResource LargaDarkText}" FontSize="28" FontAttributes="Bold" />
+                            <Label Text="GHK·4471·MP" Style="{StaticResource HeaderStyle}" FontSize="32" />
                         </VerticalStackLayout>
                         <Border Grid.Column="1" BackgroundColor="{StaticResource LargaPrimaryBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" WidthRequest="50" HeightRequest="40">
                             <Image Source="car_icon.png" WidthRequest="24" HeightRequest="24" VerticalOptions="Center" HorizontalOptions="Center" />
@@ -71,7 +71,7 @@
 
                 <!-- OFFLINE UI: Clock In Button -->
                 <VerticalStackLayout Spacing="10">
-                    <Button Text="🕒 CLOCK IN   >" BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="{StaticResource LargaWhite}" CornerRadius="25" HeightRequest="60" FontSize="18" FontAttributes="Bold" Command="{Binding ClockInCommand}" />
+                    <Button Text="🕒 CLOCK IN   >" Style="{StaticResource LargaButtonStyle}" HeightRequest="60" FontSize="18" Command="{Binding ClockInCommand}" />
                     <Label Text="A vehicle checklist is required before your shift begins." TextColor="{StaticResource LargaDarkText}" FontSize="12" HorizontalTextAlignment="Center" />
                 </VerticalStackLayout>
 

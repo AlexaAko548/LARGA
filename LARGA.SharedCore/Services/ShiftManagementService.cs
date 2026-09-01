@@ -11,6 +11,7 @@ public interface IShiftManagementService
     Task<bool> CreateShiftScheduleAsync(ShiftSchedule schedule);
     Task<string> StartShiftLogAsync(ShiftLog shift);
     Task<bool> UpdateTaxiStatusAsync(string taxiId, string newStatus);
+    Task<TaxiUnit> GetTaxiUnitAsync(string taxiId);
 }
 
 public class ShiftManagementService : IShiftManagementService
@@ -61,6 +62,26 @@ public class ShiftManagementService : IShiftManagementService
         {
             System.Diagnostics.Debug.WriteLine($"Taxi Status Error: {ex.Message}");
             return false;
+        }
+    }
+
+    public async Task<TaxiUnit> GetTaxiUnitAsync(string taxiId)
+    {
+        try
+        {
+            // FIX: Changed GetDocumentAsync() to GetDocumentSnapshotAsync<TaxiUnit>()
+            var document = await CrossFirebaseFirestore.Current
+                .GetCollection("taxi_units")
+                .GetDocument(taxiId)
+                .GetDocumentSnapshotAsync<TaxiUnit>();
+
+            // FIX: Return the mapped Data object
+            return document?.Data;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Fetch Taxi Error: {ex.Message}");
+            return null;
         }
     }
 }

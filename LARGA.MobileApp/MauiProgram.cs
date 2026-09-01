@@ -22,11 +22,18 @@ public static class MauiProgram
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
                 fonts.AddFont("MaterialIcons-Regular.ttf", "MaterialIcons");
+                fonts.AddFont("Inter-Regular.ttf", "InterRegular");
+                fonts.AddFont("Inter-Bold.ttf", "InterBold");
+                fonts.AddFont("DMMono-Regular.ttf", "DMMonoRegular");
+                fonts.AddFont("DMMono-Medium.ttf", "DMMonoMedium");
+                fonts.AddFont("BarlowCondensed-Bold.ttf", "BarlowCondensedBold");
+                fonts.AddFont("BarlowCondensed-SemiBold.ttf", "BarlowCondensedSemiBold");
             });
 
         // Register Services
         builder.Services.AddSingleton<IFirebaseAuthService, FirebaseAuthService>();
         builder.Services.AddSingleton<IChatService, ChatService>();
+        builder.Services.AddSingleton<IShiftManagementService, ShiftManagementService>();
 
         // Register ViewModels (CRITICAL: Make sure LandingViewModel is here!)
         builder.Services.AddTransient<LandingViewModel>();
@@ -37,6 +44,7 @@ public static class MauiProgram
         builder.Services.AddTransient<MessageManagerViewModel>();
         builder.Services.AddTransient<PreShiftStep1ViewModel>();
         builder.Services.AddTransient<PreShiftStep2ViewModel>();
+        builder.Services.AddTransient<ActiveShiftViewModel>();
 
         // Register Views (CRITICAL: Make sure LandingPage is here!)
         builder.Services.AddTransient<LandingPage>();
@@ -50,6 +58,8 @@ public static class MauiProgram
         builder.Services.AddTransient<MessageManagerPage>();
         builder.Services.AddTransient<PreShiftStep1Page>();
         builder.Services.AddTransient<PreShiftStep2Page>();
+        builder.Services.AddTransient<OdometerScanPage>();
+        builder.Services.AddTransient<ActiveShiftPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();

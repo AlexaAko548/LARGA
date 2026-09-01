@@ -17,5 +17,7 @@ public partial class AppShell : Shell
 		Routing.RegisterRoute("manager-dashboard", typeof(ManagerDashboardPage));
         Routing.RegisterRoute("pre-shift-step1", typeof(Views.Driver.PreShiftStep1Page));
         Routing.RegisterRoute("pre-shift-step2", typeof(Views.Driver.PreShiftStep2Page));
+        Routing.RegisterRoute("odometer-scan", typeof(Views.Driver.OdometerScanPage));
+        Routing.RegisterRoute("active-shift", typeof(Views.Driver.ActiveShiftPage));
     }
 }

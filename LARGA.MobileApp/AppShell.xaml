@@ -7,7 +7,11 @@
     xmlns:driver="clr-namespace:LARGA.MobileApp.Views.Driver"
     xmlns:manager="clr-namespace:LARGA.MobileApp.Views.Manager"
     Title="LARGA.MobileApp"
-    FlyoutBehavior="Disabled">
+    FlyoutBehavior="Disabled"
+    Shell.TabBarBackgroundColor="White"
+    Shell.TabBarTitleColor="Black"
+    Shell.TabBarUnselectedColor="#999999"
+    Shell.TabBarForegroundColor="Black">
     <!-- Disables the sidebar globally -->
 
     <!-- The initial startup page -->

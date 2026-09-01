@@ -27,4 +27,7 @@ public class TaxiUnit
 
 	[FirestoreProperty("lastServicedDate")]
 	public DateTime? LastServicedDate { get; set; }
+
+    [FirestoreProperty("plateNumber")]
+    public string PlateNumber { get; set; } = string.Empty;
 }
