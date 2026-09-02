@@ -9,15 +9,13 @@
     Title="LARGA.MobileApp"
     FlyoutBehavior="Disabled">
     <!-- Disables the sidebar globally -->
-
     <!-- The initial startup page -->
     <ShellContent
         Title="Welcome"
         ContentTemplate="{DataTemplate auth:LandingPage}"
-        Route="landing" 
+        Route="landing"
         Shell.NavBarIsVisible="False" />
     <!-- Hides the top title bar -->
-
     <!-- Driver Dashboard with Bottom Tabs -->
     <TabBar Route="driver-dashboard">
         <Tab Title="Home" Icon="car.png">
@@ -33,12 +31,17 @@
             <ShellContent ContentTemplate="{DataTemplate driver:ProfilePage}" />
         </Tab>
     </TabBar>
-
     <!-- Manager Dashboard Route -->
     <ShellContent
         Title="Manager Dashboard"
         ContentTemplate="{DataTemplate manager:ManagerDashboardPage}"
-        Route="manager-dashboard" 
+        Route="manager-dashboard"
         FlyoutItemIsVisible="False" />
-
+    <!-- Manager Alert Center Route -->
+    <ShellContent
+        Title="Alert Center"
+        ContentTemplate="{DataTemplate manager:AlertCenterPage}"
+        Route="alertcenter"
+        Shell.NavBarIsVisible="False"
+        FlyoutItemIsVisible="False" />
 </Shell>

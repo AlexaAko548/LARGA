@@ -587,3 +587,4 @@ obj/
 # Firebase Android configuration (keep local; do not commit)
 **/Platforms/Android/google-services.json
 >>>>>>> feat/firebase-mobileapp
+*.iml

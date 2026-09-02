@@ -4,7 +4,10 @@ using LARGA.MobileApp.Views.Driver;
 using LARGA.MobileApp.Views.Manager;
 using LARGA.SharedCore.Services;
 using CommunityToolkit.Maui;
-using Plugin.Firebase.Core.Platforms;
+#if ANDROID
+using Plugin.Firebase.Core.Platforms.Android;
+#endif
+using Microsoft.Maui.LifecycleEvents;
 using LARGA.MobileApp.ViewModels.Driver;
 using LARGA.MobileApp.ViewModels.Auth;
 
@@ -28,14 +31,13 @@ public static class MauiProgram
             {
 #if ANDROID
                 events.AddAndroid(android => android.OnCreate((activity, _) =>
-                    CrossFirebase.Initialize(activity)));
+                CrossFirebase.Initialize(activity, () => Microsoft.Maui.ApplicationModel.Platform.CurrentActivity)));
 #endif
             });
 
         // Register Services
         builder.Services.AddSingleton<IFirebaseAuthService, FirebaseAuthService>();
         builder.Services.AddSingleton<IChatService, ChatService>();
-        builder.Services.AddSingleton<FirestoreService>();
 
         // Register ViewModels (CRITICAL: Make sure LandingViewModel is here!)
         builder.Services.AddTransient<LandingViewModel>();
@@ -59,6 +61,8 @@ public static class MauiProgram
         builder.Services.AddTransient<MessageManagerPage>();
         builder.Services.AddTransient<PreShiftStep1Page>();
         builder.Services.AddTransient<PreShiftStep2Page>();
+        builder.Services.AddTransient<LARGA.MobileApp.ViewModels.Manager.AlertCenterViewModel>();
+        builder.Services.AddTransient<AlertCenterPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();
