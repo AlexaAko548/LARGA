@@ -6,6 +6,8 @@ using LARGA.SharedCore.Services;
 using CommunityToolkit.Maui;
 using LARGA.MobileApp.ViewModels.Driver;
 using LARGA.MobileApp.ViewModels.Auth;
+using Plugin.Firebase.CloudMessaging;
+using Microsoft.Maui.LifecycleEvents;
 
 namespace LARGA.MobileApp;
 
@@ -17,6 +19,7 @@ public static class MauiProgram
         builder
             .UseMauiApp<App>()
             .UseMauiCommunityToolkit()
+            .RegisterFirebaseServices()
             .ConfigureFonts(fonts =>
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
@@ -34,6 +37,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IFirebaseAuthService, FirebaseAuthService>();
         builder.Services.AddSingleton<IChatService, ChatService>();
         builder.Services.AddSingleton<IShiftManagementService, ShiftManagementService>();
+        builder.Services.AddSingleton<INotificationService, NotificationService>();
 
         // Register ViewModels (CRITICAL: Make sure LandingViewModel is here!)
         builder.Services.AddTransient<LandingViewModel>();
@@ -66,5 +70,26 @@ public static class MauiProgram
 #endif
 
         return builder.Build();
+    }
+
+    private static MauiAppBuilder RegisterFirebaseServices(this MauiAppBuilder builder)
+    {
+        builder.ConfigureLifecycleEvents(events =>
+        {
+    #if ANDROID
+            events.AddAndroid(android => android.OnCreate((activity, state) =>
+            {
+                Plugin.Firebase.Core.Platforms.Android.CrossFirebase.Initialize(activity, () => Platform.CurrentActivity ?? activity);
+            }));
+    #elif IOS
+            events.AddiOS(ios => ios.FinishedLaunching((app, options) =>
+            {
+                Plugin.Firebase.Core.Platforms.iOS.CrossFirebase.Initialize();
+                return true;
+            }));
+    #endif
+        });
+
+        return builder;
     }
 }
