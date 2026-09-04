@@ -79,6 +79,7 @@
                 <!-- 
                 <Button Text="ACTIVE SHIFT SCREEN   >" BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="{StaticResource LargaWhite}" CornerRadius="25" HeightRequest="60" FontSize="18" FontAttributes="Bold" Command="{Binding ActiveShiftCommand}" />
                 -->
+                <Button Text="[DEV] Preview End-of-Shift" BackgroundColor="Gray" TextColor="White" Command="{Binding ClockOutCommand}" Margin="0,20,0,0" />
             </VerticalStackLayout>
         </VerticalStackLayout>
     </ScrollView>

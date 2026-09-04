@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="LARGA.MobileApp.Views.Driver.ShiftCompletedPage"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="{StaticResource LargaWhite}">
+
+    <Grid RowDefinitions="*,Auto" Padding="20">
+
+        <VerticalStackLayout Grid.Row="0" Spacing="15" VerticalOptions="Start" Margin="0,20,0,0">
+            <Label Text="Thursday, 23 Jul 2026" TextColor="{StaticResource LargaDarkText}" FontSize="14" />
+            <Label Text="Shift Completed" FontSize="32" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" />
+<!-- 
+            <Label Text="Great work, Maykaila!&#10;Your shift has been successfully logged and GPS tracking is OFF."
+                   FontSize="14" TextColor="{StaticResource LargaDarkText}" Margin="0,10,0,10" /> -->
+            <Label FontSize="14" TextColor="{StaticResource LargaDarkText}">
+                <Label.FormattedText>
+                    <FormattedString>
+                        <Span Text="Great work, Maykaila!&#10;Your shift has been successfully logged and GPS tracking is " />
+                        <Span Text="OFF." FontAttributes="Bold" />
+                    </FormattedString>
+                </Label.FormattedText>
+            </Label>
+
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <VerticalStackLayout Spacing="5">
+                    <Label Text="TODAY'S BOUNDARY" FontSize="12" TextColor="{StaticResource LargaDarkText}" />
+                    <Label Text="₱ 1,500" FontSize="28" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <Label Text="Please proceed to the office to remit your cash boundary to the manager to clear your ledger."
+                       FontSize="13" TextColor="{StaticResource LargaDarkText}" />
+            </Border>
+        </VerticalStackLayout>
+
+        <Button Grid.Row="1"
+                Text="RETURN TO HOMESCREEN   &gt;"
+                Clicked="OnReturnHomeClicked"
+                BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="{StaticResource LargaWhite}"
+                CornerRadius="25" HeightRequest="55" FontSize="16" FontAttributes="Bold"
+                Margin="0,20,0,20" />
+
+    </Grid>
+</ContentPage>

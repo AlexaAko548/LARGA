@@ -63,6 +63,11 @@ public static class MauiProgram
         builder.Services.AddTransient<PreShiftStep2Page>();
         builder.Services.AddTransient<LARGA.MobileApp.ViewModels.Manager.AlertCenterViewModel>();
         builder.Services.AddTransient<AlertCenterPage>();
+        builder.Services.AddTransient<EndShiftStep1ViewModel>();
+        builder.Services.AddTransient<EndShiftStep1Page>();
+        builder.Services.AddTransient<EndShiftStep2ViewModel>();
+        builder.Services.AddTransient<EndShiftStep2Page>();
+        builder.Services.AddTransient<ShiftCompletedPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();

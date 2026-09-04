@@ -9,9 +9,9 @@ namespace LARGA.MobileApp.ViewModels.Driver;
 public class DriverDashboardViewModel : INotifyPropertyChanged
 {
     private bool _isOffline = true;
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    // Toggles the UI between Offline (True) and Online (False)
     public bool IsOffline
     {
         get => _isOffline;
@@ -27,14 +27,13 @@ public class DriverDashboardViewModel : INotifyPropertyChanged
     public bool IsOnline => !IsOffline;
 
     public ICommand ClockInCommand { get; }
+    public ICommand ClockOutCommand { get; }
     public ICommand OpenMessagesCommand { get; }
 
     public DriverDashboardViewModel()
     {
-        // Temporarily toggles the UI state to Online
         ClockInCommand = new Command(async () => await Shell.Current.GoToAsync("pre-shift-step1"));
-
-        // Navigates to the message screen
+        ClockOutCommand = new Command(async () => await Shell.Current.GoToAsync("end-shift-step1"));
         OpenMessagesCommand = new Command(async () => await Shell.Current.GoToAsync("message-manager"));
     }
 

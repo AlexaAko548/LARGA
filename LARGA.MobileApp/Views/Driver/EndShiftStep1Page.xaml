@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
+             x:Class="LARGA.MobileApp.Views.Driver.EndShiftStep1Page"
+             x:DataType="vm:EndShiftStep1ViewModel"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="{StaticResource LargaWhite}">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="15">
+            <Grid ColumnDefinitions="Auto, *">
+                <ImageButton Grid.Column="0" Source="back_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="8" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
+            </Grid>
+
+            <Label Text="STEP 1 OF 2" TextColor="Gray" FontSize="12" />
+            <Label Text="End-of-Shift Inspection" FontSize="32" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" LineHeight="1.1" />
+            <Label Text="GHK·4471·MP · Complete all items before ending your shift." FontSize="12" TextColor="Gray" />
+
+            <ProgressBar Progress="{Binding ProgressRatio}" ProgressColor="{StaticResource LargaPrimaryBlue}" HeightRequest="4" Margin="0,10,0,0" />
+            <Label Text="{Binding ProgressText}" FontSize="14" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" Margin="0,5,0,0" />
+
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <Grid ColumnDefinitions="*, Auto, Auto" ColumnSpacing="0">
+                    <VerticalStackLayout Grid.Column="0" VerticalOptions="Center">
+                        <Label Text="Tire Condition" FontAttributes="Bold" FontSize="16" TextColor="{StaticResource LargaDarkText}" />
+                        <Label Text="All 4 tires inspected + Spare tire in trunk." FontSize="12" TextColor="{StaticResource LargaDarkText}" />
+                    </VerticalStackLayout>
+                    <ImageButton Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent"
+                                 Command="{Binding PassItemCommand}" CommandParameter="Tires" IsVisible="{Binding TiresCheckVisible}" VerticalOptions="Center" />
+                    <ImageButton Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent"
+                                 Command="{Binding ReportDefectCommand}" CommandParameter="Tires" IsVisible="{Binding TiresCloseVisible}" VerticalOptions="Center" />
+                </Grid>
+            </Border>
+
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <Grid ColumnDefinitions="*, Auto, Auto" ColumnSpacing="0">
+                    <VerticalStackLayout Grid.Column="0" VerticalOptions="Center">
+                        <Label Text="Under the Hood" FontAttributes="Bold" FontSize="16" TextColor="{StaticResource LargaDarkText}" />
+                        <Label Text="Oil level (dipstick) + Coolant/Water OK." FontSize="12" TextColor="{StaticResource LargaDarkText}" />
+                    </VerticalStackLayout>
+                    <ImageButton Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent"
+                                 Command="{Binding PassItemCommand}" CommandParameter="Hood" IsVisible="{Binding HoodCheckVisible}" VerticalOptions="Center" />
+                    <ImageButton Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent"
+                                 Command="{Binding ReportDefectCommand}" CommandParameter="Hood" IsVisible="{Binding HoodCloseVisible}" VerticalOptions="Center" />
+                </Grid>
+            </Border>
+
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <Grid ColumnDefinitions="*, Auto, Auto" ColumnSpacing="0">
+                    <VerticalStackLayout Grid.Column="0" VerticalOptions="Center">
+                        <Label Text="Lights &amp; Electronics" FontAttributes="Bold" FontSize="16" TextColor="{StaticResource LargaDarkText}" />
+                        <Label Text="Headlights, signals, and horn are working. No dashboard warning lights." FontSize="12" TextColor="{StaticResource LargaDarkText}" />
+                    </VerticalStackLayout>
+                    <ImageButton Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent"
+                                 Command="{Binding PassItemCommand}" CommandParameter="Lights" IsVisible="{Binding LightsCheckVisible}" VerticalOptions="Center" />
+                    <ImageButton Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent"
+                                 Command="{Binding ReportDefectCommand}" CommandParameter="Lights" IsVisible="{Binding LightsCloseVisible}" VerticalOptions="Center" />
+                </Grid>
+            </Border>
+
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <Grid ColumnDefinitions="*, Auto, Auto" ColumnSpacing="0">
+                    <VerticalStackLayout Grid.Column="0" VerticalOptions="Center">
+                        <Label Text="Interior &amp; Comfort" FontAttributes="Bold" FontSize="16" TextColor="{StaticResource LargaDarkText}" />
+                        <Label Text="Seats/floors clean + AC is cooling." FontSize="12" TextColor="{StaticResource LargaDarkText}" />
+                    </VerticalStackLayout>
+                    <ImageButton Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent"
+                                 Command="{Binding PassItemCommand}" CommandParameter="Interior" IsVisible="{Binding InteriorCheckVisible}" VerticalOptions="Center" />
+                    <ImageButton Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent"
+                                 Command="{Binding ReportDefectCommand}" CommandParameter="Interior" IsVisible="{Binding InteriorCloseVisible}" VerticalOptions="Center" />
+                </Grid>
+            </Border>
+
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <Grid ColumnDefinitions="*, Auto, Auto" ColumnSpacing="0">
+                    <VerticalStackLayout Grid.Column="0" VerticalOptions="Center">
+                        <Label Text="Exterior Scratches / Dents" FontAttributes="Bold" FontSize="16" TextColor="{StaticResource LargaDarkText}" />
+                        <Label Text="Walk-around completed" FontSize="12" TextColor="{StaticResource LargaDarkText}" />
+                    </VerticalStackLayout>
+                    <ImageButton Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent"
+                                 Command="{Binding PassItemCommand}" CommandParameter="Exterior" IsVisible="{Binding ExteriorCheckVisible}" VerticalOptions="Center" />
+                    <ImageButton Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent"
+                                 Command="{Binding ReportDefectCommand}" CommandParameter="Exterior" IsVisible="{Binding ExteriorCloseVisible}" VerticalOptions="Center" />
+                </Grid>
+            </Border>
+
+            <Button Text="Next   &gt;" Command="{Binding NextCommand}" BackgroundColor="{StaticResource LargaLightBlue}" TextColor="{StaticResource LargaPrimaryBlue}" CornerRadius="25" HeightRequest="55" FontAttributes="Bold" FontSize="16" Margin="0,10,0,0" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>
