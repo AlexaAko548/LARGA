@@ -30,6 +30,9 @@ public class EndShiftStep1ViewModel : BindableObject
     public bool ExteriorCheckVisible => _items["Exterior"] != false;
     public bool ExteriorCloseVisible => _items["Exterior"] != true;
 
+    // Unlocks the Next button
+    public bool IsComplete => _items.Values.All(v => v != null);
+
     public ICommand PassItemCommand { get; }
     public ICommand ReportDefectCommand { get; }
     public ICommand NextCommand { get; }
@@ -53,19 +56,26 @@ public class EndShiftStep1ViewModel : BindableObject
             {
                 _items[item] = false;
                 UpdateProgress(item);
-                // TODO: navigate to vehicle-defect-page once it's built in a later sprint
-                // await Shell.Current.GoToAsync($"vehicle-defect-page?item={item}");
-
+                await Shell.Current.GoToAsync($"vehicle-defect-page?item={item}");
             }
         });
 
-        NextCommand = new Command(async () => await Shell.Current.GoToAsync("end-shift-step2"));
+        NextCommand = new Command(async () =>
+        {
+            if (!IsComplete)
+            {
+                await Shell.Current.DisplayAlert("Incomplete", "Please complete all 5 inspection items before proceeding.", "OK");
+                return;
+            }
+            await Shell.Current.GoToAsync("end-shift-step2");
+        });
     }
 
     private void UpdateProgress(string item)
     {
         OnPropertyChanged(nameof(ProgressText));
         OnPropertyChanged(nameof(ProgressRatio));
+        OnPropertyChanged(nameof(IsComplete));
         OnPropertyChanged($"{item}CheckVisible");
         OnPropertyChanged($"{item}CloseVisible");
     }

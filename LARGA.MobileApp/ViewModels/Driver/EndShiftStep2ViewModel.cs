@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System.Windows.Input;
 using Microsoft.Maui.Controls;
 
@@ -6,8 +7,6 @@ namespace LARGA.MobileApp.ViewModels.Driver;
 public class EndShiftStep2ViewModel : BindableObject
 {
     private string _finalOdometer = string.Empty;
-    private bool _isHalfTank = true;
-
     public string FinalOdometer
     {
         get => _finalOdometer;
@@ -16,51 +15,86 @@ public class EndShiftStep2ViewModel : BindableObject
             if (_finalOdometer == value) return;
             _finalOdometer = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(IsOdometerScanned));
+            OnPropertyChanged(nameof(IsComplete));
         }
     }
 
-    public bool IsHalfTank
+    public bool IsOdometerScanned => !string.IsNullOrWhiteSpace(FinalOdometer);
+
+    private bool _hasPhoto;
+    public bool HasPhoto
     {
-        get => _isHalfTank;
+        get => _hasPhoto;
+        set { _hasPhoto = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsComplete)); }
+    }
+
+    private bool _isHalfTankSelected;
+    public bool IsHalfTankSelected
+    {
+        get => _isHalfTankSelected;
         set
         {
-            if (_isHalfTank == value) return;
-            _isHalfTank = value;
+            if (_isHalfTankSelected == value) return;
+            _isHalfTankSelected = value;
+            if (value) IsBelowHalfTankSelected = false;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(IsBelowHalfTank));
-            OnPropertyChanged(nameof(PenaltyNoteVisible));
+            OnPropertyChanged(nameof(IsComplete));
         }
     }
 
-    public bool IsBelowHalfTank
+    private bool _isBelowHalfTankSelected;
+    public bool IsBelowHalfTankSelected
     {
-        get => !_isHalfTank;
-        set => IsHalfTank = !value;
+        get => _isBelowHalfTankSelected;
+        set
+        {
+            if (_isBelowHalfTankSelected == value) return;
+            _isBelowHalfTankSelected = value;
+            if (value) IsHalfTankSelected = false;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(PenaltyNoteVisible));
+            OnPropertyChanged(nameof(IsComplete));
+        }
     }
 
-    public bool PenaltyNoteVisible => IsBelowHalfTank;
+    public bool PenaltyNoteVisible => IsBelowHalfTankSelected;
+
+    public bool IsComplete => IsOdometerScanned && HasPhoto && (IsHalfTankSelected || IsBelowHalfTankSelected);
 
     public ICommand ScanOdometerCommand { get; }
     public ICommand AttachFuelPhotoCommand { get; }
     public ICommand ConfirmEndShiftCommand { get; }
+    public ICommand SelectFuelCommand { get; }
 
     public EndShiftStep2ViewModel()
     {
         ScanOdometerCommand = new Command(async () =>
         {
-            // TODO: trigger camera capture + OCR (LAR-12 integration point)
+            await Task.Delay(500);
             FinalOdometer = "58,609 km";
         });
 
         AttachFuelPhotoCommand = new Command(async () =>
         {
-            // TODO: trigger camera capture for fuel dashboard photo
+            await Task.Delay(500);
+            HasPhoto = true;
         });
 
         ConfirmEndShiftCommand = new Command(async () =>
         {
-            // TODO: save EndShift HandoverChecklist + update ShiftLog (EndMileage, Status=Completed) to Firestore
+            if (!IsComplete)
+            {
+                await Shell.Current.DisplayAlert("Required", "Please complete all fields.", "OK");
+                return;
+            }
             await Shell.Current.GoToAsync("shift-completed");
+        });
+
+        SelectFuelCommand = new Command<string>((option) =>
+        {
+            if (option == "HalfTank") IsHalfTankSelected = true;
+            else if (option == "BelowHalf") IsBelowHalfTankSelected = true;
         });
     }
 }

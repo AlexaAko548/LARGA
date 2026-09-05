@@ -29,11 +29,11 @@
                 <!-- Content Inside Blue Area -->
                 <VerticalStackLayout Grid.Row="1" Padding="30, 0, 30, 30" Spacing="15" VerticalOptions="Center">
                     <Label Text="Welcome back!" 
-                           FontSize="36" 
-                           FontAttributes="Bold" 
+                           Style="{StaticResource HeaderTitleStyle}" 
+                           FontSize="40"
                            TextColor="Black"
                            HorizontalOptions="Center" 
-                           Margin="0, 0, 0, 30" />
+                           Margin="0, 0, 0, 70" />
 
                     <!-- Blue filled input fields -->
                     <Border BackgroundColor="#0099CC" StrokeShape="RoundRectangle 10" StrokeThickness="0" HeightRequest="50">
@@ -61,7 +61,7 @@
         <VerticalStackLayout Grid.Row="1" Padding="30,20,30,40" Spacing="15">
             <Label Text="{Binding ErrorMessage}" TextColor="Red" HorizontalOptions="Center" />
 
-            <Button Text="Login" BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="50" FontAttributes="Bold" Command="{Binding LoginCommand}" WidthRequest="250" HorizontalOptions="Center"/>
+            <Button Text="Login" BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="50" Style="{StaticResource LargaButtonStyle}" FontSize="18" Command="{Binding LoginCommand}" WidthRequest="250" HorizontalOptions="Center"/>
 
             <Label Text="Don't have an account?&#10;Please refer to your manager to open your account."
                    HorizontalTextAlignment="Center"

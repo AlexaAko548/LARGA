@@ -12,6 +12,6 @@ public partial class EndShiftStep1Page : ContentPage
 
     private async void OnBackButtonClicked(object sender, EventArgs e)
     {
-        await Shell.Current.GoToAsync("..");
+        await Shell.Current.GoToAsync("active-shift");
     }
 }

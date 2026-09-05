@@ -1,14 +1,13 @@
+using LARGA.MobileApp.ViewModels.Driver;
+using Microsoft.Maui.Controls;
+
 namespace LARGA.MobileApp.Views.Driver;
 
 public partial class ShiftCompletedPage : ContentPage
 {
-    public ShiftCompletedPage()
+    public ShiftCompletedPage(ShiftCompletedViewModel viewModel)
     {
         InitializeComponent();
-    }
-
-    private async void OnReturnHomeClicked(object sender, EventArgs e)
-    {
-        await Shell.Current.GoToAsync("driver-dashboard");
+        BindingContext = viewModel;
     }
 }

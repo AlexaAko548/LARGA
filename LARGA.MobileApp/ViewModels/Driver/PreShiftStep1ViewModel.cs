@@ -35,6 +35,7 @@ public class PreShiftStep1ViewModel : BindableObject
 
     public bool ExteriorCheckVisible => _items["Exterior"] != false;
     public bool ExteriorCloseVisible => _items["Exterior"] != true;
+    public bool IsComplete => _items.Values.All(v => v != null);
 
     public ICommand PassItemCommand { get; }
     public ICommand ReportDefectCommand { get; }
@@ -66,7 +67,15 @@ public class PreShiftStep1ViewModel : BindableObject
             }
         });
 
-        NextCommand = new Command(async () => await Shell.Current.GoToAsync("pre-shift-step2"));
+        NextCommand = new Command(async () =>
+        {
+            if (_items.Values.Any(v => v == null))
+            {
+                await Shell.Current.DisplayAlert("Incomplete", "Please complete all 5 inspection items before proceeding.", "OK");
+                return;
+            }
+            await Shell.Current.GoToAsync("pre-shift-step2");
+        });
     }
 
     private void UpdateProgress(string item)
@@ -78,5 +87,7 @@ public class PreShiftStep1ViewModel : BindableObject
         // Dynamically hide/show the buttons for the specific row clicked
         OnPropertyChanged($"{item}CheckVisible");
         OnPropertyChanged($"{item}CloseVisible");
+
+        OnPropertyChanged(nameof(IsComplete));
     }
 }
