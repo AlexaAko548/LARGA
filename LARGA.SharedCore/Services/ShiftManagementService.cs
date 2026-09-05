@@ -53,7 +53,7 @@ public class ShiftManagementService : IShiftManagementService
         try
         {
             await CrossFirebaseFirestore.Current
-                .GetCollection("taxi")
+                .GetCollection("taxis")
                 .GetDocument(taxiId)
                 .UpdateDataAsync(new Dictionary<object, object> { { "status", newStatus } });
             return true;
@@ -69,14 +69,25 @@ public class ShiftManagementService : IShiftManagementService
     {
         try
         {
-            // FIX: Changed GetDocumentAsync() to GetDocumentSnapshotAsync<TaxiUnit>()
+            // Explicitly request a Dictionary to prevent mobile SDK deserialization crashes with web attributes
             var document = await CrossFirebaseFirestore.Current
-                .GetCollection("taxi_units")
+                .GetCollection("taxis")
                 .GetDocument(taxiId)
-                .GetDocumentSnapshotAsync<TaxiUnit>();
+                .GetDocumentSnapshotAsync<Dictionary<string, object>>();
 
-            // FIX: Return the mapped Data object
-            return document?.Data;
+            if (document != null && document.Data != null)
+            {
+                return new TaxiUnit
+                {
+                    DocumentId = document.Reference.Id,
+                    TaxiId = document.Data.ContainsKey("taxiId") ? document.Data["taxiId"]?.ToString() : string.Empty,
+                    Model = document.Data.ContainsKey("model") ? document.Data["model"]?.ToString() : string.Empty,
+                    PlateNumber = document.Data.ContainsKey("plateNumber") ? document.Data["plateNumber"]?.ToString() : string.Empty,
+                    Status = document.Data.ContainsKey("status") ? document.Data["status"]?.ToString() : string.Empty,
+                    YearManufactured = document.Data.ContainsKey("yearManufactured") ? Convert.ToInt32(document.Data["yearManufactured"]) : 0
+                };
+            }
+            return null;
         }
         catch (Exception ex)
         {

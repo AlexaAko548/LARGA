@@ -4,6 +4,10 @@ using LARGA.MobileApp.Views.Driver;
 using LARGA.MobileApp.Views.Manager;
 using LARGA.SharedCore.Services;
 using CommunityToolkit.Maui;
+#if ANDROID
+using Plugin.Firebase.Core.Platforms.Android;
+#endif
+using Microsoft.Maui.LifecycleEvents;
 using LARGA.MobileApp.ViewModels.Driver;
 using LARGA.MobileApp.ViewModels.Auth;
 using Plugin.Firebase.CloudMessaging;
@@ -48,7 +52,8 @@ public static class MauiProgram
         builder.Services.AddTransient<MessageManagerViewModel>();
         builder.Services.AddTransient<PreShiftStep1ViewModel>();
         builder.Services.AddTransient<PreShiftStep2ViewModel>();
-        builder.Services.AddTransient<ActiveShiftViewModel>();
+        builder.Services.AddTransient<ShiftCompletedViewModel>();
+        builder.Services.AddSingleton<ActiveShiftViewModel>();
 
         // Register Views (CRITICAL: Make sure LandingPage is here!)
         builder.Services.AddTransient<LandingPage>();
@@ -60,10 +65,16 @@ public static class MauiProgram
         builder.Services.AddTransient<ReportsPage>();
         builder.Services.AddTransient<ProfilePage>();
         builder.Services.AddTransient<MessageManagerPage>();
+        builder.Services.AddTransient<ActiveShiftPage>();
         builder.Services.AddTransient<PreShiftStep1Page>();
         builder.Services.AddTransient<PreShiftStep2Page>();
-        builder.Services.AddTransient<OdometerScanPage>();
-        builder.Services.AddTransient<ActiveShiftPage>();
+        builder.Services.AddTransient<LARGA.MobileApp.ViewModels.Manager.AlertCenterViewModel>();
+        builder.Services.AddTransient<AlertCenterPage>();
+        builder.Services.AddTransient<EndShiftStep1ViewModel>();
+        builder.Services.AddTransient<EndShiftStep1Page>();
+        builder.Services.AddTransient<EndShiftStep2ViewModel>();
+        builder.Services.AddTransient<EndShiftStep2Page>();
+        builder.Services.AddTransient<ShiftCompletedPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();

@@ -3,7 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="LARGA.MobileApp.Views.Manager.ManagerDashboardPage"
              Title="Tactical Manager Dashboard">
-    <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center">
+    <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="20">
         <Label Text="Welcome Manager!" FontSize="24" FontAttributes="Bold" />
+        <Button Text="View Alert Center" Clicked="OnViewAlertCenterClicked" />
     </VerticalStackLayout>
 </ContentPage>

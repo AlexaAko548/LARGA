@@ -33,11 +33,11 @@ public class NotificationService : INotificationService
                 await CrossFirebaseCloudMessaging.Current.CheckIfValidAsync();
                 var token = await CrossFirebaseCloudMessaging.Current.GetTokenAsync();
 
-                // 3. Save/Merge token into Firestore under the driver's document
+                // 3. Save/Merge token into Firestore under the user's document
                 if (!string.IsNullOrEmpty(token))
                 {
                     await CrossFirebaseFirestore.Current
-                        .GetDocument($"drivers/{driverId}")
+                        .GetDocument($"users/{driverId}")
                         .SetDataAsync(new Dictionary<object, object>
                         {
                             { "fcmToken", token },
