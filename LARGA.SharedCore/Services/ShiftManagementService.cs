@@ -36,9 +36,8 @@ public class ShiftManagementService : IShiftManagementService
         try
         {
             var docRef = await CrossFirebaseFirestore.Current
-                .GetCollection("shift_logs")
-                .AddDocumentAsync(shift);
-            return docRef.Id;
+                .GetCollection("shifts")
+                .AddDocumentAsync(shift);            return docRef.Id;
         }
         catch (Exception ex)
         {
@@ -52,7 +51,7 @@ public class ShiftManagementService : IShiftManagementService
         try
         {
             await CrossFirebaseFirestore.Current
-                .GetCollection("taxi")
+                .GetCollection("taxis")
                 .GetDocument(taxiId)
                 .UpdateDataAsync(new Dictionary<object, object> { { "status", newStatus } });
             return true;
