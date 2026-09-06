@@ -34,6 +34,9 @@ public class ShiftLog
     [FirestoreProperty("status")]
     public string Status { get; set; } = string.Empty;
 
+    [FirestoreProperty("isOnBreak")]
+    public bool IsOnBreak { get; set; }
+
     [FirestoreProperty("managerNote")]
     public string ManagerNote { get; set; } = string.Empty;
 }
