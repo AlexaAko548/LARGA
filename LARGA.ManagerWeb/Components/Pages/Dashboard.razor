@@ -274,18 +274,28 @@ else if (_isAuthorized)
                     <div class="format-list">
                         @foreach (var format in ExportFormats)
                         {
-                            <label class="export-option @(format == _selectedExportFormat ? "selected" : "")">
-                                <input type="radio" name="exportFormat" checked="@(_selectedExportFormat == format)" @onchange="() => SelectExportFormat(format)" />
-                                <span>@format</span>
+                            bool isAvailable = format == CsvFormat;
+                            <label class="export-option @(format == _selectedExportFormat ? "selected" : "") @(isAvailable ? "" : "disabled")">
+                                <input type="radio" name="exportFormat" disabled="@(!isAvailable)" checked="@(_selectedExportFormat == format)" @onchange="() => SelectExportFormat(format)" />
+                                <span>@format@(isAvailable ? "" : " (coming soon)")</span>
                             </label>
                         }
                     </div>
                 </div>
             </div>
 
+            @if (_reportError is not null)
+            {
+                <div class="report-error">@_reportError</div>
+            }
+
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseReportModal">Cancel</button>
-                <button class="download-btn" type="button" disabled>Export unavailable until data is available</button>
+                <button class="download-btn" type="button"
+                        disabled="@(_selectedExportFormat != CsvFormat || _isExportingReport)"
+                        @onclick="DownloadReportAsync">
+                    @(_isExportingReport ? "Preparing…" : _selectedExportFormat == CsvFormat ? "Download CSV" : "Export unavailable until data is available")
+                </button>
             </div>
         </div>
     </div>
@@ -294,12 +304,17 @@ else if (_isAuthorized)
 }
 
 @code {
+    private const string CsvFormat = "CSV File";
+
     private bool _isCheckingAccess = true;
     private bool _isAuthorized;
     private IJSObjectReference? _firebaseModule;
+    private IJSObjectReference? _fileDownloadModule;
     private bool _showReportModal;
     private string _selectedReportType = "Financial Summary";
-    private string _selectedExportFormat = "PDF Document";
+    private string _selectedExportFormat = CsvFormat;
+    private bool _isExportingReport;
+    private string? _reportError;
 
     private DashboardSnapshot? _snapshot;
     private string? _dataError;
@@ -392,7 +407,12 @@ else if (_isAuthorized)
     private static string TrendCssClass(decimal? value) =>
         value is null or 0 ? string.Empty : value > 0 ? "up" : "down";
 
-    private void OpenReportModal() => _showReportModal = true;
+    private void OpenReportModal()
+    {
+        _reportError = null;
+        _showReportModal = true;
+    }
+
     private void CloseReportModal() => _showReportModal = false;
 
     private void SelectReport(string selected)
@@ -403,5 +423,39 @@ else if (_isAuthorized)
     private void SelectExportFormat(string selected)
     {
         _selectedExportFormat = selected;
+    }
+
+    private async Task DownloadReportAsync()
+    {
+        if (_selectedExportFormat != CsvFormat || _isExportingReport)
+        {
+            return;
+        }
+
+        _reportError = null;
+        _isExportingReport = true;
+
+        try
+        {
+            // The date <input>s only carry a calendar date - treat the range as whole UTC
+            // days (no timezone conversion here, matching the rest of the app's plain-UTC
+            // approach) so "To" includes that entire day rather than stopping at midnight.
+            DateTime fromUtc = DateTime.SpecifyKind(_reportFromDate.Date, DateTimeKind.Utc);
+            DateTime toUtc = DateTime.SpecifyKind(_reportToDate.Date, DateTimeKind.Utc).AddDays(1).AddTicks(-1);
+
+            string csv = await FleetReporting.BuildReportCsvAsync(_selectedReportType, fromUtc, toUtc);
+            string fileName = $"{_selectedReportType.Replace(" ", "_")}_{_reportFromDate:yyyyMMdd}-{_reportToDate:yyyyMMdd}.csv";
+
+            _fileDownloadModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/file-download.js");
+            await _fileDownloadModule.InvokeVoidAsync("downloadFile", fileName, csv, "text/csv");
+        }
+        catch (Exception ex)
+        {
+            _reportError = $"Couldn't generate the report: {ex.Message}";
+        }
+        finally
+        {
+            _isExportingReport = false;
+        }
     }
 }

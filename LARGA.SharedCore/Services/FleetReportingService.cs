@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
 using LARGA.SharedCore.Models.Dashboard;
@@ -342,6 +344,134 @@ public class FleetReportingService
             .ToList();
 
     // ---------------------------------------------------------------------
+    // Report export (Generate Reports modal) - CSV only for now; PDF/Excel need a
+    // rendering library and an actual layout spec, neither of which exist yet.
+    // ---------------------------------------------------------------------
+
+    public static readonly IReadOnlyList<string> SupportedReportTypes = new[]
+    {
+        "Financial Summary",
+        "Maintenance History",
+        "Fuel & Mileage Analysis",
+        "Driver Performance",
+        "Full Audit Trail",
+    };
+
+    public async Task<string> BuildReportCsvAsync(string reportType, DateTime fromUtc, DateTime toUtc)
+    {
+        return reportType switch
+        {
+            "Financial Summary" => await BuildFinancialSummaryCsvAsync(fromUtc, toUtc),
+            "Maintenance History" => await BuildMaintenanceHistoryCsvAsync(fromUtc, toUtc),
+            "Fuel & Mileage Analysis" => await BuildFuelMileageCsvAsync(fromUtc, toUtc),
+            "Driver Performance" => await BuildDriverPerformanceCsvAsync(fromUtc, toUtc),
+            "Full Audit Trail" => await BuildAuditTrailCsvAsync(fromUtc, toUtc),
+            _ => throw new ArgumentException($"Unknown report type: {reportType}", nameof(reportType)),
+        };
+    }
+
+    private async Task<string> BuildFinancialSummaryCsvAsync(DateTime fromUtc, DateTime toUtc)
+    {
+        List<BoundaryPayment> payments = await GetBetweenAsync<BoundaryPayment>("boundary_payments", "timestamp", fromUtc, toUtc);
+
+        return BuildCsv(
+            new[] { "Date", "ShiftId", "ExpectedBoundary", "LateFees", "AmountPaid", "PaymentMethod", "PaymentStatus" },
+            payments.OrderBy(p => p.Timestamp).Select(p => new object?[]
+            {
+                p.Timestamp.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                p.ShiftId, p.ExpectedBoundary, p.LateFees, p.AmountPaid, p.PaymentMethod, p.PaymentStatus,
+            }));
+    }
+
+    private async Task<string> BuildMaintenanceHistoryCsvAsync(DateTime fromUtc, DateTime toUtc)
+    {
+        List<MaintenanceRecord> records = await GetBetweenAsync<MaintenanceRecord>("maintenance_logs", "dateLogged", fromUtc, toUtc);
+
+        return BuildCsv(
+            new[] { "DateLogged", "TaxiId", "MaintenanceType", "IssueTitle", "PriorityLevel", "LaborCost", "TotalCost", "DateResolved" },
+            records.OrderBy(m => m.DateLogged).Select(m => new object?[]
+            {
+                m.DateLogged.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                m.TaxiId, m.MaintenanceType, m.IssueTitle, m.PriorityLevel, m.LaborCost, m.TotalCost,
+                m.DateResolved?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? "Open",
+            }));
+    }
+
+    private async Task<string> BuildFuelMileageCsvAsync(DateTime fromUtc, DateTime toUtc)
+    {
+        List<FuelLog> fuelLogs = await GetBetweenAsync<FuelLog>("fuel_logs", "receiptTimestamp", fromUtc, toUtc);
+        List<ShiftLog> shifts = await GetBetweenAsync<ShiftLog>("shifts", "shiftStart", fromUtc, toUtc);
+
+        var sb = new StringBuilder();
+        sb.AppendLine("Fuel Logs");
+        sb.Append(BuildCsv(
+            new[] { "ReceiptTimestamp", "ShiftId", "FuelStation", "LitersRefueled", "FuelCost", "VerificationStatus", "OdometerReading" },
+            fuelLogs.OrderBy(f => f.ReceiptTimestamp).Select(f => new object?[]
+            {
+                f.ReceiptTimestamp?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? string.Empty,
+                f.ShiftId, f.FuelStation, f.LitersRefueled, f.FuelCost, f.VerificationStatus, f.OdometerReading,
+            })));
+
+        sb.AppendLine();
+        sb.AppendLine("Mileage By Taxi");
+        sb.Append(BuildCsv(
+            new[] { "TaxiId", "TotalMileage" },
+            shifts.GroupBy(s => s.TaxiId).Select(g => new object?[] { g.Key, SumMileage(g) })));
+
+        return sb.ToString();
+    }
+
+    private async Task<string> BuildDriverPerformanceCsvAsync(DateTime fromUtc, DateTime toUtc)
+    {
+        List<UserProfile> drivers = (await GetAllAsync<UserProfile>("users"))
+            .Where(u => string.Equals(u.Role, "Driver", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        List<ShiftLog> shifts = await GetBetweenAsync<ShiftLog>("shifts", "shiftStart", fromUtc, toUtc);
+        List<MaintenanceRecord> maintenance = await GetAllAsync<MaintenanceRecord>("maintenance_logs");
+        List<EmergencyAlert> alerts = await GetAllAsync<EmergencyAlert>("emergency_alerts");
+        List<BoundaryPayment> payments = await GetBetweenAsync<BoundaryPayment>("boundary_payments", "timestamp", fromUtc, toUtc);
+
+        List<DriverStanding> standings = BuildTopDrivers(drivers, shifts, maintenance, alerts, payments);
+
+        return BuildCsv(
+            new[] { "Rank", "DriverName", "TaxiId", "PunctualPercent", "IncidentCount", "BoundariesRemitted" },
+            standings.Select(d => new object?[]
+            {
+                d.Rank, d.FullName, d.TaxiId, d.PunctualPercent.ToString("0.0", CultureInfo.InvariantCulture),
+                d.IncidentCount, d.BoundariesRemitted,
+            }));
+    }
+
+    private async Task<string> BuildAuditTrailCsvAsync(DateTime fromUtc, DateTime toUtc)
+    {
+        List<AuditLog> logs = await GetBetweenAsync<AuditLog>("audit_logs", "timestamp", fromUtc, toUtc);
+
+        return BuildCsv(
+            new[] { "Timestamp", "UserId", "ActionType", "Details", "IpAddress" },
+            logs.OrderBy(a => a.Timestamp).Select(a => new object?[]
+            {
+                a.Timestamp.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                a.UserId, a.ActionType, a.AuditLogDetails, a.IpAddress,
+            }));
+    }
+
+    private static string BuildCsv(IEnumerable<string> headers, IEnumerable<IEnumerable<object?>> rows)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(string.Join(",", headers.Select(CsvEscape)));
+        foreach (IEnumerable<object?> row in rows)
+        {
+            sb.AppendLine(string.Join(",", row.Select(v => CsvEscape(v?.ToString() ?? string.Empty))));
+        }
+        return sb.ToString();
+    }
+
+    private static string CsvEscape(string value) =>
+        value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0
+            ? "\"" + value.Replace("\"", "\"\"") + "\""
+            : value;
+
+    // ---------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------
 
@@ -378,6 +508,19 @@ public class FleetReportingService
     {
         QuerySnapshot snapshot = await Db.Collection(collection)
             .WhereGreaterThanOrEqualTo(dateField, sinceUtc)
+            .GetSnapshotAsync();
+        return ConvertDocuments<T>(snapshot, collection);
+    }
+
+    // Two inequalities on the same field (>= from AND <= to) still count as a single-field
+    // filter as far as Firestore indexing is concerned - no composite index needed here
+    // either. Used for report export, where the date range comes from the user rather
+    // than a fixed 14-day window.
+    private async Task<List<T>> GetBetweenAsync<T>(string collection, string dateField, DateTime fromUtc, DateTime toUtc) where T : class
+    {
+        QuerySnapshot snapshot = await Db.Collection(collection)
+            .WhereGreaterThanOrEqualTo(dateField, fromUtc)
+            .WhereLessThanOrEqualTo(dateField, toUtc)
             .GetSnapshotAsync();
         return ConvertDocuments<T>(snapshot, collection);
     }
