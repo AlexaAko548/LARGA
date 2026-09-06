@@ -16,7 +16,7 @@ public class UserProfile
     [FirestoreProperty("email")]
     public string Email { get; set; } = string.Empty;
 
-    [FirestoreProperty("phoneNumber")]
+    [FirestoreProperty("phoneNumber", ConverterType = typeof(LenientStringConverter))]
     public string PhoneNumber { get; set; } = string.Empty;
 
     [FirestoreProperty("role")]
@@ -37,11 +37,14 @@ public class UserProfile
     [FirestoreProperty("licenseExpiryDate")]
     public DateTime? LicenseExpiryDate { get; set; }
 
+    // Nullable: these don't apply to Manager-role accounts, whose documents legitimately
+    // store an explicit Firestore null here rather than a number - a non-nullable int/double
+    // throws ArgumentException("Unable to convert null value...") when that happens.
     [FirestoreProperty("currentArrears")]
-    public double CurrentArrears { get; set; }
+    public double? CurrentArrears { get; set; }
 
     [FirestoreProperty("performanceScore")]
-    public int PerformanceScore { get; set; }
+    public int? PerformanceScore { get; set; }
 
     [FirestoreProperty("deviceTokens")]
     public List<string> DeviceTokens { get; set; } = new();

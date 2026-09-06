@@ -109,10 +109,10 @@ public class MaintenanceRecord
     [FirestoreProperty("dateResolved")]
     public DateTime? DateResolved { get; set; }
 
-    [FirestoreProperty("laborCost")]
+    [FirestoreProperty("laborCost", ConverterType = typeof(DecimalConverter))]
     public decimal LaborCost { get; set; }
 
-    [FirestoreProperty("totalCost")]
+    [FirestoreProperty("totalCost", ConverterType = typeof(DecimalConverter))]
     public decimal TotalCost { get; set; }
 
     [FirestoreProperty("supportingPhotoUrl")]
