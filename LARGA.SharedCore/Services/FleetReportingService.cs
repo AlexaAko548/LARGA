@@ -66,6 +66,7 @@ public class FleetReportingService
         List<ShiftLog> activeShifts = await GetWhereEqualAsync<ShiftLog>("shifts", "status", "Active");
         List<ShiftLog> recentShifts = await GetSinceAsync<ShiftLog>("shifts", "shiftStart", twoWeeksAgo);
         List<BoundaryPayment> recentPayments = await GetSinceAsync<BoundaryPayment>("boundary_payments", "timestamp", twoWeeksAgo);
+        List<FuelLog> recentFuelLogs = await GetSinceAsync<FuelLog>("fuel_logs", "receiptTimestamp", twoWeeksAgo);
 
         double idleThresholdMinutes = await GetIdleThresholdMinutesAsync();
 
@@ -82,9 +83,7 @@ public class FleetReportingService
             // lifetime), but flagging the semantic change explicitly.
             TopDrivers = BuildTopDrivers(drivers, recentShifts, maintenance, alerts, recentPayments),
             BoundaryCollections = BuildBoundaryCollections(recentPayments),
-            // Not rendered by any chart yet (see Dashboard.razor's chart-empty placeholders) -
-            // skip paying for a full fuel_logs fetch until it's actually wired up.
-            FuelVerification = new List<ChartPoint>(),
+            FuelVerification = BuildFuelVerification(recentFuelLogs),
             FleetMileageByTaxi = BuildFleetMileageByTaxi(recentShifts),
             MaintenanceExpenses = BuildMaintenanceExpenses(maintenance),
         };

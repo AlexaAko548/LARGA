@@ -157,7 +157,7 @@ else if (_isAuthorized)
                     <button type="button" aria-label="Expand">↗</button>
                 </div>
                 <div class="chart-area">
-                    <div class="chart-empty">No boundary payment data</div>
+                    <SimpleBarChart Data="_snapshot?.BoundaryCollections" ValuePrefix="₱" EmptyMessage="No boundary payment data" />
                 </div>
             </article>
 
@@ -168,7 +168,7 @@ else if (_isAuthorized)
                     <button type="button" aria-label="Expand">↗</button>
                 </div>
                 <div class="chart-area">
-                    <div class="chart-empty">No verified fuel data</div>
+                    <SimpleBarChart Data="_snapshot?.FuelVerification" ValuePrefix="₱" EmptyMessage="No verified fuel data" />
                 </div>
             </article>
 
@@ -179,7 +179,7 @@ else if (_isAuthorized)
                     <button type="button" aria-label="Expand">↗</button>
                 </div>
                 <div class="chart-area">
-                    <div class="chart-empty">No mileage data</div>
+                    <SimpleBarChart Data="_snapshot?.FleetMileageByTaxi" ValueFormat="#,##0 km" EmptyMessage="No mileage data" />
                 </div>
             </article>
 
@@ -190,7 +190,7 @@ else if (_isAuthorized)
                     <button type="button" aria-label="Expand">↗</button>
                 </div>
                 <div class="chart-area">
-                    <div class="chart-empty">No maintenance expense data</div>
+                    <SimpleBarChart Data="_snapshot?.MaintenanceExpenses" ValuePrefix="₱" EmptyMessage="No maintenance expense data" />
                 </div>
             </article>
         </section>
