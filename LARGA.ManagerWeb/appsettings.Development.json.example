@@ -1,7 +1,4 @@
 {
-  "MapTiler": {
-    "ApiKey": "YOUR_MAPTILER_API_KEY"
-  },
   "Logging": {
     "LogLevel": {
       "Default": "Information",
