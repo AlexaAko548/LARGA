@@ -69,16 +69,17 @@ public class LoginViewModel : INotifyPropertyChanged
             {
                 // Fetch the user's role from Firestore
                 var role = await _authService.GetUserRoleAsync(userId);
+                var normalizedRole = NormalizeRole(role);
 
-                // Route explicitly based on role, forcing execution on the UI thread
-                if (role?.Equals("Driver", StringComparison.OrdinalIgnoreCase) == true)
+                // Route explicitly based on role, allowing common variants such as "Manager2"/"manager-2".
+                if (IsDriverRole(normalizedRole))
                 {
                     MainThread.BeginInvokeOnMainThread(async () =>
                     {
                         await Shell.Current.GoToAsync("//driver-dashboard");
                     });
                 }
-                else if (role?.Equals("Manager", StringComparison.OrdinalIgnoreCase) == true)
+                else if (IsManagerRole(normalizedRole))
                 {
                     MainThread.BeginInvokeOnMainThread(async () =>
                     {
@@ -99,6 +100,28 @@ public class LoginViewModel : INotifyPropertyChanged
         {
             ErrorMessage = $"Login failed: {ex.Message}";
         }
+    }
+
+    private static string NormalizeRole(string? role)
+    {
+        if (string.IsNullOrWhiteSpace(role))
+        {
+            return string.Empty;
+        }
+
+        return role.Trim().Replace("_", " ").Replace("-", " ");
+    }
+
+    private static bool IsDriverRole(string? role)
+    {
+        return !string.IsNullOrWhiteSpace(role) &&
+               role.Contains("driver", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsManagerRole(string? role)
+    {
+        return !string.IsNullOrWhiteSpace(role) &&
+               role.Contains("manager", StringComparison.OrdinalIgnoreCase);
     }
 
     protected void SetProperty<T>(ref T backingStore, T value, [CallerMemberName] string propertyName = "")

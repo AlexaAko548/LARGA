@@ -94,6 +94,14 @@
                 return;
             }
 
+            if (result.TryGetProperty("code", out var codeProp)
+                && codeProp.ValueKind == JsonValueKind.String
+                && codeProp.GetString() == "manager-only")
+            {
+                _errorMessage = "This account is not authorized to access the manager portal.";
+                return;
+            }
+
             if (result.TryGetProperty("message", out var msgProp) && msgProp.ValueKind == JsonValueKind.String)
             {
                 _errorMessage = msgProp.GetString();
