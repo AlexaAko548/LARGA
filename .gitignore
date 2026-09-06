@@ -40,6 +40,9 @@ LARGA.SeedTool/*.json
 # Developer-local ManagerWeb config overrides (Firestore credentials path, etc.)
 LARGA.ManagerWeb/appsettings.Local.json
 
+# Contains a real MapTiler API key - untracked on 2026-09-07, use the .example template
+LARGA.ManagerWeb/appsettings.Development.json
+
 # Mono auto generated files
 mono_crash.*
 

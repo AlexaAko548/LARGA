@@ -1,6 +1,6 @@
 {
   "MapTiler": {
-    "ApiKey": "POPeO0mRGBRrfG3Fqymg"
+    "ApiKey": "YOUR_MAPTILER_API_KEY"
   },
   "Logging": {
     "LogLevel": {
