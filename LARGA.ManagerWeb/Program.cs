@@ -1,4 +1,6 @@
 using System.IO;
+using FirebaseAdmin;
+using FirebaseAdmin.Auth;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Firestore;
 using Google.Cloud.Firestore.V1;
@@ -56,6 +58,41 @@ builder.Services.AddSingleton(sp => new Lazy<FirestoreDb>(() =>
 }));
 
 builder.Services.AddSingleton<FleetReportingService>();
+
+// Firebase Admin SDK - lets ManagerWeb create/manage driver Auth accounts server-side
+// (drivers never self-register; a manager provisions every driver login via the
+// Driver & Shift Management page). Same credentials + same Lazy<T> deferral rationale
+// as the FirestoreDb registration above.
+builder.Services.AddSingleton(sp => new Lazy<FirebaseAuth>(() =>
+{
+    IConfiguration config = sp.GetRequiredService<IConfiguration>();
+    string projectId = config["Firestore:ProjectId"] ?? "larga-blmtaxi";
+    string? credentialsPath = config["Firestore:CredentialsPath"];
+
+    AppOptions options = new() { ProjectId = projectId };
+    if (!string.IsNullOrWhiteSpace(credentialsPath))
+    {
+        if (!File.Exists(credentialsPath))
+        {
+            throw new FileNotFoundException(
+                $"Firestore:CredentialsPath is set to '{credentialsPath}' but that file does not exist. " +
+                "See LARGA.SeedTool/README.md for how to get a service account key.");
+        }
+
+#pragma warning disable CS0618
+        options.Credential = GoogleCredential.FromFile(credentialsPath);
+#pragma warning restore CS0618
+    }
+    else
+    {
+        options.Credential = GoogleCredential.GetApplicationDefault();
+    }
+
+    FirebaseApp firebaseApp = FirebaseApp.Create(options, "LargaManagerWeb");
+    return FirebaseAuth.GetAuth(firebaseApp);
+}));
+
+builder.Services.AddSingleton<DriverManagementService>();
 
 var app = builder.Build();
 

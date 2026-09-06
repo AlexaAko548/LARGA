@@ -135,6 +135,8 @@ internal static class Program
             Email = "antonio.medina@larga-blmtaxi.com",
             PhoneNumber = "09171234567",
             Role = "Manager",
+            Address = "22 Kalayaan Ave, Quezon City",
+            DateJoined = new DateTime(2022, 1, 10, 0, 0, 0, DateTimeKind.Utc),
         });
 
         await SetAsync(db, "users", DriverJuan, new UserProfile
@@ -150,6 +152,9 @@ internal static class Program
             LicenseExpiryDate = new DateTime(2028, 3, 15, 0, 0, 0, DateTimeKind.Utc),
             CurrentArrears = 0,
             PerformanceScore = 92,
+            Address = "14 Rizal St, Quezon City",
+            DateJoined = new DateTime(2022, 1, 15, 0, 0, 0, DateTimeKind.Utc),
+            ManagerNote = "Please double check the AC vents before your shift - a rider complained last week.",
         });
 
         await SetAsync(db, "users", DriverMaria, new UserProfile
@@ -162,9 +167,12 @@ internal static class Program
             LicenseNumber = "N02-34-567890",
             LicenseClassification = "Professional",
             LicenseRestrictionCode = "1",
-            LicenseExpiryDate = new DateTime(2027, 11, 2, 0, 0, 0, DateTimeKind.Utc),
+            // Within 30 days of the seed-tool's "today" - demonstrates the Expiring status.
+            LicenseExpiryDate = DateTime.UtcNow.Date.AddDays(18),
             CurrentArrears = 0,
             PerformanceScore = 97,
+            Address = "8 Mabini St, Pasig City",
+            DateJoined = new DateTime(2023, 4, 2, 0, 0, 0, DateTimeKind.Utc),
         });
 
         await SetAsync(db, "users", DriverPedro, new UserProfile
@@ -177,9 +185,12 @@ internal static class Program
             LicenseNumber = "N03-45-678901",
             LicenseClassification = "Professional",
             LicenseRestrictionCode = "1",
-            LicenseExpiryDate = new DateTime(2027, 6, 20, 0, 0, 0, DateTimeKind.Utc),
+            // Already in the past - demonstrates the Expired status.
+            LicenseExpiryDate = DateTime.UtcNow.Date.AddDays(-14),
             CurrentArrears = 0,
             PerformanceScore = 88,
+            Address = "101 Aguinaldo Hwy, Bacoor, Cavite",
+            DateJoined = new DateTime(2022, 6, 20, 0, 0, 0, DateTimeKind.Utc),
         });
 
         await SetAsync(db, "users", DriverAna, new UserProfile
@@ -195,6 +206,8 @@ internal static class Program
             LicenseExpiryDate = new DateTime(2026, 12, 10, 0, 0, 0, DateTimeKind.Utc),
             CurrentArrears = 900, // 400 unpaid from Sep 2 shift + 500 unpaid from Aug 27 shift
             PerformanceScore = 61,
+            Address = "5 Bonifacio St, Makati City",
+            DateJoined = new DateTime(2024, 2, 14, 0, 0, 0, DateTimeKind.Utc),
         });
 
         await SetAsync(db, "users", DriverCarlos, new UserProfile
@@ -210,6 +223,8 @@ internal static class Program
             LicenseExpiryDate = new DateTime(2029, 1, 5, 0, 0, 0, DateTimeKind.Utc),
             CurrentArrears = 0,
             PerformanceScore = 0, // no shifts yet - brand-new driver, good empty-state test case
+            Address = "33 EDSA, Mandaluyong City",
+            DateJoined = DateTime.UtcNow.Date.AddDays(-3), // brand-new hire
         });
     }
 
@@ -1014,21 +1029,45 @@ internal static class Program
     {
         Console.WriteLine("Seeding shift_schedules...");
 
-        await SetAsync(db, "shift_schedules", "SCHED_CARLOS_001", new ShiftSchedule
-        {
-            DriverId = DriverCarlos,
-            TaxiId = Taxi5,
-            ScheduledStartTime = DateTime.UtcNow.Date.AddDays(1).AddHours(6), // Carlos's first shift, tomorrow
-            Status = "Planned",
-        });
+        // Doc IDs match ManagerWeb's Schedule Planner exactly ({driverId}_{yyyyMMdd}) so a
+        // manager clicking a cell to assign/clear a unit overwrites/deletes these same
+        // documents instead of creating duplicates alongside them.
+        DateTime today = DateTime.UtcNow.Date;
+        int daysSinceMonday = (7 + (int)today.DayOfWeek - (int)DayOfWeek.Monday) % 7;
+        DateTime weekStart = today.AddDays(-daysSinceMonday);
 
-        await SetAsync(db, "shift_schedules", "SCHED_PEDRO_001", new ShiftSchedule
+        // Mon..Sun per driver - null means a rest day (no document at all). Each driver
+        // mostly keeps their own AssignedTaxiId from SeedUsersAsync, with a couple of rest
+        // days spread through the week so the planner isn't a wall of identical cells.
+        (string DriverId, string?[] Days)[] plan =
         {
-            DriverId = DriverPedro,
-            TaxiId = Taxi3,
-            ScheduledStartTime = DateTime.UtcNow.Date.AddDays(3).AddHours(6), // once TAXI_003 is back from the shop
-            Status = "Planned",
-        });
+            (DriverJuan,   new[] { Taxi1, null,  Taxi1, Taxi1, Taxi1, Taxi1, null  }),
+            (DriverMaria,  new[] { Taxi2, Taxi2, null,  Taxi2, Taxi2, null,  Taxi2 }),
+            (DriverPedro,  new[] { Taxi3, Taxi3, Taxi3, null,  Taxi3, Taxi3, null  }),
+            (DriverAna,    new[] { Taxi4, null,  Taxi4, Taxi4, null,  Taxi4, Taxi4 }),
+            (DriverCarlos, new[] { null,  Taxi5, Taxi5, Taxi5, Taxi5, null,  Taxi5 }),
+        };
+
+        foreach ((string driverId, string?[] days) in plan)
+        {
+            for (int i = 0; i < 7; i++)
+            {
+                string? taxiId = days[i];
+                if (taxiId is null)
+                {
+                    continue;
+                }
+
+                DateTime date = weekStart.AddDays(i);
+                await SetAsync(db, "shift_schedules", $"{driverId}_{date:yyyyMMdd}", new ShiftSchedule
+                {
+                    DriverId = driverId,
+                    TaxiId = taxiId,
+                    ScheduledStartTime = date.AddHours(6),
+                    Status = "Planned",
+                });
+            }
+        }
     }
 
     // ---------------------------------------------------------------------

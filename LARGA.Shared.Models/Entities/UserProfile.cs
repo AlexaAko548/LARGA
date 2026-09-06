@@ -48,4 +48,25 @@ public class UserProfile
 
     [FirestoreProperty("deviceTokens")]
     public List<string> DeviceTokens { get; set; } = new();
+
+    // Added for Driver & Shift Management (ManagerWeb) - see docs/ERD.md.
+    [FirestoreProperty("address")]
+    public string? Address { get; set; }
+
+    [FirestoreProperty("dateJoined")]
+    public DateTime? DateJoined { get; set; }
+
+    [FirestoreProperty("ltoIdPhotoUrl")]
+    public string? LtoIdPhotoUrl { get; set; }
+
+    // Free-text note a manager leaves for a driver. Written here; nothing in
+    // LARGA.MobileApp displays it yet - that's a separate, future mobile-side build.
+    [FirestoreProperty("managerNote")]
+    public string? ManagerNote { get; set; }
+
+    // Set true when a manager creates a driver's account with a temporary password.
+    // Nothing enforces this on login yet (mobile-side work, not yet built) - it's here
+    // so that enforcement has something to check whenever it is built.
+    [FirestoreProperty("mustChangePassword")]
+    public bool MustChangePassword { get; set; }
 }

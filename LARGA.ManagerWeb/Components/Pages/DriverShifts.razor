@@ -1,0 +1,1124 @@
+@page "/driver-shifts"
+@using System.Text.Json
+@using LARGA.SharedCore.Models.DriverShifts
+@using LARGA.SharedCore.Services
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject DriverManagementService DriverManagement
+
+<PageTitle>Driver & Shift Management</PageTitle>
+
+@if (_isCheckingAccess)
+{
+    <div class="auth-page">
+        <div class="auth-card">
+            <h2>Checking access...</h2>
+        </div>
+    </div>
+}
+else if (_isAuthorized)
+{
+<div class="dashboard-shell">
+    <DashboardSidebar ActiveItem="DriverShifts" />
+
+    <main class="dashboard-main">
+        <header class="dashboard-header">
+            <div class="header-title-wrap">
+                <h1>DRIVER &amp; SHIFT MANAGEMENT</h1>
+                <div class="header-date">Roster, dispatch, and personnel</div>
+            </div>
+
+            <div class="header-actions">
+                <button class="icon-btn" type="button" aria-label="Notifications">◌</button>
+                <button class="icon-btn" type="button" aria-label="Messages">✉</button>
+                <div class="manager-pill">
+                    <span class="manager-dot"></span>
+                    <span>Manager</span>
+                    <span class="caret">▾</span>
+                </div>
+            </div>
+        </header>
+
+        @if (_rosterError is not null)
+        {
+            <div class="data-warning-banner">Driver data unavailable: @_rosterError</div>
+        }
+
+        <section class="stats-grid">
+            <article class="stat-card">
+                <div class="stat-icon">☺</div>
+                <div class="stat-body">
+                    <div class="stat-value">@(_roster?.TotalDrivers ?? 0)</div>
+                    <div class="stat-label">Total Drivers</div>
+                </div>
+            </article>
+            <article class="stat-card">
+                <div class="stat-icon">◇</div>
+                <div class="stat-body">
+                    <div class="stat-value">@(_roster?.OnShiftCount ?? 0)</div>
+                    <div class="stat-label">On Shift</div>
+                </div>
+            </article>
+            <article class="stat-card">
+                <div class="stat-icon">▭</div>
+                <div class="stat-body">
+                    <div class="stat-value">@(_roster?.OffDutyCount ?? 0)</div>
+                    <div class="stat-label">Off Duty</div>
+                </div>
+            </article>
+            <article class="stat-card">
+                <div class="stat-icon">△</div>
+                <div class="stat-body">
+                    <div class="stat-value">@(_roster?.ExpiredLicenseCount ?? 0)</div>
+                    <div class="stat-label">Expired License</div>
+                </div>
+            </article>
+        </section>
+
+        <section class="tab-bar">
+            <div class="tab-group">
+                <button class="tab-btn @(_activeTab == "roster" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("roster")'>⌇ Live Roster</button>
+                <button class="tab-btn @(_activeTab == "schedule" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("schedule")'>▤ Schedule Planner</button>
+                <button class="tab-btn @(_activeTab == "logs" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("logs")'>▥ Shift Logs</button>
+            </div>
+            <div class="tab-actions">
+                <button class="solid-btn" type="button" @onclick="OpenManagerNoteModal">+ Add Manager Note</button>
+                <button class="solid-btn" type="button" @onclick="OpenAddDriverModal">+ Add New Driver</button>
+            </div>
+        </section>
+
+        @if (_activeTab == "roster")
+        {
+            <div class="data-table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Driver</th>
+                            <th>Driver ID</th>
+                            <th>License Status</th>
+                            <th>Current Status</th>
+                            <th>Assigned Unit</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_roster is null)
+                        {
+                            <tr><td colspan="6" class="table-empty">Loading roster...</td></tr>
+                        }
+                        else if (_roster.Drivers.Count == 0)
+                        {
+                            <tr><td colspan="6" class="table-empty">No drivers yet - use "Add New Driver" to create one.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (DriverRosterEntry d in _roster.Drivers)
+                            {
+                                <tr>
+                                    <td class="driver-cell"><div class="table-avatar">@Initials(d.FullName)</div><span>@d.FullName</span></td>
+                                    <td>@ShortId(d.DriverId)</td>
+                                    <td><span class="status-pill @LicenseStatusCss(d.LicenseStatus)"><span class="dot"></span> @LicenseStatusLabel(d.LicenseStatus)</span></td>
+                                    <td><span class="status-pill @(d.IsOnShift ? "status-success" : "status-neutral")"><span class="dot"></span> @(d.IsOnShift ? "ON SHIFT" : "OFF DUTY")</span></td>
+                                    <td>@(d.AssignedTaxiId ?? "—")</td>
+                                    <td><button class="profile-btn" type="button" @onclick="() => OpenProfileAsync(d.DriverId)">Profile</button></td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (_activeTab == "schedule")
+        {
+            <div class="schedule-panel">
+                @if (_scheduleError is not null)
+                {
+                    <div class="data-warning-banner">Schedule data unavailable: @_scheduleError</div>
+                }
+                <div class="schedule-toolbar">
+                    <div class="schedule-week-label">
+                        <button class="week-nav" type="button" @onclick="() => ChangeWeekAsync(-1)">◀</button>
+                        <span>WEEK OF @WeekLabel()</span>
+                        <button class="week-nav" type="button" @onclick="() => ChangeWeekAsync(1)">▶</button>
+                    </div>
+                    <div class="schedule-hint">Click any cell to assign or clear a unit</div>
+                </div>
+
+                @if (_weekSchedule is null)
+                {
+                    <div class="table-empty">Loading schedule...</div>
+                }
+                else
+                {
+                    <div class="data-table-wrap">
+                        <table class="data-table schedule-table">
+                            <thead>
+                                <tr>
+                                    <th>Driver</th>
+                                    @for (int i = 0; i < 7; i++)
+                                    {
+                                        DateTime day = _weekSchedule.WeekStart.AddDays(i);
+                                        int active = _weekSchedule.UnitsActiveByDay[i];
+                                        <th>
+                                            @day.ToString("ddd").ToUpperInvariant() @day.ToString("d/M")
+                                            <div class="schedule-day-count">@active/@_weekSchedule.TotalTaxis</div>
+                                        </th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (DriverScheduleRow row in _weekSchedule.Rows)
+                                {
+                                    <tr>
+                                        <td class="driver-cell">
+                                            <div class="table-avatar">@Initials(row.FullName)</div>
+                                            <div>
+                                                <div>@row.FullName</div>
+                                                <span class="status-pill small @LicenseStatusCss(row.LicenseStatus)">@LicenseStatusLabel(row.LicenseStatus)</span>
+                                            </div>
+                                        </td>
+                                        @for (int i = 0; i < row.Days.Count; i++)
+                                        {
+                                            ScheduleDayCell cell = row.Days[i];
+                                            string driverId = row.DriverId;
+                                            string cellKey = $"{driverId}_{cell.Date:yyyyMMdd}";
+                                            <td class="schedule-cell-wrap">
+                                                <button class="schedule-cell @(cell.TaxiId is null ? "rest" : "")" type="button" @onclick="() => ToggleCell(driverId, cell.Date)">
+                                                    @(cell.TaxiId ?? "-REST DAY-")
+                                                </button>
+                                                @if (_openCellKey == cellKey)
+                                                {
+                                                    <div class="schedule-dropdown">
+                                                        <button type="button" @onclick="() => AssignCellAsync(driverId, cell.Date, null)">-REST DAY-</button>
+                                                        @foreach (string taxiId in _weekSchedule.TaxiIds)
+                                                        {
+                                                            <button type="button" @onclick="() => AssignCellAsync(driverId, cell.Date, taxiId)">@taxiId</button>
+                                                        }
+                                                    </div>
+                                                }
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td>UNITS ACTIVE</td>
+                                    @for (int i = 0; i < 7; i++)
+                                    {
+                                        <td>@_weekSchedule.UnitsActiveByDay[i]</td>
+                                    }
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+        else if (_activeTab == "logs")
+        {
+            <div class="logs-panel">
+                @if (_shiftLogsError is not null)
+                {
+                    <div class="data-warning-banner">Shift log data unavailable: @_shiftLogsError</div>
+                }
+
+                <div class="logs-filters">
+                    <div class="filter-dropdown">
+                        <button class="filter-btn" type="button" @onclick="() => _showDateFilterMenu = !_showDateFilterMenu">📅 @_logDateFilter</button>
+                        @if (_showDateFilterMenu)
+                        {
+                            <div class="filter-menu">
+                                <button type="button" @onclick='() => SetDateFilterAsync("All Dates")'>All Dates</button>
+                                <button type="button" @onclick='() => SetDateFilterAsync("Today")'>Today</button>
+                                <button type="button" @onclick='() => SetDateFilterAsync("Custom")'>Custom</button>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="filter-dropdown">
+                        <button class="filter-btn" type="button" @onclick="() => _showDriverFilterMenu = !_showDriverFilterMenu">☺ @_logDriverFilter</button>
+                        @if (_showDriverFilterMenu)
+                        {
+                            <div class="filter-menu">
+                                <button type="button" @onclick='() => SetDriverFilter("All Drivers")'>All Drivers</button>
+                                @foreach (string name in DistinctDrivers)
+                                {
+                                    <button type="button" @onclick="() => SetDriverFilter(name)">@name</button>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div class="filter-dropdown">
+                        <button class="filter-btn" type="button" @onclick="() => _showUnitFilterMenu = !_showUnitFilterMenu">◌ @_logUnitFilter</button>
+                        @if (_showUnitFilterMenu)
+                        {
+                            <div class="filter-menu">
+                                <button type="button" @onclick='() => SetUnitFilter("All Units")'>All Units</button>
+                                @foreach (string unit in DistinctUnits)
+                                {
+                                    <button type="button" @onclick="() => SetUnitFilter(unit)">@unit</button>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div class="filter-dropdown">
+                        <button class="filter-btn" type="button" @onclick="() => _showStatusFilterMenu = !_showStatusFilterMenu">◇ @_logStatusFilter</button>
+                        @if (_showStatusFilterMenu)
+                        {
+                            <div class="filter-menu">
+                                <button type="button" @onclick='() => SetStatusFilter("All Statuses")'>All Statuses</button>
+                                @foreach (string status in DistinctStatuses)
+                                {
+                                    <button type="button" @onclick="() => SetStatusFilter(status)">@status</button>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div class="logs-count">@FilteredLogs.Count() records</div>
+                </div>
+
+                @if (_logDateFilter == "Custom")
+                {
+                    <div class="date-range custom-log-range">
+                        <div class="date-field"><span>From</span><input type="date" @bind="_logCustomFrom" @bind:after="LoadShiftLogsAsync" /></div>
+                        <div class="date-field"><span>To</span><input type="date" @bind="_logCustomTo" @bind:after="LoadShiftLogsAsync" /></div>
+                    </div>
+                }
+
+                <div class="data-table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date &amp; Time</th>
+                                <th>Driver</th>
+                                <th>Unit</th>
+                                <th>Shift Status</th>
+                                <th>Inspection Logs</th>
+                                <th>Reports</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_shiftLogs is null)
+                            {
+                                <tr><td colspan="6" class="table-empty">Loading shift logs...</td></tr>
+                            }
+                            else if (!FilteredLogs.Any())
+                            {
+                                <tr><td colspan="6" class="table-empty">No shifts match these filters.</td></tr>
+                            }
+                            else
+                            {
+                                @foreach (ShiftLogEntry log in FilteredLogs)
+                                {
+                                    <tr>
+                                        <td>@FormatLogDate(log.ShiftStart)</td>
+                                        <td class="driver-cell"><div class="table-avatar">@Initials(log.DriverName)</div><span>@log.DriverName</span></td>
+                                        <td>@log.TaxiId</td>
+                                        <td><span class="status-pill @ShiftStatusCss(log.Status)"><span class="dot"></span> @log.Status</span></td>
+                                        <td>
+                                            @if (log.HasPreShiftChecklist || log.HasEndShiftChecklist)
+                                            {
+                                                <button class="checklist-link" type="button" @onclick="() => OpenChecklistAsync(log.ShiftId)">
+                                                    @(log.HasPreShiftChecklist && log.HasEndShiftChecklist ? "Pre & Post Checklists" : log.HasPreShiftChecklist ? "Pre-Shift Checklist" : "Post-Shift Checklist")
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <span>—</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (log.DefectCount > 0)
+                                            {
+                                                <span class="status-pill status-danger"><span class="dot"></span> @log.DefectCount Defect@(log.DefectCount > 1 ? "s" : "")</span>
+                                            }
+                                            else
+                                            {
+                                                <span>—</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    </main>
+</div>
+
+@if (_showChecklistModal && _selectedChecklists is not null)
+{
+    <div class="report-overlay" @onclick="CloseChecklistModal">
+        <div class="report-modal wide" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <div>
+                    <h3>Inspection Checklist — @_selectedChecklists.TaxiId</h3>
+                    <div class="checklist-subtitle">@_selectedChecklists.DriverName</div>
+                </div>
+                <button type="button" class="close-modal" @onclick="CloseChecklistModal">×</button>
+            </div>
+
+            <div class="checklist-tabs">
+                <button class="checklist-tab @(_checklistTab == "Pre-Shift" ? "active" : "")" type="button" disabled="@(_selectedChecklists.PreShift is null)" @onclick='() => _checklistTab = "Pre-Shift"'>Pre-Shift</button>
+                <button class="checklist-tab @(_checklistTab == "Post-Shift" ? "active" : "")" type="button" disabled="@(_selectedChecklists.EndShift is null)" @onclick='() => _checklistTab = "Post-Shift"'>Post-Shift</button>
+            </div>
+
+            @{ ChecklistDetail? detail = _checklistTab == "Pre-Shift" ? _selectedChecklists.PreShift : _selectedChecklists.EndShift; }
+
+            <div class="report-body">
+                @if (detail is null)
+                {
+                    <div class="table-empty">No @(_checklistTab.ToLowerInvariant()) checklist was submitted for this shift.</div>
+                }
+                else
+                {
+                    <div class="checklist-summary @(detail.AllPassed ? "pass" : "warn")">
+                        <strong>@(detail.AllPassed ? "All Items Passed" : "Some Items Need Attention")</strong>
+                        <span>@detail.PassedCount/@detail.TotalCheckableCount checks completed · @detail.ChecklistType Inspection</span>
+                    </div>
+
+                    <div class="checklist-photos-label">DRIVER PHOTOS</div>
+                    <div class="checklist-photos">
+                        <div class="checklist-photo-slot">
+                            <span>@(string.IsNullOrEmpty(detail.PrimaryPhotoUrl) ? "Not submitted" : "Photo attached")</span>
+                            <small>@detail.PrimaryPhotoLabel</small>
+                        </div>
+                        <div class="checklist-photo-slot">
+                            <span>@(string.IsNullOrEmpty(detail.SecondaryPhotoUrl) ? "Not submitted" : "Photo attached")</span>
+                            <small>@detail.SecondaryPhotoLabel</small>
+                        </div>
+                    </div>
+
+                    <div class="checklist-items-label">CHECKLIST ITEMS</div>
+                    <div class="checklist-items">
+                        @foreach (ChecklistItemResult item in detail.Items)
+                        {
+                            <div class="checklist-item-row">
+                                <span>@item.Label</span>
+                                @if (item.Passed is bool passed)
+                                {
+                                    <span class="status-pill small @(passed ? "status-success" : "status-danger")">@(passed ? "PASS" : "FAIL")</span>
+                                }
+                                else
+                                {
+                                    <span class="status-pill small status-neutral">@item.ValueText</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="report-actions checklist-footer">
+                <span class="checklist-footer-note">Submitted by driver via LARGA Mobile App</span>
+                <button class="download-btn" type="button" @onclick="CloseChecklistModal">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showAddDriverModal)
+{
+    <div class="report-overlay" @onclick="CloseAddDriverModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Register New Driver</h3>
+                <button type="button" class="close-modal" @onclick="CloseAddDriverModal">×</button>
+            </div>
+            <div class="report-body">
+                @if (_lastCreatedDriver is { Ok: true })
+                {
+                    <div class="info-banner success">
+                        <p><strong>@_newDriverName</strong> was registered.</p>
+                        <p>Login email: <code>@_lastCreatedDriver.GeneratedEmail</code></p>
+                        <p>Temporary password: <code>@_lastCreatedDriver.TemporaryPassword</code></p>
+                        <p>Share these with the driver directly - there is no self-registration, so this is the only place they are shown.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="report-section">
+                        <label>Full Name</label>
+                        <input class="text-input" @bind="_newDriverName" placeholder="e.g. Mark Santos" />
+                    </div>
+                    <div class="report-section">
+                        <label>Contact Number</label>
+                        <input class="text-input" @bind="_newDriverPhone" placeholder="+63 9XX XXX XXXX" />
+                    </div>
+                    <div class="report-section">
+                        <label>Temporary Password</label>
+                        <input class="text-input" @bind="_newDriverPassword" placeholder="Auto-generated or manual" />
+                    </div>
+                    <div class="info-banner">Leave password blank to auto-generate a secure temporary password.</div>
+                    @if (_addDriverError is not null)
+                    {
+                        <div class="report-error">@_addDriverError</div>
+                    }
+                }
+            </div>
+            <div class="report-actions">
+                @if (_lastCreatedDriver is { Ok: true })
+                {
+                    <button class="download-btn" type="button" @onclick="CloseAddDriverModal">Done</button>
+                }
+                else
+                {
+                    <button class="cancel-btn" type="button" @onclick="CloseAddDriverModal">Cancel</button>
+                    <button class="download-btn" type="button" disabled="@_isCreatingDriver" @onclick="RegisterDriverAsync">@(_isCreatingDriver ? "Registering…" : "Register Driver")</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showManagerNoteModal)
+{
+    <div class="report-overlay" @onclick="CloseManagerNoteModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Add a Note</h3>
+                <button type="button" class="close-modal" @onclick="CloseManagerNoteModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="report-section">
+                    <label>Driver</label>
+                    <select class="text-input" @bind="_managerNoteDriverId">
+                        <option value="">Select a driver…</option>
+                        @if (_roster is not null)
+                        {
+                            @foreach (DriverRosterEntry d in _roster.Drivers)
+                            {
+                                <option value="@d.DriverId">@d.FullName</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <div class="report-section">
+                    <label>Manager Notes</label>
+                    <textarea class="text-input textarea" @bind="_managerNoteText" placeholder="Special instructions for the driver…"></textarea>
+                </div>
+                <div class="info-banner">This will be shown on the driver's mobile home screen.</div>
+                @if (_noteError is not null)
+                {
+                    <div class="report-error">@_noteError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="CloseManagerNoteModal">Cancel</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingNote || string.IsNullOrEmpty(_managerNoteDriverId))" @onclick="SaveManagerNoteAsync">@(_isSavingNote ? "Saving…" : "Confirm")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showProfilePanel && _selectedProfile is not null)
+{
+    <div class="profile-overlay" @onclick="CloseProfilePanel">
+        <aside class="profile-panel" @onclick:stopPropagation="true">
+            <div class="profile-panel-header">
+                <h3>Driver Profile</h3>
+                <button type="button" class="close-modal" @onclick="CloseProfilePanel">×</button>
+            </div>
+
+            <div class="profile-hero">
+                <div class="table-avatar large">@Initials(_selectedProfile.FullName)</div>
+                <div>
+                    <div class="profile-name">@_selectedProfile.FullName</div>
+                    <div class="profile-meta">@(_selectedProfile.DateJoined is { } joined ? $"Since {joined:MMM yyyy}" : "Join date not set")</div>
+                    <span class="status-pill small @(_selectedProfile.IsOnShift ? "status-success" : "status-neutral")">@(_selectedProfile.IsOnShift ? "ON SHIFT" : "OFF DUTY")</span>
+                    @if (_selectedProfile.AssignedTaxiId is not null)
+                    {
+                        <span class="profile-unit">@_selectedProfile.AssignedTaxiId</span>
+                    }
+                </div>
+            </div>
+
+            @if (_profileError is not null)
+            {
+                <div class="report-error">@_profileError</div>
+            }
+            @if (_lastResetPassword is { Ok: true })
+            {
+                <div class="info-banner success">
+                    <p>New temporary password: <code>@_lastResetPassword.NewPassword</code></p>
+                    <p>Share this with the driver directly.</p>
+                </div>
+            }
+
+            @if (!_isEditingProfile)
+            {
+                <div class="profile-section">
+                    <div class="profile-section-label">Contact Information</div>
+                    <div class="profile-field">📞 @(string.IsNullOrEmpty(_selectedProfile.PhoneNumber) ? "Not set" : _selectedProfile.PhoneNumber)</div>
+                    <div class="profile-field">📍 @(string.IsNullOrEmpty(_selectedProfile.Address) ? "Not set" : _selectedProfile.Address)</div>
+                </div>
+
+                <div class="profile-section">
+                    <div class="profile-section-label">License Credentials</div>
+                    <div class="profile-license-card">
+                        <div>
+                            <div>License No.</div>
+                            <strong>@(string.IsNullOrEmpty(_selectedProfile.LicenseNumber) ? "Not set" : _selectedProfile.LicenseNumber)</strong>
+                        </div>
+                        <span class="status-pill small @LicenseStatusCss(_selectedProfile.LicenseStatus)">@LicenseStatusLabel(_selectedProfile.LicenseStatus)</span>
+                    </div>
+                    <div class="profile-field">📅 @(_selectedProfile.LicenseExpiryDate is { } exp ? $"Expires {exp:MMM d, yyyy}" : "No expiry date set")</div>
+                    <div class="profile-field">🖼 @(string.IsNullOrEmpty(_selectedProfile.LtoIdPhotoUrl) ? "No LTO ID photo attached (upload not yet available)" : "LTO ID photo attached")</div>
+                </div>
+
+                <div class="profile-section">
+                    <div class="profile-section-label">Performance Metrics</div>
+                    <div class="profile-metric">
+                        <div class="profile-metric-label"><span>Punctuality</span><span>@_selectedProfile.PunctualPercent.ToString("0")%</span></div>
+                        <div class="profile-metric-track"><div class="profile-metric-fill" style="width:@(_selectedProfile.PunctualPercent.ToString("0"))%"></div></div>
+                    </div>
+                    <div class="profile-metric">
+                        <div class="profile-metric-label"><span>Payment Reliability</span><span>@_selectedProfile.PaymentReliabilityPercent.ToString("0")%</span></div>
+                        <div class="profile-metric-track"><div class="profile-metric-fill" style="width:@(_selectedProfile.PaymentReliabilityPercent.ToString("0"))%"></div></div>
+                    </div>
+                    <div class="profile-field">Damage Incidents: <strong>@_selectedProfile.DamageIncidentCount</strong></div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_selectedProfile.ManagerNote))
+                {
+                    <div class="profile-section">
+                        <div class="profile-section-label">Current Manager Note</div>
+                        <div class="profile-field">@_selectedProfile.ManagerNote</div>
+                    </div>
+                }
+
+                <div class="profile-section">
+                    <div class="profile-section-label">Account Settings</div>
+                    <button class="profile-action-btn" type="button" @onclick="StartEditProfile">Edit Details</button>
+                    <button class="profile-action-btn" type="button" disabled="@_isResettingPassword" @onclick="ResetPasswordAsync">@(_isResettingPassword ? "Resetting…" : "Reset Mobile App Password")</button>
+                </div>
+            }
+            else
+            {
+                <div class="profile-section">
+                    <div class="profile-section-label">Edit Driver Details</div>
+                    <label>Phone Number</label>
+                    <input class="text-input" @bind="_editPhone" />
+                    <label>Address</label>
+                    <input class="text-input" @bind="_editAddress" />
+                    <label>Assigned Taxi</label>
+                    <select class="text-input" @bind="_editAssignedTaxi">
+                        <option value="">Unassigned</option>
+                        @if (_weekSchedule is not null)
+                        {
+                            @foreach (string taxiId in _weekSchedule.TaxiIds)
+                            {
+                                <option value="@taxiId">@taxiId</option>
+                            }
+                        }
+                    </select>
+                    <label>License Number</label>
+                    <input class="text-input" @bind="_editLicenseNumber" />
+                    <label>License Classification</label>
+                    <input class="text-input" @bind="_editLicenseClass" />
+                    <label>License Restriction Code</label>
+                    <input class="text-input" @bind="_editLicenseRestriction" />
+                    <label>License Expiry Date</label>
+                    <input type="date" class="text-input" @bind="_editLicenseExpiry" />
+                </div>
+
+                <div class="profile-section profile-edit-actions">
+                    <button class="cancel-btn" type="button" @onclick="() => _isEditingProfile = false">Cancel</button>
+                    <button class="download-btn" type="button" disabled="@_isSavingProfile" @onclick="SaveProfileAsync">@(_isSavingProfile ? "Saving…" : "Save Changes")</button>
+                </div>
+            }
+        </aside>
+    </div>
+}
+}
+
+@code {
+    private bool _isCheckingAccess = true;
+    private bool _isAuthorized;
+    private IJSObjectReference? _firebaseModule;
+
+    private string _activeTab = "roster";
+
+    private RosterSnapshot? _roster;
+    private string? _rosterError;
+
+    private WeekSchedule? _weekSchedule;
+    private string? _scheduleError;
+    private string? _openCellKey;
+
+    private List<ShiftLogEntry>? _shiftLogs;
+    private string? _shiftLogsError;
+    private bool _shiftLogsLoaded;
+    private string _logDateFilter = "All Dates";
+    private DateTime? _logCustomFrom;
+    private DateTime? _logCustomTo;
+    private string _logDriverFilter = "All Drivers";
+    private string _logUnitFilter = "All Units";
+    private string _logStatusFilter = "All Statuses";
+    private bool _showDateFilterMenu, _showDriverFilterMenu, _showUnitFilterMenu, _showStatusFilterMenu;
+
+    private ShiftChecklists? _selectedChecklists;
+    private string _checklistTab = "Pre-Shift";
+    private bool _showChecklistModal;
+
+    private bool _showAddDriverModal;
+    private string _newDriverName = string.Empty;
+    private string _newDriverPhone = string.Empty;
+    private string _newDriverPassword = string.Empty;
+    private bool _isCreatingDriver;
+    private string? _addDriverError;
+    private CreateDriverResult? _lastCreatedDriver;
+
+    private bool _showManagerNoteModal;
+    private string _managerNoteDriverId = string.Empty;
+    private string _managerNoteText = string.Empty;
+    private bool _isSavingNote;
+    private string? _noteError;
+
+    private bool _showProfilePanel;
+    private DriverProfileDetail? _selectedProfile;
+    private bool _isEditingProfile;
+    private string? _profileError;
+    private string _editPhone = string.Empty;
+    private string _editAddress = string.Empty;
+    private string _editLicenseNumber = string.Empty;
+    private string _editLicenseClass = string.Empty;
+    private string _editLicenseRestriction = string.Empty;
+    private DateTime? _editLicenseExpiry;
+    private string _editAssignedTaxi = string.Empty;
+    private bool _isSavingProfile;
+    private bool _isResettingPassword;
+    private ResetPasswordResult? _lastResetPassword;
+
+    private IEnumerable<ShiftLogEntry> FilteredLogs =>
+        (_shiftLogs ?? new List<ShiftLogEntry>())
+            .Where(l => _logDriverFilter == "All Drivers" || l.DriverName == _logDriverFilter)
+            .Where(l => _logUnitFilter == "All Units" || l.TaxiId == _logUnitFilter)
+            .Where(l => _logStatusFilter == "All Statuses" || l.Status == _logStatusFilter);
+
+    private List<string> DistinctDrivers => (_shiftLogs ?? new List<ShiftLogEntry>()).Select(l => l.DriverName).Distinct().OrderBy(n => n).ToList();
+    private List<string> DistinctUnits => (_shiftLogs ?? new List<ShiftLogEntry>()).Select(l => l.TaxiId).Distinct().OrderBy(n => n).ToList();
+    private List<string> DistinctStatuses => (_shiftLogs ?? new List<ShiftLogEntry>()).Select(l => l.Status).Distinct().OrderBy(n => n).ToList();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+        var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
+        _isAuthorized = result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True;
+        _isCheckingAccess = false;
+
+        if (!_isAuthorized)
+        {
+            Navigation.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        await LoadRosterAsync();
+        await LoadScheduleAsync(DateTime.UtcNow);
+
+        StateHasChanged();
+    }
+
+    private async Task LoadRosterAsync()
+    {
+        try
+        {
+            _roster = await DriverManagement.GetRosterSnapshotAsync();
+            _rosterError = null;
+        }
+        catch (Exception ex)
+        {
+            _rosterError = ex.Message;
+        }
+    }
+
+    private async Task LoadScheduleAsync(DateTime weekOf)
+    {
+        try
+        {
+            _weekSchedule = await DriverManagement.GetWeekScheduleAsync(weekOf);
+            _scheduleError = null;
+        }
+        catch (Exception ex)
+        {
+            _scheduleError = ex.Message;
+        }
+    }
+
+    private async Task SelectTabAsync(string tab)
+    {
+        _activeTab = tab;
+        if (tab == "logs" && !_shiftLogsLoaded)
+        {
+            await LoadShiftLogsAsync();
+        }
+    }
+
+    private async Task LoadShiftLogsAsync()
+    {
+        try
+        {
+            DateTime now = DateTime.UtcNow;
+            DateTime from;
+            DateTime to;
+
+            if (_logDateFilter == "Today")
+            {
+                from = now.Date;
+                to = now.Date.AddDays(1).AddTicks(-1);
+            }
+            else if (_logDateFilter == "Custom" && _logCustomFrom.HasValue && _logCustomTo.HasValue)
+            {
+                from = DateTime.SpecifyKind(_logCustomFrom.Value.Date, DateTimeKind.Utc);
+                to = DateTime.SpecifyKind(_logCustomTo.Value.Date, DateTimeKind.Utc).AddDays(1).AddTicks(-1);
+            }
+            else
+            {
+                // "All Dates" is bounded to the last 30 days rather than truly unbounded -
+                // same read-cost reasoning as FleetReportingService: shifts grow ~1/taxi/day
+                // forever, so fetching the entire history on every visit to this tab would
+                // get expensive as the fleet accumulates real operating history.
+                from = now.AddDays(-30);
+                to = now;
+            }
+
+            _shiftLogs = await DriverManagement.GetShiftLogsAsync(from, to);
+            _shiftLogsLoaded = true;
+            _shiftLogsError = null;
+        }
+        catch (Exception ex)
+        {
+            _shiftLogsError = ex.Message;
+        }
+    }
+
+    private async Task SetDateFilterAsync(string filter)
+    {
+        _logDateFilter = filter;
+        _showDateFilterMenu = false;
+        if (filter != "Custom")
+        {
+            await LoadShiftLogsAsync();
+        }
+    }
+
+    private void SetDriverFilter(string filter)
+    {
+        _logDriverFilter = filter;
+        _showDriverFilterMenu = false;
+    }
+
+    private void SetUnitFilter(string filter)
+    {
+        _logUnitFilter = filter;
+        _showUnitFilterMenu = false;
+    }
+
+    private void SetStatusFilter(string filter)
+    {
+        _logStatusFilter = filter;
+        _showStatusFilterMenu = false;
+    }
+
+    private void ToggleCell(string driverId, DateTime date)
+    {
+        string key = $"{driverId}_{date:yyyyMMdd}";
+        _openCellKey = _openCellKey == key ? null : key;
+    }
+
+    private async Task AssignCellAsync(string driverId, DateTime date, string? taxiId)
+    {
+        _openCellKey = null;
+        try
+        {
+            if (taxiId is null)
+            {
+                await DriverManagement.ClearScheduleAsync(driverId, date);
+            }
+            else
+            {
+                await DriverManagement.AssignScheduleAsync(driverId, date, taxiId);
+            }
+
+            if (_weekSchedule is not null)
+            {
+                await LoadScheduleAsync(_weekSchedule.WeekStart);
+            }
+        }
+        catch (Exception ex)
+        {
+            _scheduleError = ex.Message;
+        }
+    }
+
+    private async Task ChangeWeekAsync(int deltaWeeks)
+    {
+        DateTime baseWeek = _weekSchedule?.WeekStart ?? DateTime.UtcNow;
+        await LoadScheduleAsync(baseWeek.AddDays(7 * deltaWeeks));
+    }
+
+    private async Task OpenChecklistAsync(string shiftId)
+    {
+        try
+        {
+            _selectedChecklists = await DriverManagement.GetShiftChecklistsAsync(shiftId);
+            _checklistTab = _selectedChecklists?.PreShift is not null ? "Pre-Shift" : "Post-Shift";
+            _showChecklistModal = _selectedChecklists is not null;
+        }
+        catch (Exception ex)
+        {
+            _shiftLogsError = ex.Message;
+        }
+    }
+
+    private void CloseChecklistModal() => _showChecklistModal = false;
+
+    private void OpenAddDriverModal()
+    {
+        _newDriverName = string.Empty;
+        _newDriverPhone = string.Empty;
+        _newDriverPassword = string.Empty;
+        _addDriverError = null;
+        _lastCreatedDriver = null;
+        _showAddDriverModal = true;
+    }
+
+    private void CloseAddDriverModal() => _showAddDriverModal = false;
+
+    private async Task RegisterDriverAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newDriverName))
+        {
+            _addDriverError = "Full name is required.";
+            return;
+        }
+
+        _isCreatingDriver = true;
+        _addDriverError = null;
+
+        try
+        {
+            CreateDriverResult result = await DriverManagement.CreateDriverAsync(
+                _newDriverName.Trim(), _newDriverPhone.Trim(),
+                string.IsNullOrWhiteSpace(_newDriverPassword) ? null : _newDriverPassword);
+
+            if (!result.Ok)
+            {
+                _addDriverError = result.ErrorMessage;
+            }
+            else
+            {
+                _lastCreatedDriver = result;
+                await LoadRosterAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _addDriverError = ex.Message;
+        }
+        finally
+        {
+            _isCreatingDriver = false;
+        }
+    }
+
+    private void OpenManagerNoteModal()
+    {
+        _managerNoteDriverId = string.Empty;
+        _managerNoteText = string.Empty;
+        _noteError = null;
+        _showManagerNoteModal = true;
+    }
+
+    private void CloseManagerNoteModal() => _showManagerNoteModal = false;
+
+    private async Task SaveManagerNoteAsync()
+    {
+        if (string.IsNullOrEmpty(_managerNoteDriverId))
+        {
+            _noteError = "Select a driver first.";
+            return;
+        }
+
+        _isSavingNote = true;
+        _noteError = null;
+
+        try
+        {
+            await DriverManagement.SetManagerNoteAsync(_managerNoteDriverId, _managerNoteText.Trim());
+            _showManagerNoteModal = false;
+        }
+        catch (Exception ex)
+        {
+            _noteError = ex.Message;
+        }
+        finally
+        {
+            _isSavingNote = false;
+        }
+    }
+
+    private async Task OpenProfileAsync(string driverId)
+    {
+        try
+        {
+            _selectedProfile = await DriverManagement.GetDriverProfileAsync(driverId);
+            if (_selectedProfile is not null)
+            {
+                _editPhone = _selectedProfile.PhoneNumber;
+                _editAddress = _selectedProfile.Address ?? string.Empty;
+                _editLicenseNumber = _selectedProfile.LicenseNumber;
+                _editLicenseClass = _selectedProfile.LicenseClassification;
+                _editLicenseRestriction = _selectedProfile.LicenseRestrictionCode;
+                _editLicenseExpiry = _selectedProfile.LicenseExpiryDate;
+                _editAssignedTaxi = _selectedProfile.AssignedTaxiId ?? string.Empty;
+                _isEditingProfile = false;
+                _lastResetPassword = null;
+                _profileError = null;
+                _showProfilePanel = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _rosterError = ex.Message;
+        }
+    }
+
+    private void CloseProfilePanel() => _showProfilePanel = false;
+
+    private void StartEditProfile() => _isEditingProfile = true;
+
+    private async Task SaveProfileAsync()
+    {
+        if (_selectedProfile is null)
+        {
+            return;
+        }
+
+        _isSavingProfile = true;
+        _profileError = null;
+
+        try
+        {
+            await DriverManagement.UpdateDriverProfileAsync(
+                _selectedProfile.DriverId,
+                _editPhone, _editAddress,
+                _editLicenseNumber, _editLicenseClass, _editLicenseRestriction,
+                _editLicenseExpiry,
+                _editAssignedTaxi);
+
+            _isEditingProfile = false;
+            _selectedProfile = await DriverManagement.GetDriverProfileAsync(_selectedProfile.DriverId);
+            await LoadRosterAsync();
+        }
+        catch (Exception ex)
+        {
+            _profileError = ex.Message;
+        }
+        finally
+        {
+            _isSavingProfile = false;
+        }
+    }
+
+    private async Task ResetPasswordAsync()
+    {
+        if (_selectedProfile is null)
+        {
+            return;
+        }
+
+        _isResettingPassword = true;
+        _profileError = null;
+
+        try
+        {
+            _lastResetPassword = await DriverManagement.ResetDriverPasswordAsync(_selectedProfile.DriverId, null);
+            if (!_lastResetPassword.Ok)
+            {
+                _profileError = _lastResetPassword.ErrorMessage;
+            }
+        }
+        catch (Exception ex)
+        {
+            _profileError = ex.Message;
+        }
+        finally
+        {
+            _isResettingPassword = false;
+        }
+    }
+
+    private static string Initials(string fullName)
+    {
+        string[] parts = fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return "?";
+        }
+        if (parts.Length == 1)
+        {
+            return parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant();
+        }
+        return $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant();
+    }
+
+    private static string ShortId(string id) => "#" + (id.Length <= 6 ? id : id[..6]).ToUpperInvariant();
+
+    private static string LicenseStatusLabel(LicenseStatus status) => status == LicenseStatus.NotSet ? "NOT SET" : status.ToString().ToUpperInvariant();
+
+    private static string LicenseStatusCss(LicenseStatus status) => status switch
+    {
+        LicenseStatus.Valid => "status-success",
+        LicenseStatus.Expiring => "status-warning",
+        LicenseStatus.Expired => "status-danger",
+        _ => "status-neutral",
+    };
+
+    private static string ShiftStatusCss(string status) => status switch
+    {
+        "Active" => "status-success",
+        "Denied" => "status-danger",
+        "Overdue" => "status-warning",
+        _ => "status-neutral",
+    };
+
+    private static string FormatLogDate(DateTime? dt)
+    {
+        if (dt is null)
+        {
+            return "—";
+        }
+
+        DateTime value = dt.Value;
+        DateTime today = DateTime.UtcNow.Date;
+        string day = value.Date == today ? "Today" : value.Date == today.AddDays(-1) ? "Yesterday" : value.ToString("MMM d");
+        return $"{day}, {value:h:mm tt}";
+    }
+
+    private string WeekLabel()
+    {
+        if (_weekSchedule is null)
+        {
+            return string.Empty;
+        }
+
+        DateTime start = _weekSchedule.WeekStart;
+        DateTime end = start.AddDays(6);
+        return start.Month == end.Month
+            ? $"{start:MMM d} - {end:d}, {end:yyyy}"
+            : $"{start:MMM d} - {end:MMM d}, {end:yyyy}";
+    }
+}

@@ -1,0 +1,58 @@
+@* Shared across ManagerWeb's authenticated pages so the nav stays consistent as new
+   pages land - only Dashboard and Driver & Shifts are real routes so far; the rest stay
+   inert until they have their own mockups/build. *@
+
+<aside class="dashboard-sidebar">
+    <div class="sidebar-brand">
+        <div class="sidebar-logo">L</div>
+        <div>
+            <div class="brand-name">LARGA</div>
+            <div class="brand-subtext">Fleet Ops</div>
+        </div>
+    </div>
+
+    <nav class="sidebar-nav">
+        <a href="/dashboard" class="nav-item @(ActiveItem == "Dashboard" ? "active" : "")">
+            <span class="nav-icon">◫</span>
+            <span>Dashboard</span>
+        </a>
+        <a href="/driver-shifts" class="nav-item @(ActiveItem == "DriverShifts" ? "active" : "")">
+            <span class="nav-icon">☰</span>
+            <span>Driver &amp; Shifts</span>
+        </a>
+        <button class="nav-item" type="button" disabled>
+            <span class="nav-icon">◌</span>
+            <span>Fin. Ledger</span>
+        </button>
+        <button class="nav-item" type="button" disabled>
+            <span class="nav-icon">◔</span>
+            <span>Garage</span>
+        </button>
+        <button class="nav-item" type="button" disabled>
+            <span class="nav-icon">▣</span>
+            <span>Inventory</span>
+        </button>
+        <button class="nav-item" type="button" disabled>
+            <span class="nav-icon">✓</span>
+            <span>Fuel Verification</span>
+        </button>
+        <button class="nav-item" type="button" disabled>
+            <span class="nav-icon">◍</span>
+            <span>Audit Logs</span>
+        </button>
+    </nav>
+
+    <div class="user-card">
+        <div class="user-avatar">RC</div>
+        <div class="user-meta">
+            <div class="user-name">Antonio G. Medina</div>
+            <div class="user-role">Manager</div>
+        </div>
+        <button class="user-menu" type="button">•••</button>
+    </div>
+</aside>
+
+@code {
+    [Parameter]
+    public string ActiveItem { get; set; } = string.Empty;
+}

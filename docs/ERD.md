@@ -38,6 +38,11 @@ erDiagram
         date LicenseExpiryDate
         enum LicenseClassification "'Professional','Non-Professional'"
         string LicenseRestrictionCode "VARCHAR(2)"
+        string Address "added 2026-09-07, Driver & Shift Management"
+        date DateJoined "added 2026-09-07"
+        string LtoIdPhotoUrl "added 2026-09-07; field only - no upload UI yet"
+        string ManagerNote "added 2026-09-07; written by ManagerWeb, not yet displayed by LARGA.MobileApp"
+        bool MustChangePassword "added 2026-09-07; not yet enforced by LARGA.MobileApp"
     }
 
     AUDIT_LOG {
@@ -204,9 +209,14 @@ The ManagerWeb dashboard's 5 fleet-status pills (Active / Maintenance / On Break
 
 ## Notes / known gaps vs. this diagram (as of 2026-09-05)
 
-- **`AUDIT_LOG`** and **`HANDOVER_CHECKLIST`**: modeled here and in code, but no service/repository or UI flow currently reads or writes them.
-- **`SHIFT_LOG`**: nothing in the app currently calls the code path that creates a shift document (`StartShiftLogAsync` in [ShiftManagementService.cs](../LARGA.SharedCore/Services/ShiftManagementService.cs) has no callers yet), so shifts aren't persisted from the pre-shift flow yet.
+- **`AUDIT_LOG`**: modeled since early on, but had no reader anywhere until the ManagerWeb "Generate Reports" CSV export (Full Audit Trail) landed on 2026-09-06 — first real consumer.
+- **`HANDOVER_CHECKLIST`**: same situation until the Driver & Shift Management page's Shift Logs checklist modal landed on 2026-09-07 - first real consumer. Note the modal doesn't show a 1:1 mapping of every mockup checklist item: `OilLevel`/`CoolantLevel` are combined into a single "under the hood" row, and "starting odometer documented" is omitted entirely since no field anywhere backs it (odometer readings live on `FUEL_LOG`, not `HANDOVER_CHECKLIST`).
+- **`SHIFT_LOG`**: nothing in the *mobile* app currently calls the code path that creates a shift document (`StartShiftLogAsync` in [ShiftManagementService.cs](../LARGA.SharedCore/Services/ShiftManagementService.cs) has no callers yet), so shifts aren't persisted from the pre-shift flow yet. ManagerWeb only ever reads this collection, never creates shifts.
+- **`SHIFT_SCHEDULE`**: as of 2026-09-07, ManagerWeb's Schedule Planner reads and writes this collection interactively (assign/clear a taxi per driver per day). Document IDs are deterministic (`{driverId}_{yyyyMMdd}`) so a manager's edit always overwrites/deletes the same document rather than creating duplicates; a rest day is modeled as *no document* for that driver/date, not an explicit status value.
+- **Driver accounts are manager-provisioned, not self-registered**: drivers never sign up themselves anywhere (mobile has no registration flow) - a manager creates every driver's Firebase Auth account and Firestore profile via ManagerWeb's "Add New Driver" (ManagerWeb requires the `FirebaseAdmin` SDK for this, alongside the existing `Google.Cloud.Firestore` client). The login email is synthesized (`{name-slug}.{random}@larga-driver.local`) since the "Add New Driver" form only collects name/phone/temp password - the manager relays the generated email + password to the driver directly, out of band.
 - `USER` also carries `AssignedTaxiID` and `DeviceTokens` (push notification tokens) in code/Firestore, which are implementation details not modeled as columns here since they don't have their own business meaning in the ERD sense.
 - **`TAXI_UNIT.PlateNumber`** was live in Firestore but missing from both the ERD and the C# model until 2026-09-05 — added to [TaxiUnit.cs](../LARGA.Shared.Models/Entities/TaxiUnit.cs) and to this diagram.
 - **`FUEL_LOG`**: `FuelStation`, `ORNumber`, and `ReceiptTimestamp` were also missing from [FuelLog.cs](../LARGA.Shared.Models/Entities/FuelLog.cs) until 2026-09-05 — added and now match the diagram above.
 - Known live-data bugs found and corrected via the seed tool (see [LARGA.SeedTool](../LARGA.SeedTool)): a `maintenance_logs` document had `supportingPhotoURL` (wrong casing, code expects `supportingPhotoUrl`) and a `boundary_payments` document had `amountPaid` stored as a string instead of a number.
+- **Fields written but not yet read anywhere on mobile**: `USER.ManagerNote` (meant to show on the driver's mobile home screen) and `USER.MustChangePassword` (meant to force a password change after a manager-set temporary password) are both written by ManagerWeb as of 2026-09-07, but `LARGA.MobileApp` doesn't display or enforce either yet - that's separate, future mobile-side work.
+- **Computed, not stored**: Driver Profile's Punctuality %, Payment Reliability %, and Damage Incidents are all computed on read from `SHIFT_LOG`/`BOUNDARY_PAYMENT`/`MAINTENANCE_RECORD` history - there's no corresponding stored field for any of them.
