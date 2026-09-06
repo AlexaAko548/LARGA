@@ -32,6 +32,14 @@ LARGA.ManagerWeb/wwwroot/firebase-config.*
 *.pfx
 *.publishsettings
 
+# Firebase/GCP service account keys (used locally by LARGA.SeedTool) - never commit these
+*firebase-adminsdk*.json
+*serviceAccountKey*.json
+LARGA.SeedTool/*.json
+
+# Developer-local ManagerWeb config overrides (Firestore credentials path, etc.)
+LARGA.ManagerWeb/appsettings.Local.json
+
 # Mono auto generated files
 mono_crash.*
 
@@ -576,18 +584,9 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
-<<<<<<< HEAD
-## Ignore Firebase config files for local development
-Platforms/*/Android/google-services.json
-## Visual Studio & user files
-*.slnx
-## NuGet local packages (short path used for development)
-C:.nuget/packages/
-## Build outputs
-bin/
-obj/
-=======
 
 # Firebase Android configuration (keep local; do not commit)
 **/Platforms/Android/google-services.json
->>>>>>> feat/firebase-mobileapp
+
+## Visual Studio & user files
+*.slnx
