@@ -1,8 +1,24 @@
 @page "/dashboard"
+@using System.Text.Json
+@using LARGA.SharedCore.Models.Dashboard
+@using LARGA.SharedCore.Services
 @rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject FleetReportingService FleetReporting
 
 <PageTitle>Executive Dashboard</PageTitle>
 
+@if (_isCheckingAccess)
+{
+    <div class="auth-page">
+        <div class="auth-card">
+            <h2>Checking access...</h2>
+        </div>
+    </div>
+}
+else if (_isAuthorized)
+{
 <div class="dashboard-shell">
     <aside class="dashboard-sidebar">
         <div class="sidebar-brand">
@@ -47,7 +63,7 @@
         <div class="user-card">
             <div class="user-avatar">RC</div>
             <div class="user-meta">
-                <div class="user-name">Regina Cruz</div>
+                <div class="user-name">Antonio G. Medina</div>
                 <div class="user-role">Manager</div>
             </div>
             <button class="user-menu" type="button">•••</button>
@@ -58,7 +74,7 @@
         <header class="dashboard-header">
             <div class="header-title-wrap">
                 <h1>EXECUTIVE DASHBOARD</h1>
-                <div class="header-date">Tuesday, Jul 20, 2026</div>
+                <div class="header-date">@DateTime.Now.ToString("dddd, MMM d, yyyy")</div>
             </div>
 
             <div class="header-actions">
@@ -72,13 +88,26 @@
             </div>
         </header>
 
+        @if (_dataError is not null)
+        {
+            <div class="data-warning-banner">
+                Dashboard data unavailable: @_dataError — see LARGA.ManagerWeb/appsettings.Local.json.example.
+            </div>
+        }
+
         <div class="status-strip">
-            <div class="status-pill status-success"><span class="dot"></span> Fleet status</div>
-            <div class="status-pill status-warning"><span class="dot"></span> 3 Active</div>
-            <div class="status-pill status-warning alt"><span class="dot"></span> 1 Maintenance</div>
-            <div class="status-pill status-danger"><span class="dot"></span> 1 On Break</div>
-            <div class="status-pill status-neutral"><span class="dot"></span> 1 SOS</div>
-            <div class="status-pill status-neutral idle"><span class="dot"></span> Idle</div>
+            @if (_snapshot is null)
+            {
+                <div class="status-pill status-neutral"><span class="dot"></span> No data</div>
+            }
+            else
+            {
+                <div class="status-pill status-success"><span class="dot"></span> @_snapshot.FleetStatus.Active Active</div>
+                <div class="status-pill status-warning"><span class="dot"></span> @_snapshot.FleetStatus.Maintenance Maintenance</div>
+                <div class="status-pill status-warning alt"><span class="dot"></span> @_snapshot.FleetStatus.OnBreak On Break</div>
+                <div class="status-pill status-danger"><span class="dot"></span> @_snapshot.FleetStatus.Sos SOS</div>
+                <div class="status-pill status-neutral idle"><span class="dot"></span> @_snapshot.FleetStatus.Idle Idle</div>
+            }
             <button class="generate-btn" type="button" @onclick="OpenReportModal">✦ Generate Reports</button>
         </div>
 
@@ -86,8 +115,8 @@
             <article class="stat-card">
                 <div class="stat-icon blue">P</div>
                 <div class="stat-body">
-                    <div class="stat-trend up">↗ +12%</div>
-                    <div class="stat-value">₱ 41,300</div>
+                    <div class="stat-trend @TrendCssClass(_snapshot?.WeeklyRevenue.TrendPercent)">@FormatPercentTrend(_snapshot?.WeeklyRevenue.TrendPercent)</div>
+                    <div class="stat-value">₱ @((_snapshot?.WeeklyRevenue.Value ?? 0).ToString("#,##0.00"))</div>
                     <div class="stat-label">Weekly Revenue</div>
                 </div>
             </article>
@@ -95,8 +124,8 @@
             <article class="stat-card">
                 <div class="stat-icon blue">A</div>
                 <div class="stat-body">
-                    <div class="stat-trend up">↗ 80%</div>
-                    <div class="stat-value">4 / 5</div>
+                    <div class="stat-trend">@(_snapshot is null ? "No data" : $"{_snapshot.ActiveDrivers.RatioPercent:0}%")</div>
+                    <div class="stat-value">@(_snapshot?.ActiveDrivers.ActiveCount ?? 0) / @(_snapshot?.ActiveDrivers.TotalDrivers ?? 0)</div>
                     <div class="stat-label">Active Drivers</div>
                 </div>
             </article>
@@ -104,8 +133,8 @@
             <article class="stat-card">
                 <div class="stat-icon blue">C</div>
                 <div class="stat-body">
-                    <div class="stat-trend up">↗ 5%</div>
-                    <div class="stat-value">5,770 km</div>
+                    <div class="stat-trend @TrendCssClass(_snapshot?.FleetMileage.TrendPercent)">@FormatPercentTrend(_snapshot?.FleetMileage.TrendPercent)</div>
+                    <div class="stat-value">@((_snapshot?.FleetMileage.Value ?? 0).ToString("#,##0")) km</div>
                     <div class="stat-label">Fleet Mileage</div>
                 </div>
             </article>
@@ -113,8 +142,8 @@
             <article class="stat-card">
                 <div class="stat-icon blue">△</div>
                 <div class="stat-body">
-                    <div class="stat-trend down">↘ -1</div>
-                    <div class="stat-value">2</div>
+                    <div class="stat-trend @TrendCssClass(_snapshot?.OpenIncidents.TrendAbsolute)">@FormatAbsoluteTrend(_snapshot?.OpenIncidents.TrendAbsolute)</div>
+                    <div class="stat-value">@((int)(_snapshot?.OpenIncidents.Value ?? 0))</div>
                     <div class="stat-label">Open Incidents</div>
                 </div>
             </article>
@@ -127,8 +156,8 @@
                     <strong>Paid vs. Outstanding</strong>
                     <button type="button" aria-label="Expand">↗</button>
                 </div>
-                <div class="chart-area chart-lines muted-lines">
-                    <div class="chart-badge">AK</div>
+                <div class="chart-area">
+                    <div class="chart-empty">No boundary payment data</div>
                 </div>
             </article>
 
@@ -138,8 +167,8 @@
                     <strong>Verified Receipts</strong>
                     <button type="button" aria-label="Expand">↗</button>
                 </div>
-                <div class="chart-area chart-lines">
-                    <div class="chart-badge">⟲</div>
+                <div class="chart-area">
+                    <div class="chart-empty">No verified fuel data</div>
                 </div>
             </article>
 
@@ -149,7 +178,9 @@
                     <strong>Distance Covered</strong>
                     <button type="button" aria-label="Expand">↗</button>
                 </div>
-                <div class="chart-area chart-lines muted-lines"></div>
+                <div class="chart-area">
+                    <div class="chart-empty">No mileage data</div>
+                </div>
             </article>
 
             <article class="chart-panel">
@@ -158,7 +189,9 @@
                     <strong>Parts &amp; Repairs</strong>
                     <button type="button" aria-label="Expand">↗</button>
                 </div>
-                <div class="chart-area chart-lines"></div>
+                <div class="chart-area">
+                    <div class="chart-empty">No maintenance expense data</div>
+                </div>
             </article>
         </section>
 
@@ -169,23 +202,30 @@
             </div>
 
             <div class="leaderboard-list">
-                @foreach (var driver in Drivers)
+                @if (_snapshot is null || _snapshot.TopDrivers.Count == 0)
                 {
-                    <div class="leader-row">
-                        <div class="rank-badge">@driver.Rank</div>
-                        <div class="driver-info">
-                            <div class="driver-name">@driver.Name</div>
-                            <div class="driver-plate">@driver.Plate</div>
+                    <div class="leaderboard-empty">No driver performance data available</div>
+                }
+                else
+                {
+                    @foreach (var driver in _snapshot.TopDrivers)
+                    {
+                        <div class="leader-row">
+                            <div class="rank-badge">@driver.Rank</div>
+                            <div class="driver-info">
+                                <div class="driver-name">@driver.FullName</div>
+                                <div class="driver-plate">@driver.TaxiId</div>
+                            </div>
+                            <div class="driver-metrics">
+                                <span>Punctual</span>
+                                <strong>@driver.PunctualPercent.ToString("0")%</strong>
+                                <span>Incidents</span>
+                                <strong>@driver.IncidentCount</strong>
+                                <span>Boundaries Remitted</span>
+                                <strong>₱ @driver.BoundariesRemitted.ToString("#,##0.00")</strong>
+                            </div>
                         </div>
-                        <div class="driver-metrics">
-                            <span>Punctual</span>
-                            <strong>@driver.Punctual</strong>
-                            <span>Incidents</span>
-                            <strong>@driver.Incidents</strong>
-                            <span>Boundaries Remitted</span>
-                            <strong>₱ @driver.Boundaries.ToString("#,##0.00")</strong>
-                        </div>
-                    </div>
+                    }
                 }
             </div>
         </section>
@@ -220,11 +260,11 @@
                     <div class="date-range">
                         <div class="date-field">
                             <span>From</span>
-                            <input type="date" value="2026-07-01" />
+                            <input type="date" @bind="_reportFromDate" />
                         </div>
                         <div class="date-field">
                             <span>To</span>
-                            <input type="date" value="2026-07-31" />
+                            <input type="date" @bind="_reportToDate" />
                         </div>
                     </div>
                 </div>
@@ -245,25 +285,27 @@
 
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseReportModal">Cancel</button>
-                <button class="download-btn" type="button" @onclick="CloseReportModal">Export &amp; Download</button>
+                <button class="download-btn" type="button" disabled>Export unavailable until data is available</button>
             </div>
         </div>
     </div>
 }
 
+}
+
 @code {
+    private bool _isCheckingAccess = true;
+    private bool _isAuthorized;
+    private IJSObjectReference? _firebaseModule;
     private bool _showReportModal;
     private string _selectedReportType = "Financial Summary";
     private string _selectedExportFormat = "PDF Document";
 
-    private readonly List<DriverStanding> Drivers = new()
-    {
-        new() { Rank = 1, Name = "Maria Santos", Plate = "TX-105", Punctual = "98%", Incidents = 0, Boundaries = 8420 },
-        new() { Rank = 2, Name = "Juan Dela Cruz", Plate = "TX-102", Punctual = "98%", Incidents = 0, Boundaries = 8420 },
-        new() { Rank = 3, Name = "Fatima Al-Rashid", Plate = "TX-103", Punctual = "98%", Incidents = 0, Boundaries = 8420 },
-        new() { Rank = 4, Name = "Marcus Dlamini", Plate = "TX-101", Punctual = "98%", Incidents = 0, Boundaries = 8420 },
-        new() { Rank = 5, Name = "Sihpo Nkosi", Plate = "TX-104", Punctual = "98%", Incidents = 0, Boundaries = 8420 }
-    };
+    private DashboardSnapshot? _snapshot;
+    private string? _dataError;
+
+    private DateTime _reportFromDate = DateTime.Today.AddDays(-7);
+    private DateTime _reportToDate = DateTime.Today;
 
     private readonly List<string> ReportOptions = new()
     {
@@ -281,6 +323,75 @@
         "CSV File"
     };
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+        var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
+        _isAuthorized = result.TryGetProperty("ok", out var okProp)
+            && okProp.ValueKind == JsonValueKind.True;
+        _isCheckingAccess = false;
+
+        if (!_isAuthorized)
+        {
+            Navigation.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        try
+        {
+            _snapshot = await FleetReporting.GetDashboardSnapshotAsync();
+        }
+        catch (Exception ex)
+        {
+            _dataError = ex.Message;
+        }
+
+        StateHasChanged();
+    }
+
+    private static string FormatPercentTrend(double? percent)
+    {
+        if (percent is null)
+        {
+            return "No prior data";
+        }
+
+        if (percent == 0)
+        {
+            return "No change";
+        }
+
+        string sign = percent > 0 ? "+" : string.Empty;
+        return $"{sign}{percent:0}% vs last week";
+    }
+
+    private static string FormatAbsoluteTrend(decimal? delta)
+    {
+        if (delta is null)
+        {
+            return "No prior data";
+        }
+
+        if (delta == 0)
+        {
+            return "No change";
+        }
+
+        string sign = delta > 0 ? "+" : string.Empty;
+        return $"{sign}{delta:0} vs last week";
+    }
+
+    private static string TrendCssClass(double? value) =>
+        value is null or 0 ? string.Empty : value > 0 ? "up" : "down";
+
+    private static string TrendCssClass(decimal? value) =>
+        value is null or 0 ? string.Empty : value > 0 ? "up" : "down";
+
     private void OpenReportModal() => _showReportModal = true;
     private void CloseReportModal() => _showReportModal = false;
 
@@ -292,15 +403,5 @@
     private void SelectExportFormat(string selected)
     {
         _selectedExportFormat = selected;
-    }
-
-    private class DriverStanding
-    {
-        public int Rank { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string Plate { get; set; } = string.Empty;
-        public string Punctual { get; set; } = string.Empty;
-        public int Incidents { get; set; }
-        public decimal Boundaries { get; set; }
     }
 }

@@ -1022,6 +1022,27 @@ background: rgba(255,255,255,0.18);
 overflow: hidden;
 }
 
+.chart-empty,
+.leaderboard-empty {
+position: absolute;
+inset: 0;
+display: grid;
+place-items: center;
+color: #4d7385;
+font-size: 0.8rem;
+letter-spacing: 0.03em;
+}
+
+.data-warning-banner {
+background: rgba(219, 175, 52, 0.14);
+border: 1px solid rgba(219, 175, 52, 0.3);
+color: #8a5c00;
+border-radius: 10px;
+padding: 0.7rem 0.9rem;
+font-size: 0.8rem;
+letter-spacing: 0.02em;
+}
+
 .chart-lines {
 background:
     linear-gradient(transparent 95%, rgba(39,57,66,0.12) 0),
@@ -1105,6 +1126,8 @@ border: 1px solid rgba(96, 130, 145, 0.22);
 .leaderboard-list {
 display: flex;
 flex-direction: column;
+min-height: 5rem;
+position: relative;
 }
 
 .leader-row {
