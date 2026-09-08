@@ -1,12 +1,14 @@
+using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Services;
+using Microsoft.Maui.Controls;
+using Plugin.Firebase.Auth;
+using Plugin.Firebase.Firestore;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
-using Microsoft.Maui.Controls;
-using Plugin.Firebase.Auth;
-using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -93,17 +95,38 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
             WelcomeMessage = $"Welcome back,\n{firstName}.";
             _ = _notificationService.RegisterPushNotificationsAsync(user.Uid);
 
-            // Set dynamic last login time from the active session
+            // FIX: Restored the missing Last Login Time assignment
             LastLoginTime = DateTime.Now.ToString("HH:mm");
-        }
 
-        var taxi = await _shiftService.GetTaxiUnitAsync("TAXI_001");
-        if (taxi != null)
-        {
-            AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber) ? taxi.Model : taxi.PlateNumber.Replace("-", " · ");
-            AssignedUnitDetails = $"{taxi.YearManufactured} {taxi.Model}";
-            MaintenanceStatus = taxi.Status;
+            try
+            {
+                var userProfileDoc = await CrossFirebaseFirestore.Current
+                    .GetCollection("users")
+                    .GetDocument(user.Uid)
+                    .GetDocumentSnapshotAsync<UserProfileProxy>(); // FIX: Use the mobile proxy
+
+                var dynamicTaxiId = userProfileDoc?.Data?.AssignedTaxiId;
+
+                if (!string.IsNullOrWhiteSpace(dynamicTaxiId))
+                {
+                    var taxi = await _shiftService.GetTaxiUnitAsync(dynamicTaxiId);
+                    if (taxi != null)
+                    {
+                        AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber) ? taxi.Model : taxi.PlateNumber.Replace("-", " · ");
+                        AssignedUnitDetails = $"{taxi.YearManufactured} {taxi.Model}";
+                        MaintenanceStatus = taxi.Status;
+                    }
+                }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Dashboard Data Error: {ex.Message}"); }
         }
+    }
+
+    // Add this proxy class to the bottom of the file
+    public class UserProfileProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("assignedTaxiId")]
+        public string AssignedTaxiId { get; set; }
     }
 
     public void ApplyQueryAttributes(IDictionary<string, object> query)

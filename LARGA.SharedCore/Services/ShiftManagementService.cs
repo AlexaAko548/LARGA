@@ -69,22 +69,22 @@ public class ShiftManagementService : IShiftManagementService
     {
         try
         {
-            // Explicitly request a Dictionary to prevent mobile SDK deserialization crashes with web attributes
             var document = await CrossFirebaseFirestore.Current
                 .GetCollection("taxis")
                 .GetDocument(taxiId)
-                .GetDocumentSnapshotAsync<Dictionary<string, object>>();
+                .GetDocumentSnapshotAsync<TaxiUnitProxy>(); // FIX: Use the mobile proxy
 
             if (document != null && document.Data != null)
             {
+                var data = document.Data;
                 return new TaxiUnit
                 {
                     DocumentId = document.Reference.Id,
-                    TaxiId = document.Data.ContainsKey("taxiId") ? document.Data["taxiId"]?.ToString() : string.Empty,
-                    Model = document.Data.ContainsKey("model") ? document.Data["model"]?.ToString() : string.Empty,
-                    PlateNumber = document.Data.ContainsKey("plateNumber") ? document.Data["plateNumber"]?.ToString() : string.Empty,
-                    Status = document.Data.ContainsKey("status") ? document.Data["status"]?.ToString() : string.Empty,
-                    YearManufactured = document.Data.ContainsKey("yearManufactured") ? Convert.ToInt32(document.Data["yearManufactured"]) : 0
+                    TaxiId = data.TaxiId ?? string.Empty,
+                    Model = data.Model ?? string.Empty,
+                    PlateNumber = data.PlateNumber ?? string.Empty,
+                    Status = data.Status ?? string.Empty,
+                    YearManufactured = data.YearManufactured
                 };
             }
             return null;
@@ -94,5 +94,24 @@ public class ShiftManagementService : IShiftManagementService
             System.Diagnostics.Debug.WriteLine($"Fetch Taxi Error: {ex.Message}");
             return null;
         }
+    }
+
+    // Proxy class using mobile-specific Plugin.Firebase attributes
+    public class TaxiUnitProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
+        public string TaxiId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("model")]
+        public string Model { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("plateNumber")]
+        public string PlateNumber { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
+        public string Status { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("yearManufactured")]
+        public int YearManufactured { get; set; }
     }
 }

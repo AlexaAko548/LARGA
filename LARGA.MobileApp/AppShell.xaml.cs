@@ -23,20 +23,22 @@ public partial class AppShell : Shell
         Routing.RegisterRoute("shift-completed", typeof(Views.Driver.ShiftCompletedPage));
     }
 
-    protected override void OnNavigating(ShellNavigatingEventArgs args)
+    protected override void OnNavigated(ShellNavigatedEventArgs args)
     {
-        base.OnNavigating(args);
+        base.OnNavigated(args);
 
-        // Detects if the user tapped the tab they are already currently inside
+        // Detects when the user clicks a bottom tab icon to switch sections
         if (args.Source == ShellNavigationSource.ShellSectionChanged)
         {
-            var currentRoute = Shell.Current?.CurrentState?.Location?.OriginalString;
-            var targetRoute = args.Target?.Location?.OriginalString;
-
-            if (currentRoute != null && targetRoute != null && currentRoute == targetRoute)
+            // Check if they tapped the active Home tab
+            if (args.Current != null && args.Current.Location.OriginalString.Contains("driver-dashboard"))
             {
-                // Double-tap detected: Pop the stack back to the root Dashboard
-                Shell.Current.Navigation.PopToRootAsync(true);
+                // If the Active Shift screen (or any other sub-page) is stuck on top, destroy it
+                if (Shell.Current.Navigation.NavigationStack.Count > 1)
+                {
+                    // Instantly snaps back to the root dashboard
+                    Shell.Current.Navigation.PopToRootAsync(false);
+                }
             }
         }
     }
