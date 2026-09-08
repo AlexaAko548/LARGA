@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
@@ -13,7 +14,7 @@ using LARGA.Shared.Models.Entities;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
-public class ActiveShiftViewModel : INotifyPropertyChanged
+public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
 {
     private readonly IShiftManagementService _shiftService;
     private readonly IDispatcherTimer _shiftTimer;
@@ -21,7 +22,6 @@ public class ActiveShiftViewModel : INotifyPropertyChanged
     private TimeSpan _timeRemaining;
     private DateTime _shiftStartTime;
 
-    // Fixed: Added the missing pause variables
     private DateTime _pauseStartTime;
     private TimeSpan _totalBreakTime = TimeSpan.Zero;
 
@@ -119,30 +119,10 @@ public class ActiveShiftViewModel : INotifyPropertyChanged
     {
         _shiftService = shiftService;
 
-        var savedStartTimeStr = Preferences.Get("ShiftStartTime", string.Empty);
-        if (string.IsNullOrEmpty(savedStartTimeStr))
-        {
-            _shiftStartTime = DateTime.Now;
-            Preferences.Set("ShiftStartTime", _shiftStartTime.ToString("o"));
-        }
-        else
-        {
-            _shiftStartTime = DateTime.Parse(savedStartTimeStr);
-        }
-
-        ShiftStartTimeDisplay = _shiftStartTime.ToString("hh:mm tt");
-        ShiftEndsAt = _shiftStartTime.AddHours(10).ToString("hh:mm tt");
-
-        _shiftDuration = DateTime.Now - _shiftStartTime;
-        _timeRemaining = TimeSpan.FromHours(10) - _shiftDuration;
-
-        if (_timeRemaining.TotalSeconds < 0) _timeRemaining = TimeSpan.Zero;
-        TimeRemainingDisplay = $"{_timeRemaining.Hours:D2}h {_timeRemaining.Minutes:D2}m";
-
+        // Timer instantiation remains in the constructor so it exists globally
         _shiftTimer = Application.Current.Dispatcher.CreateTimer();
         _shiftTimer.Interval = TimeSpan.FromSeconds(1);
         _shiftTimer.Tick += OnTimerTick;
-        _shiftTimer.Start();
 
         RequestPauseCommand = new Command(() => IsPauseAlertVisible = true);
         CancelPauseCommand = new Command(() => IsPauseAlertVisible = false);
@@ -154,7 +134,6 @@ public class ActiveShiftViewModel : INotifyPropertyChanged
             _shiftTimer.Stop();
         });
 
-        // Fixed: Calculates and stores the exact duration of the break
         ResumeShiftCommand = new Command(() =>
         {
             IsPaused = false;
@@ -164,14 +143,50 @@ public class ActiveShiftViewModel : INotifyPropertyChanged
 
         ClockOutCommand = new Command(() => IsClockOutAlertVisible = true);
         CancelClockOutCommand = new Command(() => IsClockOutAlertVisible = false);
+
         ConfirmClockOutCommand = new Command(async () =>
         {
             IsClockOutAlertVisible = false;
+            _shiftTimer.Stop();
+
+            // Purge the saved start time from the device memory upon clocking out[cite: 1]
+            Preferences.Remove("ShiftStartTime");
+
             await Shell.Current.GoToAsync("end-shift-step1");
         });
 
         SendSosCommand = new Command(() => IsSosAlertVisible = true);
         DismissSosCommand = new Command(() => IsSosAlertVisible = false);
+    }
+
+    // This method fires every single time the user routes to the Active Shift screen
+    public void ApplyQueryAttributes(IDictionary<string, object> query)
+    {
+        var savedStartTimeStr = Preferences.Get("ShiftStartTime", string.Empty);
+
+        // If empty, this is a fresh clock-in
+        if (string.IsNullOrEmpty(savedStartTimeStr))
+        {
+            _shiftStartTime = DateTime.Now;
+            Preferences.Set("ShiftStartTime", _shiftStartTime.ToString("o"));
+
+            // Wipe the stale data from the previous shift
+            _totalBreakTime = TimeSpan.Zero;
+            IsPaused = false;
+        }
+        else
+        {
+            _shiftStartTime = DateTime.Parse(savedStartTimeStr);
+        }
+
+        ShiftStartTimeDisplay = _shiftStartTime.ToString("hh:mm tt");
+        ShiftEndsAt = _shiftStartTime.AddHours(10).ToString("hh:mm tt");
+
+        // Force the timer to restart if it was stopped during a previous clock-out
+        if (!_shiftTimer.IsRunning)
+        {
+            _shiftTimer.Start();
+        }
 
         _ = InitializeDynamicTaxiAsync();
     }
@@ -183,10 +198,11 @@ public class ActiveShiftViewModel : INotifyPropertyChanged
         {
             try
             {
+                // FIX: Use the specific proxy defined below
                 var userProfileDoc = await CrossFirebaseFirestore.Current
                     .GetCollection("users")
                     .GetDocument(user.Uid)
-                    .GetDocumentSnapshotAsync<UserProfile>();
+                    .GetDocumentSnapshotAsync<ShiftUserProfileProxy>();
 
                 var dynamicTaxiId = userProfileDoc?.Data?.AssignedTaxiId;
 
@@ -205,9 +221,14 @@ public class ActiveShiftViewModel : INotifyPropertyChanged
         }
     }
 
+    public class ShiftUserProfileProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("assignedTaxiId")]
+        public string AssignedTaxiId { get; set; }
+    }
+
     private void OnTimerTick(object sender, EventArgs e)
     {
-        // Fixed: Subtracts the total break time so the timer doesn't jump forward
         _shiftDuration = (DateTime.Now - _shiftStartTime) - _totalBreakTime;
         if (_shiftDuration.TotalSeconds < 0) _shiftDuration = TimeSpan.Zero;
 

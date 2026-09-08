@@ -66,12 +66,16 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
         get => _isBelowHalfTankSelected;
         set
         {
+            if (_isBelowHalfTankSelected == value) return;
             _isBelowHalfTankSelected = value;
             if (value) IsHalfTankSelected = false;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(PenaltyNoteVisible));
             OnPropertyChanged(nameof(CanStartShift));
         }
     }
+
+    public bool PenaltyNoteVisible => IsBelowHalfTankSelected;
 
     public bool CanStartShift =>
         !string.IsNullOrWhiteSpace(StartingOdometer) &&

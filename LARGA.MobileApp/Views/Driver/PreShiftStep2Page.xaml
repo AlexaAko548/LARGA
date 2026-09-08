@@ -47,11 +47,14 @@
                         <Label Text="Half-tank" TextColor="Black" VerticalOptions="Center" />
                     </HorizontalStackLayout>
 
-                    <HorizontalStackLayout Spacing="10" VerticalOptions="Center">
-                        <RadioButton GroupName="Fuel" IsChecked="{Binding IsBelowHalfTankSelected}" />
-                        <VerticalStackLayout>
+                    <HorizontalStackLayout Spacing="10" VerticalOptions="Center" Margin="0,5,0,10">
+                        <HorizontalStackLayout.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SelectFuelCommand}" CommandParameter="BelowHalf" />
+                        </HorizontalStackLayout.GestureRecognizers>
+                        <RadioButton GroupName="FuelLevel" IsChecked="{Binding IsBelowHalfTankSelected}" VerticalOptions="Center" />
+                        <VerticalStackLayout VerticalOptions="Center">
                             <Label Text="Below half-tank" TextColor="Black" />
-                            <Label Text="(Penalty to the previous driver : ₱ 50.00)" TextColor="Blue" TextDecorations="Underline" FontSize="10" />
+                            <Label Text="(Penalty to the previous driver: ₱ 50.00)" TextColor="Red" TextDecorations="Underline" FontSize="10" IsVisible="{Binding PenaltyNoteVisible}" />
                         </VerticalStackLayout>
                     </HorizontalStackLayout>
 

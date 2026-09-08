@@ -1,10 +1,13 @@
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Media;
+using Microsoft.Maui.Storage;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
-public class EndShiftStep2ViewModel : BindableObject
+public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
 {
     private string _finalOdometer = string.Empty;
     public string FinalOdometer
@@ -22,12 +25,20 @@ public class EndShiftStep2ViewModel : BindableObject
 
     public bool IsOdometerScanned => !string.IsNullOrWhiteSpace(FinalOdometer);
 
-    private bool _hasPhoto;
-    public bool HasPhoto
+    private ImageSource _fuelPhoto;
+    public ImageSource FuelPhoto
     {
-        get => _hasPhoto;
-        set { _hasPhoto = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsComplete)); }
+        get => _fuelPhoto;
+        set
+        {
+            _fuelPhoto = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasPhoto));
+            OnPropertyChanged(nameof(IsComplete));
+        }
     }
+
+    public bool HasPhoto => FuelPhoto != null;
 
     private bool _isHalfTankSelected;
     public bool IsHalfTankSelected
@@ -69,25 +80,22 @@ public class EndShiftStep2ViewModel : BindableObject
 
     public EndShiftStep2ViewModel()
     {
-        ScanOdometerCommand = new Command(async () =>
-        {
-            await Task.Delay(500);
-            FinalOdometer = "58,609 km";
-        });
+        // Routes to the existing odometer scanner page
+        ScanOdometerCommand = new Command(async () => await Shell.Current.GoToAsync("odometer-scan"));
 
-        AttachFuelPhotoCommand = new Command(async () =>
-        {
-            await Task.Delay(500);
-            HasPhoto = true;
-        });
+        AttachFuelPhotoCommand = new Command(async () => await AttachFuelPhotoAsync());
 
         ConfirmEndShiftCommand = new Command(async () =>
         {
             if (!IsComplete)
             {
-                await Shell.Current.DisplayAlert("Required", "Please complete all fields.", "OK");
+                await Shell.Current.DisplayAlert("Required", "Please complete all fields (Odometer, Fuel Level, Fuel Photo).", "OK");
                 return;
             }
+
+            // Clean up the active shift state
+            Preferences.Remove("IsShiftActive");
+
             await Shell.Current.GoToAsync("shift-completed");
         });
 
@@ -96,5 +104,34 @@ public class EndShiftStep2ViewModel : BindableObject
             if (option == "HalfTank") IsHalfTankSelected = true;
             else if (option == "BelowHalf") IsBelowHalfTankSelected = true;
         });
+    }
+
+    private async Task AttachFuelPhotoAsync()
+    {
+        try
+        {
+            if (MediaPicker.Default.IsCaptureSupported)
+            {
+                var photo = await MediaPicker.Default.CapturePhotoAsync();
+                if (photo != null)
+                {
+                    var stream = await photo.OpenReadAsync();
+                    FuelPhoto = ImageSource.FromStream(() => stream);
+                }
+            }
+        }
+        catch (System.Exception ex)
+        {
+            await Shell.Current.DisplayAlert("Error", $"Camera failed: {ex.Message}", "OK");
+        }
+    }
+
+    // Catches the scanned value returned from the OdometerScanPage
+    public void ApplyQueryAttributes(IDictionary<string, object> query)
+    {
+        if (query.TryGetValue("ScannedOdometer", out var odometer))
+        {
+            FinalOdometer = odometer.ToString();
+        }
     }
 }
