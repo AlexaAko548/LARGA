@@ -1,41 +1,33 @@
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Storage; // Required for Preferences and SecureStorage
 using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.ViewModels.Auth;
 
-public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
+public class LoginViewModel : INotifyPropertyChanged
 {
     private readonly IFirebaseAuthService _authService;
     private string _email = string.Empty;
     private string _password = string.Empty;
     private string _errorMessage = string.Empty;
-    private string _expectedRole = string.Empty;
+    private bool _rememberMe; // Backing field for the checkbox
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public string Email
-    {
-        get => _email;
-        set => SetProperty(ref _email, value);
-    }
+    public string Email { get => _email; set => SetProperty(ref _email, value); }
+    public string Password { get => _password; set => SetProperty(ref _password, value); }
+    public string ErrorMessage { get => _errorMessage; set => SetProperty(ref _errorMessage, value); }
 
-    public string Password
+    public bool RememberMe
     {
-        get => _password;
-        set => SetProperty(ref _password, value);
-    }
-
-    public string ErrorMessage
-    {
-        get => _errorMessage;
-        set => SetProperty(ref _errorMessage, value);
+        get => _rememberMe;
+        set => SetProperty(ref _rememberMe, value);
     }
 
     public ICommand LoginCommand { get; }
@@ -46,13 +38,18 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
         _authService = authService;
         LoginCommand = new Command(async () => await OnLoginAsync());
         ForgotPasswordCommand = new Command(async () => await OnForgotPasswordAsync());
+
+        // Load credentials the moment the page boots up
+        _ = LoadSavedCredentialsAsync();
     }
 
-    public void ApplyQueryAttributes(IDictionary<string, object> query)
+    private async Task LoadSavedCredentialsAsync()
     {
-        if (query.TryGetValue("SelectedRole", out var roleValue))
+        RememberMe = Preferences.Get("RememberMe", false);
+        if (RememberMe)
         {
-            _expectedRole = roleValue?.ToString() ?? string.Empty;
+            Email = Preferences.Get("SavedEmail", string.Empty);
+            Password = await SecureStorage.GetAsync("SavedPassword") ?? string.Empty;
         }
     }
 
@@ -72,32 +69,33 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
         try
         {
             ErrorMessage = string.Empty;
-
             var userId = await _authService.LoginAsync(Email, Password);
+
             if (!string.IsNullOrEmpty(userId))
             {
-                var role = await _authService.GetUserRoleAsync(userId);
-
-                // FIX: Strictly compare the database role with the landing page button they clicked
-                if (!string.Equals(role, _expectedRole, StringComparison.OrdinalIgnoreCase))
+                // Save or clear credentials based on checkbox state
+                if (RememberMe)
                 {
-                    ErrorMessage = $"Access Denied: You selected {_expectedRole}, but your account is registered as a {role}.";
-                    return;
+                    Preferences.Set("RememberMe", true);
+                    Preferences.Set("SavedEmail", Email);
+                    await SecureStorage.SetAsync("SavedPassword", Password);
                 }
+                else
+                {
+                    Preferences.Remove("RememberMe");
+                    Preferences.Remove("SavedEmail");
+                    SecureStorage.Remove("SavedPassword");
+                }
+
+                var role = await _authService.GetUserRoleAsync(userId);
 
                 if (role?.Equals("Driver", StringComparison.OrdinalIgnoreCase) == true)
                 {
-                    MainThread.BeginInvokeOnMainThread(async () =>
-                    {
-                        await Shell.Current.GoToAsync("//driver-dashboard");
-                    });
+                    MainThread.BeginInvokeOnMainThread(async () => await Shell.Current.GoToAsync("//driver-dashboard"));
                 }
                 else if (role?.Equals("Manager", StringComparison.OrdinalIgnoreCase) == true)
                 {
-                    MainThread.BeginInvokeOnMainThread(async () =>
-                    {
-                        await Shell.Current.GoToAsync("//manager-dashboard");
-                    });
+                    MainThread.BeginInvokeOnMainThread(async () => await Shell.Current.GoToAsync("//manager-dashboard"));
                 }
                 else
                 {
