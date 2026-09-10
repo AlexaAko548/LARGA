@@ -1,4 +1,4 @@
-using Microsoft.Maui.Controls;
+﻿using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
 using System.Collections.Generic;
@@ -27,10 +27,14 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
             OnPropertyChanged();
             OnPropertyChanged(nameof(CanStartShift));
             OnPropertyChanged(nameof(IsOdometerScanned));
+            OnPropertyChanged(nameof(OdometerButtonText)); // Triggers the dynamic text update
         }
     }
 
     public bool IsOdometerScanned => !string.IsNullOrWhiteSpace(StartingOdometer);
+
+    // Dynamically formats the button text to match the design exactly
+    public string OdometerButtonText => IsOdometerScanned ? $"📷 {StartingOdometer} km" : "📷 Scan odometer dashboard";
 
     private ImageSource _fuelPhoto;
     public ImageSource FuelPhoto
@@ -126,15 +130,10 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
             return;
         }
 
-        // 1. Set the shift state to active in the device's local storage
         Microsoft.Maui.Storage.Preferences.Set("IsShiftActive", true);
-
-        // 2. Cleanly route to the Active Shift screen.
-        // The "../../" pops Step 2 and Step 1 off the stack so the Home Tab functions perfectly.
         await Shell.Current.GoToAsync("../../active-shift");
     }
 
-    // Catches the scanned value returned from the OdometerScanPage
     public void ApplyQueryAttributes(IDictionary<string, object> query)
     {
         if (query.TryGetValue("ScannedOdometer", out var odometer))
