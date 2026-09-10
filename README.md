@@ -123,8 +123,13 @@ git checkout develop
 * Place the development `google-services.json` file inside the `src/Larga.Mobile/Platforms/Android/` directory.
 * **Note:** Do not commit production Firebase service secrets to public remotes.
 
+4. Configure manager access:
+* The manager web portal checks the signed-in Firebase Authentication user's document at `users/{uid}` in Cloud Firestore.
+* The document must contain a string field `role` whose value is `Manager` (matching is case-insensitive).
+* New manager registrations create this Firestore profile automatically. Existing Auth-only accounts must have a matching `users/{uid}` profile (or an existing `users` document with the same email) added before they can sign in.
+* Driver accounts must use a different role value; valid Firebase credentials alone do not grant web portal access.
 
-4. Open `LARGA.sln` in Visual Studio 2022, restore NuGet packages, select your target deployment target (e.g., Android Emulator or Web Project), and run the build.
+5. Open `LARGA.sln` in Visual Studio 2022, restore NuGet packages, select your target deployment target (e.g., Android Emulator or Web Project), and run the build.
 
 ---
 

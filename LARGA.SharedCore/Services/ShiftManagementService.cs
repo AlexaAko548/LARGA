@@ -37,9 +37,8 @@ public class ShiftManagementService : IShiftManagementService
         try
         {
             var docRef = await CrossFirebaseFirestore.Current
-                .GetCollection("shift_logs")
-                .AddDocumentAsync(shift);
-            return docRef.Id;
+                .GetCollection("shifts")
+                .AddDocumentAsync(shift);            return docRef.Id;
         }
         catch (Exception ex)
         {

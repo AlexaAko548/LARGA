@@ -16,6 +16,9 @@ public class TaxiUnit
 	[FirestoreProperty("model")]
 	public string Model { get; set; } = string.Empty;
 
+	[FirestoreProperty("plateNumber")]
+	public string PlateNumber { get; set; } = string.Empty;
+
 	[FirestoreProperty("yearManufactured")]
 	public int YearManufactured { get; set; }
 
@@ -27,7 +30,4 @@ public class TaxiUnit
 
 	[FirestoreProperty("lastServicedDate")]
 	public DateTime? LastServicedDate { get; set; }
-
-    [FirestoreProperty("plateNumber")]
-    public string PlateNumber { get; set; } = string.Empty;
 }

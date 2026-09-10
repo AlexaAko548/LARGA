@@ -1,0 +1,413 @@
+@page "/dashboard"
+@using System.Text.Json
+@using LARGA.SharedCore.Models.Dashboard
+@using LARGA.SharedCore.Services
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject FleetReportingService FleetReporting
+
+<PageTitle>Executive Dashboard</PageTitle>
+
+@if (_isCheckingAccess)
+{
+    <div class="auth-page">
+        <div class="auth-card">
+            <h2>Checking access...</h2>
+        </div>
+    </div>
+}
+else if (_isAuthorized)
+{
+<div class="dashboard-shell">
+    <DashboardSidebar ActiveItem="Dashboard" />
+
+    <main class="dashboard-main">
+        <header class="dashboard-header">
+            <div class="header-title-wrap">
+                <h1>EXECUTIVE DASHBOARD</h1>
+                <div class="header-date">@DateTime.Now.ToString("dddd, MMM d, yyyy")</div>
+            </div>
+
+            <div class="header-actions">
+                <button class="icon-btn" type="button" aria-label="Notifications">◌</button>
+                <button class="icon-btn" type="button" aria-label="Messages">✉</button>
+                <div class="manager-pill">
+                    <span class="manager-dot"></span>
+                    <span>Manager</span>
+                    <span class="caret">▾</span>
+                </div>
+            </div>
+        </header>
+
+        @if (_dataError is not null)
+        {
+            <div class="data-warning-banner">
+                Dashboard data unavailable: @_dataError — see LARGA.ManagerWeb/appsettings.Local.json.example.
+            </div>
+        }
+
+        <div class="status-strip">
+            @if (_snapshot is null)
+            {
+                <div class="status-pill status-neutral"><span class="dot"></span> No data</div>
+            }
+            else
+            {
+                <div class="status-pill status-success"><span class="dot"></span> @_snapshot.FleetStatus.Active Active</div>
+                <div class="status-pill status-warning"><span class="dot"></span> @_snapshot.FleetStatus.Maintenance Maintenance</div>
+                <div class="status-pill status-warning alt"><span class="dot"></span> @_snapshot.FleetStatus.OnBreak On Break</div>
+                <div class="status-pill status-danger"><span class="dot"></span> @_snapshot.FleetStatus.Sos SOS</div>
+                <div class="status-pill status-neutral idle"><span class="dot"></span> @_snapshot.FleetStatus.Idle Idle</div>
+            }
+            <button class="generate-btn" type="button" @onclick="OpenReportModal">✦ Generate Reports</button>
+        </div>
+
+        <section class="stats-grid">
+            <article class="stat-card">
+                <div class="stat-icon blue">P</div>
+                <div class="stat-body">
+                    <div class="stat-trend @TrendCssClass(_snapshot?.WeeklyRevenue.TrendPercent)">@FormatPercentTrend(_snapshot?.WeeklyRevenue.TrendPercent)</div>
+                    <div class="stat-value">₱ @((_snapshot?.WeeklyRevenue.Value ?? 0).ToString("#,##0.00"))</div>
+                    <div class="stat-label">Weekly Revenue</div>
+                </div>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-icon blue">A</div>
+                <div class="stat-body">
+                    <div class="stat-trend">@(_snapshot is null ? "No data" : $"{_snapshot.ActiveDrivers.RatioPercent:0}%")</div>
+                    <div class="stat-value">@(_snapshot?.ActiveDrivers.ActiveCount ?? 0) / @(_snapshot?.ActiveDrivers.TotalDrivers ?? 0)</div>
+                    <div class="stat-label">Active Drivers</div>
+                </div>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-icon blue">C</div>
+                <div class="stat-body">
+                    <div class="stat-trend @TrendCssClass(_snapshot?.FleetMileage.TrendPercent)">@FormatPercentTrend(_snapshot?.FleetMileage.TrendPercent)</div>
+                    <div class="stat-value">@((_snapshot?.FleetMileage.Value ?? 0).ToString("#,##0")) km</div>
+                    <div class="stat-label">Fleet Mileage</div>
+                </div>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-icon blue">△</div>
+                <div class="stat-body">
+                    <div class="stat-trend @TrendCssClass(_snapshot?.OpenIncidents.TrendAbsolute)">@FormatAbsoluteTrend(_snapshot?.OpenIncidents.TrendAbsolute)</div>
+                    <div class="stat-value">@((int)(_snapshot?.OpenIncidents.Value ?? 0))</div>
+                    <div class="stat-label">Open Incidents</div>
+                </div>
+            </article>
+        </section>
+
+        <section class="panel-grid">
+            <article class="chart-panel">
+                <div class="panel-header">
+                    <span>Boundary Collections</span>
+                    <strong>Paid vs. Outstanding</strong>
+                    <button type="button" aria-label="Expand">↗</button>
+                </div>
+                <div class="chart-area">
+                    <SimpleBarChart Data="_snapshot?.BoundaryCollections" ValuePrefix="₱" EmptyMessage="No boundary payment data" />
+                </div>
+            </article>
+
+            <article class="chart-panel">
+                <div class="panel-header">
+                    <span>Fuel Consumption</span>
+                    <strong>Verified Receipts</strong>
+                    <button type="button" aria-label="Expand">↗</button>
+                </div>
+                <div class="chart-area">
+                    <SimpleBarChart Data="_snapshot?.FuelVerification" ValuePrefix="₱" EmptyMessage="No verified fuel data" />
+                </div>
+            </article>
+
+            <article class="chart-panel">
+                <div class="panel-header">
+                    <span>Fleet Mileage</span>
+                    <strong>Distance Covered</strong>
+                    <button type="button" aria-label="Expand">↗</button>
+                </div>
+                <div class="chart-area">
+                    <SimpleBarChart Data="_snapshot?.FleetMileageByTaxi" ValueFormat="#,##0 km" EmptyMessage="No mileage data" />
+                </div>
+            </article>
+
+            <article class="chart-panel">
+                <div class="panel-header">
+                    <span>Maintenance Expenses</span>
+                    <strong>Parts &amp; Repairs</strong>
+                    <button type="button" aria-label="Expand">↗</button>
+                </div>
+                <div class="chart-area">
+                    <SimpleBarChart Data="_snapshot?.MaintenanceExpenses" ValuePrefix="₱" EmptyMessage="No maintenance expense data" />
+                </div>
+            </article>
+        </section>
+
+        <section class="leaderboard-panel">
+            <div class="leaderboard-header">
+                <div class="leaderboard-title">Top Driver Standings</div>
+                <div class="leaderboard-crest">◈</div>
+            </div>
+
+            <div class="leaderboard-list">
+                @if (_snapshot is null || _snapshot.TopDrivers.Count == 0)
+                {
+                    <div class="leaderboard-empty">No driver performance data available</div>
+                }
+                else
+                {
+                    @foreach (var driver in _snapshot.TopDrivers)
+                    {
+                        <div class="leader-row">
+                            <div class="rank-badge">@driver.Rank</div>
+                            <div class="driver-info">
+                                <div class="driver-name">@driver.FullName</div>
+                                <div class="driver-plate">@driver.TaxiId</div>
+                            </div>
+                            <div class="driver-metrics">
+                                <span>Punctual</span>
+                                <strong>@driver.PunctualPercent.ToString("0")%</strong>
+                                <span>Incidents</span>
+                                <strong>@driver.IncidentCount</strong>
+                                <span>Boundaries Remitted</span>
+                                <strong>₱ @driver.BoundariesRemitted.ToString("#,##0.00")</strong>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </section>
+    </main>
+</div>
+
+@if (_showReportModal)
+{
+    <div class="report-overlay" @onclick="CloseReportModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Generate System Reports</h3>
+                <button type="button" class="close-modal" @onclick="CloseReportModal">×</button>
+            </div>
+
+            <div class="report-body">
+                <div class="report-section">
+                    <label>1. Select report type</label>
+                    <div class="option-list">
+                        @foreach (var option in ReportOptions)
+                        {
+                            <label class="report-option @(option == _selectedReportType ? "selected" : "")">
+                                <input type="radio" name="reportType" checked="@(_selectedReportType == option)" @onchange="() => SelectReport(option)" />
+                                <span>@option</span>
+                            </label>
+                        }
+                    </div>
+                </div>
+
+                <div class="report-section compact">
+                    <label>2. Select date range</label>
+                    <div class="date-range">
+                        <div class="date-field">
+                            <span>From</span>
+                            <input type="date" @bind="_reportFromDate" />
+                        </div>
+                        <div class="date-field">
+                            <span>To</span>
+                            <input type="date" @bind="_reportToDate" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="report-section compact">
+                    <label>3. Select export format</label>
+                    <div class="format-list">
+                        @foreach (var format in ExportFormats)
+                        {
+                            bool isAvailable = format == CsvFormat;
+                            <label class="export-option @(format == _selectedExportFormat ? "selected" : "") @(isAvailable ? "" : "disabled")">
+                                <input type="radio" name="exportFormat" disabled="@(!isAvailable)" checked="@(_selectedExportFormat == format)" @onchange="() => SelectExportFormat(format)" />
+                                <span>@format@(isAvailable ? "" : " (coming soon)")</span>
+                            </label>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @if (_reportError is not null)
+            {
+                <div class="report-error">@_reportError</div>
+            }
+
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="CloseReportModal">Cancel</button>
+                <button class="download-btn" type="button"
+                        disabled="@(_selectedExportFormat != CsvFormat || _isExportingReport)"
+                        @onclick="DownloadReportAsync">
+                    @(_isExportingReport ? "Preparing…" : _selectedExportFormat == CsvFormat ? "Download CSV" : "Export unavailable until data is available")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+}
+
+@code {
+    private const string CsvFormat = "CSV File";
+
+    private bool _isCheckingAccess = true;
+    private bool _isAuthorized;
+    private IJSObjectReference? _firebaseModule;
+    private IJSObjectReference? _fileDownloadModule;
+    private bool _showReportModal;
+    private string _selectedReportType = "Financial Summary";
+    private string _selectedExportFormat = CsvFormat;
+    private bool _isExportingReport;
+    private string? _reportError;
+
+    private DashboardSnapshot? _snapshot;
+    private string? _dataError;
+
+    private DateTime _reportFromDate = DateTime.Today.AddDays(-7);
+    private DateTime _reportToDate = DateTime.Today;
+
+    private readonly List<string> ReportOptions = new()
+    {
+        "Financial Summary",
+        "Maintenance History",
+        "Fuel & Mileage Analysis",
+        "Driver Performance",
+        "Full Audit Trail"
+    };
+
+    private readonly List<string> ExportFormats = new()
+    {
+        "PDF Document",
+        "Excel Spreadsheet",
+        "CSV File"
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+        var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
+        _isAuthorized = result.TryGetProperty("ok", out var okProp)
+            && okProp.ValueKind == JsonValueKind.True;
+        _isCheckingAccess = false;
+
+        if (!_isAuthorized)
+        {
+            Navigation.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        try
+        {
+            _snapshot = await FleetReporting.GetDashboardSnapshotAsync();
+        }
+        catch (Exception ex)
+        {
+            _dataError = ex.Message;
+        }
+
+        StateHasChanged();
+    }
+
+    private static string FormatPercentTrend(double? percent)
+    {
+        if (percent is null)
+        {
+            return "No prior data";
+        }
+
+        if (percent == 0)
+        {
+            return "No change";
+        }
+
+        string sign = percent > 0 ? "+" : string.Empty;
+        return $"{sign}{percent:0}% vs last week";
+    }
+
+    private static string FormatAbsoluteTrend(decimal? delta)
+    {
+        if (delta is null)
+        {
+            return "No prior data";
+        }
+
+        if (delta == 0)
+        {
+            return "No change";
+        }
+
+        string sign = delta > 0 ? "+" : string.Empty;
+        return $"{sign}{delta:0} vs last week";
+    }
+
+    private static string TrendCssClass(double? value) =>
+        value is null or 0 ? string.Empty : value > 0 ? "up" : "down";
+
+    private static string TrendCssClass(decimal? value) =>
+        value is null or 0 ? string.Empty : value > 0 ? "up" : "down";
+
+    private void OpenReportModal()
+    {
+        _reportError = null;
+        _showReportModal = true;
+    }
+
+    private void CloseReportModal() => _showReportModal = false;
+
+    private void SelectReport(string selected)
+    {
+        _selectedReportType = selected;
+    }
+
+    private void SelectExportFormat(string selected)
+    {
+        _selectedExportFormat = selected;
+    }
+
+    private async Task DownloadReportAsync()
+    {
+        if (_selectedExportFormat != CsvFormat || _isExportingReport)
+        {
+            return;
+        }
+
+        _reportError = null;
+        _isExportingReport = true;
+
+        try
+        {
+            // The date <input>s only carry a calendar date - treat the range as whole UTC
+            // days (no timezone conversion here, matching the rest of the app's plain-UTC
+            // approach) so "To" includes that entire day rather than stopping at midnight.
+            DateTime fromUtc = DateTime.SpecifyKind(_reportFromDate.Date, DateTimeKind.Utc);
+            DateTime toUtc = DateTime.SpecifyKind(_reportToDate.Date, DateTimeKind.Utc).AddDays(1).AddTicks(-1);
+
+            string csv = await FleetReporting.BuildReportCsvAsync(_selectedReportType, fromUtc, toUtc);
+            string fileName = $"{_selectedReportType.Replace(" ", "_")}_{_reportFromDate:yyyyMMdd}-{_reportToDate:yyyyMMdd}.csv";
+
+            _fileDownloadModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/file-download.js");
+            await _fileDownloadModule.InvokeVoidAsync("downloadFile", fileName, csv, "text/csv");
+        }
+        catch (Exception ex)
+        {
+            _reportError = $"Couldn't generate the report: {ex.Message}";
+        }
+        finally
+        {
+            _isExportingReport = false;
+        }
+    }
+}
