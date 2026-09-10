@@ -1,3 +1,4 @@
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -19,11 +20,15 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
             _finalOdometer = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsOdometerScanned));
+            OnPropertyChanged(nameof(OdometerButtonText));
             OnPropertyChanged(nameof(IsComplete));
         }
     }
 
     public bool IsOdometerScanned => !string.IsNullOrWhiteSpace(FinalOdometer);
+
+    // Dynamically formats the button text to match the Pre-Shift design
+    public string OdometerButtonText => IsOdometerScanned ? $"📷 {FinalOdometer} km" : "📷 Scan odometer dashboard";
 
     private ImageSource _fuelPhoto;
     public ImageSource FuelPhoto
@@ -80,7 +85,7 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
 
     public EndShiftStep2ViewModel()
     {
-        // Routes to the existing odometer scanner page
+        // Routes to the active OCR scanner page
         ScanOdometerCommand = new Command(async () => await Shell.Current.GoToAsync("odometer-scan"));
 
         AttachFuelPhotoCommand = new Command(async () => await AttachFuelPhotoAsync());
@@ -93,9 +98,7 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                 return;
             }
 
-            // Clean up the active shift state
             Preferences.Remove("IsShiftActive");
-
             await Shell.Current.GoToAsync("shift-completed");
         });
 
@@ -120,13 +123,13 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                 }
             }
         }
-        catch (System.Exception ex)
+        catch (Exception ex)
         {
             await Shell.Current.DisplayAlert("Error", $"Camera failed: {ex.Message}", "OK");
         }
     }
 
-    // Catches the scanned value returned from the OdometerScanPage
+    // Catches the selected string returned from OdometerScanPage
     public void ApplyQueryAttributes(IDictionary<string, object> query)
     {
         if (query.TryGetValue("ScannedOdometer", out var odometer))

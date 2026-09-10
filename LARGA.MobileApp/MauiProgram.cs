@@ -11,7 +11,8 @@ using Microsoft.Maui.LifecycleEvents;
 using LARGA.MobileApp.ViewModels.Driver;
 using LARGA.MobileApp.ViewModels.Auth;
 using Plugin.Firebase.CloudMessaging;
-using Microsoft.Maui.LifecycleEvents;
+using LARGA.MobileApp.Services;
+using Camera.MAUI; // Added Camera.MAUI namespace
 
 namespace LARGA.MobileApp;
 
@@ -23,6 +24,7 @@ public static class MauiProgram
         builder
             .UseMauiApp<App>()
             .UseMauiCommunityToolkit()
+            .UseMauiCameraView() // Registered the Camera View
             .RegisterFirebaseServices()
             .ConfigureFonts(fonts =>
             {
@@ -43,7 +45,11 @@ public static class MauiProgram
         builder.Services.AddSingleton<IShiftManagementService, ShiftManagementService>();
         builder.Services.AddSingleton<INotificationService, NotificationService>();
 
-        // Register ViewModels (CRITICAL: Make sure LandingViewModel is here!)
+#if ANDROID
+        builder.Services.AddSingleton<IOcrService, LARGA.MobileApp.Platforms.Android.Services.AndroidOcrService>();
+#endif
+
+        // Register ViewModels 
         builder.Services.AddTransient<LandingViewModel>();
         builder.Services.AddTransient<LoginViewModel>();
         builder.Services.AddTransient<ForgotPasswordViewModel>();
@@ -54,8 +60,9 @@ public static class MauiProgram
         builder.Services.AddTransient<PreShiftStep2ViewModel>();
         builder.Services.AddTransient<ShiftCompletedViewModel>();
         builder.Services.AddSingleton<ActiveShiftViewModel>();
+        builder.Services.AddTransient<LedgerViewModel>();
 
-        // Register Views (CRITICAL: Make sure LandingPage is here!)
+        // Register Views 
         builder.Services.AddTransient<LandingPage>();
         builder.Services.AddTransient<LoginPage>();
         builder.Services.AddTransient<ForgotPasswordEmailPage>();
@@ -87,18 +94,18 @@ public static class MauiProgram
     {
         builder.ConfigureLifecycleEvents(events =>
         {
-    #if ANDROID
+#if ANDROID
             events.AddAndroid(android => android.OnCreate((activity, state) =>
             {
                 Plugin.Firebase.Core.Platforms.Android.CrossFirebase.Initialize(activity, () => Platform.CurrentActivity ?? activity);
             }));
-    #elif IOS
+#elif IOS
             events.AddiOS(ios => ios.FinishedLaunching((app, options) =>
             {
                 Plugin.Firebase.Core.Platforms.iOS.CrossFirebase.Initialize();
                 return true;
             }));
-    #endif
+#endif
         });
 
         return builder;

@@ -65,6 +65,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<PackageReference Include="Camera.MAUI" Version="1.5.1" />
 		<PackageReference Include="CommunityToolkit.Maui" Version="9.1.1" />
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
 		<PackageReference Include="Google.Cloud.Firestore" Version="4.4.0" />
