@@ -58,7 +58,7 @@ internal static class Program
         Console.WriteLine("This will write/overwrite fixed-ID documents in: users, taxis, shifts,");
         Console.WriteLine("boundary_payments, fuel_logs, maintenance_logs, maintenance_parts_used,");
         Console.WriteLine("spare_parts, emergency_alerts, gps_telemetry, audit_logs,");
-        Console.WriteLine("handover_checklists, shift_schedules, system_configs.");
+        Console.WriteLine("handover_checklists, shift_schedules, system_configs, routine_checks.");
         Console.WriteLine("It also corrects two known bad fields found in your existing data:");
         Console.WriteLine("  - maintenance_logs: 'supportingPhotoURL' -> 'supportingPhotoUrl' (casing)");
         Console.WriteLine("  - boundary_payments: amountPaid \"600\" (string) -> 600 (number)");
@@ -66,7 +66,18 @@ internal static class Program
         Console.WriteLine("3 shifts are seeded as currently 'Active' so the dashboard's live fleet-status");
         Console.WriteLine("pills each have one dedicated example taxi: TAXI_001=Active (moving GPS),");
         Console.WriteLine("TAXI_002=On Break, TAXI_004=SOS (unresolved alert). TAXI_003=Maintenance and");
-        Console.WriteLine("TAXI_005=Idle (no active shift) round out all 5 states.");
+        Console.WriteLine("TAXI_005=Idle (no currently active shift) round out all 5 states.");
+        Console.WriteLine();
+        Console.WriteLine("A 4th shift (TAXI_005/Carlos) is seeded as already ended earlier today with a");
+        Console.WriteLine("partial payment, so the Financial Ledger's Daily Settlements tab has a mix of");
+        Console.WriteLine("Waiting/Partial rows on first run. debt_adjustments has no seed data - it only");
+        Console.WriteLine("gets documents once a manager uses the page's \"+ Adjustment\" modal.");
+        Console.WriteLine();
+        Console.WriteLine("maintenance_logs now also carries 3 pending driver reports (Status='Reported',");
+        Console.WriteLine("no ticket yet) and the TAXI_003 engine record is now an active work order");
+        Console.WriteLine("(Status='InProgress', reported by Pedro) - together these back the Garage");
+        Console.WriteLine("page's 3 sections. routine_checks seeds 4 upcoming preventive-maintenance");
+        Console.WriteLine("items (2 mileage-based, 1 date-based, 1 more mileage-based) across 4 taxis.");
         Console.WriteLine();
         Console.Write("Type YES to continue: ");
         if (Console.ReadLine()?.Trim() != "YES")
@@ -103,6 +114,7 @@ internal static class Program
         await SeedBoundaryPaymentsAsync(db);
         await SeedFuelLogsAsync(db);
         await SeedMaintenanceAsync(db);
+        await SeedRoutineChecksAsync(db);
         await SeedSparePartsAsync(db);
         await SeedEmergencyAlertsAsync(db);
         await SeedGpsTelemetryAsync(db);
@@ -307,6 +319,7 @@ internal static class Program
     public const string ShiftAnaAug27 = "SHIFT_2026082701";
     public const string ShiftAnaSep2Late = "SHIFT_2026090201";
     public const string ShiftAnaActiveSos = "SHIFT_2026090503"; // demonstrates the "SOS" fleet status
+    public const string ShiftCarlosCompletedToday = "SHIFT_2026091001"; // ended earlier today - demonstrates a "Partial" row on the Financial Ledger's Daily Settlements tab
 
     private static async Task SeedShiftsAsync(FirestoreDb db)
     {
@@ -435,6 +448,25 @@ internal static class Program
             Status = "Active",
             ManagerNote = string.Empty,
         });
+
+        // Ended earlier today (TAXI_005, otherwise idle) - alongside the 3 still-active
+        // shifts above, this gives the Financial Ledger's Daily Settlements tab a realistic
+        // mix on first run: 3 "Waiting" rows (no payment yet) and 1 "Partial" row (paid
+        // below in SeedBoundaryPaymentsAsync). Nothing seeds a "Cleared" row on purpose -
+        // recording a payment through the UI yourself is the more convincing demo of the
+        // write path actually working.
+        await SetAsync(db, "shifts", ShiftCarlosCompletedToday, new ShiftLog
+        {
+            ShiftId = ShiftCarlosCompletedToday,
+            DriverId = DriverCarlos,
+            TaxiId = Taxi5,
+            ShiftStart = DateTime.UtcNow.Date.AddHours(5),
+            ShiftEnd = DateTime.UtcNow.Date.AddHours(9),
+            StartMileage = 500,
+            EndMileage = 560,
+            Status = "Completed",
+            ManagerNote = string.Empty,
+        });
     }
 
     // ---------------------------------------------------------------------
@@ -535,6 +567,21 @@ internal static class Program
             ReferenceNumber = 0,
             EPayReceiptPhoto = "",
             Timestamp = new DateTime(2026, 9, 2, 19, 15, 0, DateTimeKind.Utc),
+        });
+
+        // Partial payment against today's Carlos/TAXI_005 shift above - see that shift's
+        // comment for why this is the only "today" row seeded with a payment at all.
+        await SetAsync(db, "boundary_payments", $"{ShiftCarlosCompletedToday}_PAY", new BoundaryPayment
+        {
+            ShiftId = ShiftCarlosCompletedToday,
+            ExpectedBoundary = 800,
+            LateFees = 0,
+            AmountPaid = 500,
+            PaymentMethod = PaymentMethod.Cash,
+            PaymentStatus = PaymentStatus.Partial,
+            ReferenceNumber = 0,
+            EPayReceiptPhoto = "",
+            Timestamp = DateTime.UtcNow.Date.AddHours(9).AddMinutes(15),
         });
     }
 
@@ -702,6 +749,10 @@ internal static class Program
     private const string MaintenanceTireBlowoutExisting = "E7IDULZqCBNlgXx03yrw";
     private const string MaintenanceTaxi3Engine = "MAINT_TAXI003_ENGINE";
     private const string MaintenanceTaxi2Routine = "MAINT_TAXI002_ROUTINE";
+    // Pending driver reports (Garage page) - not yet ticketed, Status = "Reported"
+    private const string MaintenanceTaxi4FlatTire = "MAINT_TAXI004_FLATTIRE";
+    private const string MaintenanceTaxi2AcNotCooling = "MAINT_TAXI002_AC";
+    private const string MaintenanceTaxi1WindshieldCrack = "MAINT_TAXI001_WINDSHIELD";
 
     private static async Task SeedMaintenanceAsync(FirestoreDb db)
     {
@@ -724,8 +775,13 @@ internal static class Program
             TotalCost = 1350,
             SupportingPhotoUrl = "https://storage.googleapis.com/larga-blmtaxi.appspot.com/defect_reports/SHIFT_20250612_001.jpg",
             PriorityLevel = PriorityLevel.High,
+            Status = "Resolved",
         });
 
+        // Already an active work order (driver report + shop pull already happened) -
+        // demonstrates the Garage page's "Active Work Orders" section. DateLogged is
+        // computed relative to "now" so its "Day N" badge stays a believable small number
+        // every time this tool is re-run, rather than drifting further every day.
         await SetAsync(db, "maintenance_logs", MaintenanceTaxi3Engine, new MaintenanceRecord
         {
             TaxiId = Taxi3,
@@ -734,12 +790,16 @@ internal static class Program
             MaintenanceType = MaintenanceType.BreakdownRepair,
             IssueTitle = "Engine overheating / unusual noise",
             IssueDescription = "Driver reported engine noise at end of shift on Sep 3. Unit pulled for inspection; overheating confirmed at the shop.",
-            DateLogged = new DateTime(2026, 9, 4, 9, 0, 0, DateTimeKind.Utc),
+            DateLogged = DateTime.UtcNow.Date.AddDays(-1),
             DateResolved = null, // still open - good test case for "Open Incidents" widget
             LaborCost = 800,
             TotalCost = 800, // estimate only while parts are pending
             SupportingPhotoUrl = "https://storage.googleapis.com/larga-blmtaxi.appspot.com/defect_reports/MAINT_TAXI003_ENGINE.jpg",
             PriorityLevel = PriorityLevel.High,
+            ReportedByDriverId = DriverPedro,
+            Status = "InProgress",
+            MechanicInstructions = "Flush and refill coolant, replace the radiator hose, then road-test before releasing the unit.",
+            EstimatedCompletionDate = DateTime.UtcNow.Date.AddDays(1),
         });
 
         await SetAsync(db, "maintenance_logs", MaintenanceTaxi2Routine, new MaintenanceRecord
@@ -754,8 +814,66 @@ internal static class Program
             DateResolved = new DateTime(2026, 8, 28, 11, 0, 0, DateTimeKind.Utc),
             LaborCost = 200,
             TotalCost = 350,
+            Status = "Resolved",
             SupportingPhotoUrl = "https://storage.googleapis.com/larga-blmtaxi.appspot.com/defect_reports/MAINT_TAXI002_ROUTINE.jpg",
             PriorityLevel = PriorityLevel.Low,
+        });
+
+        // Pending driver reports (Garage page's "Pending Driver Reports") - filed from
+        // mobile, no work order ticket yet. DateLogged computed relative to "now" so they
+        // always look freshly reported on a re-run, not stuck on a fixed past date.
+        await SetAsync(db, "maintenance_logs", MaintenanceTaxi4FlatTire, new MaintenanceRecord
+        {
+            TaxiId = Taxi4,
+            ManagerId = string.Empty,
+            ShiftId = null,
+            MaintenanceType = MaintenanceType.BreakdownRepair,
+            IssueTitle = "Flat Tire",
+            IssueDescription = "Ran over a large nail near IT Park. The rear right tire is completely flat and needs replacement.",
+            DateLogged = DateTime.UtcNow.AddHours(-3),
+            DateResolved = null,
+            LaborCost = 0,
+            TotalCost = 0,
+            SupportingPhotoUrl = "https://storage.googleapis.com/larga-blmtaxi.appspot.com/defect_reports/MAINT_TAXI004_FLATTIRE.jpg",
+            PriorityLevel = PriorityLevel.High,
+            ReportedByDriverId = DriverAna,
+            Status = "Reported",
+        });
+
+        await SetAsync(db, "maintenance_logs", MaintenanceTaxi2AcNotCooling, new MaintenanceRecord
+        {
+            TaxiId = Taxi2,
+            ManagerId = string.Empty,
+            ShiftId = null,
+            MaintenanceType = MaintenanceType.BreakdownRepair,
+            IssueTitle = "AC Not Cooling",
+            IssueDescription = "Aircon blows warm air even on the max setting; passengers have been complaining during afternoon trips.",
+            DateLogged = DateTime.UtcNow.AddHours(-6),
+            DateResolved = null,
+            LaborCost = 0,
+            TotalCost = 0,
+            SupportingPhotoUrl = null,
+            PriorityLevel = PriorityLevel.Medium,
+            ReportedByDriverId = DriverMaria,
+            Status = "Reported",
+        });
+
+        await SetAsync(db, "maintenance_logs", MaintenanceTaxi1WindshieldCrack, new MaintenanceRecord
+        {
+            TaxiId = Taxi1,
+            ManagerId = string.Empty,
+            ShiftId = null,
+            MaintenanceType = MaintenanceType.BreakdownRepair,
+            IssueTitle = "Windshield Crack",
+            IssueDescription = "Small crack appeared on the lower right of the windshield, likely from road debris. Not obstructing the driver's view yet but spreading.",
+            DateLogged = DateTime.UtcNow.AddHours(-30),
+            DateResolved = null,
+            LaborCost = 0,
+            TotalCost = 0,
+            SupportingPhotoUrl = "https://storage.googleapis.com/larga-blmtaxi.appspot.com/defect_reports/MAINT_TAXI001_WINDSHIELD.jpg",
+            PriorityLevel = PriorityLevel.Medium,
+            ReportedByDriverId = DriverJuan,
+            Status = "Reported",
         });
 
         Console.WriteLine("Seeding maintenance_parts_used...");
@@ -779,6 +897,46 @@ internal static class Program
             MaintenanceId = MaintenanceTaxi2Routine,
             PartId = "PART_AIRFILTER",
             QuantityUsed = 1,
+        });
+    }
+
+    // ---------------------------------------------------------------------
+    // routine_checks
+    // ---------------------------------------------------------------------
+    private static async Task SeedRoutineChecksAsync(FirestoreDb db)
+    {
+        Console.WriteLine("Seeding routine_checks...");
+
+        // DueMileage is an absolute odometer target - "due in X km" on the Garage page is
+        // computed live as DueMileage - taxis/{taxiId}.currentMileage, so these numbers
+        // match the page's "Due in ___ km" exactly right after a fresh seed and then count
+        // down for real as CurrentMileage changes.
+        await SetAsync(db, "routine_checks", "CHECK_TAXI001_OIL", new RoutineCheckItem
+        {
+            TaxiId = Taxi1,
+            CheckName = "Oil Change",
+            DueMileage = 187780 + 150, // matches Taxi1's seeded CurrentMileage
+        });
+
+        await SetAsync(db, "routine_checks", "CHECK_TAXI003_BRAKES", new RoutineCheckItem
+        {
+            TaxiId = Taxi3,
+            CheckName = "Brake Pad Replacement",
+            DueMileage = 120710 + 320, // matches Taxi3's seeded CurrentMileage
+        });
+
+        await SetAsync(db, "routine_checks", "CHECK_TAXI005_REGISTRATION", new RoutineCheckItem
+        {
+            TaxiId = Taxi5,
+            CheckName = "Registration Renewal",
+            DueDate = new DateTime(2026, 11, 15, 0, 0, 0, DateTimeKind.Utc),
+        });
+
+        await SetAsync(db, "routine_checks", "CHECK_TAXI002_TYRES", new RoutineCheckItem
+        {
+            TaxiId = Taxi2,
+            CheckName = "Tyre Rotation",
+            DueMileage = 95475 + 800, // matches Taxi2's seeded CurrentMileage
         });
     }
 

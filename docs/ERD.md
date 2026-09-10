@@ -11,6 +11,7 @@ erDiagram
     USER ||--o{ MAINTENANCE_RECORD : "logs (ManagerID)"
     USER ||--o{ CHAT_MESSAGE : "sends/receives"
     USER ||--o{ SHIFT_SCHEDULE : "is scheduled for"
+    USER ||--o{ DEBT_ADJUSTMENT : "accrues"
 
     TAXI_UNIT ||--o{ SHIFT_LOG : "used in"
     TAXI_UNIT ||--o{ MAINTENANCE_RECORD : "serviced in"
@@ -25,6 +26,8 @@ erDiagram
 
     MAINTENANCE_RECORD ||--o{ MAINTENANCE_PARTS_USED : "consumes"
     SPARE_PARTS ||--o{ MAINTENANCE_PARTS_USED : "used in"
+    TAXI_UNIT ||--o{ ROUTINE_CHECK : "has upcoming"
+    USER ||--o{ MAINTENANCE_RECORD : "reports (ReportedByDriverID)"
 
     USER {
         string UserID PK
@@ -90,6 +93,14 @@ erDiagram
         timestamp Timestamp
     }
 
+    DEBT_ADJUSTMENT {
+        string AdjustmentID PK
+        string DriverID FK
+        decimal Amount "DECIMAL(10,2), positive adds to debt, negative is a credit/write-off"
+        string Reason
+        timestamp Timestamp
+    }
+
     HANDOVER_CHECKLIST {
         string ChecklistID PK
         string ShiftID FK
@@ -152,6 +163,18 @@ erDiagram
         decimal TotalCost "DECIMAL(10,2)"
         string SupportingPhotoURL "URL"
         enum PriorityLevel "'Low','Medium','High'"
+        string ReportedByDriverID FK "nullable - added 2026-09-10"
+        string Status "'Reported','InProgress','Resolved','Dismissed' - added 2026-09-10"
+        text MechanicInstructions "nullable - added 2026-09-10"
+        date EstimatedCompletionDate "nullable - added 2026-09-10"
+    }
+
+    ROUTINE_CHECK {
+        string CheckID PK
+        string TaxiID FK
+        string CheckName "VARCHAR(100)"
+        int DueMileage "nullable - absolute odometer target"
+        date DueDate "nullable - for a date-based check instead of a mileage-based one"
     }
 
     MAINTENANCE_PARTS_USED {
@@ -220,3 +243,7 @@ The ManagerWeb dashboard's 5 fleet-status pills (Active / Maintenance / On Break
 - Known live-data bugs found and corrected via the seed tool (see [LARGA.SeedTool](../LARGA.SeedTool)): a `maintenance_logs` document had `supportingPhotoURL` (wrong casing, code expects `supportingPhotoUrl`) and a `boundary_payments` document had `amountPaid` stored as a string instead of a number.
 - **Fields written but not yet read anywhere on mobile**: `USER.ManagerNote` (meant to show on the driver's mobile home screen) and `USER.MustChangePassword` (meant to force a password change after a manager-set temporary password) are both written by ManagerWeb as of 2026-09-07, but `LARGA.MobileApp` doesn't display or enforce either yet - that's separate, future mobile-side work.
 - **Computed, not stored**: Driver Profile's Punctuality %, Payment Reliability %, and Damage Incidents are all computed on read from `SHIFT_LOG`/`BOUNDARY_PAYMENT`/`MAINTENANCE_RECORD` history - there's no corresponding stored field for any of them.
+- **`DEBT_ADJUSTMENT`**: new as of 2026-09-10, backing the Financial Ledger & Debts page's "+ Adjustment" modal (see [FinancialLedgerService](../LARGA.SharedCore/Services/FinancialLedgerService.cs)). Deliberately its own collection (`debt_adjustments`) rather than a synthetic `BOUNDARY_PAYMENT_LEDGER` row, since an adjustment isn't money a driver actually handed over.
+- **Financial Ledger & Debts page (2026-09-10)**: the "Daily Settlements (Today)" tab lists every `SHIFT_LOG` whose `ShiftStart` falls on the current UTC day (active or already ended), joined to its `BOUNDARY_PAYMENT_LEDGER` row when one exists. A shift with no payment doc yet (including one still "on road") is shown as *Waiting* with the row's expected boundary defaulted from `SYSTEM_CONFIG.DefaultBoundaryRate`, rather than pre-creating a payment document - the document is only created on the manager's first "Record Payment" click, with a deterministic ID (`{shiftId}_PAY`, matching the seed data's own convention) so a later "Add Payment" on the same shift updates that same document instead of creating a duplicate.
+- **Master Debt Ledger tab (2026-09-10)**: an all-time reckoning of each driver's outstanding debt, so - unlike everywhere else in this service - it fetches `SHIFT_LOG` and `BOUNDARY_PAYMENT_LEDGER` in full rather than windowed (see "Dashboard read-cost notes" above for why those two normally stay narrow; windowing would defeat a feature whose whole point is all-time visibility). A driver's debt = sum of (Expected + LateFees − AmountPaid) across their non-Paid `BOUNDARY_PAYMENT_LEDGER` rows, plus their net `DEBT_ADJUSTMENT` total, floored at 0. Same lazy-payment-doc limitation as Daily Settlements: a shift nobody ever attempted to pay (no document at all) isn't visible to this either. "Settle" applies a lump sum oldest-debt-first across a driver's outstanding boundary payments, then any leftover as an automatic offsetting credit against their adjustment total; an overpayment beyond total debt is reported back rather than recorded as a negative balance. "History" reconstructs a running-debt column by replaying a driver's `BOUNDARY_PAYMENT_LEDGER` rows (one per shift, its *current* state - not a payment-by-payment log, since `RecordPaymentAsync`/`SettleDebtAsync` update the same document in place) and `DEBT_ADJUSTMENT` rows (append-only, so these do have real history) in chronological order - it isn't stored anywhere.
+- **Garage / Maintenance Scheduler page (2026-09-10)**: `MAINTENANCE_RECORD.Status` (new field) drives the page's 3 sections - `"Reported"` = a driver-filed defect report with no work order yet ("Pending Driver Reports"); `"InProgress"` = a ticket has been created and it's an active work order currently in the shop ("Active Work Orders" - the "Day N" badge is computed from `DateLogged`, not stored); `"Resolved"`/`"Dismissed"` both go to the History modal, distinguished by status since `DateResolved` alone can't express "dismissed without ever being worked on." "Create Ticket" sets `Status="InProgress"` plus `MechanicInstructions`/`EstimatedCompletionDate`; "Schedule" on a `ROUTINE_CHECK` skips the driver-report stage entirely (it's manager/system-initiated, not driver-flagged) - it prompts for a date (Automatic or Manual), then creates a `MAINTENANCE_RECORD` directly as `"InProgress"` (that date becomes its `EstimatedCompletionDate`) and deletes the `ROUTINE_CHECK` document, rather than round-tripping through "Reported" first. Automatic mode (`GetNextAvailableScheduleDateAsync`) never picks today - it starts at tomorrow and, for each candidate day, counts existing `"InProgress"` rows sharing that `EstimatedCompletionDate`; at 2 or more (the shop's daily capacity, hardcoded) it tries the next day, repeating until one is under capacity. Manual mode isn't capacity-checked - only Automatic enforces it. `GetGarageSnapshotAsync` fetches `maintenance_logs` in full, same reasoning as `FleetReportingService`'s dashboard reads: it's incident-driven, not written once-per-taxi-per-day, so its volume grows far slower than `shifts`/`boundary_payments`. "Due in X km" on a `ROUTINE_CHECK` is `DueMileage − current odometer`, where current odometer is read from each taxi's most recent `SHIFT_LOG` in the last 30 days (`EndMileage` if that shift has ended, else its `StartMileage`) rather than the static `TAXI_UNIT.CurrentMileage` field, which nothing keeps in sync automatically - a taxi with no shifts in that window falls back to `CurrentMileage`. The 30-day window is queried with `WhereGreaterThanOrEqualTo` on `shiftStart` alone (auto-indexed) rather than `WhereEqualTo(taxiId)` + `OrderBy(shiftStart)` per taxi, which would need a manually-created composite index.

@@ -120,4 +120,25 @@ public class MaintenanceRecord
 
     [FirestoreProperty("priorityLevel", ConverterType = typeof(PriorityLevelConverter))]
     public PriorityLevel PriorityLevel { get; set; } = PriorityLevel.Low;
+
+    // --- Added 2026-09-10 for the Garage / Maintenance Scheduler page ---
+
+    /// <summary>Driver who filed this as a defect report from mobile. Null for a manager- or
+    /// system-initiated record (e.g. a routine check turned into a work order).</summary>
+    [FirestoreProperty("reportedByDriverId")]
+    public string? ReportedByDriverId { get; set; }
+
+    /// <summary>"Reported" (driver flagged it, no ticket yet) / "InProgress" (ticket created,
+    /// in the shop) / "Resolved" / "Dismissed". Plain string, same convention as
+    /// ShiftLog.Status/TaxiUnit.Status elsewhere in this codebase - not stored redundantly
+    /// with DateResolved, since "Dismissed" needs its own state DateResolved can't express.</summary>
+    [FirestoreProperty("status")]
+    public string Status { get; set; } = "Reported";
+
+    /// <summary>Set when a pending driver report is turned into a work order via "Create Ticket".</summary>
+    [FirestoreProperty("mechanicInstructions")]
+    public string? MechanicInstructions { get; set; }
+
+    [FirestoreProperty("estimatedCompletionDate")]
+    public DateTime? EstimatedCompletionDate { get; set; }
 }

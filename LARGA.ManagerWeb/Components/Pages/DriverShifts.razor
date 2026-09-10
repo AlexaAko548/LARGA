@@ -160,7 +160,7 @@ else if (_isAuthorized)
                                     {
                                         DateTime day = _weekSchedule.WeekStart.AddDays(i);
                                         int active = _weekSchedule.UnitsActiveByDay[i];
-                                        <th>
+                                        <th class="@(IsToday(day) ? "schedule-today" : "")">
                                             @day.ToString("ddd").ToUpperInvariant() @day.ToString("d/M")
                                             <div class="schedule-day-count">@active/@_weekSchedule.TotalTaxis</div>
                                         </th>
@@ -183,7 +183,7 @@ else if (_isAuthorized)
                                             ScheduleDayCell cell = row.Days[i];
                                             string driverId = row.DriverId;
                                             string cellKey = $"{driverId}_{cell.Date:yyyyMMdd}";
-                                            <td class="schedule-cell-wrap">
+                                            <td class="schedule-cell-wrap @(IsToday(cell.Date) ? "schedule-today" : "")">
                                                 <button class="schedule-cell @(cell.TaxiId is null ? "rest" : "")" type="button" @onclick="() => ToggleCell(driverId, cell.Date)">
                                                     @(cell.TaxiId ?? "-REST DAY-")
                                                 </button>
@@ -207,7 +207,8 @@ else if (_isAuthorized)
                                     <td>UNITS ACTIVE</td>
                                     @for (int i = 0; i < 7; i++)
                                     {
-                                        <td>@_weekSchedule.UnitsActiveByDay[i]</td>
+                                        DateTime footerDay = _weekSchedule.WeekStart.AddDays(i);
+                                        <td class="@(IsToday(footerDay) ? "schedule-today" : "")">@_weekSchedule.UnitsActiveByDay[i]</td>
                                     }
                                 </tr>
                             </tfoot>
@@ -1107,6 +1108,8 @@ else if (_isAuthorized)
         string day = value.Date == today ? "Today" : value.Date == today.AddDays(-1) ? "Yesterday" : value.ToString("MMM d");
         return $"{day}, {value:h:mm tt}";
     }
+
+    private static bool IsToday(DateTime day) => day.Date == DateTime.UtcNow.Date;
 
     private string WeekLabel()
     {

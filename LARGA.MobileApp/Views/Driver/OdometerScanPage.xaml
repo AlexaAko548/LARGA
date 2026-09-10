@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="LARGA.MobileApp.Views.Driver.OdometerScanPage"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="Black">
+
+    <Grid RowDefinitions="*, Auto">
+        <VerticalStackLayout Grid.Row="0" VerticalOptions="Center" HorizontalOptions="Center" Spacing="20">
+            <Image Source="camera_focus_icon.png" WidthRequest="150" HeightRequest="150" />
+            <Label Text="Align odometer inside the frame" TextColor="White" FontSize="16" HorizontalOptions="Center" />
+
+            <!-- Simulated Live Text Detection -->
+            <Label x:Name="DetectedTextLabel" Text="Scanning..." TextColor="#0099CC" FontSize="24" FontAttributes="Bold" HorizontalOptions="Center" />
+        </VerticalStackLayout>
+
+        <Button Grid.Row="1" Text="📸 Confirm Reading" Clicked="OnCaptureClicked" 
+                BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="60" Margin="20,20,20,40" FontAttributes="Bold" FontSize="18" />
+    </Grid>
+</ContentPage>

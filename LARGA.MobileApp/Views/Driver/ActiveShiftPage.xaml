@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
+             x:Class="LARGA.MobileApp.Views.Driver.ActiveShiftPage"
+             x:DataType="viewmodels:ActiveShiftViewModel"
+             Title="Active Shift"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="#f0f0f0">
+
+    <Grid>
+        <!-- MAIN CONTENT LAYER -->
+        <ScrollView>
+            <VerticalStackLayout Padding="20" Spacing="15">
+
+                <!-- Status Banner -->
+                <Frame BackgroundColor="#1E1E1E" CornerRadius="8" Padding="15,10" HasShadow="False">
+                    <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
+                        <Ellipse WidthRequest="15" HeightRequest="15" Fill="Transparent" Stroke="{Binding StatusBannerColor}" StrokeThickness="2" VerticalOptions="Center"/>
+                        <Label Text="{Binding StatusBannerText}" Style="{StaticResource StatusDataStyle}" TextColor="White" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                </Frame>
+
+                <Label Text="{Binding ShiftStartTimeDisplay, StringFormat='Shift started at {0}'}" FontSize="16" TextColor="Black" Margin="0,10,0,0"/>
+
+                <Grid ColumnDefinitions="*, Auto" Margin="0,5,0,15">
+                    <Label Grid.Column="0" Text="{Binding ShiftStatus}" Style="{StaticResource HeaderTitleStyle}" FontSize="38" VerticalOptions="Center"/>
+
+                    <!-- SOS Icon Button -->
+                    <Border Grid.Column="1"
+							BackgroundColor="#FF2424"
+							Stroke="#FF7373"
+							StrokeThickness="6"
+							StrokeShape="RoundRectangle 30"
+							WidthRequest="60"
+							HeightRequest="60"
+							VerticalOptions="Center"
+							HorizontalOptions="Center">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SendSosCommand}" />
+                        </Border.GestureRecognizers>
+
+                        <Image Source="sos_icon.png"
+							   WidthRequest="30"
+							   HeightRequest="30"
+							   HorizontalOptions="Center"
+							   VerticalOptions="Center" />
+                    </Border>
+                </Grid>
+
+                <!-- Top Metric Cards -->
+                <Grid ColumnDefinitions="*, *" ColumnSpacing="15">
+                    <Frame Grid.Column="0" BackgroundColor="#A1D6E2" CornerRadius="12" Padding="15" HasShadow="False">
+                        <VerticalStackLayout Spacing="10">
+                            <Label Text="DURATION" FontSize="14" TextColor="#4A4A4A"/>
+                            <Label Text="{Binding DurationDisplay}" Style="{StaticResource StatusDataStyle}" FontSize="24" TextColor="Black"/>
+                        </VerticalStackLayout>
+                    </Frame>
+
+                    <Frame Grid.Column="1" BackgroundColor="#A1D6E2" CornerRadius="12" Padding="15" HasShadow="False">
+                        <VerticalStackLayout Spacing="10">
+                            <Label Text="TAXI UNIT" FontSize="14" TextColor="#4A4A4A"/>
+                            <Label Text="{Binding TaxiUnit}" FontSize="16" Style="{StaticResource StatusDataStyle}" TextColor="Black"/>
+                        </VerticalStackLayout>
+                    </Frame>
+                </Grid>
+
+                <!-- Shift Metrics -->
+                <Frame BackgroundColor="#A1D6E2" CornerRadius="12" Padding="15" HasShadow="False">
+                    <Grid RowDefinitions="Auto, Auto" ColumnDefinitions="*, *">
+                        <Label Grid.Row="0" Grid.Column="0" Text="SHIFT METRICS" FontSize="14" TextColor="#4A4A4A"/>
+                        <Label Grid.Row="0" Grid.Column="1" Text="Live" FontSize="14" TextColor="#00A000" HorizontalOptions="End" FontAttributes="Bold"/>
+
+                        <VerticalStackLayout Grid.Row="1" Grid.Column="0" Margin="0,15,0,0" HorizontalOptions="Center">
+                            <Label Text="{Binding Distance}" FontSize="20" FontAttributes="Bold" TextColor="Black" HorizontalOptions="Center"/>
+                            <Label Text="Distance (km)" FontSize="12" TextColor="#4A4A4A" HorizontalOptions="Center"/>
+                        </VerticalStackLayout>
+
+                        <VerticalStackLayout Grid.Row="1" Grid.Column="1" Margin="0,15,0,0" HorizontalOptions="Center">
+                            <Label Text="{Binding BoundaryStatus}" FontSize="20" FontAttributes="Bold" TextColor="Black" HorizontalOptions="Center"/>
+                            <Label Text="Boundary Status" FontSize="12" TextColor="#4A4A4A" HorizontalOptions="Center"/>
+                        </VerticalStackLayout>
+                    </Grid>
+                </Frame>
+
+                <Frame BackgroundColor="#A1D6E2" CornerRadius="8" Padding="15,10" HasShadow="False">
+                    <Grid ColumnDefinitions="*, Auto">
+                        <Label Grid.Column="0" Text="SHIFT ENDS AT :" FontSize="16" TextColor="#4A4A4A" VerticalOptions="Center"/>
+                        <Label Grid.Column="1" Text="{Binding ShiftEndsAt}" Style="{StaticResource StatusDataStyle}" FontSize="20" TextColor="Black"/>
+                    </Grid>
+                </Frame>
+
+                <Frame BackgroundColor="#A1D6E2" CornerRadius="8" Padding="15,10" HasShadow="False">
+                    <Grid ColumnDefinitions="*, Auto">
+                        <Label Grid.Column="0" Text="TIME REMAINING :" FontSize="16" TextColor="#4A4A4A" VerticalOptions="Center"/>
+                        <Label Grid.Column="1" Text="{Binding TimeRemainingDisplay}" Style="{StaticResource StatusDataStyle}" FontSize="20" TextColor="Black"/>
+                    </Grid>
+                </Frame>
+
+                <!-- Standard Action Buttons (Visible when Active) -->
+                <Grid ColumnDefinitions="*, *" ColumnSpacing="15" Margin="0,100,0,0" IsVisible="{Binding IsActive}">
+                    <Button Grid.Column="0" Text="PAUSE" Style="{StaticResource LargaButtonStyle}" FontSize="18" BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="55" Command="{Binding RequestPauseCommand}"/>
+                    <Button Grid.Column="1" Text="CLOCK OUT" Style="{StaticResource LargaButtonStyle}" FontSize="18" BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="55" Command="{Binding ClockOutCommand}"/>
+                </Grid>
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <!-- PAUSE CONFIRMATION OVERLAY -->
+        <ContentView IsVisible="{Binding IsPauseAlertVisible}" BackgroundColor="#90000000" InputTransparent="False" ZIndex="10">
+            <Frame BackgroundColor="White" CornerRadius="16" Padding="25" HorizontalOptions="Center" VerticalOptions="Center" WidthRequest="300" HasShadow="True">
+                <VerticalStackLayout Spacing="25">
+                    <Label Text="Pause your shift?" Style="{StaticResource StatusDataStyle}" FontSize="18" HorizontalOptions="Center" TextColor="Black"/>
+                    <Grid ColumnDefinitions="*, *" ColumnSpacing="15">
+                        <Button Grid.Column="0" Text="NO" Style="{StaticResource LargaButtonStyle}" BackgroundColor="#0099CC" TextColor="White" CornerRadius="10" HeightRequest="45" Command="{Binding CancelPauseCommand}"/>
+                        <Button Grid.Column="1" Text="YES" Style="{StaticResource LargaButtonStyle}" BackgroundColor="#0099CC" TextColor="White" CornerRadius="10" HeightRequest="45" Command="{Binding ConfirmPauseCommand}"/>
+                    </Grid>
+                </VerticalStackLayout>
+            </Frame>
+        </ContentView>
+
+        <!-- PAUSE OVERLAY (Giant Icon & Resume Button) -->
+        <ContentView IsVisible="{Binding IsPaused}" BackgroundColor="#90000000" InputTransparent="False" ZIndex="5">
+            <Grid RowDefinitions="*, Auto">
+                <Border Grid.Row="0" BackgroundColor="#0099CC" Stroke="#0099CC" StrokeThickness="2" StrokeShape="RoundRectangle 80"  WidthRequest="140" HeightRequest="140" HorizontalOptions="Center" VerticalOptions="Center" >
+                    <Image Source="pause_overlay_icon.png"
+						   WidthRequest="120"
+						   HeightRequest="110"
+						   HorizontalOptions="Center"
+						   VerticalOptions="Center" />
+                </Border>
+                <Button Grid.Row="1" Text="RESUME" Style="{StaticResource LargaButtonStyle}" BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="60" Margin="20,0,20,40" Command="{Binding ResumeShiftCommand}"/>
+            </Grid>
+        </ContentView>
+
+        <!-- CLOCK OUT CONFIRMATION OVERLAY -->
+        <ContentView IsVisible="{Binding IsClockOutAlertVisible}" BackgroundColor="#90000000" InputTransparent="False" ZIndex="10">
+            <Frame BackgroundColor="White" CornerRadius="16" Padding="25" HorizontalOptions="Center" VerticalOptions="Center" WidthRequest="300" HasShadow="True">
+                <VerticalStackLayout Spacing="25">
+                    <Label Text="Are you sure?" Style="{StaticResource StatusDataStyle}" FontSize="18" HorizontalOptions="Center" TextColor="Black"/>
+                    <Grid ColumnDefinitions="*, *" ColumnSpacing="15">
+                        <Button Grid.Column="0" Text="NO" Style="{StaticResource LargaButtonStyle}" BackgroundColor="#0099CC" TextColor="White" CornerRadius="10" HeightRequest="45" Command="{Binding CancelClockOutCommand}"/>
+                        <Button Grid.Column="1" Text="YES" Style="{StaticResource LargaButtonStyle}" BackgroundColor="#0099CC" TextColor="White" CornerRadius="10" HeightRequest="45" Command="{Binding ConfirmClockOutCommand}"/>
+                    </Grid>
+                </VerticalStackLayout>
+            </Frame>
+        </ContentView>
+
+        <!-- SOS ALERT OVERLAY -->
+        <ContentView IsVisible="{Binding IsSosAlertVisible}" BackgroundColor="#90000000" InputTransparent="False" ZIndex="10">
+            <Frame BackgroundColor="#FFD6D6" CornerRadius="16" Padding="25" HorizontalOptions="Center" VerticalOptions="Center" WidthRequest="320" HasShadow="True">
+                <VerticalStackLayout Spacing="20">
+                    <Label Text="SOS ALERT SENT" FontSize="18" FontAttributes="Bold" HorizontalOptions="Center" TextColor="Black"/>
+                    <Label Text="Your emergency alert and live location have been instantly sent to the manager. Please prioritize your safety." FontSize="14" HorizontalTextAlignment="Center" TextColor="Black"/>
+                    <Button Text="OK" Style="{StaticResource LargaButtonStyle}" FontSize="18" BackgroundColor="#0099CC" TextColor="White" CornerRadius="20" WidthRequest="100" HorizontalOptions="Center" Command="{Binding DismissSosCommand}"/>
+                </VerticalStackLayout>
+            </Frame>
+        </ContentView>
+    </Grid>
+</ContentPage>

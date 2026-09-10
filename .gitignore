@@ -590,6 +590,16 @@ $RECYCLE.BIN/
 
 # Firebase Android configuration (keep local; do not commit)
 **/Platforms/Android/google-services.json
+Platforms/*/Android/google-services.json
 
 ## Visual Studio & user files
 *.slnx
+
+## NuGet local packages (short path used for development)
+C:.nuget/packages/
+
+## Build outputs
+bin/
+obj/
+
+*.iml

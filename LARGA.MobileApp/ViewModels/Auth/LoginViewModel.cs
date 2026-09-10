@@ -1,20 +1,22 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
-using Microsoft.Maui.ApplicationModel; // Required for MainThread execution
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.ViewModels.Auth;
 
-public class LoginViewModel : INotifyPropertyChanged
+public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
 {
     private readonly IFirebaseAuthService _authService;
     private string _email = string.Empty;
     private string _password = string.Empty;
     private string _errorMessage = string.Empty;
+    private string _expectedRole = string.Empty;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -46,6 +48,14 @@ public class LoginViewModel : INotifyPropertyChanged
         ForgotPasswordCommand = new Command(async () => await OnForgotPasswordAsync());
     }
 
+    public void ApplyQueryAttributes(IDictionary<string, object> query)
+    {
+        if (query.TryGetValue("SelectedRole", out var roleValue))
+        {
+            _expectedRole = roleValue?.ToString() ?? string.Empty;
+        }
+    }
+
     private async Task OnForgotPasswordAsync()
     {
         await Shell.Current.GoToAsync("forgot-password-email");
@@ -63,16 +73,20 @@ public class LoginViewModel : INotifyPropertyChanged
         {
             ErrorMessage = string.Empty;
 
-            // Log in from FirebaseAuthService
             var userId = await _authService.LoginAsync(Email, Password);
             if (!string.IsNullOrEmpty(userId))
             {
-                // Fetch the user's role from Firestore
                 var role = await _authService.GetUserRoleAsync(userId);
                 var normalizedRole = NormalizeRole(role);
 
-                // Route explicitly based on role, allowing common variants such as "Manager2"/"manager-2".
-                if (IsDriverRole(normalizedRole))
+                // FIX: Strictly compare the database role with the landing page button they clicked
+                if (!string.Equals(role, _expectedRole, StringComparison.OrdinalIgnoreCase))
+                {
+                    ErrorMessage = $"Access Denied: You selected {_expectedRole}, but your account is registered as a {role}.";
+                    return;
+                }
+
+                if (role?.Equals("Driver", StringComparison.OrdinalIgnoreCase) == true)
                 {
                     MainThread.BeginInvokeOnMainThread(async () =>
                     {
