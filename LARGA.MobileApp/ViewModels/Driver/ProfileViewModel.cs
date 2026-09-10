@@ -2,6 +2,7 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Storage;
+using Plugin.Firebase.Auth; // Required for Firebase SignOut
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -13,12 +14,15 @@ public class ProfileViewModel
     {
         LogoutCommand = new Command(async () =>
         {
-            // Clears the stuck active shift state from the device memory[cite: 1]
+            // 1. Clear the stuck active shift state from the device memory[cite: 8]
             Preferences.Remove("IsShiftActive");
             Preferences.Remove("ShiftStartTime");
 
-            // Routes the user completely out of the dashboard and back to the landing screen
-            await Shell.Current.GoToAsync("///landing");
+            // 2. Destroy the Firebase persistent session
+            await CrossFirebaseAuth.Current.SignOutAsync();
+
+            // 3. Route the user completely out of the dashboard[cite: 8]
+            await Shell.Current.GoToAsync("//landing");
         });
     }
 }

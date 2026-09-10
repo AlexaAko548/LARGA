@@ -11,7 +11,7 @@
         <VerticalStackLayout Padding="20" Spacing="12">
             <!-- Header Back Button -->
             <Grid ColumnDefinitions="Auto, *">
-                <ImageButton Grid.Column="0" Source="back_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="8" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
+                <ImageButton Grid.Column="0" Source="back_icon.png" Margin="-10,-10,0,0" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="8" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
             </Grid>
 
             <Label Text="STEP 1 OF 2" Style="{StaticResource StatusDataStyle}" TextColor="Gray" FontSize="12" />
