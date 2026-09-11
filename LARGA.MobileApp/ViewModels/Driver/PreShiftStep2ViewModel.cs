@@ -106,8 +106,22 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
                 var photo = await MediaPicker.Default.CapturePhotoAsync();
                 if (photo != null)
                 {
-                    var stream = await photo.OpenReadAsync();
-                    FuelPhoto = ImageSource.FromStream(() => stream);
+                    // Read the full-resolution capture into memory once, then hand back a
+                    // brand-new MemoryStream on every call. MAUI's Image control can invoke
+                    // the ImageSource.FromStream factory more than once per photo (layout
+                    // passes, DPI recalculation, re-render on rebind) - closing over a single
+                    // already-opened Stream meant every read after the first hit an
+                    // exhausted/consumed stream and decoded a corrupt, blurry-looking bitmap.
+                    // This is why the first capture always looked fine but a retake didn't.
+                    byte[] photoBytes;
+                    using (var stream = await photo.OpenReadAsync())
+                    using (var buffer = new MemoryStream())
+                    {
+                        await stream.CopyToAsync(buffer);
+                        photoBytes = buffer.ToArray();
+                    }
+
+                    FuelPhoto = ImageSource.FromStream(() => new MemoryStream(photoBytes));
                 }
             }
         }
