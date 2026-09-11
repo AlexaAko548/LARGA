@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
+             x:Class="LARGA.MobileApp.Views.Driver.VehicleDefectPage"
+             x:DataType="vm:VehicleDefectViewModel"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="{StaticResource LargaWhite}">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="15">
+            <Label Text="Thursday, 23 Jul 2026" TextColor="{StaticResource LargaDarkText}" FontSize="14" />
+            <Label Text="Submit Report" FontSize="32" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" />
+
+            <!-- Tabs (Vehicle Defect pre-selected) -->
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="0">
+                <Border Grid.Column="0" BackgroundColor="Transparent" StrokeThickness="0" Padding="10">
+                    <Label Text="FUEL SUBMISSION" FontSize="12" TextColor="Gray" HorizontalTextAlignment="Center" />
+                </Border>
+                <Border Grid.Column="1" BackgroundColor="{StaticResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="10">
+                    <Label Text="VEHICLE DEFECT" FontSize="12" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" HorizontalTextAlignment="Center" />
+                </Border>
+            </Grid>
+
+            <!-- Title Report -->
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <VerticalStackLayout Spacing="5">
+                    <Label Text="Title Report" FontSize="12" TextColor="{StaticResource LargaDarkText}" />
+                    <Entry Text="{Binding TitleReport}" Placeholder="e.g. Flat Tire" BackgroundColor="{StaticResource LargaWhite}" />
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Description -->
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <VerticalStackLayout Spacing="5">
+                    <Label Text="Description" FontSize="12" TextColor="{StaticResource LargaDarkText}" />
+                    <Editor Text="{Binding Description}" Placeholder="Describe the issue..." HeightRequest="90" BackgroundColor="{StaticResource LargaWhite}" />
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Priority Level -->
+            <Label Text="PRIORITY LEVEL" FontSize="12" TextColor="{StaticResource LargaDarkText}" Margin="0,5,0,0" />
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 20" StrokeThickness="0" Padding="5">
+                <Grid ColumnDefinitions="*,*,*">
+                    <RadioButton Grid.Column="0" Content="Low" IsChecked="{Binding IsLow}" GroupName="Priority" TextColor="{StaticResource LargaDarkText}" HorizontalOptions="Center" />
+                    <RadioButton Grid.Column="1" Content="Medium" IsChecked="{Binding IsMedium}" GroupName="Priority" TextColor="{StaticResource LargaDarkText}" HorizontalOptions="Center" />
+                    <RadioButton Grid.Column="2" Content="High" IsChecked="{Binding IsHigh}" GroupName="Priority" TextColor="{StaticResource LargaDarkText}" HorizontalOptions="Center" />
+                </Grid>
+            </Border>
+
+            <!-- Attach Photo -->
+            <Border BackgroundColor="Transparent" StrokeThickness="1" Stroke="{StaticResource LargaPrimaryBlue}" StrokeShape="RoundRectangle 20" Padding="0" HeightRequest="46">
+                <Button Text="📷 Attach supporting photo"
+                    Command="{Binding AttachPhotoCommand}"
+                    BackgroundColor="Transparent" TextColor="{StaticResource LargaPrimaryBlue}" FontSize="14" />
+            </Border>
+
+            <Border IsVisible="{Binding HasPhoto}" BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="10">
+                <VerticalStackLayout Spacing="8">
+                    <Image Source="{Binding DefectPhoto}" HeightRequest="180" Aspect="AspectFit" />
+                    <Button Text="🔄 Retake photo"
+                        Command="{Binding AttachPhotoCommand}"
+                        BackgroundColor="Transparent" TextColor="{StaticResource LargaPrimaryBlue}" FontSize="13" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Button Text="Submit Report"
+                    Command="{Binding SubmitReportCommand}"
+                    BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="{StaticResource LargaWhite}"
+                    CornerRadius="25" HeightRequest="55" FontSize="16" FontAttributes="Bold" Margin="0,15,0,0" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

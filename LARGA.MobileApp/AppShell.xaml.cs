@@ -21,6 +21,7 @@ public partial class AppShell : Shell
         Routing.RegisterRoute("end-shift-step1", typeof(Views.Driver.EndShiftStep1Page));
         Routing.RegisterRoute("end-shift-step2", typeof(Views.Driver.EndShiftStep2Page));
         Routing.RegisterRoute("shift-completed", typeof(Views.Driver.ShiftCompletedPage));
+        Routing.RegisterRoute("vehicle-defect-page", typeof(Views.Driver.VehicleDefectPage));
     }
 
     protected override void OnNavigated(ShellNavigatedEventArgs args)

@@ -75,6 +75,8 @@ public static class MauiProgram
         builder.Services.AddTransient<EndShiftStep2ViewModel>();
         builder.Services.AddTransient<EndShiftStep2Page>();
         builder.Services.AddTransient<ShiftCompletedPage>();
+        builder.Services.AddTransient<VehicleDefectViewModel>();
+        builder.Services.AddTransient<VehicleDefectPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();
