@@ -29,17 +29,26 @@ public class AndroidOcrService : IOcrService
         var rawResult = await _recognizer.Process(image);
         var result = (Xamarin.Google.MLKit.Vision.Text.Text)rawResult;
 
+        var imageWidth = (double)bitmap.Width;
+        var imageHeight = (double)bitmap.Height;
         var blocks = new List<OcrTextBlock>();
         foreach (var block in result.TextBlocks)
         {
+            var boundingBox = block.BoundingBox;
+
+            if (boundingBox == null)
+            {
+                continue;
+            }
+
             blocks.Add(new OcrTextBlock
             {
                 Text = block.Text,
                 BoundingBox = new Microsoft.Maui.Graphics.Rect(
-                    block.BoundingBox.Left,
-                    block.BoundingBox.Top,
-                    block.BoundingBox.Width(),
-                    block.BoundingBox.Height())
+                    boundingBox.Left / imageWidth,
+                    boundingBox.Top / imageHeight,
+                    boundingBox.Width() / imageWidth,
+                    boundingBox.Height() / imageHeight)
             });
         }
         return blocks;

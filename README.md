@@ -1,162 +1,120 @@
-# LARGA: Integrated Taxi Operations Management System
+# LARGA
 
-> **A Capstone Project for BLM Taxi (Talisay City, Cebu, Philippines)**  
-> Developed by students under the Department of Computer, Information Sciences and Mathematics — University of San Carlos.
+LARGA is BLM Taxi's serverless operations platform for drivers and managers in Talisay City, Cebu. It replaces paper-based shift, boundary, maintenance, inventory, receipt, and emergency workflows with a real-time system.
 
----
+## Architecture
 
-## 📌 Project Overview
-
-**LARGA** is a centralized, cross-platform operations management platform designed to transition BLM Taxi from manual, paper-reliant processes to a secure, real-time digital system. The platform optimizes daily boundary cashiering, fleet maintenance, spare parts inventory, real-time contextual GPS tracking, and emergency driver safety.
-
-The system is split into two primary client applications backed by a serverless cloud infrastructure:
-1. **Driver & Tactical Manager Mobile App:** Built with **.NET MAUI** (Android-first deployment) for mobile shift logging, digital handover inspections, on-device OCR receipt scanning, and emergency alerting.
-2. **Administrative Web Dashboard:** Built with **Blazor / ASP.NET Core** for fleet monitoring, boundary cashiering, debt ledgers, inventory control, and audit logs.
-
----
-
-## 🛠️ Tech Stack & Architecture
-
-| Component | Technology | Description |
-| :--- | :--- | :--- |
-| **Mobile Client** | .NET MAUI (C#) | Cross-platform mobile app for Drivers and tactical Manager use |
-| **Web Dashboard** | ASP.NET Core / Blazor | Workstation dashboard for heavy administrative data and analytics |
-| **Database & Auth** | Google Firebase | Cloud Firestore (NoSQL), Firebase Authentication, Security Rules |
-| **Cloud Storage** | Cloud Storage for Firebase | Storage for handover inspection photos and fuel receipts |
-| **Push Alerts** | Firebase Cloud Messaging (FCM) | Low-latency dispatch for SOS emergency alerts and shift reminders |
-| **Mapping Engine** | MapLibre + MapTiler | Interactive live vector fleet maps and garage geofencing |
-| **On-Device OCR** | Google ML Kit | Real-time text extraction for fuel receipts and odometer validation |
-| **CI/CD & Tracking** | GitHub Actions & Jira | Automated PR build checks and Agile Sprint management |
-
----
-
-## 🌿 Git Branching Strategy & Workflow Conventions
-
-This repository strictly enforces a modified **GitFlow** branching strategy. Direct commits to `main` and `develop` are blocked by branch protection rules.
+LARGA uses a serverless N-tier architecture. Clients contain presentation concerns, shared libraries contain contracts and application logic, and Firebase provides the backend-as-a-service (BaaS). There is no custom REST API or separate database server in this repository.
 
 ```text
-main (Production / Stable Releases)
-│
-├── release/v1.0.0 ──────────────> Merged to main & back to develop (Defense/Staging)
-│
-└── hotfix/patch-odometer-ocr ───> Branched from main, merged to main & develop
-     ^
-develop (Active Integration Branch)
-│
-├── feature/STORY01-driver-auth ──> Branched from develop, merged back to develop
-├── feature/STORY02-boundary-calc ─> Branched from develop, merged back to develop
-└── feature/STORY06-fuel-ocr ─────> Branched from develop, merged back to develop
+LARGA.MobileApp (native .NET MAUI XAML)
+                    │
+LARGA.ManagerWeb (Blazor / ASP.NET Core)
+                    │
+       LARGA.SharedCore + LARGA.Shared.Models
+                    │
+ Firebase BaaS: Firestore, Authentication, Cloud Storage, FCM
 ```
 
-### 1. Standard Branch Types & Naming
+Both clients use the same Firebase project and data model:
 
-* **`main`**: Production-ready, fully tested releases. Code is deployed or presented from this branch.
-* **`develop`**: The primary integration branch where completed sprint features are merged.
-* **`feature/<ticket-id>-<short-description>`**: Feature branches branched off `develop` (e.g., `feature/REQ-4.1-driver-shift`, `feature/EPIC01-auth`).
-* **`release/<version>`**: Release candidates prepared for sprint reviews, technical defenses, or staging tests (e.g., `release/v1.0.0`).
-* **`hotfix/<issue-name>`**: Urgent patches branched directly off `main` to address critical defects.
+- **Cloud Firestore** stores users, shifts, vehicles, ledgers, maintenance, messages, alerts, telemetry, and audit records.
+- **Firebase Authentication** handles sign-in and password recovery. Manager access is also checked against `users/{uid}.role`.
+- **Cloud Storage for Firebase** stores inspection photos and receipt images.
+- **Firebase Cloud Messaging (FCM)** delivers push notifications, shift reminders, and emergency alerts.
 
----
+`LARGA.MobileApp` is strictly native .NET MAUI: screens are XAML pages with C# code-behind/view models, not web views and not Xamarin.Forms. Android is the primary deployment target; Android OCR uses Google ML Kit and is registered through the Android platform layer. `LARGA.ManagerWeb` is a Blazor ASP.NET Core application using interactive server components for workstation dashboards. The web host uses Firebase Admin SDK credentials for server-side Firestore and Authentication administration.
 
-### 2. Branch Protection Rules
+### Project dependency boundaries
 
-The `main` and `develop` branches are protected with the following requirements:
-* **Pull Request Required:** Direct `git push` is disabled. All code changes must come through a Pull Request (PR).
-* **Code Review Approval:** Minimum of **1 required approving review** from a peer or Tech Lead before merge eligibility.
-* **Passing CI Checks:** All GitHub Actions automated build and unit test workflows must pass.
-* **Resolved Conversations:** All inline review comments and discussions must be formally resolved.
-* **No Force Pushing:** `git push --force` is blocked on all protected branches.
-
----
-
-### 3. Commit Message Conventions
-
-All commit messages must follow standard Conventional Commits:
-
-```bash
-<type>(<scope>): <short summary in imperative mood>
-
-# Examples:
-feat(auth): implement Firebase role-based authentication claims
-fix(ocr): resolve null pointer on low-contrast fuel receipt scans
-chore(deps): update MapLibre NuGet package to v5.24.0
-test(boundary): add unit tests for late penalty calculation logic
-docs(readme): update branch protection guidelines and setup steps
-
+```text
+LARGA.Shared.Models  (entities and Firestore mappings)
+          ↑
+LARGA.SharedCore      (shared service contracts and application logic)
+       ↑       ↑       ↑
+ MobileApp  ManagerWeb  SeedTool
 ```
 
-Allowed Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
+The references are one-way and currently have no circular project dependency: the mobile app, web app, and seed tool reference the shared libraries; the shared libraries do not reference either client. Android implementation files are correctly located under `LARGA.MobileApp/Platforms/Android` and are not present in `LARGA.SharedCore`.
 
----
+One boundary to preserve when extending the solution: `LARGA.SharedCore` currently uses `Plugin.Firebase` abstractions in `FirebaseAuthService` and `ChatService`. It is therefore reusable application logic, but not a completely platform-neutral library. Do not add Android namespaces or UI dependencies to it. If a future server-side implementation needs to share those services, extract provider-neutral interfaces into the core and keep mobile Firebase adapters in `LARGA.MobileApp`; keep web-only Firebase Admin adapters in `LARGA.ManagerWeb`.
 
-## 💻 Local Development Setup
+## Repository structure
 
-### Prerequisites
+```text
+LARGA.sln
+├── LARGA.MobileApp/              Native MAUI client
+│   ├── Views/Auth/               Landing, login, and password recovery XAML
+│   ├── Views/Driver/             Shift, profile, ledger, reports, OCR, and chat
+│   ├── Views/Manager/            Manager dashboard and alert-center XAML
+│   ├── ViewModels/Auth|Driver|Manager/
+│   ├── Services/                 Mobile interfaces such as IOcrService
+│   └── Platforms/Android/        MainActivity, Firebase startup, Android OCR,
+│                                  and google-services.json
+├── LARGA.ManagerWeb/             Blazor ASP.NET Core dashboard
+│   ├── Components/Pages/         Dashboard, shifts, garage, ledger, and auth pages
+│   ├── Components/Layout/        Main and authentication layouts
+│   ├── Components/Shared/        Reusable dashboard components
+│   └── Program.cs                 Web host and Firebase Admin registration
+├── LARGA.Shared.Models/           Shared data contracts
+│   └── Entities/                 Firestore entities and converters
+├── LARGA.SharedCore/              Shared services and application logic
+│   ├── Services/                 Auth, chat, shifts, notifications, fleet,
+│   │                              garage, driver, and financial services
+│   └── Models/                   Dashboard, garage, ledger, and shift DTOs
+├── LARGA.SeedTool/                Console tool for repeatable Firestore seed data
+└── docs/                          Design documentation, including the ERD
+```
 
-* **Microsoft Visual Studio 2022** (v17.14 or later)
-* Workloads required:
-* **.NET Multi-platform App UI development (.NET MAUI)**
-* **ASP.NET and web development**
+The principal entities in `LARGA.Shared.Models/Entities` are `UserProfile`, `TaxiUnit`, `ShiftSchedule`, `ShiftLog`, `BoundaryPayment`, `DebtAdjustment`, `FuelLog`, `GpsTelemetry`, `EmergencyAlert`, `ChatMessage`, `HandoverChecklist`, `RoutineCheckItem`, `MaintenanceRecord`, `MaintenancePartsUsed`, `SparePart`, `SystemConfig`, and `AuditLog`. Firestore attributes and value converters live beside these entities.
 
+Services in `LARGA.SharedCore/Services` include authentication, chat, shift management, notifications, fleet reporting, driver management, garage management, and financial ledger operations. Keep data shape changes in the shared models first so both clients compile against the same contract.
 
-* **Android SDK & Android Device / Emulator** (API Level 31+)
-* **Git** (v2.40+)
+## Local setup: Visual Studio 2022
 
-### Clone and Configure
+Install:
 
-1. Clone the repository:
-```bash
-git clone [https://github.com/](https://github.com/)<your-org>/LARGA.git
+1. Visual Studio 2022 17.14 or later with **.NET Multi-platform App UI development** and **ASP.NET and web development** workloads.
+2. The .NET 9 SDK, Android SDK/API 31 or later, an Android emulator or device, and Git 2.40 or later.
+3. The Android emulator's Google APIs/Google Play image if Firebase and ML Kit are being tested locally.
+
+Clone and open `LARGA.sln`:
+
+```powershell
+git clone https://github.com/AlexaAko548/LARGA.git
 cd LARGA
-
-```
-
-
-2. Checkout the active development branch:
-```bash
 git checkout develop
-
 ```
 
+Restore NuGet packages, choose `LARGA.MobileApp` with an Android emulator (or `LARGA.ManagerWeb` for the web dashboard) as the startup project, and build the solution. The seed tool README contains the complete Firestore test-data workflow.
 
-3. Configure Firebase Credentials:
-* Place the development `google-services.json` file inside the `src/Larga.Mobile/Platforms/Android/` directory.
-* **Note:** Do not commit production Firebase service secrets to public remotes.
+### Local secrets
 
-4. Configure manager access:
-* The manager web portal checks the signed-in Firebase Authentication user's document at `users/{uid}` in Cloud Firestore.
-* The document must contain a string field `role` whose value is `Manager` (matching is case-insensitive).
-* New manager registrations create this Firestore profile automatically. Existing Auth-only accounts must have a matching `users/{uid}` profile (or an existing `users` document with the same email) added before they can sign in.
-* Driver accounts must use a different role value; valid Firebase credentials alone do not grant web portal access.
+These files are intentionally excluded from source control. Obtain the development values from the project owner or Firebase project administrator; do not generate replacements from production credentials or commit secrets.
 
-5. Open `LARGA.sln` in Visual Studio 2022, restore NuGet packages, select your target deployment target (e.g., Android Emulator or Web Project), and run the build.
+- Download the Android app configuration from Firebase Console → Project settings → Your apps → Android → `google-services.json`. Copy it to `LARGA.MobileApp/Platforms/Android/google-services.json`. The project only includes it for the Android target.
+- Copy `LARGA.ManagerWeb/appsettings.Development.json.example` to `LARGA.ManagerWeb/appsettings.Development.json` and obtain any local map/API settings from the team. For server-side Firestore/Admin access, copy `appsettings.Local.json.example` to `appsettings.Local.json` and set `Firestore:ProjectId` and `Firestore:CredentialsPath` to a service-account key stored outside the repository. Never commit the key.
+- A service-account key can be generated in Firebase Console → Project settings → Service accounts → **Generate new private key**. Restrict the key to local development and revoke it if exposed.
 
----
+Manager login requires a Firebase Auth account whose Firestore user profile has `role` set to `Manager` (case-insensitive). Valid credentials without the profile/role do not grant web access.
 
-## 📱 Core Modules
+## GitFlow
 
-1. **Driver & Shift Management:** Shift scheduling, pre-shift/post-shift walk-around inspection checklists with photo verification.
-2. **Boundary & Arrears Cashiering:** Boundary computation, rolling debt ledgers, and automated late penalties.
-3. **Vehicle Maintenance Management:** Defect issue logging, repair work orders, and scheduled service tracking.
-4. **Spare Parts Inventory:** Real-time stock counts, usage logs, and automated low-stock warnings.
-5. **Contextual Real-Time GPS Tracking:** Live map monitoring with privacy-focused auto-cutoff upon shift clock-out.
-6. **Fuel Monitoring & OCR Verification:** Real-time on-device receipt data extraction and mileage discrepancy analysis.
-7. **Multi-Tiered SOS Emergency Protocol:** Driver panic button, Hostile Protocol (Shake-to-SOS), and Crash Protocol (G-force telemetry spike).
-8. **Analytics & Audit Logs:** Revenue summaries, fleet uptime, and tamper-resistant system audit trails.
+- `main` is production/stable and receives reviewed release or hotfix merges.
+- `develop` is the integration branch for completed work.
+- `feature/*` branches start from `develop` and merge back through a pull request, for example `feature/REQ-4.1-driver-shift`.
+- Release branches may be cut from `develop`; urgent hotfixes branch from `main` and are merged back into both protected branches.
 
----
+Do not commit directly to `main` or `develop`. Pull requests require review, passing CI, resolved conversations, and no force pushes. Use Conventional Commits such as `feat(auth): add manager role validation` or `fix(ocr): handle unreadable receipt`.
 
-## 👥 Project Team
+## Verification checklist
 
-* **Maykaila Joan Arda** — Quality Assurance & Testing Lead
-* **Luigi Adrian Hatamosa** — Software Developer
-* **Karl Emmanuel Medina** — Software Developer
-* **Alexa Rose Miñoza** — Software Developer / Project Manager
+From the repository root, run `dotnet build LARGA.sln`. The solution should restore and build all five projects. Before a pull request, also test the affected client with its real Firebase development configuration and ensure that no credential files, `bin/`, or `obj/` files are staged.
 
-**Faculty Adviser:** Christine D. Bandalan, M.Eng.
+## Main capabilities
 
-**Institution:** University of San Carlos — DCRISM (August 2026)
+Driver and shift management, digital handover inspections, boundary and arrears cashiering, maintenance and spare-parts inventory, contextual GPS tracking, fuel/odometer OCR, SOS workflows, manager alerts, messaging, analytics, and audit logs.
 
-```
+## Project
 
-```
+Capstone project for BLM Taxi by the Department of Computer, Information Sciences and Mathematics, University of San Carlos.

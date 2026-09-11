@@ -16,7 +16,7 @@
 
             <Label Text="STEP 1 OF 2" Style="{StaticResource StatusDataStyle}" TextColor="Gray" FontSize="12" />
             <Label Text="Pre-Shift Inspection" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="Black" LineHeight="1.1" />
-            <Label Text="GHK·4471·MP · Complete all items before starting your shift" FontSize="12" TextColor="Gray" />
+            <Label Text="{Binding AssignedUnitPlate, StringFormat='{0} · Complete all items before starting your shift'}" FontSize="12" TextColor="Gray" />
 
             <!-- Real-Time Progress Bar & Label -->
             <ProgressBar Progress="{Binding ProgressRatio}" ProgressColor="#0099CC" HeightRequest="4" Margin="0,10,0,0" />

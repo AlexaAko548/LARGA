@@ -1,6 +1,7 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
 using Microsoft.Maui.Storage;
+using Camera.MAUI;
 using LARGA.MobileApp.Services;
 using System;
 using System.Collections.Generic;
@@ -13,6 +14,7 @@ namespace LARGA.MobileApp.Views.Driver;
 public partial class OdometerScanPage : ContentPage
 {
     private readonly IOcrService _ocrService;
+    private CameraView _liveCamera;
     private bool _isScanning = false;
 
     public OdometerScanPage(IOcrService ocrService)
@@ -21,14 +23,43 @@ public partial class OdometerScanPage : ContentPage
         _ocrService = ocrService;
     }
 
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+
+        // 1. Dynamically generate the camera to force a pristine hardware surface
+        _liveCamera = new CameraView
+        {
+            HorizontalOptions = LayoutOptions.Fill,
+            VerticalOptions = LayoutOptions.Fill
+        };
+
+        _liveCamera.CamerasLoaded += Camera_CamerasLoaded;
+        CameraContainer.Children.Insert(0, _liveCamera);
+    }
+
     private void Camera_CamerasLoaded(object sender, EventArgs e)
     {
-        LiveCamera.Camera = LiveCamera.Cameras.FirstOrDefault();
+        if (_liveCamera.Cameras == null || _liveCamera.Cameras.Count == 0) return;
+
+        // 2. Multi-Lens Fix: Force the primary rear HD camera, bypassing blurry macro lenses
+        var backCameras = _liveCamera.Cameras.Where(c => c.Position == Camera.MAUI.CameraPosition.Back).ToList();
+        _liveCamera.Camera = backCameras
+            .OrderByDescending(c => c.AvailableResolutions?.Max(r => r.Width * r.Height) ?? 0)
+            .FirstOrDefault() ?? _liveCamera.Cameras.FirstOrDefault();
+
+        if (_liveCamera.Camera == null) return;
+
         MainThread.BeginInvokeOnMainThread(async () =>
         {
-            await LiveCamera.StartCameraAsync();
+            // 3. Resolution Fix: Request a standard 16:9 HD preview buffer
+            await _liveCamera.StartCameraAsync(new Size(1280, 720));
+
+            await Task.Delay(800); // Allow physical lens to stabilize
+            _liveCamera.ForceAutoFocus();
+
             _isScanning = true;
-            StartLiveOcrLoop(); // Start the background extraction loop
+            StartLiveOcrLoop();
         });
     }
 
@@ -36,29 +67,21 @@ public partial class OdometerScanPage : ContentPage
     {
         while (_isScanning)
         {
-            // 1.5-second interval to prevent freezing the UI or overloading memory
             await Task.Delay(1500);
 
             try
             {
-                // 1. Create a temporary path for the live camera snapshot
                 string tempFilePath = Path.Combine(FileSystem.CacheDirectory, "live_frame.jpg");
-
-                // 2. Silently pull the current frame from the camera stream
-                var snapResult = await LiveCamera.SaveSnapShot(Camera.MAUI.ImageFormat.JPEG, tempFilePath);
+                var snapResult = await _liveCamera.SaveSnapShot(Camera.MAUI.ImageFormat.JPEG, tempFilePath);
 
                 if (snapResult && File.Exists(tempFilePath))
                 {
-                    // 3. Extract the image bytes
                     byte[] imageBytes = File.ReadAllBytes(tempFilePath);
-
-                    // 4. Feed real-life data into the ML Kit wrapper
                     var detectedBlocks = await _ocrService.ExtractTextBlocksAsync(imageBytes);
 
                     MainThread.BeginInvokeOnMainThread(() =>
                     {
                         TextOverlayLayout.Children.Clear();
-
                         foreach (var block in detectedBlocks)
                         {
                             var textBtn = new Button
@@ -71,12 +94,12 @@ public partial class OdometerScanPage : ContentPage
 
                             AbsoluteLayout.SetLayoutBounds(textBtn, block.BoundingBox);
 
-                            textBtn.Clicked += async (s, args) => {
-                                _isScanning = false;
-                                await LiveCamera.StopCameraAsync();
-                                await Shell.Current.GoToAsync("..", new Dictionary<string, object> {
-                                    { "ScannedOdometer", block.Text }
-                                });
+                            textBtn.Clicked += async (s, args) =>
+                            {
+                                await StopCameraSafelyAsync();
+                                // Send data back to ViewModel via Messenger since we use Modals
+                                CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Send(block.Text, "OdometerScanned");
+                                await Navigation.PopModalAsync();
                             };
 
                             TextOverlayLayout.Children.Add(textBtn);
@@ -93,14 +116,42 @@ public partial class OdometerScanPage : ContentPage
 
     private async void OnCancelClicked(object sender, EventArgs e)
     {
-        _isScanning = false;
-        await LiveCamera.StopCameraAsync();
-        await Shell.Current.GoToAsync("..");
+        await StopCameraSafelyAsync();
+        await Navigation.PopModalAsync();
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
-        _isScanning = false; // Prevent memory leaks when navigating away
+        _ = StopCameraSafelyAsync();
+    }
+
+    private async Task StopCameraSafelyAsync()
+    {
+        _isScanning = false;
+
+        if (_liveCamera != null)
+        {
+            try
+            {
+                await _liveCamera.StopCameraAsync();
+                _liveCamera.CamerasLoaded -= Camera_CamerasLoaded;
+
+                // 4. Burn the surface cache to the ground when closing
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    _liveCamera.Handler?.DisconnectHandler();
+                    CameraContainer.Children.Remove(_liveCamera);
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to stop camera: {ex.Message}");
+            }
+            finally
+            {
+                _liveCamera = null;
+            }
+        }
     }
 }
