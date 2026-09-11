@@ -10,7 +10,7 @@
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="15">
             <Grid ColumnDefinitions="Auto, *">
-                <ImageButton Source="back_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="8" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
+                <ImageButton Source="back_icon.png" WidthRequest="32" Margin="-10,-10,0,0" HeightRequest="32" Aspect="AspectFit" Padding="8" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
             </Grid>
 
             <Label Text="STEP 1 OF 2" Style="{StaticResource StatusDataStyle}" TextColor="Gray" FontSize="12" />

@@ -147,11 +147,6 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         ConfirmClockOutCommand = new Command(async () =>
         {
             IsClockOutAlertVisible = false;
-            _shiftTimer.Stop();
-
-            // Purge the saved start time from the device memory upon clocking out[cite: 1]
-            Preferences.Remove("ShiftStartTime");
-
             await Shell.Current.GoToAsync("end-shift-step1");
         });
 
