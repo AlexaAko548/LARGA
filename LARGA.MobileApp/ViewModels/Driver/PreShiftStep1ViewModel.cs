@@ -2,11 +2,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Input;
 using Microsoft.Maui.Controls;
+using LARGA.SharedCore.Services;
+using System.Threading.Tasks;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
 public class PreShiftStep1ViewModel : BindableObject, IQueryAttributable
 {
+    private readonly IShiftManagementService _shiftService;
     private readonly Dictionary<string, bool?> _items = new()
     {
         { "Tires", null },
@@ -31,12 +34,22 @@ public class PreShiftStep1ViewModel : BindableObject, IQueryAttributable
     public bool ExteriorCloseVisible => _items["Exterior"] != true;
     public bool IsComplete => _items.Values.All(v => v != null);
 
+    private string _assignedUnitPlate = "Loading...";
+    public string AssignedUnitPlate
+    {
+        get => _assignedUnitPlate;
+        private set { _assignedUnitPlate = value; OnPropertyChanged(); }
+    }
+
     public ICommand PassItemCommand { get; }
     public ICommand ReportDefectCommand { get; }
     public ICommand NextCommand { get; }
 
-    public PreShiftStep1ViewModel()
+    public PreShiftStep1ViewModel(IShiftManagementService shiftService)
     {
+        _shiftService = shiftService;
+        _ = LoadAssignedUnitAsync();
+
         PassItemCommand = new Command<string>((item) =>
         {
             _items[item] = _items[item] == true ? null : true;
@@ -67,6 +80,24 @@ public class PreShiftStep1ViewModel : BindableObject, IQueryAttributable
             }
             await Shell.Current.GoToAsync("pre-shift-step2");
         });
+    }
+
+    private async Task LoadAssignedUnitAsync()
+    {
+        try
+        {
+            var taxi = await _shiftService.GetCurrentUserAssignedTaxiAsync();
+            if (taxi != null)
+            {
+                AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber)
+                    ? taxi.Model
+                    : taxi.PlateNumber.Replace("-", "·");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Assigned Unit Error: {ex.Message}");
+        }
     }
 
     private void UpdateProgress(string item)

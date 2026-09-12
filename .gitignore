@@ -22,11 +22,26 @@
 *.userprefs
 
 ## --- Sensitive Credentials & Configuration ---
+# Firebase web app config and local secrets must stay out of Git
+LARGA.ManagerWeb/wwwroot/firebase-auth.js
+LARGA.ManagerWeb/wwwroot/firebase-auth.local.js
+LARGA.ManagerWeb/wwwroot/firebase-config.*
 # Uncomment if managing private Firebase service files locally
 # google-services.json
 # GoogleService-Info.plist
 *.pfx
 *.publishsettings
+
+# Firebase/GCP service account keys (used locally by LARGA.SeedTool) - never commit these
+*firebase-adminsdk*.json
+*serviceAccountKey*.json
+LARGA.SeedTool/*.json
+
+# Developer-local ManagerWeb config overrides (Firestore credentials path, etc.)
+LARGA.ManagerWeb/appsettings.Local.json
+
+# Contains a real MapTiler API key - untracked on 2026-09-07, use the .example template
+LARGA.ManagerWeb/appsettings.Development.json
 
 # Mono auto generated files
 mono_crash.*
@@ -572,19 +587,19 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
-<<<<<<< HEAD
-## Ignore Firebase config files for local development
-Platforms/*/Android/google-services.json
-## Visual Studio & user files
-*.slnx
-## NuGet local packages (short path used for development)
-C:.nuget/packages/
-## Build outputs
-bin/
-obj/
-=======
 
 # Firebase Android configuration (keep local; do not commit)
 **/Platforms/Android/google-services.json
->>>>>>> feat/firebase-mobileapp
+Platforms/*/Android/google-services.json
+
+## Visual Studio & user files
+*.slnx
+
+## NuGet local packages (short path used for development)
+C:.nuget/packages/
+
+## Build outputs
+bin/
+obj/
+
 *.iml

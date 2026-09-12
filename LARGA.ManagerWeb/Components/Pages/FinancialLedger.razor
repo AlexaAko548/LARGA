@@ -1,0 +1,924 @@
+@page "/financial-ledger"
+@using System.Text.Json
+@using LARGA.SharedCore.Models.DriverShifts
+@using LARGA.SharedCore.Models.FinancialLedger
+@using LARGA.SharedCore.Services
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject FinancialLedgerService Ledger
+@inject FleetReportingService FleetReporting
+@inject DriverManagementService DriverManagement
+
+<PageTitle>Financial Ledger &amp; Debts</PageTitle>
+
+@if (_isCheckingAccess)
+{
+    <div class="auth-page">
+        <div class="auth-card">
+            <h2>Checking access...</h2>
+        </div>
+    </div>
+}
+else if (_isAuthorized)
+{
+<div class="dashboard-shell">
+    <DashboardSidebar ActiveItem="FinancialLedger" />
+
+    <main class="dashboard-main">
+        <header class="dashboard-header">
+            <div class="header-title-wrap">
+                <h1>FINANCIAL LEDGER &amp; DEBTS</h1>
+                <div class="header-date">Clearances, adjustments, debt rollover</div>
+            </div>
+
+            <div class="header-actions">
+                <button class="icon-btn" type="button" aria-label="Notifications">◌</button>
+                <button class="icon-btn" type="button" aria-label="Messages">✉</button>
+                <div class="manager-pill">
+                    <span class="manager-dot"></span>
+                    <span>Manager</span>
+                    <span class="caret">▾</span>
+                </div>
+            </div>
+        </header>
+
+        @if (_activeTab == "daily" && _settlementError is not null)
+        {
+            <div class="data-warning-banner">Settlement data unavailable: @_settlementError</div>
+        }
+        @if (_activeTab == "master" && _ledgerError is not null)
+        {
+            <div class="data-warning-banner">Debt ledger data unavailable: @_ledgerError</div>
+        }
+
+        <section class="tab-bar">
+            <div class="tab-group">
+                <button class="tab-btn @(_activeTab == "daily" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("daily")'>▦ Daily Settlements (Today)</button>
+                <button class="tab-btn @(_activeTab == "master" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("master")'>▥ Master Debt Ledger</button>
+            </div>
+            <div class="tab-actions">
+                <button class="solid-btn" type="button" @onclick="OpenAdjustmentModal">+ Adjustment</button>
+                <button class="outline-btn" type="button" disabled="@_isExportingCsv" @onclick="ExportCsvAsync">@(_isExportingCsv ? "Exporting…" : "⬇ Export")</button>
+            </div>
+        </section>
+
+        @if (_exportError is not null)
+        {
+            <div class="report-error">@_exportError</div>
+        }
+
+        @if (_activeTab == "daily")
+        {
+        @if (_snapshot is null)
+        {
+            <div class="table-empty">Loading today's settlements...</div>
+        }
+        else
+        {
+            <section class="settlement-summary">
+                <div class="settlement-summary-header">
+                    <div>
+                        <div class="settlement-summary-title">TODAY'S SUMMARY</div>
+                        <div class="settlement-summary-date">@_snapshot.Date.ToString("MMM d, yyyy")</div>
+                    </div>
+                    <div class="settlement-pills">
+                        <span class="status-pill status-success"><span class="dot"></span> @_snapshot.ClearedCount Cleared</span>
+                        <span class="status-pill status-warning"><span class="dot"></span> @_snapshot.PartialCount Partial</span>
+                        <span class="status-pill status-neutral"><span class="dot"></span> @_snapshot.WaitingCount Waiting</span>
+                    </div>
+                </div>
+
+                <div class="settlement-figures">
+                    <div class="settlement-figure">
+                        <div class="settlement-figure-label">EXPECTED COLLECTION</div>
+                        <div class="settlement-figure-value">₱ @_snapshot.ExpectedCollection.ToString("N0")</div>
+                    </div>
+                    <div class="settlement-figure">
+                        <div class="settlement-figure-label">COLLECTED SO FAR</div>
+                        <div class="settlement-figure-value">₱ @_snapshot.CollectedSoFar.ToString("N0")</div>
+                    </div>
+                    <div class="settlement-figure">
+                        <div class="settlement-figure-label">STILL OUTSTANDING</div>
+                        <div class="settlement-figure-value">₱ @_snapshot.StillOutstanding.ToString("N0")</div>
+                    </div>
+                </div>
+
+                <div class="settlement-progress-track">
+                    <div class="settlement-progress-fill" style="width:@(Math.Min(100, _snapshot.PercentCollected).ToString("0"))%"></div>
+                </div>
+                <div class="settlement-progress-label">@_snapshot.PercentCollected.ToString("0")% collected</div>
+            </section>
+
+            <div class="data-table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Driver</th>
+                            <th>Unit</th>
+                            <th>Shift Ended</th>
+                            <th>Boundary</th>
+                            <th>Paid</th>
+                            <th>Balance</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_snapshot.Rows.Count == 0)
+                        {
+                            <tr><td colspan="8" class="table-empty">No shifts today yet.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (SettlementRow row in _snapshot.Rows)
+                            {
+                                <tr>
+                                    <td><span class="status-pill @StatusCss(row.Status)"><span class="dot"></span> @row.Status.ToString().ToUpperInvariant()</span></td>
+                                    <td class="driver-cell"><div class="table-avatar">@Initials(row.DriverName)</div><span>@row.DriverName</span></td>
+                                    <td>@row.TaxiId</td>
+                                    <td>@(row.ShiftEnd.HasValue ? row.ShiftEnd.Value.ToString("h:mm tt") : "On road")</td>
+                                    <td>₱ @row.ExpectedTotal.ToString("N0")</td>
+                                    <td>
+                                        @if (row.AmountPaid > 0)
+                                        {
+                                            <span>₱ @row.AmountPaid.ToString("N0")</span>
+                                            @if (row.Status == SettlementStatus.Cleared)
+                                            {
+                                                <span class="settlement-check">✓</span>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span>–</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (row.Status == SettlementStatus.Cleared)
+                                        {
+                                            <span class="settlement-closed">Closed</span>
+                                        }
+                                        else
+                                        {
+                                            <span>₱ @row.Balance.ToString("N0")</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (row.Status != SettlementStatus.Cleared)
+                                        {
+                                            <button class="profile-btn" type="button" @onclick="() => OpenPaymentModal(row)">@(row.Status == SettlementStatus.Partial ? "Add Payment" : "Record Payment")</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        }
+        else if (_activeTab == "master")
+        {
+            @if (_ledgerSnapshot is null)
+            {
+                <div class="table-empty">Loading the debt ledger...</div>
+            }
+            else
+            {
+                <section class="stats-grid">
+                    <article class="stat-card">
+                        <div class="stat-icon">☺</div>
+                        <div class="stat-body">
+                            <div class="stat-value">@_ledgerSnapshot.DriversWithDebtCount</div>
+                            <div class="stat-label">Drivers With Debt</div>
+                        </div>
+                    </article>
+                    <article class="stat-card">
+                        <div class="stat-icon">₱</div>
+                        <div class="stat-body">
+                            <div class="stat-value">₱ @_ledgerSnapshot.TotalOutstandingDebt.ToString("N0")</div>
+                            <div class="stat-label">Total Outstanding Debt</div>
+                        </div>
+                    </article>
+                    <article class="stat-card">
+                        <div class="stat-icon">✓</div>
+                        <div class="stat-body">
+                            <div class="stat-value">@_ledgerSnapshot.DebtFreeDriverCount</div>
+                            <div class="stat-label">Debt-Free Drivers</div>
+                        </div>
+                    </article>
+                </section>
+
+                <div class="data-table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Driver</th>
+                                <th>Unit</th>
+                                <th>Unpaid Days</th>
+                                <th>Last Payment Date</th>
+                                <th>Last Payment Amount</th>
+                                <th>Debt</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_ledgerSnapshot.Rows.Count == 0)
+                            {
+                                <tr><td colspan="7" class="table-empty">No drivers yet.</td></tr>
+                            }
+                            else
+                            {
+                                @foreach (DebtLedgerRow row in _ledgerSnapshot.Rows)
+                                {
+                                    <tr>
+                                        <td class="driver-cell"><div class="table-avatar">@Initials(row.DriverName)</div><span>@row.DriverName</span></td>
+                                        <td>@(row.TaxiId ?? "–")</td>
+                                        <td>@(row.UnpaidCount > 0 ? row.UnpaidCount.ToString() : "–")</td>
+                                        <td>@(row.LastPaymentDate.HasValue ? row.LastPaymentDate.Value.ToString("MMM d") : "–")</td>
+                                        <td>@(row.LastPaymentAmount.HasValue ? $"₱ {row.LastPaymentAmount.Value:N0}" : "–")</td>
+                                        <td>₱ @row.TotalDebt.ToString("N0")</td>
+                                        <td class="ledger-actions">
+                                            @if (row.TotalDebt > 0)
+                                            {
+                                                <button class="profile-btn" type="button" @onclick="() => OpenSettleModal(row)">Settle</button>
+                                            }
+                                            <button class="profile-btn" type="button" @onclick="() => OpenHistoryModalAsync(row)">History</button>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+    </main>
+</div>
+}
+
+@if (_showPaymentModal && _paymentRow is not null)
+{
+    <div class="report-overlay" @onclick="ClosePaymentModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Record Payment</h3>
+                <button type="button" class="close-modal" @onclick="ClosePaymentModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="settlement-modal-subject">@_paymentRow.DriverName · @_paymentRow.TaxiId</div>
+
+                <div class="settlement-modal-figures">
+                    <div class="settlement-modal-figure-row"><span>Boundary</span><strong>₱ @_paymentRow.ExpectedTotal.ToString("N0")</strong></div>
+                    <div class="settlement-modal-figure-row"><span>Already Paid</span><strong>₱ @_paymentRow.AmountPaid.ToString("N0")</strong></div>
+                    <div class="settlement-modal-figure-row"><span>Remaining</span><strong>₱ @PaymentRemaining.ToString("N0")</strong></div>
+                </div>
+
+                <div class="report-section">
+                    <label>Amount Received (PHP)</label>
+                    <input class="text-input" type="number" min="0" step="1" @bind="_paymentAmountInput" @bind:event="oninput" />
+                </div>
+
+                <div class="payment-method-toggle">
+                    <button type="button" class="payment-method-btn @(_paymentMethod == "Cash" ? "active" : "")" @onclick='() => _paymentMethod = "Cash"'>CASH</button>
+                    <button type="button" class="payment-method-btn @(_paymentMethod == "EWallet" ? "active" : "")" @onclick='() => _paymentMethod = "EWallet"'>E-WALLET (GCASH)</button>
+                </div>
+
+                <div class="settlement-status-preview">
+                    <span>New status →</span>
+                    <span class="status-pill small @StatusCss(PreviewStatus)">@PreviewStatus.ToString().ToUpperInvariant()</span>
+                    @if (PreviewStatus == SettlementStatus.Partial)
+                    {
+                        <span class="settlement-remaining-note">₱ @PreviewShortfall.ToString("N0") → Master Ledger</span>
+                    }
+                </div>
+
+                @if (_paymentError is not null)
+                {
+                    <div class="report-error">@_paymentError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="ClosePaymentModal">Cancel</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingPayment || _paymentAmountInput <= 0)" @onclick="ConfirmPaymentAsync">@(_isSavingPayment ? "Saving…" : "Confirm Payment")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showAdjustmentModal)
+{
+    <div class="report-overlay" @onclick="CloseAdjustmentModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Manual Adjustment / Penalty</h3>
+                <button type="button" class="close-modal" @onclick="CloseAdjustmentModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="report-section">
+                    <label>Driver</label>
+                    <select class="text-input" @bind="_adjustmentDriverId">
+                        <option value="">Select a driver…</option>
+                        @if (_driverOptions is not null)
+                        {
+                            @foreach (DriverRosterEntry d in _driverOptions)
+                            {
+                                <option value="@d.DriverId">@d.FullName</option>
+                            }
+                        }
+                    </select>
+                </div>
+
+                <div class="report-section">
+                    <label>Amount (PHP)</label>
+                    <input class="text-input" type="number" min="0" step="1" placeholder="e.g. 200" @bind="_adjustmentAmountInput" @bind:event="oninput" />
+                </div>
+
+                <div class="report-section">
+                    <label>Type</label>
+                    <select class="text-input" @bind="_adjustmentDirection">
+                        <option value="Add">Penalty / Add to Debt</option>
+                        <option value="Credit">Credit / Write-off</option>
+                    </select>
+                </div>
+
+                <div class="report-section">
+                    <label>Note</label>
+                    <textarea class="text-input textarea" @bind="_adjustmentReason" placeholder="Reason for adjustment"></textarea>
+                </div>
+
+                <div class="info-banner">Adjustments don't touch today's boundary payments - they're a separate correction that feeds the Master Debt Ledger balance.</div>
+
+                @if (_adjustmentError is not null)
+                {
+                    <div class="report-error">@_adjustmentError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="CloseAdjustmentModal">Cancel</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingAdjustment || string.IsNullOrEmpty(_adjustmentDriverId) || _adjustmentAmountInput <= 0)" @onclick="ConfirmAdjustmentAsync">@(_isSavingAdjustment ? "Saving…" : "Save Adjustment")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showSettleModal && _settleRow is not null)
+{
+    <div class="report-overlay" @onclick="CloseSettleModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Settle Outstanding Debt</h3>
+                <button type="button" class="close-modal" @onclick="CloseSettleModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="settlement-modal-subject">@_settleRow.DriverName · @(_settleRow.TaxiId ?? "No unit assigned")</div>
+
+                <div class="settlement-modal-figures">
+                    <div class="settlement-modal-figure-row"><span>Current Debt Balance</span><strong>₱ @_settleRow.TotalDebt.ToString("N0")</strong></div>
+                </div>
+
+                <div class="report-section">
+                    <label>Amount Received (PHP)</label>
+                    <input class="text-input" type="number" min="0" step="1" @bind="_settleAmountInput" @bind:event="oninput" />
+                </div>
+
+                <div class="payment-method-toggle">
+                    <button type="button" class="payment-method-btn @(_settleMethod == "Cash" ? "active" : "")" @onclick='() => _settleMethod = "Cash"'>CASH</button>
+                    <button type="button" class="payment-method-btn @(_settleMethod == "EWallet" ? "active" : "")" @onclick='() => _settleMethod = "EWallet"'>E-WALLET (GCASH)</button>
+                </div>
+
+                <div class="settlement-modal-figures">
+                    <div class="settlement-modal-figure-row"><span>New Remaining Balance</span><strong>₱ @SettlePreviewRemaining.ToString("N0")</strong></div>
+                </div>
+
+                <div class="settlement-status-preview">
+                    <span>Status →</span>
+                    <span class="status-pill small @(SettlePreviewRemaining <= 0 ? "status-success" : "status-warning")">@(SettlePreviewRemaining <= 0 ? "CLEARED" : "OUTSTANDING")</span>
+                    @if (SettlePreviewOverpaid > 0)
+                    {
+                        <span class="settlement-remaining-note">₱ @SettlePreviewOverpaid.ToString("N0") is more than owed - won't be applied</span>
+                    }
+                </div>
+
+                @if (_settleError is not null)
+                {
+                    <div class="report-error">@_settleError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="CloseSettleModal">Cancel</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingSettle || _settleAmountInput <= 0)" @onclick="ConfirmSettleAsync">@(_isSavingSettle ? "Saving…" : "Confirm Payment")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showHistoryModal)
+{
+    <div class="report-overlay" @onclick="CloseHistoryModal">
+        <div class="report-modal wide" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Financial History</h3>
+                <button type="button" class="close-modal" @onclick="CloseHistoryModal">×</button>
+            </div>
+            <div class="report-body">
+                @if (_history is null)
+                {
+                    <div class="table-empty">Loading history...</div>
+                }
+                else
+                {
+                    <div class="settlement-modal-subject">@_history.DriverName</div>
+                    <div class="settlement-modal-figures">
+                        <div class="settlement-modal-figure-row"><span>Current Outstanding Debt</span><strong>₱ @_history.CurrentOutstandingDebt.ToString("N0")</strong></div>
+                    </div>
+
+                    <div class="history-toolbar">
+                        <label>Filter by date:
+                            <select class="text-input" @bind="_historyDateFilter">
+                                <option value="10">Last 10 Days</option>
+                                <option value="30">Last 30 Days</option>
+                                <option value="0">All Time</option>
+                            </select>
+                        </label>
+                        <button class="outline-btn" type="button" @onclick="ExportHistoryCsv">⬇ Export</button>
+                    </div>
+
+                    <div class="data-table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date &amp; Time</th>
+                                    <th>Transaction Type</th>
+                                    <th>Expected</th>
+                                    <th>Amount Paid</th>
+                                    <th>Running Debt</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (FilteredHistoryTransactions.Count == 0)
+                                {
+                                    <tr><td colspan="5" class="table-empty">No transactions in this range.</td></tr>
+                                }
+                                else
+                                {
+                                    @foreach (LedgerTransaction tx in FilteredHistoryTransactions)
+                                    {
+                                        <tr>
+                                            <td>@tx.Timestamp.ToString("MMM d, yyyy h:mm tt")</td>
+                                            <td>@tx.TransactionType</td>
+                                            <td>@(tx.Expected.HasValue ? $"₱ {tx.Expected.Value:N0}" : "–")</td>
+                                            <td>
+                                                @if (tx.AmountPaid.HasValue)
+                                                {
+                                                    @($"₱ {tx.AmountPaid.Value:N0}")
+                                                }
+                                                else if (tx.AdjustmentAmount.HasValue)
+                                                {
+                                                    @($"{(tx.AdjustmentAmount.Value >= 0 ? "+" : "-")}₱ {Math.Abs(tx.AdjustmentAmount.Value):N0}")
+                                                }
+                                                else
+                                                {
+                                                    @:–
+                                                }
+                                            </td>
+                                            <td>₱ @tx.RunningDebt.ToString("N0")</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _isCheckingAccess = true;
+    private bool _isAuthorized;
+    private IJSObjectReference? _firebaseModule;
+    private IJSObjectReference? _fileDownloadModule;
+
+    private string _activeTab = "daily";
+
+    private DailySettlementSnapshot? _snapshot;
+    private string? _settlementError;
+
+    private DebtLedgerSnapshot? _ledgerSnapshot;
+    private string? _ledgerError;
+
+    private List<DriverRosterEntry>? _driverOptions;
+
+    private bool _isExportingCsv;
+    private string? _exportError;
+
+    private bool _showPaymentModal;
+    private SettlementRow? _paymentRow;
+    private decimal _paymentAmountInput;
+    private string _paymentMethod = "Cash";
+    private bool _isSavingPayment;
+    private string? _paymentError;
+
+    private bool _showAdjustmentModal;
+    private string _adjustmentDriverId = string.Empty;
+    private string _adjustmentDirection = "Add";
+    private decimal _adjustmentAmountInput;
+    private string _adjustmentReason = string.Empty;
+    private bool _isSavingAdjustment;
+    private string? _adjustmentError;
+
+    private bool _showSettleModal;
+    private DebtLedgerRow? _settleRow;
+    private decimal _settleAmountInput;
+    private string _settleMethod = "Cash";
+    private bool _isSavingSettle;
+    private string? _settleError;
+
+    private bool _showHistoryModal;
+    private DriverLedgerHistory? _history;
+    private string _historyDateFilter = "10";
+
+    private decimal PaymentRemaining => _paymentRow is null ? 0 : Math.Max(0, _paymentRow.ExpectedTotal - _paymentRow.AmountPaid);
+
+    private SettlementStatus PreviewStatus
+    {
+        get
+        {
+            if (_paymentRow is null)
+            {
+                return SettlementStatus.Waiting;
+            }
+
+            decimal totalPaid = _paymentRow.AmountPaid + Math.Max(0, _paymentAmountInput);
+            if (totalPaid >= _paymentRow.ExpectedTotal)
+            {
+                return SettlementStatus.Cleared;
+            }
+
+            return totalPaid > 0 ? SettlementStatus.Partial : SettlementStatus.Waiting;
+        }
+    }
+
+    private decimal PreviewShortfall => _paymentRow is null
+        ? 0
+        : Math.Max(0, _paymentRow.ExpectedTotal - _paymentRow.AmountPaid - Math.Max(0, _paymentAmountInput));
+
+    private decimal SettlePreviewRemaining => _settleRow is null
+        ? 0
+        : Math.Max(0, _settleRow.TotalDebt - Math.Max(0, _settleAmountInput));
+
+    private decimal SettlePreviewOverpaid => _settleRow is null
+        ? 0
+        : Math.Max(0, Math.Max(0, _settleAmountInput) - _settleRow.TotalDebt);
+
+    private List<LedgerTransaction> FilteredHistoryTransactions
+    {
+        get
+        {
+            if (_history is null)
+            {
+                return new List<LedgerTransaction>();
+            }
+
+            if (_historyDateFilter == "0")
+            {
+                return _history.Transactions;
+            }
+
+            int days = int.Parse(_historyDateFilter);
+            DateTime cutoff = DateTime.UtcNow.AddDays(-days);
+            return _history.Transactions.Where(t => t.Timestamp >= cutoff).ToList();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+        var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
+        _isAuthorized = result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True;
+        _isCheckingAccess = false;
+
+        if (!_isAuthorized)
+        {
+            Navigation.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        await LoadSettlementAsync();
+
+        try
+        {
+            _driverOptions = (await DriverManagement.GetRosterSnapshotAsync()).Drivers;
+        }
+        catch
+        {
+            // Adjustment modal's driver dropdown just stays empty - not worth surfacing a
+            // second warning banner for a page whose primary data already loaded fine.
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadSettlementAsync()
+    {
+        try
+        {
+            _snapshot = await Ledger.GetDailySettlementAsync(DateTime.UtcNow);
+            _settlementError = null;
+        }
+        catch (Exception ex)
+        {
+            _settlementError = ex.Message;
+        }
+    }
+
+    private async Task SelectTabAsync(string tab)
+    {
+        _activeTab = tab;
+        if (tab == "master" && _ledgerSnapshot is null)
+        {
+            await LoadLedgerAsync();
+        }
+    }
+
+    private async Task LoadLedgerAsync()
+    {
+        try
+        {
+            _ledgerSnapshot = await Ledger.GetDebtLedgerAsync();
+            _ledgerError = null;
+        }
+        catch (Exception ex)
+        {
+            _ledgerError = ex.Message;
+        }
+    }
+
+    private void OpenPaymentModal(SettlementRow row)
+    {
+        _paymentRow = row;
+        _paymentAmountInput = Math.Max(0, row.ExpectedTotal - row.AmountPaid);
+        _paymentMethod = "Cash";
+        _paymentError = null;
+        _showPaymentModal = true;
+    }
+
+    private void ClosePaymentModal()
+    {
+        _showPaymentModal = false;
+        _paymentRow = null;
+    }
+
+    private async Task ConfirmPaymentAsync()
+    {
+        if (_paymentRow is null || _paymentAmountInput <= 0)
+        {
+            return;
+        }
+
+        _isSavingPayment = true;
+        _paymentError = null;
+        try
+        {
+            RecordPaymentResult result = await Ledger.RecordPaymentAsync(_paymentRow.ShiftId, _paymentAmountInput, _paymentMethod);
+            if (!result.Ok)
+            {
+                _paymentError = result.ErrorMessage ?? "Could not save this payment.";
+                return;
+            }
+
+            _showPaymentModal = false;
+            _paymentRow = null;
+            await LoadSettlementAsync();
+        }
+        finally
+        {
+            _isSavingPayment = false;
+        }
+    }
+
+    private void OpenAdjustmentModal()
+    {
+        _adjustmentDriverId = string.Empty;
+        _adjustmentDirection = "Add";
+        _adjustmentAmountInput = 0;
+        _adjustmentReason = string.Empty;
+        _adjustmentError = null;
+        _showAdjustmentModal = true;
+    }
+
+    private void CloseAdjustmentModal() => _showAdjustmentModal = false;
+
+    private async Task ConfirmAdjustmentAsync()
+    {
+        if (string.IsNullOrEmpty(_adjustmentDriverId) || _adjustmentAmountInput <= 0)
+        {
+            return;
+        }
+
+        _isSavingAdjustment = true;
+        _adjustmentError = null;
+        try
+        {
+            decimal signedAmount = _adjustmentDirection == "Credit" ? -_adjustmentAmountInput : _adjustmentAmountInput;
+            AdjustmentResult result = await Ledger.AddAdjustmentAsync(_adjustmentDriverId, signedAmount, _adjustmentReason);
+            if (!result.Ok)
+            {
+                _adjustmentError = result.ErrorMessage ?? "Could not save this adjustment.";
+                return;
+            }
+
+            _showAdjustmentModal = false;
+            if (_ledgerSnapshot is not null)
+            {
+                await LoadLedgerAsync();
+            }
+        }
+        finally
+        {
+            _isSavingAdjustment = false;
+        }
+    }
+
+    private void OpenSettleModal(DebtLedgerRow row)
+    {
+        _settleRow = row;
+        // Deliberately NOT pre-filled to row.TotalDebt: that made every "Confirm Payment"
+        // pay off the whole debt in one click (since managers naturally just click Confirm
+        // without editing a pre-filled number), silently closing the row out and hiding
+        // "Settle" (debt = 0) far sooner than intended. Blank forces a deliberate amount,
+        // matching the mockup itself showing a partial typed-in amount, not the full balance.
+        _settleAmountInput = 0;
+        _settleMethod = "Cash";
+        _settleError = null;
+        _showSettleModal = true;
+    }
+
+    private void CloseSettleModal()
+    {
+        _showSettleModal = false;
+        _settleRow = null;
+    }
+
+    private async Task ConfirmSettleAsync()
+    {
+        if (_settleRow is null || _settleAmountInput <= 0)
+        {
+            return;
+        }
+
+        _isSavingSettle = true;
+        _settleError = null;
+        try
+        {
+            SettleDebtResult result = await Ledger.SettleDebtAsync(_settleRow.DriverId, _settleAmountInput, _settleMethod);
+            if (!result.Ok)
+            {
+                _settleError = result.ErrorMessage ?? "Could not save this settlement.";
+                return;
+            }
+
+            _showSettleModal = false;
+            _settleRow = null;
+            await LoadLedgerAsync();
+        }
+        finally
+        {
+            _isSavingSettle = false;
+        }
+    }
+
+    private async Task OpenHistoryModalAsync(DebtLedgerRow row)
+    {
+        _showHistoryModal = true;
+        _history = null;
+        _historyDateFilter = "10";
+        StateHasChanged();
+
+        try
+        {
+            _history = await Ledger.GetDriverHistoryAsync(row.DriverId);
+        }
+        catch (Exception ex)
+        {
+            _ledgerError = $"History unavailable: {ex.Message}";
+            _showHistoryModal = false;
+        }
+    }
+
+    private void CloseHistoryModal()
+    {
+        _showHistoryModal = false;
+        _history = null;
+    }
+
+    private async Task ExportHistoryCsv()
+    {
+        if (_history is null)
+        {
+            return;
+        }
+
+        var headers = new[] { "Date & Time", "Transaction Type", "Expected", "Amount Paid", "Running Debt" };
+        var rows = FilteredHistoryTransactions.Select(t => new object?[]
+        {
+            t.Timestamp.ToString("yyyy-MM-dd HH:mm"),
+            t.TransactionType,
+            t.Expected,
+            t.AmountPaid ?? t.AdjustmentAmount,
+            t.RunningDebt,
+        });
+
+        string csv = BuildCsv(headers, rows);
+        string fileName = $"Financial_History_{_history.DriverName.Replace(" ", "_")}_{DateTime.UtcNow:yyyyMMdd}.csv";
+
+        _fileDownloadModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/file-download.js");
+        await _fileDownloadModule.InvokeVoidAsync("downloadFile", fileName, csv, "text/csv");
+    }
+
+    private async Task ExportCsvAsync()
+    {
+        _exportError = null;
+        _isExportingCsv = true;
+        try
+        {
+            string csv;
+            string fileName;
+
+            if (_activeTab == "master")
+            {
+                DebtLedgerSnapshot snapshot = _ledgerSnapshot ?? await Ledger.GetDebtLedgerAsync();
+                var headers = new[] { "Driver", "Unit", "UnpaidDays", "LastPaymentDate", "LastPaymentAmount", "Debt" };
+                var rows = snapshot.Rows.Select(r => new object?[]
+                {
+                    r.DriverName, r.TaxiId, r.UnpaidCount,
+                    r.LastPaymentDate?.ToString("yyyy-MM-dd"), r.LastPaymentAmount, r.TotalDebt,
+                });
+                csv = BuildCsv(headers, rows);
+                fileName = $"Master_Debt_Ledger_{DateTime.UtcNow:yyyyMMdd}.csv";
+            }
+            else
+            {
+                DateTime dayStart = DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc);
+                DateTime dayEnd = dayStart.AddDays(1).AddTicks(-1);
+                csv = await FleetReporting.BuildReportCsvAsync("Financial Summary", dayStart, dayEnd);
+                fileName = $"Daily_Settlements_{dayStart:yyyyMMdd}.csv";
+            }
+
+            _fileDownloadModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/file-download.js");
+            await _fileDownloadModule.InvokeVoidAsync("downloadFile", fileName, csv, "text/csv");
+        }
+        catch (Exception ex)
+        {
+            _exportError = $"Export failed: {ex.Message}";
+        }
+        finally
+        {
+            _isExportingCsv = false;
+        }
+    }
+
+    private static string BuildCsv(IEnumerable<string> headers, IEnumerable<object?[]> rows)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine(string.Join(',', headers.Select(CsvEscape)));
+        foreach (object?[] row in rows)
+        {
+            sb.AppendLine(string.Join(',', row.Select(v => CsvEscape(v?.ToString() ?? string.Empty))));
+        }
+        return sb.ToString();
+    }
+
+    private static string CsvEscape(string value) =>
+        value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0
+            ? "\"" + value.Replace("\"", "\"\"") + "\""
+            : value;
+
+    private static string Initials(string fullName)
+    {
+        string[] parts = fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return "?";
+        }
+        if (parts.Length == 1)
+        {
+            return parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant();
+        }
+        return $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant();
+    }
+
+    private static string StatusCss(SettlementStatus status) => status switch
+    {
+        SettlementStatus.Cleared => "status-success",
+        SettlementStatus.Partial => "status-warning",
+        _ => "status-neutral",
+    };
+}

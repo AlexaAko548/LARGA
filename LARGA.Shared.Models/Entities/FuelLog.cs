@@ -54,14 +54,23 @@ public class FuelLog
     [FirestoreProperty("shiftId")]
     public string ShiftId { get; set; } = string.Empty;
 
-    [FirestoreProperty("litersRefueled")]
+    [FirestoreProperty("fuelStation")]
+    public string? FuelStation { get; set; }
+
+    [FirestoreProperty("litersRefueled", ConverterType = typeof(DecimalConverter))]
     public decimal LitersRefueled { get; set; }
 
-    [FirestoreProperty("fuelCost")]
+    [FirestoreProperty("fuelCost", ConverterType = typeof(DecimalConverter))]
     public decimal FuelCost { get; set; }
+
+    [FirestoreProperty("orNumber")]
+    public string? ORNumber { get; set; }
 
     [FirestoreProperty("receiptImageUrl")]
     public string? ReceiptImageUrl { get; set; }
+
+    [FirestoreProperty("receiptTimestamp")]
+    public DateTime? ReceiptTimestamp { get; set; }
 
     [FirestoreProperty("verificationStatus", ConverterType = typeof(FuelVerificationStatusConverter))]
     public FuelVerificationStatus VerificationStatus { get; set; } = FuelVerificationStatus.Pending;

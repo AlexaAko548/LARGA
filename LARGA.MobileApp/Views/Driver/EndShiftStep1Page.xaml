@@ -8,7 +8,7 @@
              BackgroundColor="White">
 
     <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="15">
+        <VerticalStackLayout Padding="20" Spacing="12">
             <Grid ColumnDefinitions="Auto, *">
                 <ImageButton Source="back_icon.png" WidthRequest="32" Margin="-10,-10,0,0" HeightRequest="32" Aspect="AspectFit" Padding="8" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
             </Grid>

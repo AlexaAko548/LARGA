@@ -86,13 +86,13 @@ public class BoundaryPayment
     [FirestoreProperty("shiftId")]
     public string ShiftId { get; set; } = string.Empty;
 
-    [FirestoreProperty("expectedBoundary")]
+    [FirestoreProperty("expectedBoundary", ConverterType = typeof(DecimalConverter))]
     public decimal ExpectedBoundary { get; set; }
 
-    [FirestoreProperty("lateFees")]
+    [FirestoreProperty("lateFees", ConverterType = typeof(DecimalConverter))]
     public decimal LateFees { get; set; }
 
-    [FirestoreProperty("amountPaid")]
+    [FirestoreProperty("amountPaid", ConverterType = typeof(DecimalConverter))]
     public decimal AmountPaid { get; set; }
 
     [FirestoreProperty("paymentMethod", ConverterType = typeof(PaymentMethodConverter))]
