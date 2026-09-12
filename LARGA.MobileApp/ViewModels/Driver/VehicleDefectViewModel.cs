@@ -2,12 +2,16 @@ using System.Windows.Input;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using System.Threading.Tasks;
+using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
 [QueryProperty(nameof(ChecklistItem), "item")]
 public class VehicleDefectViewModel : BindableObject
 {
+    private readonly IMaintenanceService _maintenanceService;
+
     private string _checklistItem = string.Empty;
     private string _titleReport = string.Empty;
     private string _description = string.Empty;
@@ -36,12 +40,7 @@ public class VehicleDefectViewModel : BindableObject
     public ImageSource? DefectPhoto
     {
         get => _defectPhoto;
-        set
-        {
-            _defectPhoto = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(HasPhoto));
-        }
+        set { _defectPhoto = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasPhoto)); }
     }
 
     public bool HasPhoto => DefectPhoto != null;
@@ -74,8 +73,10 @@ public class VehicleDefectViewModel : BindableObject
     public ICommand AttachPhotoCommand { get; }
     public ICommand SubmitReportCommand { get; }
 
-    public VehicleDefectViewModel()
+    public VehicleDefectViewModel(IMaintenanceService maintenanceService)
     {
+        _maintenanceService = maintenanceService;
+
         AttachPhotoCommand = new Command(async () => await AttachPhotoAsync());
 
         SubmitReportCommand = new Command(async () =>
@@ -86,7 +87,28 @@ public class VehicleDefectViewModel : BindableObject
                 return;
             }
 
-            // TODO: save MaintenanceRecord to Firestore with TitleReport, Description, PriorityLevel, _photoPath
+            var priorityLevel = IsLow ? PriorityLevel.Low : IsMedium ? PriorityLevel.Medium : PriorityLevel.High;
+
+            var record = new MaintenanceRecord
+            {
+                TaxiId = "GHK-4471-MP", // TODO: replace with real assigned taxi ID from session
+                ManagerId = "unassigned", // TODO: replace with real manager ID once session context is available
+                MaintenanceType = MaintenanceType.BreakdownRepair,
+                IssueTitle = TitleReport,
+                IssueDescription = Description,
+                DateLogged = System.DateTime.UtcNow,
+                PriorityLevel = priorityLevel,
+                SupportingPhotoUrl = _photoPath // NOTE: local device path for now; photo upload to Firebase Storage is a follow-up
+            };
+
+            var recordId = await _maintenanceService.SubmitMaintenanceRecordAsync(record);
+
+            if (string.IsNullOrEmpty(recordId))
+            {
+                await Shell.Current.DisplayAlert("Error", "Failed to submit report. Please try again.", "OK");
+                return;
+            }
+
             await Shell.Current.GoToAsync($"..?defectSubmitted=true");
         });
     }
