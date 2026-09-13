@@ -1,9 +1,21 @@
+using LARGA.MobileApp.ViewModels.Driver;
+
 namespace LARGA.MobileApp.Views.Driver;
 
-public partial class ReportsPage: ContentPage
+public partial class ReportsPage : ContentPage
 {
-	public ReportsPage()
-	{
-		InitializeComponent();
-	}
+    private readonly ReportsViewModel _viewModel;
+
+    public ReportsPage()
+    {
+        InitializeComponent();
+        _viewModel = new ReportsViewModel();
+        BindingContext = _viewModel;
+    }
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        _viewModel.LoadReportsCommand.Execute(null);
+    }
 }
