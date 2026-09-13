@@ -5,9 +5,9 @@ namespace LARGA.MobileApp.Views.Driver;
 
 public partial class VehicleDefectPage : ContentPage
 {
-    public VehicleDefectPage(IMaintenanceService maintenanceService)
+    public VehicleDefectPage(IMaintenanceService maintenanceService, IShiftManagementService shiftManagementService)
     {
         InitializeComponent();
-        BindingContext = new VehicleDefectViewModel(maintenanceService);
+        BindingContext = new VehicleDefectViewModel(maintenanceService, shiftManagementService);
     }
 }

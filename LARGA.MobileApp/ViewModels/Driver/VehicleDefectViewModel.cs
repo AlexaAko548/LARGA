@@ -4,6 +4,7 @@ using Microsoft.Maui.Media;
 using System.Threading.Tasks;
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore.Services;
+using Plugin.Firebase.Auth;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -11,6 +12,7 @@ namespace LARGA.MobileApp.ViewModels.Driver;
 public class VehicleDefectViewModel : BindableObject
 {
     private readonly IMaintenanceService _maintenanceService;
+    private readonly IShiftManagementService _shiftManagementService;
 
     private string _checklistItem = string.Empty;
     private string _titleReport = string.Empty;
@@ -73,9 +75,10 @@ public class VehicleDefectViewModel : BindableObject
     public ICommand AttachPhotoCommand { get; }
     public ICommand SubmitReportCommand { get; }
 
-    public VehicleDefectViewModel(IMaintenanceService maintenanceService)
+    public VehicleDefectViewModel(IMaintenanceService maintenanceService, IShiftManagementService shiftManagementService)
     {
         _maintenanceService = maintenanceService;
+        _shiftManagementService = shiftManagementService;
 
         AttachPhotoCommand = new Command(async () => await AttachPhotoAsync());
 
@@ -89,16 +92,24 @@ public class VehicleDefectViewModel : BindableObject
 
             var priorityLevel = IsLow ? PriorityLevel.Low : IsMedium ? PriorityLevel.Medium : PriorityLevel.High;
 
+            var currentUser = CrossFirebaseAuth.Current.CurrentUser;
+            var driverId = currentUser?.Uid ?? string.Empty;
+
+            var assignedTaxi = await _shiftManagementService.GetCurrentUserAssignedTaxiAsync();
+            var taxiId = assignedTaxi?.TaxiId ?? string.Empty;
+
             var record = new MaintenanceRecord
             {
-                TaxiId = "GHK-4471-MP", // TODO: replace with real assigned taxi ID from session
-                ManagerId = "unassigned", // TODO: replace with real manager ID once session context is available
+                TaxiId = taxiId,
+                ManagerId = null, // Not yet assigned; manager sets this when creating a work order
                 MaintenanceType = MaintenanceType.BreakdownRepair,
                 IssueTitle = TitleReport,
                 IssueDescription = Description,
                 DateLogged = System.DateTime.UtcNow,
                 PriorityLevel = priorityLevel,
-                SupportingPhotoUrl = _photoPath // NOTE: local device path for now; photo upload to Firebase Storage is a follow-up
+                SupportingPhotoUrl = _photoPath, // NOTE: local device path for now; photo upload to Firebase Storage is a follow-up
+                ReportedByDriverId = driverId,
+                Status = "Reported"
             };
 
             var recordId = await _maintenanceService.SubmitMaintenanceRecordAsync(record);
