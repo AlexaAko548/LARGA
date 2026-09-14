@@ -1,11 +1,8 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
-using Microsoft.Maui.Storage;
 using LARGA.MobileApp.Services;
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace LARGA.MobileApp.Views.Driver;
@@ -13,94 +10,69 @@ namespace LARGA.MobileApp.Views.Driver;
 public partial class OdometerScanPage : ContentPage
 {
     private readonly IOcrService _ocrService;
-    private bool _isScanning = false;
+    private readonly byte[] _imageBytes;
 
-    public OdometerScanPage(IOcrService ocrService)
+    public OdometerScanPage(IOcrService ocrService, byte[] imageBytes)
     {
         InitializeComponent();
         _ocrService = ocrService;
+        _imageBytes = imageBytes;
     }
 
-    private void Camera_CamerasLoaded(object sender, EventArgs e)
+    protected override async void OnAppearing()
     {
-        LiveCamera.Camera = LiveCamera.Cameras.FirstOrDefault();
-        MainThread.BeginInvokeOnMainThread(async () =>
+        base.OnAppearing();
+
+        CapturedImage.Source = ImageSource.FromStream(() => new MemoryStream(_imageBytes));
+        await Task.Delay(300);
+
+        var detectedBlocks = await _ocrService.ExtractTextBlocksAsync(_imageBytes);
+
+        double layoutWidth = TextOverlayLayout.Width;
+        double layoutHeight = TextOverlayLayout.Height;
+
+        TextOverlayLayout.Children.Clear();
+        foreach (var block in detectedBlocks)
         {
-            await LiveCamera.StartCameraAsync();
-            _isScanning = true;
-            StartLiveOcrLoop(); // Start the background extraction loop
-        });
-    }
-
-    private async void StartLiveOcrLoop()
-    {
-        while (_isScanning)
-        {
-            // 1.5-second interval to prevent freezing the UI or overloading memory
-            await Task.Delay(1500);
-
-            try
+            var textBtn = new Button
             {
-                // 1. Create a temporary path for the live camera snapshot
-                string tempFilePath = Path.Combine(FileSystem.CacheDirectory, "live_frame.jpg");
+                Text = block.Text,
+                BackgroundColor = Colors.Green.WithAlpha(0.4f),
+                TextColor = Colors.White,
+                Padding = new Thickness(0),
+                FontSize = 12,
+                CornerRadius = 4,
+                // THE FIX: Prevent the text from being cut off or separated into multiple lines
+                LineBreakMode = LineBreakMode.NoWrap
+            };
 
-                // 2. Silently pull the current frame from the camera stream
-                var snapResult = await LiveCamera.SaveSnapShot(Camera.MAUI.ImageFormat.JPEG, tempFilePath);
+            double exactX = block.BoundingBox.X * layoutWidth;
+            double exactY = block.BoundingBox.Y * layoutHeight;
+            double exactWidth = block.BoundingBox.Width * layoutWidth;
+            double exactHeight = block.BoundingBox.Height * layoutHeight;
 
-                if (snapResult && File.Exists(tempFilePath))
-                {
-                    // 3. Extract the image bytes
-                    byte[] imageBytes = File.ReadAllBytes(tempFilePath);
+            var preciseBounds = new Rect(
+                exactX - 8,
+                exactY - 8,
+                exactWidth + 16,
+                exactHeight + 16
+            );
 
-                    // 4. Feed real-life data into the ML Kit wrapper
-                    var detectedBlocks = await _ocrService.ExtractTextBlocksAsync(imageBytes);
+            AbsoluteLayout.SetLayoutBounds(textBtn, preciseBounds);
+            AbsoluteLayout.SetLayoutFlags(textBtn, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.None);
 
-                    MainThread.BeginInvokeOnMainThread(() =>
-                    {
-                        TextOverlayLayout.Children.Clear();
-
-                        foreach (var block in detectedBlocks)
-                        {
-                            var textBtn = new Button
-                            {
-                                Text = block.Text,
-                                BackgroundColor = Colors.Green.WithAlpha(0.5f),
-                                TextColor = Colors.White,
-                                Padding = 0
-                            };
-
-                            AbsoluteLayout.SetLayoutBounds(textBtn, block.BoundingBox);
-
-                            textBtn.Clicked += async (s, args) => {
-                                _isScanning = false;
-                                await LiveCamera.StopCameraAsync();
-                                await Shell.Current.GoToAsync("..", new Dictionary<string, object> {
-                                    { "ScannedOdometer", block.Text }
-                                });
-                            };
-
-                            TextOverlayLayout.Children.Add(textBtn);
-                        }
-                    });
-                }
-            }
-            catch (Exception ex)
+            textBtn.Clicked += async (s, args) =>
             {
-                System.Diagnostics.Debug.WriteLine($"OCR Loop Error: {ex.Message}");
-            }
+                CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Send(block.Text, "OdometerScanned");
+                await Navigation.PopModalAsync();
+            };
+
+            TextOverlayLayout.Children.Add(textBtn);
         }
     }
 
     private async void OnCancelClicked(object sender, EventArgs e)
     {
-        _isScanning = false;
-        await LiveCamera.StopCameraAsync();
-        await Shell.Current.GoToAsync("..");
-    }
-
-    protected override void OnDisappearing()
-    {
-        base.OnDisappearing();
-        _isScanning = false; // Prevent memory leaks when navigating away
+        await Navigation.PopModalAsync();
     }
 }

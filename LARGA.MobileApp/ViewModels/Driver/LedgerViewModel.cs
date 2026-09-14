@@ -34,9 +34,8 @@ public class LedgerViewModel : INotifyPropertyChanged
             new PaymentRecord { DateStr = "7/16", Amount = "1000.00", Status = "(Full)" }
         };
 
-        // Placeholder routing for the sub-screens
-        ViewDebtDetailsCommand = new Command(async () => await App.Current.MainPage.DisplayAlert("Details", "Routing to Debt Details...", "OK"));
-        ViewAllHistoryCommand = new Command(async () => await App.Current.MainPage.DisplayAlert("History", "Routing to Full History...", "OK"));
+        ViewDebtDetailsCommand = new Command(async () => await Shell.Current.GoToAsync("debt-details"));
+        ViewAllHistoryCommand = new Command(async () => await Shell.Current.GoToAsync("payment-history"));
     }
 
     protected void OnPropertyChanged([CallerMemberName] string propertyName = "")
