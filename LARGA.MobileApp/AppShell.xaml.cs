@@ -24,5 +24,6 @@ public partial class AppShell : Shell
         Routing.RegisterRoute("debt-details", typeof(Views.Driver.DebtDetailPage));
         Routing.RegisterRoute("payment-history", typeof(Views.Driver.PaymentHistoryPage));
         Routing.RegisterRoute("vehicle-defect-page", typeof(Views.Driver.VehicleDefectPage));
+        Routing.RegisterRoute("defect-report-detail", typeof(Views.Driver.DefectReportDetailPage));
     }
 }
