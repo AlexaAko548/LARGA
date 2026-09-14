@@ -1,7 +1,10 @@
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Microsoft.Maui.Controls;
+using LARGA.MobileApp.Services;
 using LARGA.SharedCore.Services;
 using Plugin.Firebase.Firestore;
 using Plugin.Firebase.Auth;
@@ -32,6 +35,7 @@ public class ReportsViewModel : BindableObject
     public ICommand SelectFuelTabCommand { get; }
     public ICommand AddVehicleReportCommand { get; }
     public ICommand LoadReportsCommand { get; }
+    public ICommand ViewReportDetailsCommand { get; }
 
     public ReportsViewModel()
     {
@@ -39,6 +43,11 @@ public class ReportsViewModel : BindableObject
         SelectFuelTabCommand = new Command(() => IsVehicleDefectTabSelected = false);
         AddVehicleReportCommand = new Command(async () => await Shell.Current.GoToAsync("vehicle-defect-page"));
         LoadReportsCommand = new Command(async () => await LoadReportsAsync());
+        ViewReportDetailsCommand = new Command<DefectReportItem>(async (item) =>
+        {
+            if (item == null || string.IsNullOrEmpty(item.Id)) return;
+            await Shell.Current.GoToAsync($"defect-report-detail?id={item.Id}");
+        });
     }
 
     private async Task LoadReportsAsync()
@@ -53,17 +62,27 @@ public class ReportsViewModel : BindableObject
                 .WhereEqualsTo("reportedByDriverId", currentUser.Uid)
                 .GetDocumentsAsync<DefectReportProxy>();
 
-            DefectReports.Clear();
+            var items = new List<DefectReportItem>();
             foreach (var doc in snapshot.Documents)
             {
                 System.Diagnostics.Debug.WriteLine($"Doc found. Data null? {doc.Data == null}. Title: {doc.Data?.IssueTitle}");
                 if (doc.Data == null) continue;
-                DefectReports.Add(new DefectReportItem
+
+                var dateLogged = FirestoreDateTimeFix.Apply(doc.Data.DateLogged).ToLocalTime();
+                items.Add(new DefectReportItem
                 {
+                    Id = doc.Reference.Id,
                     Title = doc.Data.IssueTitle,
-                    // DateDisplay = doc.Data.DateLogged.ToString("MMM d, yyyy"),
+                    DateLogged = dateLogged,
+                    DateDisplay = dateLogged.ToString("MMM d, yyyy"),
                     Status = doc.Data.Status
                 });
+            }
+
+            DefectReports.Clear();
+            foreach (var item in items.OrderByDescending(i => i.DateLogged))
+            {
+                DefectReports.Add(item);
             }
         }
         catch (System.Exception ex)
@@ -77,8 +96,8 @@ public class ReportsViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("issueTitle")]
         public string IssueTitle { get; set; }
 
-        // [Plugin.Firebase.Firestore.FirestoreProperty("dateLogged")]
-        // public System.DateTime DateLogged { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("dateLogged")]
+        public System.DateTime DateLogged { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("status")]
         public string Status { get; set; }
@@ -87,7 +106,9 @@ public class ReportsViewModel : BindableObject
 
 public class DefectReportItem
 {
+    public string Id { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
+    public System.DateTime DateLogged { get; set; }
     public string DateDisplay { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string DisplayText => $"{DateDisplay} - {Title}";

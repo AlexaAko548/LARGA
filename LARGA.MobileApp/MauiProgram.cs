@@ -89,6 +89,8 @@ public static class MauiProgram
         builder.Services.AddTransient<VehicleDefectPage>();
         builder.Services.AddTransient<PaymentHistoryPage>();
         builder.Services.AddTransient<DebtDetailPage>();
+        builder.Services.AddTransient<DefectReportDetailViewModel>();
+        builder.Services.AddTransient<DefectReportDetailPage>();
 
 
 #if DEBUG
