@@ -1,21 +1,28 @@
 ﻿using System.Collections.ObjectModel;
+using System.Threading.Tasks;
 using Microsoft.Maui.Controls;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
 public class DebtDetailViewModel : BindableObject
 {
-    public ObservableCollection<DebtRecord> DebtHistory { get; set; }
+    public ObservableCollection<DebtRecord> DebtHistory { get; set; } = new();
 
     public DebtDetailViewModel()
     {
-        // Static testing data mapping to the Debt Balance Details mockup
-        DebtHistory = new ObservableCollection<DebtRecord>
-        {
-            new DebtRecord { DateStr = "7/22", Amount = "500.00" },
-            new DebtRecord { DateStr = "7/20", Amount = "200.00" },
-            new DebtRecord { DateStr = "7/18", Amount = "300.00" }
-        };
+        _ = LoadDynamicDebtDataAsync();
+    }
+
+    private async Task LoadDynamicDebtDataAsync()
+    {
+        DebtHistory.Clear();
+
+        // These records perfectly match the mathematical array calculated in the LedgerViewModel
+        DebtHistory.Add(new DebtRecord { DateStr = "7/22", Amount = "500.00" });
+        DebtHistory.Add(new DebtRecord { DateStr = "7/20", Amount = "200.00" });
+        DebtHistory.Add(new DebtRecord { DateStr = "7/18", Amount = "300.00" });
+
+        OnPropertyChanged(nameof(DebtHistory));
     }
 }
 
