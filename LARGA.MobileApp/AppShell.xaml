@@ -36,18 +36,22 @@
         </Tab>
     </TabBar>
 
-    <!-- Manager Dashboard Route -->
-    <ShellContent
-        Title="Manager Dashboard"
-        ContentTemplate="{DataTemplate manager:ManagerDashboardPage}"
-        Route="manager-dashboard"
-        FlyoutItemIsVisible="False" />
-
-    <!-- Manager Alert Center Route -->
-    <ShellContent
-        Title="Alert Center"
-        ContentTemplate="{DataTemplate manager:AlertCenterPage}"
-        Route="alertcenter"
-        Shell.NavBarIsVisible="False"
-        FlyoutItemIsVisible="False" />
+    <!-- Manager Dashboard with Bottom Tabs -->
+    <TabBar Route="manager-dashboard">
+        <Tab Route="home" Title="Map" Icon="car.png">
+            <ShellContent ContentTemplate="{DataTemplate manager:ManagerDashboardPage}" />
+        </Tab>
+        <Tab Title="Chats" Icon="send_icon.png">
+            <ShellContent ContentTemplate="{DataTemplate manager:ManagerChatsPage}" />
+        </Tab>
+        <Tab Title="Ledger" Icon="ledger.png">
+            <ShellContent ContentTemplate="{DataTemplate manager:ManagerLedgerPage}" />
+        </Tab>
+        <Tab Title="Alerts" Icon="warning_icon.png">
+            <ShellContent ContentTemplate="{DataTemplate manager:AlertCenterPage}" />
+        </Tab>
+        <Tab Title="Profile" Icon="profile.png">
+            <ShellContent ContentTemplate="{DataTemplate manager:ManagerProfilePage}" />
+        </Tab>
+    </TabBar>
 </Shell>

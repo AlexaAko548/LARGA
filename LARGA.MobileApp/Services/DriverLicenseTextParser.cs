@@ -1,0 +1,145 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text.RegularExpressions;
+
+namespace LARGA.MobileApp.Services;
+
+/// <summary>
+/// Best-effort text parser for a Philippine LTO driver's license, run against the raw text
+/// blocks ML Kit's text recognizer returns for a photo of one. This is heuristic, not a real
+/// ID-parsing library: it pattern-matches the fields the "Verify License Information" screen
+/// needs (name, sex, DL codes, license number, expiry date) and leaves anything it can't find
+/// null so the caller shows "--" and the driver retakes the photo. Expect this to need tuning
+/// once it's run against real scanned cards on a real device - block ordering/spacing from
+/// ML Kit is not guaranteed to match the card's visual layout.
+/// </summary>
+public static class DriverLicenseTextParser
+{
+    public class ParsedLicense
+    {
+        public string? FullName { get; set; }
+        public string? Sex { get; set; }
+        public string? LicenseNumber { get; set; }
+        public string? DlCodes { get; set; }
+        public DateTime? ExpiryDate { get; set; }
+
+        // Enough to act on - a scan that found neither isn't worth saving.
+        public bool HasMinimumData => !string.IsNullOrWhiteSpace(LicenseNumber) || ExpiryDate != null;
+    }
+
+    private static readonly Regex LicenseNumberPattern = new(@"\b[A-Z]\d{2}-\d{2}-\d{6}\b", RegexOptions.Compiled);
+    private static readonly Regex DatePattern = new(@"\b(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})\b", RegexOptions.Compiled);
+    private static readonly Regex DlCodesPattern = new(@"\b[A-Z]\d?(?:\s*,\s*[A-Z]\d?){1,7}\b", RegexOptions.Compiled);
+    private static readonly Regex NamePattern = new(@"\b([A-Z][A-Z.\s]{1,30}),\s*([A-Z][A-Z.\s]{1,30}),\s*([A-Z][A-Z.\s]{1,30})\b", RegexOptions.Compiled);
+
+    public static ParsedLicense Parse(IEnumerable<string> textBlocks)
+    {
+        var lines = textBlocks
+            .SelectMany(b => b.Split('\n'))
+            .Select(l => l.Trim())
+            .Where(l => l.Length > 0)
+            .ToList();
+
+        var result = new ParsedLicense();
+
+        // License number and expiry date are printed on the same row on a PH license, so
+        // scoping the date search to the line the license number was found on avoids picking
+        // up the date of birth (also present on the card) instead.
+        string? licenseLine = null;
+        foreach (var line in lines)
+        {
+            var match = LicenseNumberPattern.Match(line);
+            if (match.Success)
+            {
+                result.LicenseNumber = match.Value;
+                licenseLine = line;
+                break;
+            }
+        }
+
+        if (licenseLine != null)
+        {
+            result.ExpiryDate = ExtractDate(licenseLine);
+        }
+        if (result.ExpiryDate == null)
+        {
+            // Fallback: take the first date found anywhere. Less reliable (could be the date
+            // of birth) but better than nothing for a card whose layout didn't match above.
+            foreach (var line in lines)
+            {
+                var date = ExtractDate(line);
+                if (date != null)
+                {
+                    result.ExpiryDate = date;
+                    break;
+                }
+            }
+        }
+
+        foreach (var line in lines)
+        {
+            var match = DlCodesPattern.Match(line);
+            if (match.Success)
+            {
+                result.DlCodes = Regex.Replace(match.Value, @"\s*,\s*", ", ");
+                break;
+            }
+        }
+
+        var sexToken = lines
+            .Select(l => Regex.Match(l, @"\b(Male|Female|M|F)\b"))
+            .FirstOrDefault(m => m.Success);
+        if (sexToken != null)
+        {
+            result.Sex = sexToken.Value.ToUpperInvariant() switch
+            {
+                "M" => "Male",
+                "F" => "Female",
+                _ => sexToken.Value
+            };
+        }
+
+        foreach (var line in lines)
+        {
+            var match = NamePattern.Match(line);
+            if (match.Success)
+            {
+                // Card prints "Last, First, Middle" - reorder to "First Middle Last" for display.
+                var last = ToTitleCase(match.Groups[1].Value.Trim());
+                var first = ToTitleCase(match.Groups[2].Value.Trim());
+                var middle = ToTitleCase(match.Groups[3].Value.Trim());
+                result.FullName = $"{first} {middle} {last}".Replace("  ", " ").Trim();
+                break;
+            }
+        }
+
+        return result;
+    }
+
+    private static DateTime? ExtractDate(string text)
+    {
+        var match = DatePattern.Match(text);
+        if (!match.Success) return null;
+
+        if (int.TryParse(match.Groups[1].Value, out var month) &&
+            int.TryParse(match.Groups[2].Value, out var day) &&
+            int.TryParse(match.Groups[3].Value, out var year))
+        {
+            try
+            {
+                return new DateTime(year, month, day, 0, 0, 0, DateTimeKind.Utc);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private static string ToTitleCase(string value) =>
+        CultureInfo.InvariantCulture.TextInfo.ToTitleCase(value.ToLowerInvariant());
+}
