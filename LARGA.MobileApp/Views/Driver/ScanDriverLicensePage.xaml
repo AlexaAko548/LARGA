@@ -5,10 +5,10 @@
              x:Class="LARGA.MobileApp.Views.Driver.ScanDriverLicensePage"
              x:DataType="vm:ScanDriverLicenseViewModel"
              NavigationPage.HasNavigationBar="False"
-             BackgroundColor="{StaticResource LargaWhite}">
+             BackgroundColor="{StaticResource LargaPageBg}">
 
     <ScrollView>
-        <VerticalStackLayout Padding="20,0" Spacing="15">
+        <VerticalStackLayout Padding="20,0" Spacing="14">
 
             <Label Text="&lt; Cancel" FontSize="14" TextColor="{StaticResource LargaPrimaryBlue}" Margin="0,15,0,0">
                 <Label.GestureRecognizers>
@@ -17,77 +17,69 @@
             </Label>
 
             <!-- Review Step -->
-            <VerticalStackLayout Spacing="15" IsVisible="{Binding IsReviewStep}">
-                <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="10">
-                    <Label Text="SCANNED DRIVER'S LICENSE" FontSize="12" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" HorizontalTextAlignment="Center" />
+            <VerticalStackLayout Spacing="14" IsVisible="{Binding IsReviewStep}">
+                <Border BackgroundColor="{StaticResource LargaAccentBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="10">
+                    <Label Text="SCANNED DRIVER'S LICENSE" FontSize="11" FontAttributes="Bold" CharacterSpacing="0.6" TextColor="{StaticResource LargaPrimaryBlue}" HorizontalTextAlignment="Center" />
                 </Border>
 
-                <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="10">
+                <Border Style="{StaticResource ManagerCardStyle}" Padding="10">
                     <Image Source="{Binding CapturedImage}" HeightRequest="220" Aspect="AspectFit" />
                 </Border>
 
-                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="15" HorizontalOptions="Center">
-                    <Border Grid.Column="0" StrokeShape="RoundRectangle 25" HeightRequest="50" WidthRequest="50" BackgroundColor="{StaticResource LargaLightBlue}" StrokeThickness="0">
-                        <Button Text="🔄" Command="{Binding RetakeCommand}" BackgroundColor="Transparent" FontSize="18" />
-                    </Border>
-                </Grid>
+                <Border StrokeShape="RoundRectangle 25" HeightRequest="50" WidthRequest="50" BackgroundColor="{StaticResource LargaAccentBlue}" StrokeThickness="0" HorizontalOptions="Center">
+                    <Button Text="🔄" Command="{Binding RetakeCommand}" BackgroundColor="Transparent" FontSize="18" />
+                </Border>
 
                 <Button Text="Confirm" Command="{Binding ConfirmScanCommand}" IsEnabled="{Binding IsNotBusy}"
                         BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="{StaticResource LargaWhite}"
-                        CornerRadius="25" HeightRequest="55" FontSize="16" FontAttributes="Bold" Margin="0,10,0,0" />
+                        CornerRadius="25" HeightRequest="54" FontSize="15" FontAttributes="Bold" Margin="0,10,0,0" />
             </VerticalStackLayout>
 
             <!-- Verify Step -->
             <VerticalStackLayout Spacing="12" IsVisible="{Binding IsVerifyStep}">
-                <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="10">
-                    <Label Text="VERIFY LICENSE INFORMATION" FontSize="12" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" HorizontalTextAlignment="Center" />
+                <Border BackgroundColor="{StaticResource LargaAccentBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="10">
+                    <Label Text="VERIFY LICENSE INFORMATION" FontSize="11" FontAttributes="Bold" CharacterSpacing="0.6" TextColor="{StaticResource LargaPrimaryBlue}" HorizontalTextAlignment="Center" />
                 </Border>
 
-                <Label Text="Scanning successful." FontSize="22" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" />
-                <Label Text="⚠ Please check if the scanned information is correct." FontSize="13" TextColor="#777777" />
+                <Label Text="Scanning successful." FontSize="20" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" />
+                <Label Text="⚠ Please check if the scanned information is correct." FontSize="13" TextColor="{StaticResource LargaMutedText}" />
 
-                <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
-                    <VerticalStackLayout Spacing="5">
-                        <Label Text="Name" FontSize="12" TextColor="{StaticResource LargaPrimaryBlue}" FontAttributes="Bold" />
-                        <Label Text="{Binding NameDisplay}" FontSize="15" TextColor="{StaticResource LargaDarkText}" />
+                <Border Style="{StaticResource ManagerCardStyle}">
+                    <VerticalStackLayout Spacing="0">
+                        <Grid ColumnDefinitions="*,Auto" Padding="0,10">
+                            <Label Grid.Column="0" Text="Name" FontSize="13" TextColor="{StaticResource LargaMutedText}" VerticalOptions="Center" />
+                            <Label Grid.Column="1" Text="{Binding NameDisplay}" FontSize="13" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" VerticalOptions="Center" />
+                        </Grid>
+                        <BoxView HeightRequest="1" Color="{StaticResource LargaCardBorder}" />
+                        <Grid ColumnDefinitions="*,Auto" Padding="0,10">
+                            <Label Grid.Column="0" Text="Sex" FontSize="13" TextColor="{StaticResource LargaMutedText}" VerticalOptions="Center" />
+                            <Label Grid.Column="1" Text="{Binding SexDisplay}" FontSize="13" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" VerticalOptions="Center" />
+                        </Grid>
+                        <BoxView HeightRequest="1" Color="{StaticResource LargaCardBorder}" />
+                        <Grid ColumnDefinitions="*,Auto" Padding="0,10">
+                            <Label Grid.Column="0" Text="DL Codes" FontSize="13" TextColor="{StaticResource LargaMutedText}" VerticalOptions="Center" />
+                            <Label Grid.Column="1" Text="{Binding DlCodesDisplay}" FontSize="13" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" HorizontalTextAlignment="End" VerticalOptions="Center" />
+                        </Grid>
+                        <BoxView HeightRequest="1" Color="{StaticResource LargaCardBorder}" />
+                        <Grid ColumnDefinitions="*,Auto" Padding="0,10">
+                            <Label Grid.Column="0" Text="License Number" FontSize="13" TextColor="{StaticResource LargaMutedText}" VerticalOptions="Center" />
+                            <Label Grid.Column="1" Text="{Binding LicenseNumberDisplay}" FontSize="13" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" VerticalOptions="Center" />
+                        </Grid>
+                        <BoxView HeightRequest="1" Color="{StaticResource LargaCardBorder}" />
+                        <Grid ColumnDefinitions="*,Auto" Padding="0,10,0,0">
+                            <Label Grid.Column="0" Text="Expiry Date" FontSize="13" TextColor="{StaticResource LargaMutedText}" VerticalOptions="Center" />
+                            <Label Grid.Column="1" Text="{Binding ExpiryDateDisplay}" FontSize="13" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" VerticalOptions="Center" />
+                        </Grid>
                     </VerticalStackLayout>
                 </Border>
 
-                <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
-                    <VerticalStackLayout Spacing="5">
-                        <Label Text="Sex" FontSize="12" TextColor="{StaticResource LargaPrimaryBlue}" FontAttributes="Bold" />
-                        <Label Text="{Binding SexDisplay}" FontSize="15" TextColor="{StaticResource LargaDarkText}" />
-                    </VerticalStackLayout>
-                </Border>
-
-                <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
-                    <VerticalStackLayout Spacing="5">
-                        <Label Text="DL Codes" FontSize="12" TextColor="{StaticResource LargaPrimaryBlue}" FontAttributes="Bold" />
-                        <Label Text="{Binding DlCodesDisplay}" FontSize="15" TextColor="{StaticResource LargaDarkText}" />
-                    </VerticalStackLayout>
-                </Border>
-
-                <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
-                    <VerticalStackLayout Spacing="5">
-                        <Label Text="License Number" FontSize="12" TextColor="{StaticResource LargaPrimaryBlue}" FontAttributes="Bold" />
-                        <Label Text="{Binding LicenseNumberDisplay}" FontSize="15" TextColor="{StaticResource LargaDarkText}" />
-                    </VerticalStackLayout>
-                </Border>
-
-                <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
-                    <VerticalStackLayout Spacing="5">
-                        <Label Text="Expiry Date" FontSize="12" TextColor="{StaticResource LargaPrimaryBlue}" FontAttributes="Bold" />
-                        <Label Text="{Binding ExpiryDateDisplay}" FontSize="15" TextColor="{StaticResource LargaDarkText}" />
-                    </VerticalStackLayout>
-                </Border>
-
-                <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="10">
+                <Border Style="{StaticResource ManagerCardStyle}" Padding="10">
                     <Image Source="{Binding CapturedImage}" HeightRequest="150" Aspect="AspectFit" />
                 </Border>
 
                 <Button Text="Confirm &amp; Save" Command="{Binding ConfirmAndSaveCommand}" IsEnabled="{Binding IsNotBusy}"
                         BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="{StaticResource LargaWhite}"
-                        CornerRadius="25" HeightRequest="55" FontSize="16" FontAttributes="Bold" Margin="0,10,0,20" />
+                        CornerRadius="25" HeightRequest="54" FontSize="15" FontAttributes="Bold" Margin="0,10,0,20" />
             </VerticalStackLayout>
 
         </VerticalStackLayout>

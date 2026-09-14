@@ -2,9 +2,12 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="LARGA.MobileApp.Views.Manager.ManagerChatsPage"
-             BackgroundColor="{StaticResource LargaWhite}">
-    <VerticalStackLayout Padding="20" Spacing="15" VerticalOptions="Center">
-        <Label Text="Chats" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaDarkText}" HorizontalOptions="Center" />
-        <Label Text="Manager chat inbox is coming soon." FontSize="14" TextColor="Gray" HorizontalOptions="Center" />
+             BackgroundColor="{StaticResource LargaPageBg}">
+    <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="14" Padding="40">
+        <Border StrokeShape="RoundRectangle 32" HeightRequest="64" WidthRequest="64" BackgroundColor="{StaticResource LargaAccentBlue}" StrokeThickness="0" HorizontalOptions="Center">
+            <Label Text="💬" FontSize="26" HorizontalOptions="Center" VerticalOptions="Center" HorizontalTextAlignment="Center" />
+        </Border>
+        <Label Text="Chats" FontSize="20" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" HorizontalOptions="Center" />
+        <Label Text="Manager chat inbox is coming soon." FontSize="13" TextColor="{StaticResource LargaMutedText}" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
     </VerticalStackLayout>
 </ContentPage>

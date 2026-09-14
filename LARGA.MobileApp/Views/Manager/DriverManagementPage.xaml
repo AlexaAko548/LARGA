@@ -5,10 +5,10 @@
              x:Class="LARGA.MobileApp.Views.Manager.DriverManagementPage"
              x:DataType="vm:DriverManagementViewModel"
              NavigationPage.HasNavigationBar="False"
-             BackgroundColor="{StaticResource LargaWhite}">
+             BackgroundColor="{StaticResource LargaPageBg}">
 
     <ScrollView>
-        <VerticalStackLayout Padding="20,0" Spacing="15">
+        <VerticalStackLayout Padding="20,0" Spacing="14">
 
             <Label Text="&lt; Back" FontSize="14" TextColor="{StaticResource LargaPrimaryBlue}" Margin="0,15,0,0">
                 <Label.GestureRecognizers>
@@ -16,28 +16,36 @@
                 </Label.GestureRecognizers>
             </Label>
 
-            <Label Text="Driver Management" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaDarkText}" />
+            <Label Text="Driver Management" FontSize="28" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaNavy}" />
 
-            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
-                <VerticalStackLayout BindableLayout.ItemsSource="{Binding Drivers}" Spacing="12">
-                    <BindableLayout.ItemTemplate>
-                        <DataTemplate x:DataType="vm:DriverListItem">
-                            <VerticalStackLayout Spacing="12">
-                                <VerticalStackLayout.GestureRecognizers>
-                                    <TapGestureRecognizer Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.ViewDriverCommand}"
-                                                           CommandParameter="{Binding .}" />
-                                </VerticalStackLayout.GestureRecognizers>
-                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-                                    <Label Grid.Column="0" Text="{Binding FullName}" FontSize="15" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center" />
-                                    <Label Grid.Column="1" Text="{Binding StatusText}" FontSize="13" TextColor="{Binding StatusColor}" VerticalOptions="Center" />
-                                    <Label Grid.Column="2" Text="&gt;" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center" />
-                                </Grid>
-                                <BoxView HeightRequest="1" Color="#80BBD0" />
-                            </VerticalStackLayout>
-                        </DataTemplate>
-                    </BindableLayout.ItemTemplate>
-                </VerticalStackLayout>
-            </Border>
+            <VerticalStackLayout BindableLayout.ItemsSource="{Binding Drivers}" Spacing="10" Margin="0,4,0,20">
+                <BindableLayout.EmptyView>
+                    <Border Style="{StaticResource ManagerCardStyle}">
+                        <Label Text="No drivers yet." FontSize="14" TextColor="{StaticResource LargaMutedText}" HorizontalOptions="Center" />
+                    </Border>
+                </BindableLayout.EmptyView>
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DriverListItem">
+                        <Border Style="{StaticResource ManagerCardStyle}" Padding="12,14">
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.ViewDriverCommand}"
+                                                       CommandParameter="{Binding .}" />
+                            </Border.GestureRecognizers>
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+                                <Border Grid.Column="0" StrokeShape="RoundRectangle 20" HeightRequest="40" WidthRequest="40" BackgroundColor="{StaticResource LargaAccentBlue}" StrokeThickness="0">
+                                    <Label Text="{Binding Initials}" FontSize="13" FontAttributes="Bold" TextColor="{StaticResource LargaPrimaryBlue}"
+                                           HorizontalOptions="Center" VerticalOptions="Center" HorizontalTextAlignment="Center" />
+                                </Border>
+                                <Label Grid.Column="1" Text="{Binding FullName}" FontSize="15" TextColor="{StaticResource LargaNavy}" VerticalOptions="Center" LineBreakMode="TailTruncation" />
+                                <Border Grid.Column="2" BackgroundColor="{Binding StatusBgColor}" StrokeThickness="0" StrokeShape="RoundRectangle 12" Padding="10,4" VerticalOptions="Center">
+                                    <Label Text="{Binding StatusText}" FontSize="10" FontAttributes="Bold" CharacterSpacing="0.4" TextColor="{Binding StatusColor}" />
+                                </Border>
+                                <Label Grid.Column="3" Text="›" FontSize="20" TextColor="{StaticResource LargaMutedText}" VerticalOptions="Center" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
+            </VerticalStackLayout>
 
         </VerticalStackLayout>
     </ScrollView>

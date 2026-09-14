@@ -42,13 +42,16 @@ public class DriverManagementViewModel : BindableObject
                 .Where(d => d.Data != null)
                 .Select(d =>
                 {
-                    var (statusText, statusColor) = LicenseStatusHelper.Describe(d.Data.LicenseExpiryDate);
+                    var (statusText, statusColor, statusBgColor) = LicenseStatusHelper.Describe(d.Data.LicenseExpiryDate);
+                    var fullName = string.IsNullOrWhiteSpace(d.Data.FullName) ? "(Unnamed driver)" : d.Data.FullName;
                     return new DriverListItem
                     {
                         Id = d.Reference.Id,
-                        FullName = string.IsNullOrWhiteSpace(d.Data.FullName) ? "(Unnamed driver)" : d.Data.FullName,
+                        FullName = fullName,
+                        Initials = NameHelper.Initials(fullName),
                         StatusText = statusText,
-                        StatusColor = statusColor
+                        StatusColor = statusColor,
+                        StatusBgColor = statusBgColor
                     };
                 })
                 .OrderBy(i => i.FullName)
@@ -81,6 +84,8 @@ public class DriverListItem
 {
     public string Id { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
+    public string Initials { get; set; } = "?";
     public string StatusText { get; set; } = string.Empty;
     public Color StatusColor { get; set; } = Colors.Gray;
+    public Color StatusBgColor { get; set; } = Colors.WhiteSmoke;
 }

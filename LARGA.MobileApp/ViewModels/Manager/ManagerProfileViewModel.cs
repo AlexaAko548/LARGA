@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using LARGA.MobileApp.Services;
 using Microsoft.Maui.Controls;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
@@ -14,8 +15,10 @@ public class ManagerProfileViewModel : BindableObject
     public string FullName
     {
         get => _fullName;
-        set { _fullName = value; OnPropertyChanged(); }
+        set { _fullName = value; OnPropertyChanged(); OnPropertyChanged(nameof(Initials)); }
     }
+
+    public string Initials => NameHelper.Initials(FullName);
 
     private string _roleDisplay = "Fleet Manager";
     public string RoleDisplay

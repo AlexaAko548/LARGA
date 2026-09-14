@@ -32,11 +32,16 @@ public class FleetRegistryViewModel : BindableObject
 
             var items = snapshot.Documents
                 .Where(d => d.Data != null)
-                .Select(d => new TaxiListItem
+                .Select(d =>
                 {
-                    PlateNumber = string.IsNullOrWhiteSpace(d.Data.PlateNumber) ? "(No plate set)" : d.Data.PlateNumber,
-                    StatusText = string.IsNullOrWhiteSpace(d.Data.Status) ? "unknown" : d.Data.Status.ToLowerInvariant(),
-                    StatusColor = ColorForStatus(d.Data.Status)
+                    var (color, bgColor) = ColorsForStatus(d.Data.Status);
+                    return new TaxiListItem
+                    {
+                        PlateNumber = string.IsNullOrWhiteSpace(d.Data.PlateNumber) ? "(No plate set)" : d.Data.PlateNumber,
+                        StatusText = string.IsNullOrWhiteSpace(d.Data.Status) ? "unknown" : d.Data.Status.ToLowerInvariant(),
+                        StatusColor = color,
+                        StatusBgColor = bgColor
+                    };
                 })
                 .OrderBy(i => i.PlateNumber)
                 .ToList();
@@ -53,13 +58,15 @@ public class FleetRegistryViewModel : BindableObject
         }
     }
 
-    private static Color ColorForStatus(string? status)
+    private static (Color Color, Color BgColor) ColorsForStatus(string? status)
     {
-        if (string.IsNullOrWhiteSpace(status)) return Colors.Gray;
+        if (string.IsNullOrWhiteSpace(status)) return (Color.FromArgb("#6B808A"), Color.FromArgb("#EEF2F4"));
         var s = status.ToLowerInvariant();
-        if (s.Contains("shop") || s.Contains("maintenance") || s.Contains("repair")) return Color.FromArgb("#F57C00");
-        if (s.Contains("assigned") || s.Contains("available") || s.Contains("active")) return Color.FromArgb("#2E7D32");
-        return Colors.Gray;
+        if (s.Contains("shop") || s.Contains("maintenance") || s.Contains("repair"))
+            return (Color.FromArgb("#C97A1B"), Color.FromArgb("#FBF0E0"));
+        if (s.Contains("assigned") || s.Contains("available") || s.Contains("active"))
+            return (Color.FromArgb("#1E8E5A"), Color.FromArgb("#E3F5EC"));
+        return (Color.FromArgb("#6B808A"), Color.FromArgb("#EEF2F4"));
     }
 
     private class TaxiProxy
@@ -77,4 +84,5 @@ public class TaxiListItem
     public string PlateNumber { get; set; } = string.Empty;
     public string StatusText { get; set; } = string.Empty;
     public Color StatusColor { get; set; } = Colors.Gray;
+    public Color StatusBgColor { get; set; } = Colors.WhiteSmoke;
 }

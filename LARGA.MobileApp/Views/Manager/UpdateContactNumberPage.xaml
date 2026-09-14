@@ -5,10 +5,10 @@
              x:Class="LARGA.MobileApp.Views.Manager.UpdateContactNumberPage"
              x:DataType="vm:UpdateContactNumberViewModel"
              NavigationPage.HasNavigationBar="False"
-             BackgroundColor="{StaticResource LargaWhite}">
+             BackgroundColor="{StaticResource LargaPageBg}">
 
     <ScrollView>
-        <VerticalStackLayout Padding="20,0" Spacing="15">
+        <VerticalStackLayout Padding="20,0" Spacing="6">
 
             <Label Text="&lt; Back" FontSize="14" TextColor="{StaticResource LargaPrimaryBlue}" Margin="0,15,0,0">
                 <Label.GestureRecognizers>
@@ -16,26 +16,29 @@
                 </Label.GestureRecognizers>
             </Label>
 
-            <Label Text="Update Contact Number" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaDarkText}" />
+            <Label Text="Update Contact Number" FontSize="26" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaNavy}" Margin="0,0,0,10" />
 
-            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
-                <Entry Text="{Binding CurrentNumber}" Placeholder="Current Number" Keyboard="Telephone" BackgroundColor="Transparent"
-                       TextColor="{StaticResource LargaDarkText}" PlaceholderColor="#555555" />
+            <Label Text="CURRENT NUMBER" Style="{StaticResource EyebrowLabelStyle}" Margin="4,0,0,4" />
+            <Border BackgroundColor="{StaticResource LargaWhite}" Stroke="{StaticResource LargaCardBorder}" StrokeThickness="1" StrokeShape="RoundRectangle 12" Padding="15,4" Margin="0,0,0,12">
+                <Entry Text="{Binding CurrentNumber}" Placeholder="Number on file" Keyboard="Telephone" BackgroundColor="Transparent"
+                       TextColor="{StaticResource LargaNavy}" PlaceholderColor="{StaticResource LargaMutedText}" />
             </Border>
 
-            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
-                <Entry Text="{Binding NewNumber}" Placeholder="New Number" Keyboard="Telephone" BackgroundColor="Transparent"
-                       TextColor="{StaticResource LargaDarkText}" PlaceholderColor="#555555" />
+            <Label Text="NEW NUMBER" Style="{StaticResource EyebrowLabelStyle}" Margin="4,0,0,4" />
+            <Border BackgroundColor="{StaticResource LargaWhite}" Stroke="{StaticResource LargaCardBorder}" StrokeThickness="1" StrokeShape="RoundRectangle 12" Padding="15,4" Margin="0,0,0,12">
+                <Entry Text="{Binding NewNumber}" Placeholder="e.g. +63 9XX XXX XXXX" Keyboard="Telephone" BackgroundColor="Transparent"
+                       TextColor="{StaticResource LargaNavy}" PlaceholderColor="{StaticResource LargaMutedText}" />
             </Border>
 
-            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
-                <Entry Text="{Binding ConfirmNewNumber}" Placeholder="Confirm New Number" Keyboard="Telephone" BackgroundColor="Transparent"
-                       TextColor="{StaticResource LargaDarkText}" PlaceholderColor="#555555" />
+            <Label Text="CONFIRM NEW NUMBER" Style="{StaticResource EyebrowLabelStyle}" Margin="4,0,0,4" />
+            <Border BackgroundColor="{StaticResource LargaWhite}" Stroke="{StaticResource LargaCardBorder}" StrokeThickness="1" StrokeShape="RoundRectangle 12" Padding="15,4" Margin="0,0,0,12">
+                <Entry Text="{Binding ConfirmNewNumber}" Placeholder="Re-enter new number" Keyboard="Telephone" BackgroundColor="Transparent"
+                       TextColor="{StaticResource LargaNavy}" PlaceholderColor="{StaticResource LargaMutedText}" />
             </Border>
 
             <Button Text="CONFIRM &amp; SAVE" Command="{Binding SaveCommand}" IsEnabled="{Binding IsNotBusy}"
                     BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="{StaticResource LargaWhite}"
-                    CornerRadius="25" HeightRequest="55" FontSize="16" FontAttributes="Bold" Margin="0,15,0,20" />
+                    CornerRadius="25" HeightRequest="54" FontSize="15" FontAttributes="Bold" Margin="0,12,0,20" />
 
         </VerticalStackLayout>
     </ScrollView>

@@ -15,22 +15,22 @@ public static class LicenseStatusHelper
     // Nullable<DateTime> property throws InvalidCastException and kills the ENTIRE document
     // read, not just this field - so proxies must declare license expiry as DateTimeOffset?,
     // and this takes that instead of DateTime? for that reason.
-    public static (string Text, Color Color) Describe(DateTimeOffset? licenseExpiryUtc)
+    public static (string Text, Color Color, Color BgColor) Describe(DateTimeOffset? licenseExpiryUtc)
     {
         if (licenseExpiryUtc == null)
         {
-            return ("none", Colors.Gray);
+            return ("none", Color.FromArgb("#6B808A"), Color.FromArgb("#EEF2F4"));
         }
 
         var expiry = FirestoreDateTimeFix.Apply(licenseExpiryUtc.Value.UtcDateTime);
         var now = DateTime.UtcNow;
 
-        if (expiry < now) return ("expired", Color.FromArgb("#D32F2F"));
+        if (expiry < now) return ("expired", Color.FromArgb("#D33F3F"), Color.FromArgb("#FBEAEA"));
 
         // 30 days is a judgment call - long enough for a manager to notice and remind the
         // driver to renew before it actually lapses. Matches DriverManagementService.
-        if (expiry <= now.AddDays(30)) return ("expiring soon", Color.FromArgb("#F57C00"));
+        if (expiry <= now.AddDays(30)) return ("expiring soon", Color.FromArgb("#C97A1B"), Color.FromArgb("#FBF0E0"));
 
-        return ("active", Color.FromArgb("#2E7D32"));
+        return ("active", Color.FromArgb("#1E8E5A"), Color.FromArgb("#E3F5EC"));
     }
 }
