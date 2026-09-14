@@ -15,15 +15,8 @@
                 StrokeThickness="0">
             <Grid RowDefinitions="Auto, *">
                 <!-- Header -->
-                <Grid Grid.Row="0" Padding="10,20,20,0">
-                    <ImageButton Source="back_icon.png" 
-                                 HorizontalOptions="Start" 
-                                 WidthRequest="24" 
-                                 HeightRequest="24" 
-                                 Aspect="AspectFit"
-                                 Padding="4"
-                                 BackgroundColor="Transparent" 
-                                 Clicked="OnBackButtonClicked" />
+                <Grid Padding="15,15" ColumnDefinitions="Auto, *, Auto">
+                    <ImageButton Grid.Column="0" Source="back_icon.png" WidthRequest="32" Margin="-10,-10,0,0" HeightRequest="32" Aspect="AspectFit" Padding="10" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
                 </Grid>
 
                 <!-- Content Inside Blue Area -->

@@ -4,15 +4,11 @@
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
              x:Class="LARGA.MobileApp.Views.Driver.PreShiftStep1Page"
              x:DataType="vm:PreShiftStep1ViewModel"
-             Shell.NavBarIsVisible="False"
+             NavigationPage.HasNavigationBar="False"
              BackgroundColor="White">
 
     <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="12">
-            <!-- Header Back Button -->
-            <Grid ColumnDefinitions="Auto, *">
-                <ImageButton Grid.Column="0" Source="back_icon.png" Margin="-10,-10,0,0" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="8" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
-            </Grid>
+        <VerticalStackLayout Padding="20,0" Spacing="12">
 
             <Label Text="STEP 1 OF 2" Style="{StaticResource StatusDataStyle}" TextColor="Gray" FontSize="12" />
             <Label Text="Pre-Shift Inspection" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="Black" LineHeight="1.1" />

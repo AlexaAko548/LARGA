@@ -4,23 +4,16 @@
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
              x:Class="LARGA.MobileApp.Views.Driver.VehicleDefectPage"
              x:DataType="vm:VehicleDefectViewModel"
-             Shell.NavBarIsVisible="False"
+             NavigationPage.HasNavigationBar="False"
              BackgroundColor="{StaticResource LargaWhite}">
 
     <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="15">
-            <Label Text="Thursday, 23 Jul 2026" TextColor="{StaticResource LargaDarkText}" FontSize="14" />
-            <Label Text="Submit Report" FontSize="32" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" />
+        <VerticalStackLayout Padding="20,0" Spacing="15">
+            <Label Text="Submit Report" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaDarkText}" Margin="0,-10,0,0" />
 
-            <!-- Tabs (Vehicle Defect pre-selected) -->
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="0">
-                <Border Grid.Column="0" BackgroundColor="Transparent" StrokeThickness="0" Padding="10">
-                    <Label Text="FUEL SUBMISSION" FontSize="12" TextColor="Gray" HorizontalTextAlignment="Center" />
-                </Border>
-                <Border Grid.Column="1" BackgroundColor="{StaticResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="10">
-                    <Label Text="VEHICLE DEFECT" FontSize="12" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" HorizontalTextAlignment="Center" />
-                </Border>
-            </Grid>
+            <Border Grid.Column="1" BackgroundColor="{StaticResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="10">
+                <Label Text="VEHICLE DEFECT" FontSize="12" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" HorizontalTextAlignment="Center" />
+            </Border>
 
             <!-- Title Report -->
             <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">

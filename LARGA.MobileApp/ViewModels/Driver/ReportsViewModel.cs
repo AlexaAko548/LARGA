@@ -10,6 +10,8 @@ namespace LARGA.MobileApp.ViewModels.Driver;
 
 public class ReportsViewModel : BindableObject
 {
+    public string CurrentDate => DateTime.Now.ToString("dddd, dd MMM yyyy");
+
     private bool _isVehicleDefectTabSelected = true;
     public bool IsVehicleDefectTabSelected
     {

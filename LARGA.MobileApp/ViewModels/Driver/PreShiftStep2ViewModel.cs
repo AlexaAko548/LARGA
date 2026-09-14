@@ -177,18 +177,30 @@ public class PreShiftStep2ViewModel : BindableObject
 
     private async Task ScanOdometerAsync()
     {
-        // 1. Explicitly request camera permissions before launching the live scanner
         var status = await Permissions.CheckStatusAsync<Permissions.Camera>();
         if (status != PermissionStatus.Granted)
         {
             status = await Permissions.RequestAsync<Permissions.Camera>();
-            if (status != PermissionStatus.Granted) return; // Exit if denied
+            if (status != PermissionStatus.Granted) return;
         }
 
-        // 2. Open the dynamic live scanner Modal, passing ONLY the injected OCR service.
-        // The OdometerScanPage will handle the live camera stream itself.
-        await Application.Current.MainPage.Navigation.PushModalAsync(
-            new LARGA.MobileApp.Views.Driver.OdometerScanPage(_ocrService));
+        if (MediaPicker.Default.IsCaptureSupported)
+        {
+            // 1. Hand complete control to the phone's native camera app for perfect focus
+            var photo = await MediaPicker.Default.CapturePhotoAsync();
+
+            if (photo != null)
+            {
+                using var stream = await photo.OpenReadAsync();
+                using var memoryStream = new MemoryStream();
+                await stream.CopyToAsync(memoryStream);
+                byte[] imageBytes = memoryStream.ToArray();
+
+                // 2. Pass the high-resolution photo bytes into the Modal
+                await Application.Current.MainPage.Navigation.PushModalAsync(
+                    new LARGA.MobileApp.Views.Driver.OdometerScanPage(_ocrService, imageBytes));
+            }
+        }
     }
 
     private async Task ConfirmStartShiftAsync()

@@ -4,14 +4,11 @@
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
              x:Class="LARGA.MobileApp.Views.Driver.EndShiftStep2Page"
              x:DataType="vm:EndShiftStep2ViewModel"
-             Shell.NavBarIsVisible="False"
+             NavigationPage.HasNavigationBar="False"
              BackgroundColor="White">
 
     <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="12">
-            <Grid ColumnDefinitions="Auto, *">
-                <ImageButton Source="back_icon.png" WidthRequest="32" Margin="-10,-10,0,0" HeightRequest="32" Aspect="AspectFit" Padding="8" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
-            </Grid>
+        <VerticalStackLayout Padding="20,0" Spacing="12">
 
             <Label Text="STEP 2 OF 2" TextColor="Gray" FontSize="12" />
             <Label Text="End-of-Shift Inspection" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="Black" LineHeight="1.1" />

@@ -5,9 +5,10 @@
              Shell.NavBarIsVisible="False"
              BackgroundColor="Black">
 
-    <Grid x:Name="CameraContainer">
-        <!-- CameraView will be dynamically generated in C# to prevent Android Surface caching -->
-
+    <Grid>
+        <!-- Change Aspect="AspectFill" to Aspect="Fill" to align the OCR coordinates -->
+        <Image x:Name="CapturedImage" Aspect="Fill" HorizontalOptions="Fill" VerticalOptions="Fill" />
+        
         <AbsoluteLayout x:Name="TextOverlayLayout" HorizontalOptions="Fill" VerticalOptions="Fill" />
 
         <VerticalStackLayout VerticalOptions="End" HorizontalOptions="Center" Spacing="15" Margin="0,0,0,40">
