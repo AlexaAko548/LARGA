@@ -13,4 +13,7 @@ public class SystemConfig
 
     [FirestoreProperty("defaultBoundaryRate")]
     public double DefaultBoundaryRate { get; set; }
+
+    [FirestoreProperty("idleThresholdMinutes")]
+    public double IdleThresholdMinutes { get; set; } = 10;
 }

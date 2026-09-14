@@ -1,0 +1,6 @@
+{
+  "Firestore": {
+    "ProjectId": "larga-blmtaxi",
+    "CredentialsPath": "C:\\path\\to\\your-service-account-key.json"
+  }
+}

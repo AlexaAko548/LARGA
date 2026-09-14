@@ -1,22 +1,24 @@
 using System;
+using System.Collections.Generic; // Required for IDictionary
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
-using Microsoft.Maui.Storage; // Required for Preferences and SecureStorage
+using Microsoft.Maui.Storage;
 using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.ViewModels.Auth;
 
-public class LoginViewModel : INotifyPropertyChanged
+public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
 {
     private readonly IFirebaseAuthService _authService;
     private string _email = string.Empty;
     private string _password = string.Empty;
     private string _errorMessage = string.Empty;
-    private bool _rememberMe; // Backing field for the checkbox
+    private bool _rememberMe;
+    private string _expectedRole = "Driver"; // Fallback default
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -39,17 +41,29 @@ public class LoginViewModel : INotifyPropertyChanged
         LoginCommand = new Command(async () => await OnLoginAsync());
         ForgotPasswordCommand = new Command(async () => await OnForgotPasswordAsync());
 
-        // Load credentials the moment the page boots up
+        // Removed LoadSavedCredentialsAsync() from here. It must wait for the role.
+    }
+
+    // Catch the role passed from the Landing Page
+    public void ApplyQueryAttributes(IDictionary<string, object> query)
+    {
+        if (query.TryGetValue("SelectedRole", out var roleValue))
+        {
+            _expectedRole = roleValue?.ToString() ?? "Driver";
+        }
+
+        // Load credentials NOW that we know if it is a Driver or Manager
         _ = LoadSavedCredentialsAsync();
     }
 
     private async Task LoadSavedCredentialsAsync()
     {
-        RememberMe = Preferences.Get("RememberMe", false);
+        // Use role-specific keys to prevent overlap
+        RememberMe = Preferences.Get($"{_expectedRole}_RememberMe", false);
         if (RememberMe)
         {
-            Email = Preferences.Get("SavedEmail", string.Empty);
-            Password = await SecureStorage.GetAsync("SavedPassword") ?? string.Empty;
+            Email = Preferences.Get($"{_expectedRole}_SavedEmail", string.Empty);
+            Password = await SecureStorage.GetAsync($"{_expectedRole}_SavedPassword") ?? string.Empty;
         }
     }
 
@@ -73,18 +87,18 @@ public class LoginViewModel : INotifyPropertyChanged
 
             if (!string.IsNullOrEmpty(userId))
             {
-                // Save or clear credentials based on checkbox state
+                // Save or clear credentials using the prefixed keys
                 if (RememberMe)
                 {
-                    Preferences.Set("RememberMe", true);
-                    Preferences.Set("SavedEmail", Email);
-                    await SecureStorage.SetAsync("SavedPassword", Password);
+                    Preferences.Set($"{_expectedRole}_RememberMe", true);
+                    Preferences.Set($"{_expectedRole}_SavedEmail", Email);
+                    await SecureStorage.SetAsync($"{_expectedRole}_SavedPassword", Password);
                 }
                 else
                 {
-                    Preferences.Remove("RememberMe");
-                    Preferences.Remove("SavedEmail");
-                    SecureStorage.Remove("SavedPassword");
+                    Preferences.Remove($"{_expectedRole}_RememberMe");
+                    Preferences.Remove($"{_expectedRole}_SavedEmail");
+                    SecureStorage.Remove($"{_expectedRole}_SavedPassword");
                 }
 
                 var role = await _authService.GetUserRoleAsync(userId);
