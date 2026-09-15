@@ -32,10 +32,8 @@ public class ManagerDriverProfileViewModel : BindableObject
     public string FullName
     {
         get => _fullName;
-        set { _fullName = value; OnPropertyChanged(); OnPropertyChanged(nameof(Initials)); }
+        set { _fullName = value; OnPropertyChanged(); }
     }
-
-    public string Initials => NameHelper.Initials(FullName);
 
     private string _statusText = string.Empty;
     public string StatusText
@@ -49,13 +47,6 @@ public class ManagerDriverProfileViewModel : BindableObject
     {
         get => _statusColor;
         set { _statusColor = value; OnPropertyChanged(); }
-    }
-
-    private Color _statusBgColor = Colors.WhiteSmoke;
-    public Color StatusBgColor
-    {
-        get => _statusBgColor;
-        set { _statusBgColor = value; OnPropertyChanged(); }
     }
 
     private bool _hasCredentials;
@@ -142,7 +133,7 @@ public class ManagerDriverProfileViewModel : BindableObject
             if (doc?.Data == null) return;
 
             FullName = string.IsNullOrWhiteSpace(doc.Data.FullName) ? "(Unnamed driver)" : doc.Data.FullName;
-            (StatusText, StatusColor, StatusBgColor) = LicenseStatusHelper.Describe(doc.Data.LicenseExpiryDate);
+            (StatusText, StatusColor) = LicenseStatusHelper.Describe(doc.Data.LicenseExpiryDate);
 
             LicenseNumberDisplay = doc.Data.LicenseNumber ?? string.Empty;
             DlCodesDisplay = doc.Data.LicenseClassification ?? string.Empty;

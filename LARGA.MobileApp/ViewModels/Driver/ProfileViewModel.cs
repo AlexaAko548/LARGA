@@ -20,10 +20,8 @@ public class ProfileViewModel : BindableObject
     public string FullName
     {
         get => _fullName;
-        set { _fullName = value; OnPropertyChanged(); OnPropertyChanged(nameof(Initials)); }
+        set { _fullName = value; OnPropertyChanged(); }
     }
-
-    public string Initials => NameHelper.Initials(FullName);
 
     private string _statusText = "none";
     public string StatusText
@@ -37,13 +35,6 @@ public class ProfileViewModel : BindableObject
     {
         get => _statusColor;
         set { _statusColor = value; OnPropertyChanged(); }
-    }
-
-    private Color _statusBgColor = Colors.WhiteSmoke;
-    public Color StatusBgColor
-    {
-        get => _statusBgColor;
-        set { _statusBgColor = value; OnPropertyChanged(); }
     }
 
     private string _credentialsSummary = "No details yet.";
@@ -84,7 +75,7 @@ public class ProfileViewModel : BindableObject
             if (doc?.Data == null) return;
 
             FullName = string.IsNullOrWhiteSpace(doc.Data.FullName) ? "Driver" : doc.Data.FullName;
-            (StatusText, StatusColor, StatusBgColor) = LicenseStatusHelper.Describe(doc.Data.LicenseExpiryDate);
+            (StatusText, StatusColor) = LicenseStatusHelper.Describe(doc.Data.LicenseExpiryDate);
 
             var details = new List<string>();
             if (!string.IsNullOrWhiteSpace(doc.Data.LicenseNumber)) details.Add($"License No: {doc.Data.LicenseNumber}");
