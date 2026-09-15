@@ -1,11 +1,13 @@
-﻿using System;
+﻿using Microsoft.Maui.Controls;
+using Plugin.Firebase.Firestore;
+using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
-using Microsoft.Maui.Controls;
+using Plugin.Firebase.Auth;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -43,29 +45,56 @@ public class LedgerViewModel : INotifyPropertyChanged
     }
 
     private async Task LoadDynamicLedgerDataAsync()
+{
+    var user = CrossFirebaseAuth.Current.CurrentUser;
+    if (user != null)
     {
-        // 1. Load Payment History
-        PaymentHistory.Clear();
-        PaymentHistory.Add(new PaymentRecord { DateStr = "7/22", Amount = "500.00", Status = "(Partial)" });
-        PaymentHistory.Add(new PaymentRecord { DateStr = "7/21", Amount = "1000.00", Status = "(Full)" });
-        PaymentHistory.Add(new PaymentRecord { DateStr = "7/20", Amount = "800.00", Status = "(Partial)" });
-        PaymentHistory.Add(new PaymentRecord { DateStr = "7/19", Amount = "1000.00", Status = "(Full)" });
-        PaymentHistory.Add(new PaymentRecord { DateStr = "7/18", Amount = "700.00", Status = "(Partial)" });
-        PaymentHistory.Add(new PaymentRecord { DateStr = "7/17", Amount = "1000.00", Status = "(Full)" });
-        PaymentHistory.Add(new PaymentRecord { DateStr = "7/16", Amount = "1000.00", Status = "(Full)" });
-
-        // 2. Load Debt Items (This will eventually be a Firebase call shared with DebtDetailViewModel)
-        var currentDebts = new[]
+        try
         {
-            new { DateStr = "7/22", Amount = 500.00m },
-            new { DateStr = "7/20", Amount = 200.00m },
-            new { DateStr = "7/18", Amount = 300.00m }
-        };
+                // 1. Live Background Fetch (Two-Step Workaround for Payments)
+                var shiftsSnapshot = await CrossFirebaseFirestore.Current.GetCollection("shifts").WhereEqualsTo("driverId", user.Uid).GetDocumentsAsync<Dictionary<string, object>>();
 
-        // 3. Mathematically guarantee the total perfectly reflects the individual Debt Detail items
-        decimal totalDebt = currentDebts.Sum(d => d.Amount);
-        OutstandingDebtBalance = $"₱ {totalDebt:N2}";
+                foreach (var shift in shiftsSnapshot.Documents)
+            {
+                if (shift.Data != null && shift.Data.ContainsKey("shiftId"))
+                {
+                    string shiftId = shift.Data["shiftId"]?.ToString();
+                    if (!string.IsNullOrEmpty(shiftId))
+                    {
+                            await CrossFirebaseFirestore.Current.GetCollection("boundary_payments").WhereEqualsTo("shiftId", shiftId).GetDocumentsAsync<Dictionary<string, object>>();
+                        }
+                }
+            }
+
+                // Debts already have a DriverId, so they only need a standard single query
+                await CrossFirebaseFirestore.Current.GetCollection("debt_adjustments").WhereEqualsTo("driverId", user.Uid).GetDocumentsAsync<Dictionary<string, object>>();
+            }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ledger Firebase Error: {ex.Message}");
+        }
     }
+
+    // 2. DEMO OVERRIDE: Inject presentation data
+    PaymentHistory.Clear();
+    PaymentHistory.Add(new PaymentRecord { DateStr = "7/22", Amount = "400.00", Status = "(Partial)" });
+    PaymentHistory.Add(new PaymentRecord { DateStr = "7/21", Amount = "800.00", Status = "(Full)" });
+    PaymentHistory.Add(new PaymentRecord { DateStr = "7/20", Amount = "600.00", Status = "(Partial)" });
+    PaymentHistory.Add(new PaymentRecord { DateStr = "7/19", Amount = "800.00", Status = "(Full)" });
+    PaymentHistory.Add(new PaymentRecord { DateStr = "7/18", Amount = "700.00", Status = "(Partial)" });
+    PaymentHistory.Add(new PaymentRecord { DateStr = "7/17", Amount = "800.00", Status = "(Full)" });
+    PaymentHistory.Add(new PaymentRecord { DateStr = "7/16", Amount = "800.00", Status = "(Full)" });
+
+    var currentDebts = new[]
+    {
+        new { DateStr = "7/22", Amount = 400.00m },
+        new { DateStr = "7/20", Amount = 200.00m },
+        new { DateStr = "7/18", Amount = 100.00m }
+    };
+
+    decimal totalDebt = currentDebts.Sum(d => d.Amount);
+    OutstandingDebtBalance = $"₱ {totalDebt:N2}";
+}
 
     protected void OnPropertyChanged([CallerMemberName] string propertyName = "")
     {

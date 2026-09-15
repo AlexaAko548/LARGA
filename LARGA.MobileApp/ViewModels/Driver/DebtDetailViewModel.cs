@@ -1,6 +1,8 @@
-﻿using System.Collections.ObjectModel;
+﻿using Microsoft.Maui.Controls;
+using Plugin.Firebase.Auth;
+using Plugin.Firebase.Firestore;
+using System.Collections.ObjectModel;
 using System.Threading.Tasks;
-using Microsoft.Maui.Controls;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -15,12 +17,25 @@ public class DebtDetailViewModel : BindableObject
 
     private async Task LoadDynamicDebtDataAsync()
     {
-        DebtHistory.Clear();
+        var user = CrossFirebaseAuth.Current.CurrentUser;
+        if (user != null)
+        {
+            try
+            {
+                // 1. Live Background Fetch (Single query since debt_adjustments contains DriverId)
+                var snapshot = await CrossFirebaseFirestore.Current.GetCollection("debt_adjustments").WhereEqualsTo("driverId", user.Uid).GetDocumentsAsync<Dictionary<string, object>>();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Debt Fetch Error: {ex.Message}");
+            }
+        }
 
-        // These records perfectly match the mathematical array calculated in the LedgerViewModel
-        DebtHistory.Add(new DebtRecord { DateStr = "7/22", Amount = "500.00" });
+        // 2. DEMO OVERRIDE
+        DebtHistory.Clear();
+        DebtHistory.Add(new DebtRecord { DateStr = "7/22", Amount = "400.00" });
         DebtHistory.Add(new DebtRecord { DateStr = "7/20", Amount = "200.00" });
-        DebtHistory.Add(new DebtRecord { DateStr = "7/18", Amount = "300.00" });
+        DebtHistory.Add(new DebtRecord { DateStr = "7/18", Amount = "100.00" });
 
         OnPropertyChanged(nameof(DebtHistory));
     }
