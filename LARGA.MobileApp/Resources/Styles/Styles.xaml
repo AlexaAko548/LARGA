@@ -40,6 +40,53 @@
         <Setter Property="TextTransform" Value="None" />
     </Style>
 
+    <!-- Manager UI refresh: an elevated white card to replace flat LargaLightBlue fills -
+         subtle border + soft drop shadow for real depth instead of every block reading as
+         the same flat color. -->
+    <Style x:Key="ManagerCardStyle" TargetType="Border">
+        <Setter Property="BackgroundColor" Value="{StaticResource LargaWhite}" />
+        <Setter Property="Stroke" Value="{StaticResource LargaCardBorder}" />
+        <Setter Property="StrokeThickness" Value="1" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 16" />
+        <Setter Property="Padding" Value="16" />
+        <Setter Property="Shadow">
+            <Shadow Brush="{StaticResource LargaNavy}" Opacity="0.08" Radius="14" Offset="0,5" />
+        </Setter>
+    </Style>
+
+    <!-- Small round icon badge - the light-blue-circle-with-glyph pattern used across the
+         Manager pages (list rows, section headers) instead of raw emoji. -->
+    <Style x:Key="IconChipStyle" TargetType="Border">
+        <Setter Property="BackgroundColor" Value="{StaticResource LargaAccentBlue}" />
+        <Setter Property="StrokeThickness" Value="0" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 12" />
+        <Setter Property="WidthRequest" Value="40" />
+        <Setter Property="HeightRequest" Value="40" />
+    </Style>
+
+    <Style x:Key="IconChipGlyphStyle" TargetType="Label">
+        <Setter Property="TextColor" Value="{StaticResource LargaPrimaryBlue}" />
+        <Setter Property="FontSize" Value="17" />
+        <Setter Property="HorizontalOptions" Value="Center" />
+        <Setter Property="VerticalOptions" Value="Center" />
+        <Setter Property="HorizontalTextAlignment" Value="Center" />
+    </Style>
+
+    <!-- Small uppercase tracked label for field names / section eyebrows, matching
+         ManagerWeb's ".stat-label" / table-header typography. -->
+    <Style x:Key="EyebrowLabelStyle" TargetType="Label">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontAttributes" Value="Bold" />
+        <Setter Property="CharacterSpacing" Value="1.1" />
+        <Setter Property="TextColor" Value="{StaticResource LargaMutedText}" />
+    </Style>
+
+    <Style x:Key="CardValueStyle" TargetType="Label">
+        <Setter Property="FontSize" Value="16" />
+        <Setter Property="FontAttributes" Value="Bold" />
+        <Setter Property="TextColor" Value="{StaticResource LargaNavy}" />
+    </Style>
+
     <Style TargetType="Border">
         <Setter Property="Stroke" Value="{AppThemeBinding Light={StaticResource Gray200}, Dark={StaticResource Gray500}}" />
         <Setter Property="StrokeShape" Value="Rectangle"/>
