@@ -62,7 +62,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         set { _isPauseAlertVisible = value; OnPropertyChanged(); }
     }
 
-    public string StatusBannerText => IsPaused ? "On Break · GPS Tracking On" : "Active Shift · GPS Tracking On";
+    public string StatusBannerText => IsPaused ? "On Break ï¿½ GPS Tracking On" : "Active Shift ï¿½ GPS Tracking On";
     public Color StatusBannerColor => IsPaused ? Colors.Yellow : Colors.Lime;
     public string ShiftStatus => IsPaused ? "Shift Paused." : "On the Road.";
 
@@ -208,7 +208,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
                     {
                         TaxiUnit = string.IsNullOrWhiteSpace(taxi.PlateNumber)
                             ? taxi.Model
-                            : taxi.PlateNumber.Replace("-", " · ");
+                            : taxi.PlateNumber.Replace("-", " Â· ");
                     }
                 }
             }

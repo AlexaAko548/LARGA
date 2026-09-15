@@ -12,6 +12,7 @@ using LARGA.MobileApp.ViewModels.Driver;
 using LARGA.MobileApp.ViewModels.Auth;
 using Plugin.Firebase.CloudMessaging;
 using LARGA.MobileApp.Services;
+using LARGA.MobileApp.Views.Shared;
 using Camera.MAUI; // Added Camera.MAUI namespace
 
 namespace LARGA.MobileApp;
@@ -91,6 +92,15 @@ public static class MauiProgram
         builder.Services.AddTransient<DebtDetailPage>();
         builder.Services.AddTransient<DefectReportDetailViewModel>();
         builder.Services.AddTransient<DefectReportDetailPage>();
+        builder.Services.AddTransient<ManagerProfilePage>();
+        builder.Services.AddTransient<DriverManagementPage>();
+        builder.Services.AddTransient<ManagerDriverProfilePage>();
+        builder.Services.AddTransient<ManagerChatsPage>();
+        builder.Services.AddTransient<ManagerLedgerPage>();
+        builder.Services.AddTransient<FleetRegistryPage>();
+        builder.Services.AddTransient<ChangePasswordPage>();
+        builder.Services.AddTransient<UpdateContactNumberPage>();
+        builder.Services.AddTransient<ComingSoonPage>();
 
 
 #if DEBUG

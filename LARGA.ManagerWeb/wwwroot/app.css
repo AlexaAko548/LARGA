@@ -1396,6 +1396,10 @@ padding: 0.7rem 1rem 1rem;
 border-top: 1px solid rgba(102, 136, 150, 0.25);
 }
 
+.report-actions .pull-left {
+margin-right: auto;
+}
+
 .cancel-btn,
 .download-btn {
 border-radius: 10px;
@@ -1549,6 +1553,16 @@ box-shadow: 0 2px 8px rgba(20, 90, 120, 0.16);
 .tab-btn:disabled {
 opacity: 0.5;
 cursor: not-allowed;
+}
+
+.tab-count {
+display: inline-block;
+margin-left: 0.4rem;
+padding: 0.05rem 0.45rem;
+border-radius: 999px;
+background: rgba(12, 109, 150, 0.12);
+color: inherit;
+font-size: 0.7rem;
 }
 
 .tab-actions {
@@ -1905,6 +1919,12 @@ margin-top: 0.4rem;
 background: rgba(72, 196, 124, 0.12);
 border-color: rgba(72, 196, 124, 0.3);
 color: #1b8b52;
+}
+
+.info-banner.warning {
+background: rgba(230, 162, 60, 0.14);
+border-color: rgba(230, 162, 60, 0.32);
+color: #8a5a12;
 }
 
 .info-banner code {
@@ -2619,6 +2639,121 @@ padding: 0.55rem 0.8rem;
 font-size: 0.82rem;
 font-weight: 700;
 color: #17475c;
+}
+
+/* Fuel Verification review modal - two-column driver-submission vs system-validation */
+
+.report-modal.review-modal {
+width: min(94vw, 780px);
+}
+
+.review-header-meta {
+font-size: 0.8rem;
+color: #4d7385;
+margin-top: 0.15rem;
+}
+
+.review-columns {
+display: flex;
+gap: 1.1rem;
+flex-wrap: wrap;
+}
+
+.review-col {
+flex: 1 1 260px;
+display: flex;
+flex-direction: column;
+gap: 0.7rem;
+min-width: 0;
+}
+
+.review-col-title {
+font-size: 0.7rem;
+font-weight: 700;
+letter-spacing: 0.12em;
+text-transform: uppercase;
+color: #44667a;
+}
+
+.review-fact {
+background: #eaf6fc;
+border-radius: 10px;
+padding: 0.7rem 0.85rem;
+}
+
+.review-fact .fact-label {
+font-size: 0.7rem;
+color: #4d7385;
+}
+
+.review-fact .fact-value {
+font-size: 0.95rem;
+font-weight: 700;
+color: #17475c;
+margin-top: 0.15rem;
+}
+
+.review-fact .fact-sub {
+font-size: 0.72rem;
+color: #6a8a9a;
+margin-top: 0.15rem;
+}
+
+.review-photo-link {
+display: block;
+background: #eaf6fc;
+border-radius: 10px;
+padding: 1.4rem 1rem;
+text-align: center;
+color: #17475c;
+text-decoration: none;
+font-size: 0.82rem;
+}
+
+.review-photo-link .photo-icon {
+font-size: 1.4rem;
+display: block;
+margin-bottom: 0.4rem;
+}
+
+.review-status-badge {
+border-radius: 10px;
+padding: 0.75rem 0.85rem;
+display: flex;
+gap: 0.6rem;
+align-items: flex-start;
+}
+
+.review-status-badge.status-good {
+background: rgba(46, 143, 90, 0.14);
+color: #1c6b41;
+}
+
+.review-status-badge.status-bad {
+background: rgba(214, 79, 79, 0.14);
+color: #a3312f;
+}
+
+.review-status-badge.status-unknown {
+background: rgba(120, 140, 150, 0.14);
+color: #4d5f68;
+}
+
+.review-status-badge .badge-icon {
+font-size: 1.1rem;
+line-height: 1;
+}
+
+.review-status-badge .badge-title {
+font-weight: 800;
+font-size: 0.82rem;
+letter-spacing: 0.04em;
+}
+
+.review-status-badge .badge-sub {
+font-size: 0.75rem;
+margin-top: 0.15rem;
+opacity: 0.9;
 }
 
 .payment-method-toggle.three-way {

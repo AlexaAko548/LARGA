@@ -4,7 +4,7 @@
              x:Class="LARGA.MobileApp.Views.Manager.ManagerDashboardPage"
              Title="Tactical Manager Dashboard">
     <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="20">
-        <Label Text="Welcome Manager!" FontSize="24" FontAttributes="Bold" />
-        <Button Text="View Alert Center" Clicked="OnViewAlertCenterClicked" />
+        <Label Text="Map" FontSize="24" FontAttributes="Bold" />
+        <Label Text="Fleet map is coming soon." FontSize="14" TextColor="Gray" />
     </VerticalStackLayout>
 </ContentPage>

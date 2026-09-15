@@ -6,9 +6,4 @@ public partial class ManagerDashboardPage : ContentPage
 	{
 		InitializeComponent();
 	}
-
-	private async void OnViewAlertCenterClicked(object sender, EventArgs e)
-	{
-		await Shell.Current.GoToAsync("///alertcenter");
-	}
 }

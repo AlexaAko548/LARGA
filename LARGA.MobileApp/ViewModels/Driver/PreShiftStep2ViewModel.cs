@@ -132,7 +132,7 @@ public class PreShiftStep2ViewModel : BindableObject
             {
                 AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber)
                     ? taxi.Model
-                    : taxi.PlateNumber.Replace("-", "·");
+                    : taxi.PlateNumber.Replace("-", " · ");
             }
         }
         catch (System.Exception ex)
