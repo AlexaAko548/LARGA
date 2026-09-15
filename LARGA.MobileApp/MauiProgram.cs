@@ -14,6 +14,7 @@ using Plugin.Firebase.CloudMessaging;
 using LARGA.MobileApp.Services;
 using LARGA.MobileApp.Views.Shared;
 using Camera.MAUI; // Added Camera.MAUI namespace
+using SkiaSharp.Views.Maui.Controls.Hosting;
 
 namespace LARGA.MobileApp;
 
@@ -26,6 +27,7 @@ public static class MauiProgram
             .UseMauiApp<App>()
             .UseMauiCommunityToolkit()
             .UseMauiCameraView() // Registered the Camera View
+            .UseSkiaSharp() // Required by Mapsui (LAR-48 Live Fleet map, renders MapTiler tiles)
             .RegisterFirebaseServices()
             .ConfigureFonts(fonts =>
             {

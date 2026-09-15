@@ -1,9 +1,121 @@
+using System.Collections.Specialized;
+using BruTile.Predefined;
+using BruTile.Web;
+using LARGA.MobileApp.Services;
+using LARGA.MobileApp.ViewModels.Manager;
+using Mapsui;
+using Mapsui.Layers;
+using Mapsui.Nts;
+using Mapsui.Projections;
+using Mapsui.Styles;
+using Mapsui.Tiling.Layers;
+using Mapsui.UI.Maui;
+using MColor = Mapsui.Styles.Color;
+using MBrush = Mapsui.Styles.Brush;
+using NtsPoint = NetTopologySuite.Geometries.Point;
+
 namespace LARGA.MobileApp.Views.Manager;
 
 public partial class ManagerDashboardPage : ContentPage
 {
-	public ManagerDashboardPage()
-	{
-		InitializeComponent();
-	}
+    // Talisay City, Cebu - LARGA's base of operations. Shown until real fleet pins load.
+    private const double DefaultLon = 123.8494;
+    private const double DefaultLat = 10.2447;
+
+    // ~zoom level 15 (neighborhood/street level) - MapTiler's road styling and labels only
+    // get bold and legible once you're this close in; the old city-wide default (resolution
+    // 20, ~zoom 13) left roads thin and washed out.
+    private const double DefaultResolution = 4.8;
+
+    private readonly FleetMapViewModel _viewModel;
+    private readonly MapControl _mapControl;
+    private readonly MemoryLayer _pinsLayer;
+    private bool _hasCenteredMap;
+
+    public ManagerDashboardPage()
+    {
+        InitializeComponent();
+        _viewModel = new FleetMapViewModel();
+        BindingContext = _viewModel;
+
+        _mapControl = new MapControl();
+        MapHost.Content = _mapControl;
+
+        var tileSource = new HttpTileSource(
+            new GlobalSphericalMercator(),
+            $"https://api.maptiler.com/maps/streets-v2/{{z}}/{{x}}/{{y}}.png?key={MapTilerConfig.ApiKey}",
+            name: "MapTiler");
+        _mapControl.Map.Layers.Add(new TileLayer(tileSource));
+
+        _pinsLayer = new MemoryLayer("FleetPins") { Features = [] };
+        _mapControl.Map.Layers.Add(_pinsLayer);
+
+        _mapControl.Info += OnMapInfo;
+
+        var (defaultX, defaultY) = SphericalMercator.FromLonLat(DefaultLon, DefaultLat);
+        _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(defaultX, defaultY), DefaultResolution);
+
+        // Mapsui's Pin isn't bindable-ItemsSource-friendly (no Command/CommandParameter), so
+        // the map's feature layer is kept in sync with the viewmodel's Pins by hand.
+        _viewModel.Pins.CollectionChanged += OnPinsChanged;
+    }
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        _viewModel.LoadFleetCommand.Execute(null);
+    }
+
+    private void OnPinsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        var features = new List<IFeature>();
+
+        foreach (var pin in _viewModel.Pins)
+        {
+            var (x, y) = SphericalMercator.FromLonLat(pin.Longitude, pin.Latitude);
+            var feature = new GeometryFeature(new NtsPoint(x, y))
+            {
+                Data = pin,
+                Styles = new List<IStyle>
+                {
+                    new SymbolStyle
+                    {
+                        SymbolType = SymbolType.Ellipse,
+                        SymbolScale = 0.9,
+                        Fill = new MBrush(StatusColor(pin.Status)),
+                        Outline = new Pen(MColor.White, 2),
+                    },
+                },
+            };
+            features.Add(feature);
+        }
+
+        _pinsLayer.Features = features;
+        _mapControl.RefreshGraphics();
+
+        if (!_hasCenteredMap && _viewModel.Pins.Count > 0)
+        {
+            _hasCenteredMap = true;
+            var first = _viewModel.Pins[0];
+            var (x, y) = SphericalMercator.FromLonLat(first.Longitude, first.Latitude);
+            _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), DefaultResolution);
+        }
+    }
+
+    private void OnMapInfo(object? sender, MapInfoEventArgs e)
+    {
+        var mapInfo = e.GetMapInfo([_pinsLayer]);
+        if (mapInfo.Feature?.Data is FleetPin pin)
+        {
+            _viewModel.SelectPinCommand.Execute(pin);
+        }
+    }
+
+    private static MColor StatusColor(FleetDriverStatus status) => status switch
+    {
+        FleetDriverStatus.Active => new MColor(30, 142, 90),
+        FleetDriverStatus.OnBreak => new MColor(201, 122, 27),
+        FleetDriverStatus.Sos => new MColor(211, 63, 63),
+        _ => new MColor(107, 128, 138),
+    };
 }

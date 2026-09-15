@@ -1,14 +1,133 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Manager"
              x:Class="LARGA.MobileApp.Views.Manager.ManagerDashboardPage"
+             x:DataType="vm:FleetMapViewModel"
              Title="Map"
+             Shell.NavBarIsVisible="False"
              BackgroundColor="{StaticResource LargaPageBg}">
-    <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="14" Padding="40">
-        <Border StrokeShape="RoundRectangle 32" HeightRequest="64" WidthRequest="64" BackgroundColor="{StaticResource LargaAccentBlue}" StrokeThickness="0" HorizontalOptions="Center">
-            <Label Text="🗺" FontSize="26" HorizontalOptions="Center" VerticalOptions="Center" HorizontalTextAlignment="Center" />
+
+    <Grid>
+        <!-- The Mapsui MapControl (renders MapTiler tiles) is built in code-behind and
+             dropped into this host, since Mapsui isn't consumed as a XAML element here. -->
+        <ContentView x:Name="MapHost" />
+
+        <!-- Header + stat pills, floating over the map -->
+        <VerticalStackLayout VerticalOptions="Start" Padding="16,50,16,0" Spacing="10">
+            <Border Style="{StaticResource ManagerCardStyle}" Padding="14,10">
+                <Label Text="Live Fleet" FontSize="20" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" />
+            </Border>
+
+            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="8">
+                <Border Grid.Column="0" BackgroundColor="{StaticResource LargaSuccessBg}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="6,8">
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding ToggleFilterCommand}" CommandParameter="{x:Static vm:FleetDriverStatus.Active}" />
+                    </Border.GestureRecognizers>
+                    <VerticalStackLayout Spacing="0" HorizontalOptions="Center">
+                        <Label Text="{Binding ActiveCount}" FontSize="16" FontAttributes="Bold" TextColor="#1E8E5A" HorizontalOptions="Center" />
+                        <Label Text="Active" FontSize="10" TextColor="#1E8E5A" HorizontalOptions="Center" />
+                    </VerticalStackLayout>
+                </Border>
+                <Border Grid.Column="1" BackgroundColor="{StaticResource LargaWarningBg}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="6,8">
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding ToggleFilterCommand}" CommandParameter="{x:Static vm:FleetDriverStatus.OnBreak}" />
+                    </Border.GestureRecognizers>
+                    <VerticalStackLayout Spacing="0" HorizontalOptions="Center">
+                        <Label Text="{Binding OnBreakCount}" FontSize="16" FontAttributes="Bold" TextColor="#C97A1B" HorizontalOptions="Center" />
+                        <Label Text="On Break" FontSize="10" TextColor="#C97A1B" HorizontalOptions="Center" />
+                    </VerticalStackLayout>
+                </Border>
+                <Border Grid.Column="2" BackgroundColor="{StaticResource LargaAccentBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="6,8">
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding ToggleFilterCommand}" CommandParameter="{x:Static vm:FleetDriverStatus.Idle}" />
+                    </Border.GestureRecognizers>
+                    <VerticalStackLayout Spacing="0" HorizontalOptions="Center">
+                        <Label Text="{Binding IdleCount}" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaMutedText}" HorizontalOptions="Center" />
+                        <Label Text="Idle" FontSize="10" TextColor="{StaticResource LargaMutedText}" HorizontalOptions="Center" />
+                    </VerticalStackLayout>
+                </Border>
+                <Border Grid.Column="3" BackgroundColor="{StaticResource LargaDangerBg}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="6,8">
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding ToggleFilterCommand}" CommandParameter="{x:Static vm:FleetDriverStatus.Sos}" />
+                    </Border.GestureRecognizers>
+                    <VerticalStackLayout Spacing="0" HorizontalOptions="Center">
+                        <Label Text="{Binding SosCount}" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaDanger}" HorizontalOptions="Center" />
+                        <Label Text="SOS" FontSize="10" TextColor="{StaticResource LargaDanger}" HorizontalOptions="Center" />
+                    </VerticalStackLayout>
+                </Border>
+            </Grid>
+        </VerticalStackLayout>
+
+        <!-- Selected driver bottom sheet -->
+        <Border IsVisible="{Binding IsDetailVisible}" Style="{StaticResource ManagerCardStyle}"
+                VerticalOptions="End" Margin="12,0,12,20">
+            <VerticalStackLayout Spacing="10">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+                    <Border Grid.Column="0" WidthRequest="10" HeightRequest="10" StrokeThickness="0"
+                            BackgroundColor="{Binding SelectedPin.StatusColor}" StrokeShape="Ellipse" VerticalOptions="Center" />
+                    <Label Grid.Column="1" Text="{Binding SelectedPin.StatusLabel}" FontSize="12" FontAttributes="Bold"
+                           CharacterSpacing="0.4" TextColor="{Binding SelectedPin.StatusColor}" VerticalOptions="Center" HorizontalOptions="Start" />
+                    <ImageButton Grid.Column="2" Source="close_icon.svg" WidthRequest="18" HeightRequest="18" BackgroundColor="Transparent"
+                                 Command="{Binding CloseDetailCommand}" />
+                </Grid>
+
+                <VerticalStackLayout Spacing="1">
+                    <Label Text="{Binding SelectedPin.UnitLabel}" FontSize="20" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" />
+                    <Label Text="{Binding SelectedPin.DriverName}" FontSize="14" TextColor="{StaticResource LargaMutedText}" />
+                </VerticalStackLayout>
+
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                    <Border Grid.Column="0" BackgroundColor="{StaticResource LargaAccentBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="10,8">
+                        <VerticalStackLayout Spacing="1">
+                            <Label Text="LOCATION" Style="{StaticResource EyebrowLabelStyle}" FontSize="10" />
+                            <Label Text="{Binding SelectedLocationText}" FontSize="12" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" LineBreakMode="WordWrap" />
+                        </VerticalStackLayout>
+                    </Border>
+                    <Border Grid.Column="1" BackgroundColor="{StaticResource LargaAccentBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="10,8">
+                        <VerticalStackLayout Spacing="1">
+                            <Label Text="ASSIGNED UNIT" Style="{StaticResource EyebrowLabelStyle}" FontSize="10" />
+                            <Label Text="{Binding SelectedPin.PlateNumber}" FontSize="13" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" />
+                            <Label Text="{Binding SelectedPin.UnitDetails}" FontSize="11" TextColor="{StaticResource LargaMutedText}" />
+                        </VerticalStackLayout>
+                    </Border>
+                </Grid>
+
+                <Border BackgroundColor="{StaticResource LargaDangerBg}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="10,6" IsVisible="{Binding SelectedPin.IsSos}">
+                    <Label Text="⚠ SOS active — driver may need immediate assistance" FontSize="12" FontAttributes="Bold" TextColor="{StaticResource LargaDanger}" />
+                </Border>
+
+                <BoxView HeightRequest="1" BackgroundColor="{StaticResource LargaCardBorder}" />
+
+                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="4">
+                    <HorizontalStackLayout Grid.Column="0" Spacing="6" HorizontalOptions="Center" VerticalOptions="Center">
+                        <HorizontalStackLayout.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding CallCommand}" />
+                        </HorizontalStackLayout.GestureRecognizers>
+                        <Image Source="phone.svg" WidthRequest="15" HeightRequest="15">
+                            <Image.Behaviors>
+                                <toolkit:IconTintColorBehavior TintColor="{Binding SelectedPin.CallAccentColor}" />
+                            </Image.Behaviors>
+                        </Image>
+                        <Label Text="Call" FontSize="13" FontAttributes="Bold" TextColor="{Binding SelectedPin.CallAccentColor}" VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                    <HorizontalStackLayout Grid.Column="1" Spacing="6" HorizontalOptions="Center" VerticalOptions="Center">
+                        <HorizontalStackLayout.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding MessageCommand}" />
+                        </HorizontalStackLayout.GestureRecognizers>
+                        <Image Source="send_icon.svg" WidthRequest="15" HeightRequest="15" />
+                        <Label Text="Message" FontSize="13" FontAttributes="Bold" TextColor="{StaticResource LargaPrimaryBlue}" VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                    <HorizontalStackLayout Grid.Column="2" Spacing="6" HorizontalOptions="Center" VerticalOptions="Center">
+                        <HorizontalStackLayout.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding NavigateCommand}" />
+                        </HorizontalStackLayout.GestureRecognizers>
+                        <Image Source="car.svg" WidthRequest="15" HeightRequest="15" />
+                        <Label Text="Navigate" FontSize="13" FontAttributes="Bold" TextColor="{StaticResource LargaPrimaryBlue}" VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                </Grid>
+            </VerticalStackLayout>
         </Border>
-        <Label Text="Fleet Map" FontSize="20" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" HorizontalOptions="Center" />
-        <Label Text="Live vehicle tracking is coming soon." FontSize="13" TextColor="{StaticResource LargaMutedText}" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
-    </VerticalStackLayout>
+    </Grid>
 </ContentPage>
