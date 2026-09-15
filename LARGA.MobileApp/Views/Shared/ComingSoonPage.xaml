@@ -5,9 +5,9 @@
              x:Class="LARGA.MobileApp.Views.Shared.ComingSoonPage"
              x:DataType="vm:ComingSoonViewModel"
              NavigationPage.HasNavigationBar="False"
-             BackgroundColor="{StaticResource LargaPageBg}">
+             BackgroundColor="{StaticResource LargaWhite}">
 
-    <VerticalStackLayout Padding="20,0" Spacing="14">
+    <VerticalStackLayout Padding="20,0" Spacing="15">
 
         <Label Text="&lt; Back" FontSize="14" TextColor="{StaticResource LargaPrimaryBlue}" Margin="0,15,0,0">
             <Label.GestureRecognizers>
@@ -15,13 +15,8 @@
             </Label.GestureRecognizers>
         </Label>
 
-        <Label Text="{Binding Title}" FontSize="26" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaNavy}" />
+        <Label Text="{Binding Title}" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaDarkText}" />
 
-        <VerticalStackLayout VerticalOptions="Center" Spacing="14" Margin="0,60,0,0">
-            <Border StrokeShape="RoundRectangle 32" HeightRequest="64" WidthRequest="64" BackgroundColor="{StaticResource LargaAccentBlue}" StrokeThickness="0" HorizontalOptions="Center">
-                <Label Text="⏳" FontSize="26" HorizontalOptions="Center" VerticalOptions="Center" HorizontalTextAlignment="Center" />
-            </Border>
-            <Label Text="{Binding Title, StringFormat='{0} is coming soon.'}" FontSize="13" TextColor="{StaticResource LargaMutedText}" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
-        </VerticalStackLayout>
+        <Label Text="{Binding Title, StringFormat='{0} is coming soon.'}" FontSize="14" TextColor="Gray" HorizontalOptions="Center" Margin="0,60,0,0" />
     </VerticalStackLayout>
 </ContentPage>

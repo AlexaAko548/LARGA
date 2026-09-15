@@ -4,11 +4,11 @@
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Manager"
              x:Class="LARGA.MobileApp.Views.Manager.FleetRegistryPage"
              x:DataType="vm:FleetRegistryViewModel"
-             NavigationPage.HasNavigationBar="False"
-             BackgroundColor="{StaticResource LargaPageBg}">
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="{StaticResource LargaWhite}">
 
     <ScrollView>
-        <VerticalStackLayout Padding="20,0" Spacing="14">
+        <VerticalStackLayout Padding="20,0" Spacing="15">
 
             <Label Text="&lt; Back" FontSize="14" TextColor="{StaticResource LargaPrimaryBlue}" Margin="0,15,0,0">
                 <Label.GestureRecognizers>
@@ -16,30 +16,23 @@
                 </Label.GestureRecognizers>
             </Label>
 
-            <Label Text="Fleet Registry" FontSize="28" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaNavy}" />
+            <Label Text="Fleet Registry" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaDarkText}" />
 
-            <VerticalStackLayout BindableLayout.ItemsSource="{Binding Taxis}" Spacing="10" Margin="0,4,0,20">
-                <BindableLayout.EmptyView>
-                    <Border Style="{StaticResource ManagerCardStyle}">
-                        <Label Text="No taxi units yet." FontSize="14" TextColor="{StaticResource LargaMutedText}" HorizontalOptions="Center" />
-                    </Border>
-                </BindableLayout.EmptyView>
-                <BindableLayout.ItemTemplate>
-                    <DataTemplate x:DataType="vm:TaxiListItem">
-                        <Border Style="{StaticResource ManagerCardStyle}" Padding="12,14">
-                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
-                                <Border Grid.Column="0" Style="{StaticResource IconChipStyle}">
-                                    <Label Text="🚕" Style="{StaticResource IconChipGlyphStyle}" FontSize="16" />
-                                </Border>
-                                <Label Grid.Column="1" Text="{Binding PlateNumber}" FontSize="15" TextColor="{StaticResource LargaNavy}" VerticalOptions="Center" />
-                                <Border Grid.Column="2" BackgroundColor="{Binding StatusBgColor}" StrokeThickness="0" StrokeShape="RoundRectangle 12" Padding="10,4" VerticalOptions="Center">
-                                    <Label Text="{Binding StatusText}" FontSize="10" FontAttributes="Bold" CharacterSpacing="0.4" TextColor="{Binding StatusColor}" />
-                                </Border>
-                            </Grid>
-                        </Border>
-                    </DataTemplate>
-                </BindableLayout.ItemTemplate>
-            </VerticalStackLayout>
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <VerticalStackLayout BindableLayout.ItemsSource="{Binding Taxis}" Spacing="12">
+                    <BindableLayout.ItemTemplate>
+                        <DataTemplate x:DataType="vm:TaxiListItem">
+                            <VerticalStackLayout Spacing="12">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <Label Grid.Column="0" Text="{Binding PlateNumber}" FontSize="15" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center" />
+                                    <Label Grid.Column="1" Text="{Binding StatusText}" FontSize="13" TextColor="{Binding StatusColor}" VerticalOptions="Center" />
+                                </Grid>
+                                <BoxView HeightRequest="1" Color="#80BBD0" />
+                            </VerticalStackLayout>
+                        </DataTemplate>
+                    </BindableLayout.ItemTemplate>
+                </VerticalStackLayout>
+            </Border>
 
         </VerticalStackLayout>
     </ScrollView>

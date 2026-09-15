@@ -49,20 +49,26 @@ public class ScanDriverLicenseViewModel : BindableObject
 
     public bool IsNotBusy => !IsBusy;
 
-    private string _nameDisplay = "--";
+    // These are two-way bound to Entry/DatePicker on the Verify step, not just read-only
+    // display - OCR is a best-effort starting point, and the manager can correct or fill in
+    // anything it missed (e.g. an expiry date OCR failed to read) before saving.
+    private string _nameDisplay = string.Empty;
     public string NameDisplay { get => _nameDisplay; set { _nameDisplay = value; OnPropertyChanged(); } }
 
-    private string _sexDisplay = "--";
+    private string _sexDisplay = string.Empty;
     public string SexDisplay { get => _sexDisplay; set { _sexDisplay = value; OnPropertyChanged(); } }
 
-    private string _dlCodesDisplay = "--";
+    private string _dlCodesDisplay = string.Empty;
     public string DlCodesDisplay { get => _dlCodesDisplay; set { _dlCodesDisplay = value; OnPropertyChanged(); } }
 
-    private string _licenseNumberDisplay = "--";
+    private string _licenseNumberDisplay = string.Empty;
     public string LicenseNumberDisplay { get => _licenseNumberDisplay; set { _licenseNumberDisplay = value; OnPropertyChanged(); } }
 
-    private string _expiryDateDisplay = "--";
-    public string ExpiryDateDisplay { get => _expiryDateDisplay; set { _expiryDateDisplay = value; OnPropertyChanged(); } }
+    // OCR couldn't find an expiry date on this particular scan, so this starts at today's date
+    // as an obvious placeholder the manager needs to correct on the Verify step, rather than
+    // silently saving a blank/wrong date.
+    private DateTime _expiryDate = DateTime.Today;
+    public DateTime ExpiryDate { get => _expiryDate; set { _expiryDate = value; OnPropertyChanged(); } }
 
     public ICommand RetakeCommand { get; }
     public ICommand ConfirmScanCommand { get; }
@@ -119,11 +125,11 @@ public class ScanDriverLicenseViewModel : BindableObject
                 return;
             }
 
-            NameDisplay = _parsed.FullName ?? "--";
-            SexDisplay = _parsed.Sex ?? "--";
-            DlCodesDisplay = _parsed.DlCodes ?? "--";
-            LicenseNumberDisplay = _parsed.LicenseNumber ?? "--";
-            ExpiryDateDisplay = _parsed.ExpiryDate?.ToString("MMM d, yyyy") ?? "--";
+            NameDisplay = _parsed.FullName ?? string.Empty;
+            SexDisplay = _parsed.Sex ?? string.Empty;
+            DlCodesDisplay = _parsed.DlCodes ?? string.Empty;
+            LicenseNumberDisplay = _parsed.LicenseNumber ?? string.Empty;
+            ExpiryDate = _parsed.ExpiryDate ?? DateTime.Today;
 
             IsReviewStep = false;
         }
@@ -140,22 +146,19 @@ public class ScanDriverLicenseViewModel : BindableObject
 
     private async Task SaveAsync()
     {
-        if (_parsed == null) return;
-
         if (string.IsNullOrWhiteSpace(_targetUserId)) return;
 
         IsBusy = true;
         try
         {
+            // Read from the bound fields, not the raw OCR parse - the manager may have
+            // corrected or filled in anything OCR missed on the Verify step.
             var updates = new Dictionary<object, object>
             {
-                ["licenseNumber"] = _parsed.LicenseNumber ?? string.Empty,
-                ["licenseClassification"] = _parsed.DlCodes ?? string.Empty
+                ["licenseNumber"] = LicenseNumberDisplay,
+                ["licenseClassification"] = DlCodesDisplay,
+                ["licenseExpiryDate"] = ExpiryDate
             };
-            if (_parsed.ExpiryDate != null)
-            {
-                updates["licenseExpiryDate"] = _parsed.ExpiryDate.Value;
-            }
 
             await CrossFirebaseFirestore.Current
                 .GetCollection("users")

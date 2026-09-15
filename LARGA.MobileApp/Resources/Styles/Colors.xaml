@@ -11,22 +11,6 @@
     <Color x:Key="LargaWhite">#FFFFFF</Color>
     <Color x:Key="LargaLightBlue">#A6DCEE</Color>
 
-    <!-- Manager UI refresh: a richer palette than the single flat LargaLightBlue fill used
-         everywhere before - a neutral page ground, elevated white cards, a muted secondary
-         text color, and proper success/danger/warning pairs for status chips, matching the
-         ManagerWeb dashboard's look instead of every element being the same light-blue block. -->
-    <Color x:Key="LargaPageBg">#F2F7FA</Color>
-    <Color x:Key="LargaNavy">#0F2A3D</Color>
-    <Color x:Key="LargaMutedText">#6B808A</Color>
-    <Color x:Key="LargaCardBorder">#DCEAF0</Color>
-    <Color x:Key="LargaAccentBlue">#EAF6FC</Color>
-    <Color x:Key="LargaSuccess">#1E8E5A</Color>
-    <Color x:Key="LargaSuccessBg">#E3F5EC</Color>
-    <Color x:Key="LargaDanger">#D33F3F</Color>
-    <Color x:Key="LargaDangerBg">#FBEAEA</Color>
-    <Color x:Key="LargaWarning">#C97A1B</Color>
-    <Color x:Key="LargaWarningBg">#FBF0E0</Color>
-
     <Color x:Key="Primary">#512BD4</Color>
     <Color x:Key="PrimaryDark">#ac99ea</Color>
     <Color x:Key="PrimaryDarkText">#242424</Color>
