@@ -11,54 +11,114 @@
 
     <Grid>
         <!-- The Mapsui MapControl (renders MapTiler tiles) is built in code-behind and
-             dropped into this host, since Mapsui isn't consumed as a XAML element here. -->
-        <ContentView x:Name="MapHost" />
+             dropped into this host. Border clips its content to StrokeShape, so the map
+             itself is confined to this rounded-rect viewport instead of running full-bleed
+             behind the header/legend/chips. -->
+        <Border x:Name="MapBorder" StrokeThickness="2" Stroke="{StaticResource LargaPrimaryBlue}" StrokeShape="RoundRectangle 16"
+                Margin="10,172,10,84" Padding="0">
+            <ContentView x:Name="MapHost" />
+        </Border>
 
-        <!-- Header + stat pills, floating over the map -->
-        <VerticalStackLayout VerticalOptions="Start" Padding="16,50,16,0" Spacing="10">
+        <!-- Header + stat pills, floating over the map. Its own SizeChanged (wired in
+             code-behind) pushes the map border's top margin below it, so the two never
+             overlap even as header content grows (e.g. the date label). -->
+        <VerticalStackLayout x:Name="HeaderStack" VerticalOptions="Start" Padding="16,50,16,0" Spacing="10">
+            <Label Text="{Binding CurrentDateText}" FontSize="13" TextColor="{StaticResource LargaNavy}"
+                   HorizontalOptions="Start" Margin="4,0,0,0" />
             <Border Style="{StaticResource ManagerCardStyle}" Padding="14,10">
                 <Label Text="Live Fleet" FontSize="20" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" />
             </Border>
 
             <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="8">
-                <Border Grid.Column="0" BackgroundColor="{StaticResource LargaSuccessBg}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="6,8">
+                <Border Grid.Column="0" BackgroundColor="{StaticResource LargaAccentBlue}" Stroke="{StaticResource LargaPrimaryBlue}" StrokeThickness="1" StrokeShape="RoundRectangle 10" Padding="6,8">
                     <Border.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding ToggleFilterCommand}" CommandParameter="{x:Static vm:FleetDriverStatus.Active}" />
                     </Border.GestureRecognizers>
                     <VerticalStackLayout Spacing="0" HorizontalOptions="Center">
-                        <Label Text="{Binding ActiveCount}" FontSize="16" FontAttributes="Bold" TextColor="#1E8E5A" HorizontalOptions="Center" />
-                        <Label Text="Active" FontSize="10" TextColor="#1E8E5A" HorizontalOptions="Center" />
+                        <Label Text="{Binding ActiveCount}" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" HorizontalOptions="Center" />
+                        <Label Text="Active" FontSize="10" TextColor="{StaticResource LargaNavy}" HorizontalOptions="Center" />
                     </VerticalStackLayout>
                 </Border>
-                <Border Grid.Column="1" BackgroundColor="{StaticResource LargaWarningBg}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="6,8">
+                <Border Grid.Column="1" BackgroundColor="{StaticResource LargaAccentBlue}" Stroke="{StaticResource LargaPrimaryBlue}" StrokeThickness="1" StrokeShape="RoundRectangle 10" Padding="6,8">
                     <Border.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding ToggleFilterCommand}" CommandParameter="{x:Static vm:FleetDriverStatus.OnBreak}" />
                     </Border.GestureRecognizers>
                     <VerticalStackLayout Spacing="0" HorizontalOptions="Center">
-                        <Label Text="{Binding OnBreakCount}" FontSize="16" FontAttributes="Bold" TextColor="#C97A1B" HorizontalOptions="Center" />
-                        <Label Text="On Break" FontSize="10" TextColor="#C97A1B" HorizontalOptions="Center" />
+                        <Label Text="{Binding OnBreakCount}" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" HorizontalOptions="Center" />
+                        <Label Text="On Break" FontSize="10" TextColor="{StaticResource LargaNavy}" HorizontalOptions="Center" />
                     </VerticalStackLayout>
                 </Border>
-                <Border Grid.Column="2" BackgroundColor="{StaticResource LargaAccentBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="6,8">
+                <Border Grid.Column="2" BackgroundColor="{StaticResource LargaAccentBlue}" Stroke="{StaticResource LargaPrimaryBlue}" StrokeThickness="1" StrokeShape="RoundRectangle 10" Padding="6,8">
                     <Border.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding ToggleFilterCommand}" CommandParameter="{x:Static vm:FleetDriverStatus.Idle}" />
                     </Border.GestureRecognizers>
                     <VerticalStackLayout Spacing="0" HorizontalOptions="Center">
-                        <Label Text="{Binding IdleCount}" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaMutedText}" HorizontalOptions="Center" />
-                        <Label Text="Idle" FontSize="10" TextColor="{StaticResource LargaMutedText}" HorizontalOptions="Center" />
+                        <Label Text="{Binding IdleCount}" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" HorizontalOptions="Center" />
+                        <Label Text="Idle" FontSize="10" TextColor="{StaticResource LargaNavy}" HorizontalOptions="Center" />
                     </VerticalStackLayout>
                 </Border>
-                <Border Grid.Column="3" BackgroundColor="{StaticResource LargaDangerBg}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="6,8">
+                <Border Grid.Column="3" BackgroundColor="{StaticResource LargaAccentBlue}" Stroke="{StaticResource LargaPrimaryBlue}" StrokeThickness="1" StrokeShape="RoundRectangle 10" Padding="6,8">
                     <Border.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding ToggleFilterCommand}" CommandParameter="{x:Static vm:FleetDriverStatus.Sos}" />
                     </Border.GestureRecognizers>
                     <VerticalStackLayout Spacing="0" HorizontalOptions="Center">
-                        <Label Text="{Binding SosCount}" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaDanger}" HorizontalOptions="Center" />
-                        <Label Text="SOS" FontSize="10" TextColor="{StaticResource LargaDanger}" HorizontalOptions="Center" />
+                        <Label Text="{Binding SosCount}" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" HorizontalOptions="Center" />
+                        <Label Text="SOS" FontSize="10" TextColor="{StaticResource LargaNavy}" HorizontalOptions="Center" />
                     </VerticalStackLayout>
                 </Border>
             </Grid>
         </VerticalStackLayout>
+
+        <!-- Status legend - dark card floating over the map's bottom-left corner, above the
+             unit shortcut row. -->
+        <Border BackgroundColor="{StaticResource LargaNavy}" StrokeThickness="0" StrokeShape="RoundRectangle 12"
+                Padding="12,10" HorizontalOptions="Start" VerticalOptions="End" Margin="16,0,0,88"
+                IsVisible="{Binding IsChipsRowVisible}">
+            <VerticalStackLayout Spacing="6">
+                <HorizontalStackLayout Spacing="8">
+                    <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="#1E8E5A" />
+                    <Label Text="Active" FontSize="12" TextColor="White" VerticalOptions="Center" />
+                </HorizontalStackLayout>
+                <HorizontalStackLayout Spacing="8">
+                    <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="#C97A1B" />
+                    <Label Text="On Break" FontSize="12" TextColor="White" VerticalOptions="Center" />
+                </HorizontalStackLayout>
+                <HorizontalStackLayout Spacing="8">
+                    <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="{StaticResource LargaDanger}" />
+                    <Label Text="SOS" FontSize="12" TextColor="White" VerticalOptions="Center" />
+                </HorizontalStackLayout>
+                <HorizontalStackLayout Spacing="8">
+                    <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="{StaticResource LargaMutedText}" />
+                    <Label Text="Idle" FontSize="12" TextColor="White" VerticalOptions="Center" />
+                </HorizontalStackLayout>
+            </VerticalStackLayout>
+        </Border>
+
+        <!-- Unit shortcuts - jump straight to any taxi, whether or not it currently has a
+             pin on screen. Hidden while the detail sheet is open since both dock to the
+             bottom edge. -->
+        <ScrollView Orientation="Horizontal" VerticalOptions="End" Margin="0,0,0,16"
+                    IsVisible="{Binding IsChipsRowVisible}">
+            <HorizontalStackLayout Spacing="8" Padding="16,0" BindableLayout.ItemsSource="{Binding UnitChips}">
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate x:DataType="vm:UnitChip">
+                        <Border StrokeShape="RoundRectangle 20" Padding="12,8"
+                                BackgroundColor="{StaticResource LargaAccentBlue}"
+                                Stroke="{StaticResource LargaPrimaryBlue}"
+                                StrokeThickness="{Binding SelectionStrokeThickness}">
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.SelectUnitCommand}"
+                                                       CommandParameter="{Binding .}" />
+                            </Border.GestureRecognizers>
+                            <HorizontalStackLayout Spacing="6">
+                                <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="{Binding StatusColor}" VerticalOptions="Center" />
+                                <Label Text="{Binding UnitLabel}" FontSize="13" FontAttributes="Bold" TextColor="{StaticResource LargaNavy}" VerticalOptions="Center" />
+                            </HorizontalStackLayout>
+                        </Border>
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
+            </HorizontalStackLayout>
+        </ScrollView>
 
         <!-- Selected driver bottom sheet -->
         <Border IsVisible="{Binding IsDetailVisible}" Style="{StaticResource ManagerCardStyle}"

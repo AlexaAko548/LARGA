@@ -1,4 +1,5 @@
 using System.Collections.Specialized;
+using System.ComponentModel;
 using BruTile.Predefined;
 using BruTile.Web;
 using LARGA.MobileApp.Services;
@@ -12,6 +13,7 @@ using Mapsui.Tiling.Layers;
 using Mapsui.UI.Maui;
 using MColor = Mapsui.Styles.Color;
 using MBrush = Mapsui.Styles.Brush;
+using MFont = Mapsui.Styles.Font;
 using NtsPoint = NetTopologySuite.Geometries.Point;
 
 namespace LARGA.MobileApp.Views.Manager;
@@ -58,6 +60,19 @@ public partial class ManagerDashboardPage : ContentPage
         // Mapsui's Pin isn't bindable-ItemsSource-friendly (no Command/CommandParameter), so
         // the map's feature layer is kept in sync with the viewmodel's Pins by hand.
         _viewModel.Pins.CollectionChanged += OnPinsChanged;
+        _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+
+        // Keep the map border below the header instead of a fixed guessed margin - the
+        // header's height changes with its content (e.g. the date label) and with OS font
+        // scaling, so a hardcoded top margin drifts out of sync and starts overlapping.
+        HeaderStack.SizeChanged += OnHeaderSizeChanged;
+    }
+
+    private void OnHeaderSizeChanged(object? sender, EventArgs e)
+    {
+        if (HeaderStack.Height <= 0) return;
+        var current = MapBorder.Margin;
+        MapBorder.Margin = new Thickness(current.Left, HeaderStack.Height + 16, current.Right, current.Bottom);
     }
 
     protected override void OnAppearing()
@@ -73,6 +88,9 @@ public partial class ManagerDashboardPage : ContentPage
         foreach (var pin in _viewModel.Pins)
         {
             var (x, y) = SphericalMercator.FromLonLat(pin.Longitude, pin.Latitude);
+            var digits = new string(pin.TaxiId.Where(char.IsDigit).ToArray());
+            var shortUnitLabel = int.TryParse(digits, out var unitNumber) ? $"{unitNumber:D2}" : "—";
+
             var feature = new GeometryFeature(new NtsPoint(x, y))
             {
                 Data = pin,
@@ -84,6 +102,16 @@ public partial class ManagerDashboardPage : ContentPage
                         SymbolScale = 0.9,
                         Fill = new MBrush(StatusColor(pin.Status)),
                         Outline = new Pen(MColor.White, 2),
+                    },
+                    // Small unit-number badge under each pin, matching the shared mockup.
+                    new LabelStyle
+                    {
+                        Text = shortUnitLabel,
+                        Font = new MFont { Size = 11, Bold = true },
+                        ForeColor = MColor.White,
+                        BackColor = new MBrush(new MColor(15, 42, 61)), // LargaNavy
+                        CornerRounding = 6,
+                        Offset = new Offset(0, 16),
                     },
                 },
             };
@@ -100,6 +128,22 @@ public partial class ManagerDashboardPage : ContentPage
             var (x, y) = SphericalMercator.FromLonLat(first.Longitude, first.Latitude);
             _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), DefaultResolution);
         }
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // Selecting a unit from the bottom shortcut row can pick a taxi that's off-screen
+        // (or was never in view because the map hasn't been panned there) - pan to it same
+        // as tapping its pin directly would. A tap on the pin itself also raises this (it's
+        // already set before OnMapInfo returns), so this covers both selection paths in one
+        // place rather than duplicating the pan logic in OnMapInfo too.
+        if (e.PropertyName != nameof(FleetMapViewModel.SelectedPin)) return;
+
+        var pin = _viewModel.SelectedPin;
+        if (pin == null) return;
+
+        var (x, y) = SphericalMercator.FromLonLat(pin.Longitude, pin.Latitude);
+        _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), DefaultResolution);
     }
 
     private void OnMapInfo(object? sender, MapInfoEventArgs e)

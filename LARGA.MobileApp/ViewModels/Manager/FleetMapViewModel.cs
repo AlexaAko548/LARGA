@@ -75,6 +75,34 @@ public class FleetPin
     public Color CallAccentColor => Status == FleetDriverStatus.Active ? StatusColor : Color.FromArgb("#019BCF");
 }
 
+/// <summary>One always-visible "jump to this taxi" shortcut at the bottom of the map, for
+/// every taxi in the fleet - not just the ones with a plotted pin. Tapping a unit with no
+/// pin (no active shift / no telemetry yet) has nothing to jump to, so it just says so.</summary>
+public class UnitChip : BindableObject
+{
+    public string TaxiId { get; set; } = string.Empty;
+    public string UnitLabel { get; set; } = string.Empty;
+    public FleetDriverStatus Status { get; set; }
+    public bool HasPin { get; set; }
+
+    public Color StatusColor => Status switch
+    {
+        FleetDriverStatus.Sos => Color.FromArgb("#D33F3F"),
+        FleetDriverStatus.OnBreak => Color.FromArgb("#C97A1B"),
+        FleetDriverStatus.Idle => Color.FromArgb("#6B808A"),
+        _ => Color.FromArgb("#1E8E5A"),
+    };
+
+    private bool _isSelected;
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set { _isSelected = value; OnPropertyChanged(); OnPropertyChanged(nameof(SelectionStrokeThickness)); }
+    }
+
+    public double SelectionStrokeThickness => IsSelected ? 2 : 1;
+}
+
 public class FleetMapViewModel : BindableObject
 {
     // Idle threshold: no telemetry update / no movement within this window counts as Idle
@@ -87,6 +115,7 @@ public class FleetMapViewModel : BindableObject
     private readonly List<FleetPin> _allPins = new();
 
     public ObservableCollection<FleetPin> Pins { get; } = new();
+    public ObservableCollection<UnitChip> UnitChips { get; } = new();
 
     private int _activeCount;
     public int ActiveCount { get => _activeCount; set { _activeCount = value; OnPropertyChanged(); } }
@@ -116,6 +145,11 @@ public class FleetMapViewModel : BindableObject
             _selectedPin = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsDetailVisible));
+            OnPropertyChanged(nameof(IsChipsRowVisible));
+            foreach (var chip in UnitChips)
+            {
+                chip.IsSelected = value != null && chip.TaxiId == value.TaxiId;
+            }
             if (value != null)
             {
                 _ = LoadSelectedLocationAsync(value);
@@ -125,6 +159,10 @@ public class FleetMapViewModel : BindableObject
 
     public bool IsDetailVisible => SelectedPin != null;
 
+    /// <summary>Hide the bottom unit-shortcut row while the detail sheet is open - both
+    /// anchor to the bottom of the screen and would otherwise overlap.</summary>
+    public bool IsChipsRowVisible => !IsDetailVisible;
+
     private string _selectedLocationText = string.Empty;
     public string SelectedLocationText
     {
@@ -132,8 +170,19 @@ public class FleetMapViewModel : BindableObject
         set { _selectedLocationText = value; OnPropertyChanged(); }
     }
 
+    private static readonly TimeZoneInfo TalisayTimeZone = ResolveTalisayTimeZone();
+    private readonly System.Timers.Timer _clockTimer;
+
+    private string _currentDateText = string.Empty;
+    public string CurrentDateText
+    {
+        get => _currentDateText;
+        set { _currentDateText = value; OnPropertyChanged(); }
+    }
+
     public ICommand LoadFleetCommand { get; }
     public ICommand SelectPinCommand { get; }
+    public ICommand SelectUnitCommand { get; }
     public ICommand CloseDetailCommand { get; }
     public ICommand ToggleFilterCommand { get; }
     public ICommand CallCommand { get; }
@@ -144,6 +193,18 @@ public class FleetMapViewModel : BindableObject
     {
         LoadFleetCommand = new Command(async () => await LoadFleetAsync());
         SelectPinCommand = new Command<FleetPin>(pin => SelectedPin = pin);
+        SelectUnitCommand = new Command<UnitChip>(async chip =>
+        {
+            var pin = _allPins.FirstOrDefault(p => p.TaxiId == chip.TaxiId);
+            if (pin != null)
+            {
+                SelectedPin = pin;
+            }
+            else
+            {
+                await Shell.Current.DisplayAlert(chip.UnitLabel, "This unit has no live location right now - it isn't on an active shift.", "OK");
+            }
+        });
         CloseDetailCommand = new Command(() => SelectedPin = null);
         ToggleFilterCommand = new Command<FleetDriverStatus>(status =>
             StatusFilter = StatusFilter == status ? null : status);
@@ -176,6 +237,34 @@ public class FleetMapViewModel : BindableObject
                 System.Diagnostics.Debug.WriteLine($"Open Map Error: {ex.Message}");
             }
         });
+
+        UpdateCurrentDate();
+        _clockTimer = new System.Timers.Timer(60_000);
+        _clockTimer.Elapsed += (_, _) => MainThread.BeginInvokeOnMainThread(UpdateCurrentDate);
+        _clockTimer.Start();
+    }
+
+    private void UpdateCurrentDate()
+    {
+        var localNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TalisayTimeZone);
+        CurrentDateText = localNow.ToString("dddd, d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Talisay, Cebu follows Philippine Time (UTC+8, no DST). "Asia/Manila" is the
+    /// IANA id Android resolves; "Singapore Standard Time" is the Windows id, kept as a
+    /// fallback for local/dev runs off-device. A fixed UTC+8 offset is the last resort so the
+    /// date label never breaks even if neither id is available.</summary>
+    private static TimeZoneInfo ResolveTalisayTimeZone()
+    {
+        try { return TimeZoneInfo.FindSystemTimeZoneById("Asia/Manila"); }
+        catch (TimeZoneNotFoundException) { }
+        catch (InvalidTimeZoneException) { }
+
+        try { return TimeZoneInfo.FindSystemTimeZoneById("Singapore Standard Time"); }
+        catch (TimeZoneNotFoundException) { }
+        catch (InvalidTimeZoneException) { }
+
+        return TimeZoneInfo.CreateCustomTimeZone("PHT", TimeSpan.FromHours(8), "Philippine Time", "PHT");
     }
 
     private async Task LoadFleetAsync()
@@ -257,6 +346,39 @@ public class FleetMapViewModel : BindableObject
             _allPins.Clear();
             _allPins.AddRange(pins);
             ApplyFilter();
+
+            // Unit shortcuts show every taxi in the fleet, not just the ones with a pin -
+            // a manager should be able to jump to (or find out there's nothing to jump to
+            // for) any unit from this same row.
+            var allTaxisSnapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("taxis")
+                .GetDocumentsAsync<TaxiLookup>();
+
+            var chips = allTaxisSnapshot.Documents
+                .Where(d => d.Data != null)
+                .Select(d =>
+                {
+                    var taxiId = d.Reference.Id;
+                    var matchingPin = pins.FirstOrDefault(p => p.TaxiId == taxiId);
+                    var digits = new string(taxiId.Where(char.IsDigit).ToArray());
+                    var unitNumber = int.TryParse(digits, out var n) ? n : 0;
+                    return new UnitChip
+                    {
+                        TaxiId = taxiId,
+                        UnitLabel = unitNumber > 0 ? $"{unitNumber:D2}" : "—",
+                        Status = matchingPin?.Status ?? FleetDriverStatus.Idle,
+                        HasPin = matchingPin != null,
+                    };
+                })
+                .OrderBy(c => c.UnitLabel)
+                .ToList();
+
+            UnitChips.Clear();
+            foreach (var chip in chips)
+            {
+                chip.IsSelected = SelectedPin != null && chip.TaxiId == SelectedPin.TaxiId;
+                UnitChips.Add(chip);
+            }
 
             void Tally(FleetDriverStatus s)
             {
