@@ -69,12 +69,12 @@
                             BackgroundColor="{Binding SelectedPin.StatusColor}" StrokeShape="Ellipse" VerticalOptions="Center" />
                     <Label Grid.Column="1" Text="{Binding SelectedPin.StatusLabel}" FontSize="12" FontAttributes="Bold"
                            CharacterSpacing="0.4" TextColor="{Binding SelectedPin.StatusColor}" VerticalOptions="Center" HorizontalOptions="Start" />
-                    <Image Grid.Column="2" Source="close_icon.svg" WidthRequest="16" HeightRequest="16"
-                           HorizontalOptions="Center" VerticalOptions="Center">
-                        <Image.GestureRecognizers>
+                    <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
+                        <Grid.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding CloseDetailCommand}" />
-                        </Image.GestureRecognizers>
-                    </Image>
+                        </Grid.GestureRecognizers>
+                        <Image Source="close_icon.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                    </Grid>
                 </Grid>
 
                 <VerticalStackLayout Spacing="1">

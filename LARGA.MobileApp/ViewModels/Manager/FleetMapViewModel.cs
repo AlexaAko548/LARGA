@@ -182,6 +182,14 @@ public class FleetMapViewModel : BindableObject
     {
         try
         {
+            // Revisiting the Map tab re-runs this whole method (OnAppearing), so the stat
+            // pills must start from zero each time - otherwise they just keep accumulating
+            // on top of the previous load's counts every time the page is revisited.
+            ActiveCount = 0;
+            OnBreakCount = 0;
+            IdleCount = 0;
+            SosCount = 0;
+
             var driverCache = new Dictionary<string, DriverLookup>();
             var taxiCache = new Dictionary<string, TaxiLookup>();
 
