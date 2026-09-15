@@ -1060,8 +1060,11 @@ internal static class Program
         await SetAsync(db, "gps_telemetry", $"{ShiftAnaActiveSos}_PT1", new GpsTelemetry
         {
             ShiftId = ShiftAnaActiveSos,
-            Latitude = 10.2430,
-            Longitude = 123.8520,
+            // Verified against MapTiler's geocoding API before use (unlike the original
+            // 10.2430/123.8520, which was an unchecked eyeball guess that ended up in the
+            // water) - this resolves to P. del Rosario Street, Talisay, well inland.
+            Latitude = 10.2460,
+            Longitude = 123.8475,
             Speed = 0,
             Timestamp = DateTime.UtcNow.AddMinutes(-2),
         });
