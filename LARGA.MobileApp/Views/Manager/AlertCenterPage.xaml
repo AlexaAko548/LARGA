@@ -20,13 +20,13 @@
                             <Image Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
                             <Label Grid.Column="1" Text="EMERGENCY SOS ALERT" FontAttributes="Bold" FontSize="13"
                                    TextColor="#D32F2F" Margin="8,0,0,0" VerticalOptions="Center" />
-                            <Image Grid.Column="2" Source="close_icon.svg" WidthRequest="16" HeightRequest="16"
-                                   HorizontalOptions="Center" VerticalOptions="Center">
-                                <Image.GestureRecognizers>
+                            <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
+                                <Grid.GestureRecognizers>
                                     <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
                                                            CommandParameter="{Binding .}" />
-                                </Image.GestureRecognizers>
-                            </Image>
+                                </Grid.GestureRecognizers>
+                                <Image Source="close_icon.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                            </Grid>
                         </Grid>
                         <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="Black" />
                         <Label Text="{Binding Subtitle}" FontSize="13" TextColor="#555555" />
@@ -34,28 +34,25 @@
 
                         <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10" Margin="0,8,0,0">
                             <Border Grid.Column="0" BackgroundColor="White" StrokeShape="RoundRectangle 12" HeightRequest="46">
-                                <Image Source="car.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center">
-                                    <Image.GestureRecognizers>
-                                        <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.ViewLocationCommand}"
-                                                               CommandParameter="{Binding .}" />
-                                    </Image.GestureRecognizers>
-                                </Image>
+                                <Border.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.ViewLocationCommand}"
+                                                           CommandParameter="{Binding .}" />
+                                </Border.GestureRecognizers>
+                                <Image Source="car.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                             </Border>
                             <Border Grid.Column="1" BackgroundColor="White" StrokeShape="RoundRectangle 12" HeightRequest="46">
-                                <Image Source="phone.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center">
-                                    <Image.GestureRecognizers>
-                                        <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.CallDriverCommand}"
-                                                               CommandParameter="{Binding .}" />
-                                    </Image.GestureRecognizers>
-                                </Image>
+                                <Border.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.CallDriverCommand}"
+                                                           CommandParameter="{Binding .}" />
+                                </Border.GestureRecognizers>
+                                <Image Source="phone.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                             </Border>
                             <Border Grid.Column="2" BackgroundColor="White" StrokeShape="RoundRectangle 12" HeightRequest="46">
-                                <Image Source="send_icon.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center">
-                                    <Image.GestureRecognizers>
-                                        <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.MessageDriverCommand}"
-                                                               CommandParameter="{Binding .}" />
-                                    </Image.GestureRecognizers>
-                                </Image>
+                                <Border.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.MessageDriverCommand}"
+                                                           CommandParameter="{Binding .}" />
+                                </Border.GestureRecognizers>
+                                <Image Source="send_icon.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                             </Border>
                         </Grid>
                     </VerticalStackLayout>
@@ -70,13 +67,13 @@
                             <Image Grid.Column="0" Source="report.svg" WidthRequest="18" HeightRequest="18" />
                             <Label Grid.Column="1" Text="FUEL DISCREPANCY" FontAttributes="Bold" FontSize="13"
                                    TextColor="#E53935" Margin="8,0,0,0" VerticalOptions="Center" />
-                            <Image Grid.Column="2" Source="close_icon.svg" WidthRequest="16" HeightRequest="16"
-                                   HorizontalOptions="Center" VerticalOptions="Center">
-                                <Image.GestureRecognizers>
+                            <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
+                                <Grid.GestureRecognizers>
                                     <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
                                                            CommandParameter="{Binding .}" />
-                                </Image.GestureRecognizers>
-                            </Image>
+                                </Grid.GestureRecognizers>
+                                <Image Source="close_icon.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                            </Grid>
                         </Grid>
                         <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="Black" />
                         <Label Text="{Binding Subtitle}" FontSize="13" TextColor="#555555" />
@@ -99,13 +96,13 @@
                             <Image Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
                             <Label Grid.Column="1" Text="SHIFT APPROVAL REQUIRED" FontAttributes="Bold" FontSize="13"
                                    TextColor="#D32F2F" Margin="8,0,0,0" VerticalOptions="Center" />
-                            <Image Grid.Column="2" Source="close_icon.svg" WidthRequest="16" HeightRequest="16"
-                                   HorizontalOptions="Center" VerticalOptions="Center">
-                                <Image.GestureRecognizers>
+                            <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
+                                <Grid.GestureRecognizers>
                                     <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
                                                            CommandParameter="{Binding .}" />
-                                </Image.GestureRecognizers>
-                            </Image>
+                                </Grid.GestureRecognizers>
+                                <Image Source="close_icon.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                            </Grid>
                         </Grid>
                         <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="Black" />
                         <Label Text="{Binding Timestamp}" FontSize="13" TextColor="#777777" />
