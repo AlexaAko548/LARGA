@@ -83,4 +83,7 @@ public class FuelLog
 
     [FirestoreProperty("odometerPhotoUrl")]
     public string? OdometerPhotoUrl { get; set; }
+
+    [FirestoreProperty("driverId")] // new property to store the driver ID
+    public string DriverId { get; set; } = string.Empty;
 }

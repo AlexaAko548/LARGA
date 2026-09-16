@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
@@ -30,19 +30,21 @@ public class ReportsViewModel : BindableObject
     public bool IsFuelTabSelected => !IsVehicleDefectTabSelected;
 
     public ObservableCollection<DefectReportItem> DefectReports { get; } = new();
-
+    public ObservableCollection<FuelReportItem> FuelReports { get; } = new();
+    public ICommand AddFuelReportCommand { get; }
     public ICommand SelectVehicleDefectTabCommand { get; }
     public ICommand SelectFuelTabCommand { get; }
     public ICommand AddVehicleReportCommand { get; }
     public ICommand LoadReportsCommand { get; }
     public ICommand ViewReportDetailsCommand { get; }
 
-    public ReportsViewModel()
+    public ReportsViewModel() 
     {
         SelectVehicleDefectTabCommand = new Command(() => IsVehicleDefectTabSelected = true);
         SelectFuelTabCommand = new Command(() => IsVehicleDefectTabSelected = false);
         AddVehicleReportCommand = new Command(async () => await Shell.Current.GoToAsync("vehicle-defect-page"));
         LoadReportsCommand = new Command(async () => await LoadReportsAsync());
+        AddFuelReportCommand = new Command(async () => await Shell.Current.GoToAsync("fuel-report-page"));
         ViewReportDetailsCommand = new Command<DefectReportItem>(async (item) =>
         {
             if (item == null || string.IsNullOrEmpty(item.Id)) return;
@@ -57,19 +59,18 @@ public class ReportsViewModel : BindableObject
             var currentUser = CrossFirebaseAuth.Current.CurrentUser;
             if (currentUser == null) return;
 
-            var snapshot = await CrossFirebaseFirestore.Current
+            // 1. FETCH VEHICLE DEFECTS
+            var defectSnapshot = await CrossFirebaseFirestore.Current
                 .GetCollection("maintenance_logs")
                 .WhereEqualsTo("reportedByDriverId", currentUser.Uid)
                 .GetDocumentsAsync<DefectReportProxy>();
 
-            var items = new List<DefectReportItem>();
-            foreach (var doc in snapshot.Documents)
+            var tempDefects = new List<DefectReportItem>();
+            foreach (var doc in defectSnapshot.Documents)
             {
-                System.Diagnostics.Debug.WriteLine($"Doc found. Data null? {doc.Data == null}. Title: {doc.Data?.IssueTitle}");
                 if (doc.Data == null) continue;
-
                 var dateLogged = FirestoreDateTimeFix.Apply(doc.Data.DateLogged).ToLocalTime();
-                items.Add(new DefectReportItem
+                tempDefects.Add(new DefectReportItem
                 {
                     Id = doc.Reference.Id,
                     Title = doc.Data.IssueTitle,
@@ -80,9 +81,36 @@ public class ReportsViewModel : BindableObject
             }
 
             DefectReports.Clear();
-            foreach (var item in items.OrderByDescending(i => i.DateLogged))
+            foreach (var item in tempDefects.OrderByDescending(i => i.DateLogged))
             {
                 DefectReports.Add(item);
+            }
+
+            // 2. FETCH FUEL REPORTS
+            var fuelSnapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("fuel_logs")
+                .WhereEqualsTo("driverId", currentUser.Uid)
+                .GetDocumentsAsync<FuelReportProxy>();
+
+            var tempFuels = new List<FuelReportItem>();
+            foreach (var doc in fuelSnapshot.Documents)
+            {
+                if (doc.Data == null) continue;
+                var dateLogged = FirestoreDateTimeFix.Apply(doc.Data.ReceiptTimestamp).ToLocalTime();
+                tempFuels.Add(new FuelReportItem
+                {
+                    Id = doc.Reference.Id,
+                    DateLogged = dateLogged,
+                    DateDisplay = dateLogged.ToString("MMM d, yyyy"),
+                    Cost = doc.Data.FuelCost.ToString("N2"),
+                    Status = doc.Data.VerificationStatus ?? "Pending"
+                });
+            }
+
+            FuelReports.Clear();
+            foreach (var item in tempFuels.OrderByDescending(i => i.DateLogged))
+            {
+                FuelReports.Add(item);
             }
         }
         catch (System.Exception ex)
@@ -102,6 +130,18 @@ public class ReportsViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("status")]
         public string Status { get; set; }
     }
+
+    public class FuelReportProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("receiptTimestamp")]
+        public System.DateTime ReceiptTimestamp { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("fuelCost")]
+        public double FuelCost { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("verificationStatus")]
+        public string VerificationStatus { get; set; }
+    }
 }
 
 public class DefectReportItem
@@ -112,4 +152,14 @@ public class DefectReportItem
     public string DateDisplay { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string DisplayText => $"{DateDisplay} - {Title}";
+}
+
+public class FuelReportItem
+{
+    public string Id { get; set; } = string.Empty;
+    public System.DateTime DateLogged { get; set; }
+    public string DateDisplay { get; set; } = string.Empty;
+    public string Cost { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string DisplayText => $"{DateDisplay} - ₱ {Cost}";
 }

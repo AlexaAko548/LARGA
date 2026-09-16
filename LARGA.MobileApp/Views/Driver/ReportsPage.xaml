@@ -13,8 +13,8 @@
 
         <!-- Tabs -->
         <Grid ColumnDefinitions="*,*" ColumnSpacing="0">
-            <Border Grid.Column="0" StrokeThickness="0" Padding="10">
-                <Border.Triggers>
+                <Border Grid.Column="0" StrokeThickness="0" Padding="10">
+                    <Border.Triggers>
                     <DataTrigger TargetType="Border" Binding="{Binding IsFuelTabSelected}" Value="True">
                         <Setter Property="BackgroundColor" Value="{StaticResource LargaLightBlue}" />
                     </DataTrigger>
@@ -66,10 +66,28 @@
             </VerticalStackLayout>
         </VerticalStackLayout>
 
-        <!-- Fuel Submission Tab Content (placeholder) -->
-        <VerticalStackLayout Spacing="12" IsVisible="{Binding IsFuelTabSelected}">
-            <Label Text="Fuel submission coming soon." FontSize="14" TextColor="Gray" HorizontalOptions="Center" Margin="0,30,0,0" />
+            <!-- Fuel Submission Tab Content -->
+            <VerticalStackLayout Spacing="12" IsVisible="{Binding IsFuelTabSelected}">
+                <Border BackgroundColor="Transparent" StrokeThickness="1" Stroke="{StaticResource LargaPrimaryBlue}" StrokeShape="RoundRectangle 20" Padding="0" HeightRequest="46">
+                    <Button Text="+ Add Fuel Report" Command="{Binding AddFuelReportCommand}"
+                BackgroundColor="Transparent" TextColor="{StaticResource LargaPrimaryBlue}" FontSize="14" FontAttributes="Bold" />
+                </Border>
+
+                <Label Text="PAST FUEL REPORTS" FontSize="12" TextColor="Gray" Margin="0,10,0,0" />
+
+                <VerticalStackLayout BindableLayout.ItemsSource="{Binding FuelReports}" Spacing="8">
+                    <BindableLayout.ItemTemplate>
+                        <DataTemplate x:DataType="vm:FuelReportItem">
+                            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                    <Label Grid.Column="0" Text="{Binding DisplayText}" FontSize="14" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center" />
+                                    <Label Grid.Column="1" Text="&gt;" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </BindableLayout.ItemTemplate>
+                </VerticalStackLayout>
+            </VerticalStackLayout>
         </VerticalStackLayout>
-    </VerticalStackLayout>
     </ScrollView>
 </ContentPage>
