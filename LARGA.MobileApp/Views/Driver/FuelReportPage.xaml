@@ -19,7 +19,10 @@
             <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 18" StrokeThickness="0" Padding="18">
                 <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*" RowSpacing="14" ColumnSpacing="12">
 
-                    <Label Grid.Row="0" Grid.Column="0" Text="Cost (PHP)" VerticalOptions="Center" TextColor="{StaticResource LargaDarkText}" FontSize="15" />
+                    <HorizontalStackLayout Grid.Row="0" Grid.Column="0" Spacing="6" VerticalOptions="Center">
+                        <Label Text="Cost (PHP)" VerticalOptions="Center" TextColor="{StaticResource LargaDarkText}" FontSize="15" />
+                        <Label Text="Edited" IsVisible="{Binding IsCostManuallyEdited}" VerticalOptions="Center" TextColor="#B45309" FontSize="11" FontAttributes="Bold" />
+                    </HorizontalStackLayout>
                     <Border Grid.Row="0" Grid.Column="1" BackgroundColor="White" StrokeThickness="0" StrokeShape="RoundRectangle 16" HeightRequest="45" Padding="14,0">
                         <Entry Text="{Binding Cost}" IsReadOnly="True" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End" Keyboard="Numeric">
                             <Entry.Triggers>
@@ -30,7 +33,10 @@
                         </Entry>
                     </Border>
 
-                    <Label Grid.Row="1" Grid.Column="0" Text="Quantity (L)" VerticalOptions="Center" TextColor="{StaticResource LargaDarkText}" FontSize="15" />
+                    <HorizontalStackLayout Grid.Row="1" Grid.Column="0" Spacing="6" VerticalOptions="Center">
+                        <Label Text="Quantity (L)" VerticalOptions="Center" TextColor="{StaticResource LargaDarkText}" FontSize="15" />
+                        <Label Text="Edited" IsVisible="{Binding IsQuantityManuallyEdited}" VerticalOptions="Center" TextColor="#B45309" FontSize="11" FontAttributes="Bold" />
+                    </HorizontalStackLayout>
                     <Border Grid.Row="1" Grid.Column="1" BackgroundColor="White" StrokeThickness="0" StrokeShape="RoundRectangle 16" HeightRequest="45" Padding="14,0">
                         <Entry Text="{Binding Quantity}" IsReadOnly="True" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End" Keyboard="Numeric">
                             <Entry.Triggers>
@@ -41,18 +47,24 @@
                         </Entry>
                     </Border>
 
-                    <Label Grid.Row="2" Grid.Column="0" Text="Gasoline Name" VerticalOptions="Center" TextColor="{StaticResource LargaDarkText}" FontSize="15" />
+                    <HorizontalStackLayout Grid.Row="2" Grid.Column="0" Spacing="6" VerticalOptions="Center">
+                        <Label Text="Fuel Station" VerticalOptions="Center" TextColor="{StaticResource LargaDarkText}" FontSize="15" />
+                        <Label Text="Edited" IsVisible="{Binding IsFuelStationManuallyEdited}" VerticalOptions="Center" TextColor="#B45309" FontSize="11" FontAttributes="Bold" />
+                    </HorizontalStackLayout>
                     <Border Grid.Row="2" Grid.Column="1" BackgroundColor="White" StrokeThickness="0" StrokeShape="RoundRectangle 16" HeightRequest="45" Padding="14,0">
-                        <Entry Text="{Binding GasolineName}" IsReadOnly="True" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End">
+                        <Entry Text="{Binding FuelStation}" IsReadOnly="True" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End">
                             <Entry.Triggers>
-                                <DataTrigger TargetType="Entry" Binding="{Binding IsGasolineNameEditable}" Value="True">
+                                <DataTrigger TargetType="Entry" Binding="{Binding IsFuelStationEditable}" Value="True">
                                     <Setter Property="IsReadOnly" Value="False" />
                                 </DataTrigger>
                             </Entry.Triggers>
                         </Entry>
                     </Border>
 
-                    <Label Grid.Row="3" Grid.Column="0" Text="Date" VerticalOptions="Center" TextColor="{StaticResource LargaDarkText}" FontSize="15" />
+                    <HorizontalStackLayout Grid.Row="3" Grid.Column="0" Spacing="6" VerticalOptions="Center">
+                        <Label Text="Date" VerticalOptions="Center" TextColor="{StaticResource LargaDarkText}" FontSize="15" />
+                        <Label Text="Edited" IsVisible="{Binding IsReceiptDateManuallyEdited}" VerticalOptions="Center" TextColor="#B45309" FontSize="11" FontAttributes="Bold" />
+                    </HorizontalStackLayout>
                     <Border Grid.Row="3" Grid.Column="1" BackgroundColor="White" StrokeThickness="0" StrokeShape="RoundRectangle 16" HeightRequest="45" Padding="14,0">
                         <Entry Text="{Binding ReceiptDateText}" IsReadOnly="True" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End">
                             <Entry.Triggers>

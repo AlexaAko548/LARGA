@@ -22,6 +22,7 @@ public partial class ScanFuelReceiptPage : ContentPage
     private bool _isQuantityUncertain;
     private bool _isVendorUncertain;
     private bool _isDateUncertain;
+    private int _retakeCount;
     private bool _isScanned = false;
 
     private Camera.MAUI.CameraView? ReceiptCameraView => this.FindByName<Camera.MAUI.CameraView>("ReceiptCamera");
@@ -47,6 +48,7 @@ public partial class ScanFuelReceiptPage : ContentPage
 
     protected override async void OnDisappearing()
     {
+        _retakeCount = 0;
         await StopCameraSafelyAsync();
         base.OnDisappearing();
     }
@@ -141,12 +143,13 @@ public partial class ScanFuelReceiptPage : ContentPage
                     ReceiptDateLabel.Text = receiptDate?.ToString("MMM dd, yyyy", CultureInfo.InvariantCulture) ?? "--";
                 }
                 _capturedReceiptDate = receiptDate;
-                if (parsingUncertain)
+                if (parsingUncertain && _retakeCount >= 3)
                 {
                     await Shell.Current.DisplayAlert("OCR check", parsingWarning, "Use and Review");
                 }
 
                 BtnCapture.Text = "Confirm";
+                BtnRetake.IsVisible = true;
                 _isScanned = true;
             }
             else
@@ -191,6 +194,47 @@ public partial class ScanFuelReceiptPage : ContentPage
     {
         await StopCameraSafelyAsync();
         await Navigation.PopModalAsync();
+    }
+
+    private async void OnRetakeClicked(object sender, EventArgs e)
+    {
+        if (!_isScanned)
+            return;
+
+        _retakeCount++;
+        _isScanned = false;
+        _capturedImageBytes = null;
+        _capturedReceiptDate = null;
+        _isCostUncertain = false;
+        _isQuantityUncertain = false;
+        _isVendorUncertain = false;
+        _isDateUncertain = false;
+
+        LblVendor.Text = "--";
+        LblAmount.Text = "--";
+        LblQuantity.Text = "--";
+        if (ReceiptDateLabel != null)
+        {
+            ReceiptDateLabel.Text = "--";
+        }
+
+        if (ReceiptPreviewImage != null)
+        {
+            ReceiptPreviewImage.IsVisible = false;
+            ReceiptPreviewImage.Source = null;
+        }
+
+        var camera = ReceiptCameraView;
+        if (camera != null)
+        {
+            camera.IsVisible = true;
+        }
+
+        BtnRetake.IsVisible = false;
+        BtnCapture.Text = "Capture";
+        BtnCapture.IsEnabled = true;
+
+        await StartCameraSafelyAsync();
     }
 
     private static string? TryParseVendor(string fullText, List<string> lines)

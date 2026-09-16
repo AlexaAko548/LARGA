@@ -56,9 +56,10 @@
                     <Label Grid.Column="1" x:Name="LblDate" Text="--" HorizontalOptions="End" FontAttributes="Bold" TextColor="Black"/>
                 </Grid>
 
-                <Grid ColumnDefinitions="*,*" ColumnSpacing="15" Margin="0,15,0,0">
+                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="15" Margin="0,15,0,0">
                     <Button Grid.Column="0" Text="Cancel" Clicked="OnCancelClicked" BackgroundColor="Transparent" TextColor="Gray" BorderColor="Gray" BorderWidth="1" CornerRadius="25"/>
-                    <Button Grid.Column="1" x:Name="BtnCapture" Text="Capture" Clicked="OnCaptureClicked" BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="White" CornerRadius="25"/>
+                    <Button Grid.Column="1" x:Name="BtnRetake" Text="Retake" Clicked="OnRetakeClicked" IsVisible="False" BackgroundColor="Transparent" TextColor="Gray" BorderColor="Gray" BorderWidth="1" CornerRadius="25"/>
+                    <Button Grid.Column="2" x:Name="BtnCapture" Text="Capture" Clicked="OnCaptureClicked" BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="White" CornerRadius="25"/>
                 </Grid>
             </VerticalStackLayout>
         </Border>
