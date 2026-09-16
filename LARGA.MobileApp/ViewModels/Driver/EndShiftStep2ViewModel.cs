@@ -6,6 +6,8 @@ using System.Windows.Input;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
+using Plugin.Firebase.Auth;
+using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -46,6 +48,24 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
 
     public bool HasPhoto => FuelPhoto != null;
 
+    /// <summary>Firebase Cloud Storage download URL for the uploaded fuel-level photo - see
+    /// PreShiftStep2ViewModel.FuelPhotoUrl for the same rationale (null on failure, non-blocking).</summary>
+    private string? _fuelPhotoUrl;
+    public string? FuelPhotoUrl
+    {
+        get => _fuelPhotoUrl;
+        set { _fuelPhotoUrl = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>Firebase Cloud Storage download URL for the odometer dashboard photo, relayed
+    /// back from OdometerScanPage alongside the recognized number.</summary>
+    private string? _odometerPhotoUrl;
+    public string? OdometerPhotoUrl
+    {
+        get => _odometerPhotoUrl;
+        set { _odometerPhotoUrl = value; OnPropertyChanged(); }
+    }
+
     private bool _isHalfTankSelected;
     public bool IsHalfTankSelected
     {
@@ -84,8 +104,12 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
     public ICommand ConfirmEndShiftCommand { get; }
     public ICommand SelectFuelCommand { get; }
 
-    public EndShiftStep2ViewModel()
+    private readonly IPhotoStorageService _photoStorageService;
+
+    public EndShiftStep2ViewModel(IPhotoStorageService photoStorageService)
     {
+        _photoStorageService = photoStorageService;
+
         // Routes to the active OCR scanner page
         ScanOdometerCommand = new Command(async () => await Shell.Current.GoToAsync("odometer-scan"));
 
@@ -135,6 +159,10 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                     }
 
                     FuelPhoto = ImageSource.FromStream(() => new MemoryStream(photoBytes));
+
+                    string driverId = CrossFirebaseAuth.Current.CurrentUser?.Uid ?? "unknown_driver";
+                    string path = $"fuel_photos/{driverId}/endshift_{DateTime.UtcNow:yyyyMMddHHmmss}.jpg";
+                    FuelPhotoUrl = await _photoStorageService.UploadPhotoAsync(path, photoBytes);
                 }
             }
         }
@@ -144,12 +172,16 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
         }
     }
 
-    // Catches the selected string returned from OdometerScanPage
+    // Catches the selected string (and photo URL) returned from OdometerScanPage
     public void ApplyQueryAttributes(IDictionary<string, object> query)
     {
         if (query.TryGetValue("ScannedOdometer", out var odometer))
         {
             FinalOdometer = odometer.ToString();
+        }
+        if (query.TryGetValue("OdometerPhotoUrl", out var photoUrl))
+        {
+            OdometerPhotoUrl = photoUrl.ToString();
         }
     }
 }

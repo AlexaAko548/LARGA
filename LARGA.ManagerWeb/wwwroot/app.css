@@ -841,6 +841,120 @@ display: inline-block;
 font-size: 0.8rem;
 }
 
+.notification-bell-wrap {
+position: relative;
+display: inline-flex;
+}
+
+.notification-bell-btn {
+position: relative;
+}
+
+.notification-badge {
+position: absolute;
+top: -0.35rem;
+right: -0.35rem;
+min-width: 1.1rem;
+height: 1.1rem;
+padding: 0 0.2rem;
+border-radius: 999px;
+background: #e5484d;
+color: #fff;
+font-size: 0.62rem;
+font-weight: 700;
+line-height: 1.1rem;
+text-align: center;
+}
+
+.notification-dropdown {
+position: absolute;
+top: calc(100% + 0.5rem);
+right: 0;
+width: 320px;
+max-height: 380px;
+overflow-y: auto;
+background: #fff;
+border: 1px solid rgba(118, 154, 168, 0.28);
+border-radius: 12px;
+box-shadow: 0 12px 28px rgba(20, 40, 55, 0.16);
+z-index: 40;
+}
+
+.notification-dropdown-header {
+display: flex;
+align-items: center;
+justify-content: space-between;
+padding: 0.75rem 0.9rem;
+border-bottom: 1px solid rgba(118, 154, 168, 0.2);
+font-weight: 700;
+color: #2b4d5d;
+font-size: 0.85rem;
+}
+
+.notification-unread-count {
+font-size: 0.72rem;
+font-weight: 600;
+color: #e5484d;
+}
+
+.notification-empty {
+padding: 1.2rem 0.9rem;
+color: #7a97a4;
+font-size: 0.82rem;
+text-align: center;
+}
+
+.notification-item {
+display: flex;
+align-items: flex-start;
+gap: 0.55rem;
+width: 100%;
+padding: 0.7rem 0.9rem;
+border: none;
+border-bottom: 1px solid rgba(118, 154, 168, 0.14);
+background: transparent;
+text-align: left;
+cursor: pointer;
+}
+
+.notification-item:last-child {
+border-bottom: none;
+}
+
+.notification-item.unread {
+background: #eef7fb;
+}
+
+.notification-item-dot {
+margin-top: 0.3rem;
+width: 0.5rem;
+height: 0.5rem;
+border-radius: 50%;
+background: #0db6f6;
+flex-shrink: 0;
+}
+
+.notification-item:not(.unread) .notification-item-dot {
+background: transparent;
+}
+
+.notification-item-body {
+display: flex;
+flex-direction: column;
+gap: 0.2rem;
+}
+
+.notification-item-message {
+font-size: 0.82rem;
+color: #223e4b;
+line-height: 1.35;
+}
+
+.notification-item-time {
+font-size: 0.7rem;
+color: #7a97a4;
+}
+
 .status-strip {
 display: flex;
 flex-wrap: wrap;
@@ -1637,6 +1751,24 @@ height: 3.2rem;
 font-size: 1.1rem;
 }
 
+.table-avatar.small {
+width: 1.7rem;
+height: 1.7rem;
+font-size: 0.65rem;
+}
+
+.table-empty.small {
+padding: 0.8rem;
+font-size: 0.75rem;
+}
+
+.totals-row td {
+font-weight: 700;
+color: #17475c;
+background: rgba(255,255,255,0.35);
+border-top: 2px solid rgba(94, 144, 165, 0.4);
+}
+
 .profile-btn {
 border: 1px solid rgba(94, 144, 165, 0.3);
 background: rgba(255,255,255,0.4);
@@ -1725,6 +1857,9 @@ text-align: center;
 }
 
 .schedule-cell {
+display: inline-flex;
+align-items: center;
+gap: 0.3rem;
 border: 1px solid rgba(94, 144, 165, 0.3);
 background: rgba(255,255,255,0.45);
 border-radius: 8px;
@@ -1736,10 +1871,17 @@ cursor: pointer;
 white-space: nowrap;
 }
 
-.schedule-cell.rest {
+.schedule-cell.off {
 color: #8095a1;
 font-weight: 500;
 background: rgba(255,255,255,0.18);
+text-decoration: line-through;
+}
+
+.schedule-cell.no-unit {
+color: #b3541e;
+background: rgba(255, 176, 32, 0.12);
+border-color: rgba(255, 176, 32, 0.4);
 }
 
 .schedule-today {
@@ -1754,37 +1896,6 @@ border-radius: 6px 6px 0 0;
 
 .schedule-table tfoot td.schedule-today {
 background: rgba(13, 109, 150, 0.1);
-}
-
-.schedule-dropdown {
-position: absolute;
-top: 100%;
-left: 50%;
-transform: translateX(-50%);
-margin-top: 0.3rem;
-background: white;
-border: 1px solid rgba(94, 144, 165, 0.35);
-border-radius: 10px;
-box-shadow: 0 12px 28px rgba(15, 32, 40, 0.22);
-z-index: 20;
-display: flex;
-flex-direction: column;
-min-width: 7rem;
-overflow: hidden;
-}
-
-.schedule-dropdown button {
-border: none;
-background: white;
-padding: 0.5rem 0.7rem;
-font-size: 0.78rem;
-text-align: left;
-color: #1d3649;
-cursor: pointer;
-}
-
-.schedule-dropdown button:hover {
-background: rgba(142, 215, 238, 0.3);
 }
 
 /* Shift Logs */
@@ -2033,6 +2144,60 @@ align-items: center;
 .checklist-footer-note {
 font-size: 0.72rem;
 color: #4d7385;
+}
+
+.checklist-compare {
+display: grid;
+grid-template-columns: 1fr 1fr;
+gap: 1.2rem;
+}
+
+.checklist-column + .checklist-column {
+border-left: 1px solid rgba(102, 136, 150, 0.2);
+padding-left: 1.2rem;
+}
+
+.checklist-column-header {
+font-size: 0.85rem;
+font-weight: 700;
+color: #17475c;
+margin-bottom: 0.6rem;
+}
+
+.checklist-history {
+margin-top: 1.2rem;
+padding-top: 1rem;
+border-top: 1px solid rgba(102, 136, 150, 0.25);
+}
+
+.history-mini-list {
+display: flex;
+flex-direction: column;
+gap: 0.4rem;
+margin-bottom: 0.7rem;
+}
+
+.history-mini-row {
+display: flex;
+align-items: center;
+justify-content: space-between;
+font-size: 0.78rem;
+color: #1d3649;
+background: rgba(255,255,255,0.25);
+border-radius: 8px;
+padding: 0.4rem 0.7rem;
+}
+
+@media (max-width: 720px) {
+.checklist-compare {
+grid-template-columns: 1fr;
+}
+.checklist-column + .checklist-column {
+border-left: none;
+border-top: 1px solid rgba(102, 136, 150, 0.2);
+padding-left: 0;
+padding-top: 1.2rem;
+}
 }
 
 /* Driver Profile side panel */

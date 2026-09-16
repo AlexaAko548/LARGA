@@ -44,6 +44,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IChatService, ChatService>();
         builder.Services.AddSingleton<IShiftManagementService, ShiftManagementService>();
         builder.Services.AddSingleton<INotificationService, NotificationService>();
+        builder.Services.AddSingleton<IPhotoStorageService, PhotoStorageService>();
 
 #if ANDROID
         builder.Services.AddSingleton<IOcrService, LARGA.MobileApp.Platforms.Android.Services.AndroidOcrService>();
