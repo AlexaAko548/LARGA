@@ -9,6 +9,7 @@ using Plugin.Firebase.Core.Platforms.Android;
 #endif
 using Microsoft.Maui.LifecycleEvents;
 using LARGA.MobileApp.ViewModels.Driver;
+using LARGA.MobileApp.ViewModels.Manager;
 using LARGA.MobileApp.ViewModels.Auth;
 using Plugin.Firebase.CloudMessaging;
 using LARGA.MobileApp.Services;
@@ -65,6 +66,8 @@ public static class MauiProgram
         builder.Services.AddTransient<LedgerViewModel>();
         builder.Services.AddTransient<PaymentHistoryViewModel>();
         builder.Services.AddTransient<DebtDetailViewModel>();
+        builder.Services.AddTransient<ManagerLedgerViewModel>();
+        builder.Services.AddTransient<RecordPaymentViewModel>();
 
         // Register Views 
         builder.Services.AddTransient<LandingPage>();
