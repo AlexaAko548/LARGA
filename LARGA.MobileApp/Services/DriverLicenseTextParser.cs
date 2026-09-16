@@ -30,7 +30,10 @@ public static class DriverLicenseTextParser
     }
 
     private static readonly Regex LicenseNumberPattern = new(@"\b[A-Z]\d{2}-\d{2}-\d{6}\b", RegexOptions.Compiled);
-    private static readonly Regex DatePattern = new(@"\b(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})\b", RegexOptions.Compiled);
+    // PH LTO licenses print dates as YYYY/MM/DD (e.g. "2030/09/27"), not the year-last order
+    // this used to assume - that mismatch meant the expiry date (and DOB fallback) never
+    // matched on a real license, no matter how clear the photo was.
+    private static readonly Regex DatePattern = new(@"\b(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})\b", RegexOptions.Compiled);
     private static readonly Regex DlCodesPattern = new(@"\b[A-Z]\d?(?:\s*,\s*[A-Z]\d?){1,7}\b", RegexOptions.Compiled);
     private static readonly Regex NamePattern = new(@"\b([A-Z][A-Z.\s]{1,30}),\s*([A-Z][A-Z.\s]{1,30}),\s*([A-Z][A-Z.\s]{1,30})\b", RegexOptions.Compiled);
 
@@ -123,9 +126,9 @@ public static class DriverLicenseTextParser
         var match = DatePattern.Match(text);
         if (!match.Success) return null;
 
-        if (int.TryParse(match.Groups[1].Value, out var month) &&
-            int.TryParse(match.Groups[2].Value, out var day) &&
-            int.TryParse(match.Groups[3].Value, out var year))
+        if (int.TryParse(match.Groups[1].Value, out var year) &&
+            int.TryParse(match.Groups[2].Value, out var month) &&
+            int.TryParse(match.Groups[3].Value, out var day))
         {
             try
             {
