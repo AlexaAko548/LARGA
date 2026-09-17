@@ -274,10 +274,20 @@ public class AlertCenterViewModel : BindableObject
                 .GetCollection("maintenance_logs")
                 .GetDocument(alert.Id)
                 .UpdateDataAsync(new Dictionary<object, object> { ["status"] = newStatus });
+
+            // The card just disappears from this list once its status leaves "Reported" -
+            // with no confirmation, that silent vanish reads exactly like the tap did
+            // nothing, even though the write to maintenance_logs (which ManagerWeb's Garage
+            // page reads) already succeeded. Say so explicitly.
+            if (newStatus == "InProgress")
+            {
+                await Shell.Current.DisplayAlert("Sent to Garage", $"{alert.DriverName}'s report has been sent to the garage for a work order.", "OK");
+            }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Resolve Defect Error: {ex.Message}");
+            await Shell.Current.DisplayAlert("Error", "Could not send this report to the garage. Please try again.", "OK");
         }
     }
 

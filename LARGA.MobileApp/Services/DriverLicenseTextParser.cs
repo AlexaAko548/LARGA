@@ -35,7 +35,12 @@ public static class DriverLicenseTextParser
     // matched on a real license, no matter how clear the photo was.
     private static readonly Regex DatePattern = new(@"\b(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})\b", RegexOptions.Compiled);
     private static readonly Regex DlCodesPattern = new(@"\b[A-Z]\d?(?:\s*,\s*[A-Z]\d?){1,7}\b", RegexOptions.Compiled);
-    private static readonly Regex NamePattern = new(@"\b([A-Z][A-Z.\s]{1,30}),\s*([A-Z][A-Z.\s]{1,30}),\s*([A-Z][A-Z.\s]{1,30})\b", RegexOptions.Compiled);
+
+    // A real PH LTO license prints "Last Name, First Name Middle Name" - ONE comma, with the
+    // first and middle names space-separated (not a second comma), e.g. "DELA CRUZ, JUAN
+    // PEDRO GARCIA". This used to require two commas, which never matches an actual card - it
+    // was silently leaving FullName null on every real scan tested tonight.
+    private static readonly Regex NamePattern = new(@"\b([A-Z][A-Z.\s]{1,30}),\s*([A-Z][A-Z.\s]{1,40})\b", RegexOptions.Compiled);
 
     public static ParsedLicense Parse(IEnumerable<string> textBlocks)
     {
@@ -109,10 +114,28 @@ public static class DriverLicenseTextParser
             var match = NamePattern.Match(line);
             if (match.Success)
             {
-                // Card prints "Last, First, Middle" - reorder to "First Middle Last" for display.
+                // Card prints "Last, First Middle" (one comma) - reorder to "First Middle
+                // Last" for display. The given-name segment can itself be multiple words
+                // (e.g. "JUAN PEDRO GARCIA" or a compound first name like "MARIA CRISTINA") -
+                // Filipino naming convention treats the middle name as a single word (the
+                // mother's maiden surname), so the LAST word of that segment is taken as the
+                // middle name and everything before it as the (possibly multi-word) first name.
                 var last = ToTitleCase(match.Groups[1].Value.Trim());
-                var first = ToTitleCase(match.Groups[2].Value.Trim());
-                var middle = ToTitleCase(match.Groups[3].Value.Trim());
+                var givenWords = match.Groups[2].Value.Trim()
+                    .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+
+                string first, middle;
+                if (givenWords.Length <= 1)
+                {
+                    first = givenWords.Length == 1 ? ToTitleCase(givenWords[0]) : string.Empty;
+                    middle = string.Empty;
+                }
+                else
+                {
+                    first = ToTitleCase(string.Join(" ", givenWords.Take(givenWords.Length - 1)));
+                    middle = ToTitleCase(givenWords[^1]);
+                }
+
                 result.FullName = $"{first} {middle} {last}".Replace("  ", " ").Trim();
                 break;
             }
