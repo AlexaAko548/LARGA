@@ -29,6 +29,10 @@ public partial class ManagerDashboardPage : ContentPage
     // 20, ~zoom 13) left roads thin and washed out.
     private const double DefaultResolution = 4.8;
 
+    // ~zoom level 18 (building/street-address level) - the "Navigate" button's whole point is
+    // to zoom in past the general fleet-overview level to the driver's exact spot.
+    private const double CloseUpResolution = 0.6;
+
     private readonly FleetMapViewModel _viewModel;
     private readonly MapControl _mapControl;
     private readonly MemoryLayer _pinsLayer;
@@ -62,6 +66,7 @@ public partial class ManagerDashboardPage : ContentPage
         _viewModel.Pins.CollectionChanged += OnPinsChanged;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.FleetLoaded += OnFleetLoaded;
+        _viewModel.NavigateRequested += OnNavigateRequested;
 
         // Keep the map border below the header instead of a fixed guessed margin - the
         // header's height changes with its content (e.g. the date label) and with OS font
@@ -129,6 +134,12 @@ public partial class ManagerDashboardPage : ContentPage
             var (x, y) = SphericalMercator.FromLonLat(first.Longitude, first.Latitude);
             _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), DefaultResolution);
         }
+    }
+
+    private void OnNavigateRequested(object? sender, FleetPin pin)
+    {
+        var (x, y) = SphericalMercator.FromLonLat(pin.Longitude, pin.Latitude);
+        _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), CloseUpResolution);
     }
 
     private void OnFleetLoaded(object? sender, EventArgs e)

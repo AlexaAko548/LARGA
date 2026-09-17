@@ -15,6 +15,9 @@ using LARGA.MobileApp.Services;
 using LARGA.MobileApp.Views.Shared;
 using Camera.MAUI; // Added Camera.MAUI namespace
 using SkiaSharp.Views.Maui.Controls.Hosting;
+using Mapsui.Utilities;
+using Mapsui.Widgets;
+using Mapsui.Widgets.InfoWidgets;
 
 namespace LARGA.MobileApp;
 
@@ -22,6 +25,14 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+        // Mapsui's built-in FPS/log overlay (LAR-48 Live Fleet map) defaults to
+        // OnlyInDebugMode - only ON when a debugger is attached. That's exactly how QA runs
+        // the app from Visual Studio, so they always see it, while a plain adb-installed APK
+        // (how this was tested here) never does. Force both off unconditionally so nobody
+        // sees Mapsui's internal debug info on the map, regardless of how they launched it.
+        LoggingWidget.ShowLoggingInMap = ActiveMode.No;
+        Performance.DefaultIsActive = ActiveMode.No;
+
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()

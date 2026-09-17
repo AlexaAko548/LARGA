@@ -187,6 +187,10 @@ public class FleetMapViewModel : BindableObject
     // driver on the map" handoff (see MapFocusRequest).
     public event EventHandler? FleetLoaded;
 
+    // Raised by NavigateCommand - the page (which owns the actual MapControl/Navigator)
+    // zooms in tight on this pin's exact coordinates in response.
+    public event EventHandler<FleetPin>? NavigateRequested;
+
     public ICommand LoadFleetCommand { get; }
     public ICommand SelectPinCommand { get; }
     public ICommand SelectUnitCommand { get; }
@@ -231,18 +235,13 @@ public class FleetMapViewModel : BindableObject
             await Shell.Current.DisplayAlert("Not Available Yet", "Manager messaging is coming soon.", "OK");
         });
 
-        NavigateCommand = new Command(async () =>
+        NavigateCommand = new Command(() =>
         {
+            // Zoom in tight on the driver's exact position on the app's own Live Fleet map,
+            // rather than handing off to an external maps app - same reasoning as the Alert
+            // Center car icon fix.
             if (SelectedPin == null) return;
-            try
-            {
-                var location = new Location(SelectedPin.Latitude, SelectedPin.Longitude);
-                await Map.OpenAsync(location, new MapLaunchOptions { Name = SelectedPin.DriverName });
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Open Map Error: {ex.Message}");
-            }
+            NavigateRequested?.Invoke(this, SelectedPin);
         });
 
         UpdateCurrentDate();
