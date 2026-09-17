@@ -164,16 +164,19 @@ public partial class ManagerDashboardPage : ContentPage
 
         if (matchingPin != null)
         {
-            // Same as tapping the pin directly - pans the map AND opens its detail sheet.
+            // Opens the detail sheet, same as tapping the pin directly. This also pans the
+            // map at DefaultResolution (see OnViewModelPropertyChanged) - immediately
+            // overridden below with a tight zoom, same as the Navigate button, since jumping
+            // here from Alert Center should land right on the driver, not just in view of it.
             _viewModel.SelectPinCommand.Execute(matchingPin);
         }
-        else
-        {
-            // No live pin for this driver (no current shift/telemetry) - still honor the
-            // SOS alert's own reported coordinates rather than doing nothing.
-            var (x, y) = SphericalMercator.FromLonLat(requestedLon, requestedLat);
-            _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), DefaultResolution);
-        }
+
+        // No live pin for this driver (no current shift/telemetry) still gets honored via the
+        // SOS alert's own reported coordinates, rather than doing nothing.
+        var (x, y) = matchingPin != null
+            ? SphericalMercator.FromLonLat(matchingPin.Longitude, matchingPin.Latitude)
+            : SphericalMercator.FromLonLat(requestedLon, requestedLat);
+        _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), CloseUpResolution);
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
