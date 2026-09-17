@@ -1,16 +1,20 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
+using LARGA.MobileApp.Services;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
-public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
+// Removed IQueryAttributable since we use WeakReferenceMessenger for Modals
+public class EndShiftStep2ViewModel : BindableObject
 {
+    private readonly IOcrService _ocrService;
+
     private string _finalOdometer = string.Empty;
     public string FinalOdometer
     {
@@ -28,7 +32,6 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
 
     public bool IsOdometerScanned => !string.IsNullOrWhiteSpace(FinalOdometer);
 
-    // Dynamically formats the button text to match the Pre-Shift design
     public string OdometerButtonText => IsOdometerScanned ? $"📷 {FinalOdometer} km" : "📷 Scan odometer dashboard";
 
     private ImageSource _fuelPhoto;
@@ -84,11 +87,18 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
     public ICommand ConfirmEndShiftCommand { get; }
     public ICommand SelectFuelCommand { get; }
 
-    public EndShiftStep2ViewModel()
+    // Inject the OCR service via the constructor
+    public EndShiftStep2ViewModel(IOcrService ocrService)
     {
-        // Routes to the active OCR scanner page
-        ScanOdometerCommand = new Command(async () => await Shell.Current.GoToAsync("odometer-scan"));
+        _ocrService = ocrService;
 
+        // Register the Messenger to listen for the modal's return value
+        CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Register<EndShiftStep2ViewModel, string, string>(this, "OdometerScanned", (r, scannedText) =>
+        {
+            FinalOdometer = scannedText;
+        });
+
+        ScanOdometerCommand = new Command(async () => await ScanOdometerAsync());
         AttachFuelPhotoCommand = new Command(async () => await AttachFuelPhotoAsync());
 
         ConfirmEndShiftCommand = new Command(async () =>
@@ -110,6 +120,32 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
         });
     }
 
+    private async Task ScanOdometerAsync()
+    {
+        var status = await Permissions.CheckStatusAsync<Permissions.Camera>();
+        if (status != PermissionStatus.Granted)
+        {
+            status = await Permissions.RequestAsync<Permissions.Camera>();
+            if (status != PermissionStatus.Granted) return;
+        }
+
+        if (MediaPicker.Default.IsCaptureSupported)
+        {
+            var photo = await MediaPicker.Default.CapturePhotoAsync();
+
+            if (photo != null)
+            {
+                using var stream = await photo.OpenReadAsync();
+                using var memoryStream = new MemoryStream();
+                await stream.CopyToAsync(memoryStream);
+                byte[] imageBytes = memoryStream.ToArray();
+
+                await Application.Current.MainPage.Navigation.PushModalAsync(
+                    new LARGA.MobileApp.Views.Driver.OdometerScanPage(_ocrService, imageBytes));
+            }
+        }
+    }
+
     private async Task AttachFuelPhotoAsync()
     {
         try
@@ -119,13 +155,6 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                 var photo = await MediaPicker.Default.CapturePhotoAsync();
                 if (photo != null)
                 {
-                    // Read the full-resolution capture into memory once, then hand back a
-                    // brand-new MemoryStream on every call. MAUI's Image control can invoke
-                    // the ImageSource.FromStream factory more than once per photo (layout
-                    // passes, DPI recalculation, re-render on rebind) - closing over a single
-                    // already-opened Stream meant every read after the first hit an
-                    // exhausted/consumed stream and decoded a corrupt, blurry-looking bitmap.
-                    // This is why the first capture always looked fine but a retake didn't.
                     byte[] photoBytes;
                     using (var stream = await photo.OpenReadAsync())
                     using (var buffer = new MemoryStream())
@@ -141,15 +170,6 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
         catch (Exception ex)
         {
             await Shell.Current.DisplayAlert("Error", $"Camera failed: {ex.Message}", "OK");
-        }
-    }
-
-    // Catches the selected string returned from OdometerScanPage
-    public void ApplyQueryAttributes(IDictionary<string, object> query)
-    {
-        if (query.TryGetValue("ScannedOdometer", out var odometer))
-        {
-            FinalOdometer = odometer.ToString();
         }
     }
 }
