@@ -61,6 +61,7 @@ public partial class ManagerDashboardPage : ContentPage
         // the map's feature layer is kept in sync with the viewmodel's Pins by hand.
         _viewModel.Pins.CollectionChanged += OnPinsChanged;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        _viewModel.FleetLoaded += OnFleetLoaded;
 
         // Keep the map border below the header instead of a fixed guessed margin - the
         // header's height changes with its content (e.g. the date label) and with OS font
@@ -121,11 +122,45 @@ public partial class ManagerDashboardPage : ContentPage
         _pinsLayer.Features = features;
         _mapControl.RefreshGraphics();
 
-        if (!_hasCenteredMap && _viewModel.Pins.Count > 0)
+        if (!_hasCenteredMap && !MapFocusRequest.HasPending && _viewModel.Pins.Count > 0)
         {
             _hasCenteredMap = true;
             var first = _viewModel.Pins[0];
             var (x, y) = SphericalMercator.FromLonLat(first.Longitude, first.Latitude);
+            _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), DefaultResolution);
+        }
+    }
+
+    private void OnFleetLoaded(object? sender, EventArgs e)
+    {
+        // Runs once per load, after Pins is fully rebuilt (unlike Pins.CollectionChanged,
+        // which fires separately for ApplyFilter's Clear() and each individual Add() - acting
+        // on one of those mid-rebuild events could see a partial/empty list and wrongly
+        // conclude the target driver has no pin).
+        if (!MapFocusRequest.TryConsume(out var requestedDriverId, out var requestedLat, out var requestedLon))
+        {
+            return;
+        }
+
+        _hasCenteredMap = true;
+
+        // A status filter left on from earlier could hide the very pin being jumped to.
+        _viewModel.StatusFilter = null;
+
+        var matchingPin = requestedDriverId != null
+            ? _viewModel.Pins.FirstOrDefault(p => p.DriverId == requestedDriverId)
+            : null;
+
+        if (matchingPin != null)
+        {
+            // Same as tapping the pin directly - pans the map AND opens its detail sheet.
+            _viewModel.SelectPinCommand.Execute(matchingPin);
+        }
+        else
+        {
+            // No live pin for this driver (no current shift/telemetry) - still honor the
+            // SOS alert's own reported coordinates rather than doing nothing.
+            var (x, y) = SphericalMercator.FromLonLat(requestedLon, requestedLat);
             _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), DefaultResolution);
         }
     }

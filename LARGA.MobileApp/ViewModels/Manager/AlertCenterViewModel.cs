@@ -8,7 +8,6 @@ using LARGA.MobileApp.Services;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.ApplicationModel.Communication;
 using Microsoft.Maui.Controls;
-using Microsoft.Maui.Devices.Sensors;
 using Plugin.Firebase.Firestore;
 
 namespace LARGA.MobileApp.ViewModels.Manager;
@@ -73,12 +72,16 @@ public class AlertCenterViewModel : BindableObject
             if (alert == null || alert.Latitude == null || alert.Longitude == null) return;
             try
             {
-                var location = new Location(alert.Latitude.Value, alert.Longitude.Value);
-                await Map.OpenAsync(location, new MapLaunchOptions { Name = alert.DriverName });
+                // Redirect into the app's own Live Fleet map (Map tab) centered on this
+                // driver, rather than handing off to an external maps app - a manager
+                // responding to an SOS wants the same map they already use for the fleet,
+                // not a separate app switch.
+                MapFocusRequest.Request(alert.DriverId, alert.Latitude.Value, alert.Longitude.Value);
+                await Shell.Current.GoToAsync("//manager-dashboard/home");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Open Map Error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"View Location Error: {ex.Message}");
             }
         });
     }
@@ -104,6 +107,7 @@ public class AlertCenterViewModel : BindableObject
                     {
                         Id = doc.Reference.Id,
                         Type = AlertType.Sos,
+                        DriverId = shift?.DriverId,
                         DriverName = BuildDriverLabel(driver, shift),
                         Subtitle = $"Location: {doc.Data.Latitude:F5}, {doc.Data.Longitude:F5}",
                         Timestamp = FirestoreDateTimeFix.Apply(doc.Data.Timestamp).ToLocalTime().ToString("h:mm tt"),
@@ -375,6 +379,7 @@ public class AlertItem
 {
     public string Id { get; set; } = string.Empty;
     public AlertType Type { get; set; }
+    public string? DriverId { get; set; }
     public string DriverName { get; set; } = string.Empty;
     public string Subtitle { get; set; } = string.Empty;
     public string Timestamp { get; set; } = string.Empty;

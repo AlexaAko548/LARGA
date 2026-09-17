@@ -180,6 +180,13 @@ public class FleetMapViewModel : BindableObject
         set { _currentDateText = value; OnPropertyChanged(); }
     }
 
+    // Fires once per LoadFleetAsync run, after Pins/UnitChips are fully rebuilt - unlike
+    // Pins.CollectionChanged (which fires once per Clear() and once per Add(), each
+    // individually, since ApplyFilter rebuilds the collection item-by-item), this is safe for
+    // code that needs the complete, settled pin list, e.g. Alert Center's "jump to this
+    // driver on the map" handoff (see MapFocusRequest).
+    public event EventHandler? FleetLoaded;
+
     public ICommand LoadFleetCommand { get; }
     public ICommand SelectPinCommand { get; }
     public ICommand SelectUnitCommand { get; }
@@ -379,6 +386,8 @@ public class FleetMapViewModel : BindableObject
                 chip.IsSelected = SelectedPin != null && chip.TaxiId == SelectedPin.TaxiId;
                 UnitChips.Add(chip);
             }
+
+            FleetLoaded?.Invoke(this, EventArgs.Empty);
 
             void Tally(FleetDriverStatus s)
             {
