@@ -171,6 +171,7 @@ public class AlertCenterViewModel : BindableObject
                     {
                         Id = doc.Reference.Id,
                         Type = AlertType.ShiftApproval,
+                        TaxiId = doc.Data.TaxiId,
                         DriverName = BuildDriverLabel(driver, null, doc.Data.TaxiId),
                         Timestamp = FirestoreDateTimeFix.Apply(doc.Data.DateLogged).ToLocalTime().ToString("h:mm tt"),
                         FailedItem = doc.Data.IssueTitle,
@@ -278,10 +279,31 @@ public class AlertCenterViewModel : BindableObject
                 .GetCollection("maintenance_logs")
                 .GetDocument(alert.Id)
                 .UpdateDataAsync(new Dictionary<object, object> { ["status"] = newStatus });
+
+            // "Deny & Send to Garage" means the taxi itself is now unavailable, not just that
+            // a work order exists for it - without this, Fleet Registry would keep showing it
+            // as available/active while it's actually sitting in the shop.
+            if (newStatus == "InProgress" && !string.IsNullOrWhiteSpace(alert.TaxiId))
+            {
+                await CrossFirebaseFirestore.Current
+                    .GetCollection("taxis")
+                    .GetDocument(alert.TaxiId)
+                    .UpdateDataAsync(new Dictionary<object, object> { ["status"] = "Maintenance" });
+            }
+
+            // The card just disappears from this list once its status leaves "Reported" -
+            // with no confirmation, that silent vanish reads exactly like the tap did
+            // nothing, even though the write to maintenance_logs (which ManagerWeb's Garage
+            // page reads) already succeeded. Say so explicitly.
+            if (newStatus == "InProgress")
+            {
+                await Shell.Current.DisplayAlert("Sent to Garage", $"{alert.DriverName}'s report has been sent to the garage for a work order. {alert.TaxiId} is now marked under maintenance.", "OK");
+            }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Resolve Defect Error: {ex.Message}");
+            await Shell.Current.DisplayAlert("Error", "Could not send this report to the garage. Please try again.", "OK");
         }
     }
 
@@ -380,6 +402,7 @@ public class AlertItem
     public string Id { get; set; } = string.Empty;
     public AlertType Type { get; set; }
     public string? DriverId { get; set; }
+    public string? TaxiId { get; set; }
     public string DriverName { get; set; } = string.Empty;
     public string Subtitle { get; set; } = string.Empty;
     public string Timestamp { get; set; } = string.Empty;
