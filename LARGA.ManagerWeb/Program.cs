@@ -95,6 +95,7 @@ builder.Services.AddSingleton(sp => new Lazy<FirebaseAuth>(() =>
 builder.Services.AddSingleton<DriverManagementService>();
 builder.Services.AddSingleton<FinancialLedgerService>();
 builder.Services.AddSingleton<GarageService>();
+builder.Services.AddSingleton<FuelVerificationService>();
 
 var app = builder.Build();
 

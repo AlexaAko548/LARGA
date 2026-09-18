@@ -1,6 +1,6 @@
 @* Shared across ManagerWeb's authenticated pages so the nav stays consistent as new
-   pages land - Dashboard, Driver & Shifts, Fin. Ledger, and Garage are real routes so
-   far; the rest stay inert until they have their own mockups/build. *@
+   pages land - Dashboard, Driver & Shifts, Fin. Ledger, Garage, and Fuel Verification
+   are real routes so far; the rest stay inert until they have their own mockups/build. *@
 
 <aside class="dashboard-sidebar">
     <div class="sidebar-brand">
@@ -32,10 +32,10 @@
             <span class="nav-icon">▣</span>
             <span>Inventory</span>
         </button>
-        <button class="nav-item" type="button" disabled>
+        <a href="/fuel-verification" class="nav-item @(ActiveItem == "FuelVerification" ? "active" : "")">
             <span class="nav-icon">✓</span>
             <span>Fuel Verification</span>
-        </button>
+        </a>
         <button class="nav-item" type="button" disabled>
             <span class="nav-icon">◍</span>
             <span>Audit Logs</span>
