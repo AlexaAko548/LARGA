@@ -125,6 +125,18 @@ public class ScanDriverLicenseViewModel : BindableObject
                 return;
             }
 
+            // Reject a scan of someone else's license outright, rather than letting it
+            // through and quietly overwriting this driver's record with a different name.
+            var registeredName = await GetRegisteredNameAsync();
+            if (!DriverLicenseTextParser.NamesLikelyMatch(registeredName, _parsed.FullName))
+            {
+                await Shell.Current.DisplayAlert(
+                    "Name doesn't match",
+                    $"This license appears to belong to \"{_parsed.FullName}\", but this account is registered as \"{registeredName}\". Please scan the license that belongs to this driver.",
+                    "OK");
+                return;
+            }
+
             NameDisplay = _parsed.FullName ?? string.Empty;
             SexDisplay = _parsed.Sex ?? string.Empty;
             DlCodesDisplay = _parsed.DlCodes ?? string.Empty;
@@ -142,6 +154,31 @@ public class ScanDriverLicenseViewModel : BindableObject
         {
             IsBusy = false;
         }
+    }
+
+    private async Task<string?> GetRegisteredNameAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_targetUserId)) return null;
+
+        try
+        {
+            var doc = await CrossFirebaseFirestore.Current
+                .GetCollection("users")
+                .GetDocument(_targetUserId)
+                .GetDocumentSnapshotAsync<DriverNameProxy>();
+            return doc?.Data?.FullName;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Registered Name Lookup Error: {ex.Message}");
+            return null;
+        }
+    }
+
+    private class DriverNameProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("fullName")]
+        public string FullName { get; set; } = string.Empty;
     }
 
     private async Task SaveAsync()
