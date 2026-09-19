@@ -49,24 +49,6 @@ public class EndShiftStep2ViewModel : BindableObject
 
     public bool HasPhoto => FuelPhoto != null;
 
-    /// <summary>Firebase Cloud Storage download URL for the uploaded fuel-level photo - see
-    /// PreShiftStep2ViewModel.FuelPhotoUrl for the same rationale (null on failure, non-blocking).</summary>
-    private string? _fuelPhotoUrl;
-    public string? FuelPhotoUrl
-    {
-        get => _fuelPhotoUrl;
-        set { _fuelPhotoUrl = value; OnPropertyChanged(); }
-    }
-
-    /// <summary>Firebase Cloud Storage download URL for the odometer dashboard photo, relayed
-    /// back from OdometerScanPage alongside the recognized number.</summary>
-    private string? _odometerPhotoUrl;
-    public string? OdometerPhotoUrl
-    {
-        get => _odometerPhotoUrl;
-        set { _odometerPhotoUrl = value; OnPropertyChanged(); }
-    }
-
     private bool _isHalfTankSelected;
     public bool IsHalfTankSelected
     {
@@ -182,10 +164,6 @@ public class EndShiftStep2ViewModel : BindableObject
                     }
 
                     FuelPhoto = ImageSource.FromStream(() => new MemoryStream(photoBytes));
-
-                    string driverId = CrossFirebaseAuth.Current.CurrentUser?.Uid ?? "unknown_driver";
-                    string path = $"fuel_photos/{driverId}/endshift_{DateTime.UtcNow:yyyyMMddHHmmss}.jpg";
-                    FuelPhotoUrl = await _photoStorageService.UploadPhotoAsync(path, photoBytes);
                 }
             }
         }

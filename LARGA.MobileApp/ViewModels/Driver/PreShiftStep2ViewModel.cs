@@ -3,13 +3,10 @@ using LARGA.SharedCore.Services;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
-using Plugin.Firebase.Auth;
-using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Input;
-using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -68,27 +65,6 @@ public class PreShiftStep2ViewModel : BindableObject
     }
 
     public bool HasPhoto => FuelPhoto != null;
-
-    /// <summary>Firebase Cloud Storage download URL for the uploaded fuel-level photo, set once
-    /// AttachPhotoAsync's upload completes. Null while nothing's been captured yet, or if the
-    /// upload failed - HasPhoto/CanStartShift only depend on the local FuelPhoto preview, so a
-    /// failed upload doesn't block the driver from starting their shift.</summary>
-    private string? _fuelPhotoUrl;
-    public string? FuelPhotoUrl
-    {
-        get => _fuelPhotoUrl;
-        set { _fuelPhotoUrl = value; OnPropertyChanged(); }
-    }
-
-    /// <summary>Firebase Cloud Storage download URL for the odometer dashboard photo captured
-    /// during the scan (the one frame OCR actually read the number from), relayed back from
-    /// OdometerScanPage alongside the recognized number itself.</summary>
-    private string? _odometerPhotoUrl;
-    public string? OdometerPhotoUrl
-    {
-        get => _odometerPhotoUrl;
-        set { _odometerPhotoUrl = value; OnPropertyChanged(); }
-    }
 
     private bool _isHalfTankSelected;
     public bool IsHalfTankSelected
@@ -190,10 +166,6 @@ public class PreShiftStep2ViewModel : BindableObject
                     }
 
                     FuelPhoto = ImageSource.FromStream(() => new MemoryStream(photoBytes));
-
-                    string driverId = CrossFirebaseAuth.Current.CurrentUser?.Uid ?? "unknown_driver";
-                    string path = $"fuel_photos/{driverId}/preshift_{DateTime.UtcNow:yyyyMMddHHmmss}.jpg";
-                    FuelPhotoUrl = await _photoStorageService.UploadPhotoAsync(path, photoBytes);
                 }
             }
         }
