@@ -1,8 +1,12 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
 using LARGA.MobileApp.Services;
+using LARGA.MobileApp.ViewModels.Driver;
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace LARGA.MobileApp.Views.Driver;
@@ -32,11 +36,18 @@ public partial class OdometerScanPage : ContentPage
         double layoutHeight = TextOverlayLayout.Height;
 
         TextOverlayLayout.Children.Clear();
+        var seenCandidates = new HashSet<string>();
         foreach (var block in detectedBlocks)
         {
+            var candidate = NormalizeOdometerCandidate(block.Text);
+            if (string.IsNullOrWhiteSpace(candidate) || !seenCandidates.Add(candidate))
+            {
+                continue;
+            }
+
             var textBtn = new Button
             {
-                Text = block.Text,
+                Text = candidate,
                 BackgroundColor = Colors.Green.WithAlpha(0.4f),
                 TextColor = Colors.White,
                 Padding = new Thickness(0),
@@ -63,7 +74,11 @@ public partial class OdometerScanPage : ContentPage
 
             textBtn.Clicked += async (s, args) =>
             {
-                CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Send(block.Text, "OdometerScanned");
+                CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Send<OdometerScannedData, string>(new OdometerScannedData
+                {
+                    OdometerText = candidate,
+                    PhotoBytes = _imageBytes
+                }, "OdometerScanned");
                 await Navigation.PopModalAsync();
             };
 
@@ -74,5 +89,28 @@ public partial class OdometerScanPage : ContentPage
     private async void OnCancelClicked(object sender, EventArgs e)
     {
         await Navigation.PopModalAsync();
+    }
+
+    private static string? NormalizeOdometerCandidate(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+
+        var cleaned = text.ToUpperInvariant()
+            .Replace('O', '0')
+            .Replace('D', '0')
+            .Replace('I', '1')
+            .Replace('L', '1')
+            .Replace('S', '5')
+            .Replace('B', '8');
+
+        cleaned = Regex.Replace(cleaned, "[^0-9]", string.Empty);
+        if (cleaned.Length < 3 || cleaned.Length > 7)
+            return null;
+
+        if (cleaned.All(c => c == cleaned[0]))
+            return null;
+
+        return cleaned;
     }
 }

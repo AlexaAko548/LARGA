@@ -56,14 +56,21 @@ public class AndroidOcrService : IOcrService
         {
             foreach (var block in result.TextBlocks)
             {
+                // ML Kit documents TextBlock.BoundingBox as nullable - it's a real Java Rect
+                // binding and does come back null for some blocks regardless of photo quality.
+                // Skipping the box (rather than reading .Left/.Top/etc on null) used to throw
+                // and fail the whole scan with a generic "something went wrong" error.
+                var box = block.BoundingBox;
                 blocks.Add(new OcrTextBlock
                 {
                     Text = block.Text,
-                    BoundingBox = new Microsoft.Maui.Graphics.Rect(
-                        block.BoundingBox.Left / imgWidth,
-                        block.BoundingBox.Top / imgHeight,
-                        block.BoundingBox.Width() / imgWidth,
-                        block.BoundingBox.Height() / imgHeight)
+                    BoundingBox = box == null
+                        ? Microsoft.Maui.Graphics.Rect.Zero
+                        : new Microsoft.Maui.Graphics.Rect(
+                            box.Left / imgWidth,
+                            box.Top / imgHeight,
+                            box.Width() / imgWidth,
+                            box.Height() / imgHeight)
                 });
             }
         }
