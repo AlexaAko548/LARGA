@@ -91,7 +91,7 @@ public class PreShiftStep1ViewModel : BindableObject, IQueryAttributable
             {
                 AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber)
                     ? taxi.Model
-                    : taxi.PlateNumber.Replace("-", "·");
+                    : taxi.PlateNumber.Replace("-", " Â· ");
             }
         }
         catch (System.Exception ex)
