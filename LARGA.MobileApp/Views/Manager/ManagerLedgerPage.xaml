@@ -5,6 +5,7 @@
              xmlns:models="clr-namespace:LARGA.MobileApp.Models"
              x:Class="LARGA.MobileApp.Views.Manager.ManagerLedgerPage"
              x:DataType="vm:ManagerLedgerViewModel"
+             x:Name="RootPage"
              BackgroundColor="#FFFFFF"
              NavigationPage.HasNavigationBar="False">
 
@@ -15,45 +16,48 @@
                 <!-- Header -->
                 <Grid ColumnDefinitions="*, Auto">
                     <VerticalStackLayout Grid.Column="0">
-                        <Label Text="Quick Ledger" FontSize="26" FontAttributes="Bold" TextColor="#111827" />
+                        <Label Text="Quick Ledger" FontSize="42" FontAttributes="Bold" TextColor="#111827" FontFamily="BarlowCondensedBold" />
                         <Label Text="{Binding PendingCount, StringFormat='{0} pending clearances'}" FontSize="14" TextColor="#6B7280" />
                     </VerticalStackLayout>
                     <Button Grid.Column="1"
                             Text="+ Other Payment"
-                            BackgroundColor="#0097B2"
+                            Command="{Binding OpenOtherPaymentCommand}"
+                            BackgroundColor="#019BCF"
                             TextColor="White"
-                            CornerRadius="8"
-                            FontSize="12"
-                            HeightRequest="36" />
+                            CornerRadius="20"
+                            FontSize="20"
+                            FontFamily="BarlowCondensedBold"
+                            Padding="14,4"
+                            HeightRequest="40" />
                 </Grid>
 
                 <!-- PENDING SECTION -->
-                <Label Text="PENDING" FontSize="12" FontAttributes="Bold" TextColor="#6B7280" Margin="0,8,0,0" />
+                <Label Text="PENDING" FontSize="13" FontAttributes="Bold" TextColor="#1D1D1D" Margin="0,8,0,0" />
 
                 <CollectionView ItemsSource="{Binding PendingClearances}">
                     <CollectionView.ItemTemplate>
                         <DataTemplate x:DataType="models:LedgerItemModel">
-                            <Border StrokeShape="RoundRectangle 12" BackgroundColor="#E0F2FE" StrokeThickness="0" Margin="0,0,0,12" Padding="14">
+                            <Border StrokeShape="RoundRectangle 16" BackgroundColor="#A6DCEE" StrokeThickness="0" Margin="0,0,0,12" Padding="14">
                                 <Border.GestureRecognizers>
-                                    <TapGestureRecognizer Command="{Binding Source={RelativeSource AncestorType={x:Type vm:ManagerLedgerViewModel}}, Path=OpenRecordPaymentCommand}"
+                                    <TapGestureRecognizer Command="{Binding Source={x:Reference RootPage}, Path=BindingContext.OpenRecordPaymentCommand}"
                                                           CommandParameter="{Binding .}" />
                                 </Border.GestureRecognizers>
-                                <VerticalStackLayout Spacing="8">
+                                <VerticalStackLayout Spacing="10">
                                     <HorizontalStackLayout Spacing="8">
                                         <Label Text="👤" FontSize="16" VerticalOptions="Center" />
                                         <VerticalStackLayout>
-                                            <Label Text="{Binding DriverName}" FontAttributes="Bold" TextColor="#1E293B" FontSize="15" />
-                                            <Label Text="{Binding PlateNumber}" FontSize="11" TextColor="#64748B" />
+                                            <Label Text="{Binding DriverName}" FontAttributes="Bold" TextColor="#1D1D1D" FontSize="16" />
+                                            <Label Text="{Binding PlateNumber}" FontSize="11" TextColor="#5A6B75" />
                                         </VerticalStackLayout>
                                     </HorizontalStackLayout>
 
-                                    <Border StrokeShape="RoundRectangle 8" BackgroundColor="White" StrokeThickness="0" Padding="12,8">
+                                    <Border StrokeShape="RoundRectangle 14" BackgroundColor="White" StrokeThickness="0" Padding="14,10">
                                         <Grid ColumnDefinitions="*, Auto">
                                             <VerticalStackLayout>
-                                                <Label Text="Expected" FontSize="11" TextColor="#94A3B8" />
-                                                <Label Text="{Binding FormattedExpected}" FontAttributes="Bold" TextColor="#0F172A" FontSize="16" />
+                                                <Label Text="Expected" FontSize="12" TextColor="#8B8B8B" />
+                                                <Label Text="{Binding FormattedExpected}" FontAttributes="Bold" TextColor="#111111" FontSize="18" />
                                             </VerticalStackLayout>
-                                            <Label Grid.Column="1" Text="↗" FontSize="18" TextColor="#0F172A" VerticalOptions="Center" />
+                                            <Label Grid.Column="1" Text="↗" FontSize="20" TextColor="#111111" VerticalOptions="Center" />
                                         </Grid>
                                     </Border>
                                 </VerticalStackLayout>
@@ -63,19 +67,19 @@
                 </CollectionView>
 
                 <!-- PAYMENT DONE TODAY SECTION -->
-                <Label Text="PAYMENT DONE TODAY" FontSize="12" FontAttributes="Bold" TextColor="#6B7280" Margin="0,8,0,0" />
+                <Label Text="PAYMENT DONE TODAY" FontSize="13" FontAttributes="Bold" TextColor="#1D1D1D" Margin="0,8,0,0" />
 
                 <CollectionView ItemsSource="{Binding CompletedToday}">
                     <CollectionView.ItemTemplate>
                         <DataTemplate x:DataType="models:LedgerItemModel">
-                            <Border StrokeShape="RoundRectangle 12" BackgroundColor="#E0F2FE" StrokeThickness="0" Margin="0,0,0,8" Padding="14">
+                            <Border StrokeShape="RoundRectangle 16" BackgroundColor="#A6DCEE" StrokeThickness="0" Margin="0,0,0,10" Padding="14">
                                 <Grid ColumnDefinitions="Auto, *, Auto">
-                                    <Label Grid.Column="0" Text="✔" FontSize="14" TextColor="#0284C7" VerticalOptions="Center" Margin="0,0,10,0"/>
+                                    <Label Grid.Column="0" Text="✔" FontSize="15" TextColor="#1D1D1D" VerticalOptions="Center" Margin="0,0,10,0"/>
                                     <VerticalStackLayout Grid.Column="1" VerticalOptions="Center">
-                                        <Label Text="{Binding DriverName}" FontAttributes="Bold" TextColor="#1E293B" FontSize="14" />
-                                        <Label Text="{Binding FormattedPaid, StringFormat='Paid: {0}'}" FontSize="12" TextColor="#64748B" />
+                                        <Label Text="{Binding DriverName}" FontAttributes="Bold" TextColor="#1D1D1D" FontSize="15" />
+                                        <Label Text="{Binding CompletedMetaText}" FontSize="12" TextColor="#5A6B75" />
                                     </VerticalStackLayout>
-                                    <Label Grid.Column="2" Text="{Binding StatusDisplayText}" FontAttributes="Bold" TextColor="#0369A1" VerticalOptions="Center" />
+                                    <Label Grid.Column="2" Text="{Binding StatusDisplayText}" FontAttributes="Bold" FontSize="15" TextColor="#1D1D1D" VerticalOptions="Center" />
                                 </Grid>
                             </Border>
                         </DataTemplate>
@@ -86,57 +90,123 @@
 
         <!-- RECORD PAYMENT MODAL OVERLAY -->
         <Grid BackgroundColor="#66000000"
-              IsVisible="{Binding PaymentModalViewModel.IsVisible}"
-              BindingContext="{Binding PaymentModalViewModel}">
+              IsVisible="{Binding Source={x:Reference RootPage}, Path=BindingContext.PaymentModalViewModel.IsVisible}">
             <Border StrokeShape="RoundRectangle 20"
                     BackgroundColor="White"
                     StrokeThickness="0"
                     Margin="24"
                     Padding="20"
-                    VerticalOptions="Center">
+                    VerticalOptions="Center"
+                    BindingContext="{Binding Source={x:Reference RootPage}, Path=BindingContext.PaymentModalViewModel}"
+                    x:DataType="vm:RecordPaymentViewModel">
                 <VerticalStackLayout Spacing="12">
                     <Grid ColumnDefinitions="*, Auto">
                         <VerticalStackLayout Grid.Column="0">
-                            <Label Text="Record Payment" FontSize="18" FontAttributes="Bold" TextColor="#111827" />
-                            <Label Text="{Binding CurrentItem.DriverName}" FontSize="12" TextColor="#6B7280" />
+                            <Label Text="{Binding ModalTitle}" FontSize="18" FontAttributes="Bold" TextColor="#111827" FontFamily="BarlowCondensedBold" />
+                            <Label Text="{Binding CurrentDriverName}" FontSize="12" TextColor="#6B7280" />
                         </VerticalStackLayout>
-                        <Button Grid.Column="1" Text="✕" Command="{Binding CloseCommand}" BackgroundColor="Transparent" TextColor="#9CA3AF" />
+                        <Button Grid.Column="1" Text="✕" Command="{Binding CloseCommand}" BackgroundColor="#A6DCEE" TextColor="#1D1D1D" WidthRequest="30" HeightRequest="30" CornerRadius="15" FontSize="12" />
                     </Grid>
 
-                    <Label Text="Expected Amount" FontSize="12" TextColor="#6B7280" />
-                    <Entry Text="{Binding CurrentItem.ExpectedAmount, Mode=OneWay, StringFormat='{0:F2}'}" IsReadOnly="True" BackgroundColor="#E0F2FE" />
+                    <Grid ColumnDefinitions="*, *" ColumnSpacing="10" IsVisible="{Binding IsOtherPayment}">
+                        <VerticalStackLayout Spacing="6">
+                            <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="14,0" HeightRequest="44">
+                                <Picker ItemsSource="{Binding AvailableDrivers}"
+                                        SelectedItem="{Binding SelectedDriver}"
+                                        ItemDisplayBinding="{Binding FullName}"
+                                        Title="Select Driver"
+                                        BackgroundColor="Transparent"
+                                        TextColor="#1D1D1D"
+                                        FontAttributes="Bold"
+                                        VerticalOptions="Center" />
+                            </Border>
+                        </VerticalStackLayout>
+                        <VerticalStackLayout Grid.Column="1" Spacing="6">
+                            <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="14,0" HeightRequest="44">
+                                <Picker ItemsSource="{Binding Categories}"
+                                        SelectedItem="{Binding SelectedCategory}"
+                                        Title="Category"
+                                        BackgroundColor="Transparent"
+                                        TextColor="#1D1D1D"
+                                        FontAttributes="Bold"
+                                        VerticalOptions="Center" />
+                            </Border>
+                        </VerticalStackLayout>
+                    </Grid>
+
+                    <VerticalStackLayout Spacing="4" IsVisible="{Binding ShowExpectedAmount}">
+                        <Label Text="Expected Amount" FontSize="12" TextColor="#6B7280" />
+                        <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="16,0" HeightRequest="48">
+                            <Entry Text="{Binding CurrentExpectedAmount, Mode=OneWay, StringFormat='{0:F2}'}" IsReadOnly="True" BackgroundColor="Transparent" TextColor="#111111" FontAttributes="Bold" FontSize="18" VerticalOptions="Center" />
+                        </Border>
+                    </VerticalStackLayout>
 
                     <Label Text="Amount Received (PHP)" FontSize="12" TextColor="#6B7280" />
-                    <Entry Text="{Binding AmountReceived}" Keyboard="Numeric" BackgroundColor="#E0F2FE" />
+                    <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="16,0" HeightRequest="48">
+                        <Entry Text="{Binding AmountReceived}" Keyboard="Numeric" BackgroundColor="Transparent" TextColor="#111111" FontAttributes="Bold" FontSize="18" VerticalOptions="Center" />
+                    </Border>
 
                     <!-- Payment Method Selectors -->
                     <Grid ColumnDefinitions="*, *" ColumnSpacing="8" Margin="0,6,0,0">
                         <Button Grid.Column="0" Text="CASH"
                                 Command="{Binding SelectMethodCommand}"
                                 CommandParameter="CASH"
-                                BackgroundColor="#0097B2"
-                                TextColor="White" />
+                                CornerRadius="20"
+                                FontFamily="BarlowCondensedBold">
+                            <Button.Triggers>
+                                <DataTrigger TargetType="Button" Binding="{Binding IsEWallet}" Value="True">
+                                    <Setter Property="BackgroundColor" Value="#A6DCEE" />
+                                    <Setter Property="TextColor" Value="#1D1D1D" />
+                                </DataTrigger>
+                                <DataTrigger TargetType="Button" Binding="{Binding IsEWallet}" Value="False">
+                                    <Setter Property="BackgroundColor" Value="#019BCF" />
+                                    <Setter Property="TextColor" Value="White" />
+                                </DataTrigger>
+                            </Button.Triggers>
+                        </Button>
                         <Button Grid.Column="1" Text="E-WALLET (GCASH)"
                                 Command="{Binding SelectMethodCommand}"
                                 CommandParameter="GCASH"
-                                BackgroundColor="#0097B2"
-                                TextColor="White" />
+                                CornerRadius="20"
+                                FontFamily="BarlowCondensedBold">
+                            <Button.Triggers>
+                                <DataTrigger TargetType="Button" Binding="{Binding IsEWallet}" Value="True">
+                                    <Setter Property="BackgroundColor" Value="#019BCF" />
+                                    <Setter Property="TextColor" Value="White" />
+                                </DataTrigger>
+                                <DataTrigger TargetType="Button" Binding="{Binding IsEWallet}" Value="False">
+                                    <Setter Property="BackgroundColor" Value="#A6DCEE" />
+                                    <Setter Property="TextColor" Value="#1D1D1D" />
+                                </DataTrigger>
+                            </Button.Triggers>
+                        </Button>
                     </Grid>
 
                     <!-- E-Wallet Specific Section -->
-                    <VerticalStackLayout Spacing="8" IsVisible="{Binding IsEWallet}">
-                        <Button Text="📷 Scan receipt" BackgroundColor="Transparent" TextColor="#0097B2" BorderColor="#0097B2" BorderWidth="1" />
+                    <VerticalStackLayout Spacing="10" IsVisible="{Binding IsEWallet}">
+                        <Button Text="📷 Scan receipt" Command="{Binding OpenScanReceiptCommand}" BackgroundColor="#E6F5FA" TextColor="#1D1D1D" BorderColor="#40B4DB" BorderWidth="1" CornerRadius="16" HorizontalOptions="End" Padding="16,6" />
                         <Label Text="Receipt Details" FontSize="11" TextColor="#6B7280" />
-                        <Entry Placeholder="Amount" Text="{Binding ReceiptAmount}" BackgroundColor="#E0F2FE" />
-                        <DatePicker Date="{Binding ReceiptDate}" BackgroundColor="#E0F2FE" />
-                        <Entry Placeholder="Reference No." Text="{Binding ReferenceNumber}" BackgroundColor="#E0F2FE" />
+                        <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="16,0" HeightRequest="46">
+                            <Entry Placeholder="Amount" Text="{Binding ReceiptAmount}" BackgroundColor="Transparent" TextColor="#111111" PlaceholderColor="#6B8A97" VerticalOptions="Center" />
+                        </Border>
+                        <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="16,0" HeightRequest="46">
+                            <DatePicker Date="{Binding ReceiptDate}" BackgroundColor="Transparent" TextColor="#111111" VerticalOptions="Center" />
+                        </Border>
+                        <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="16,0" HeightRequest="46">
+                            <Entry Placeholder="Reference No." Text="{Binding ReferenceNumber}" BackgroundColor="Transparent" TextColor="#111111" PlaceholderColor="#6B8A97" VerticalOptions="Center" />
+                        </Border>
                     </VerticalStackLayout>
+
+                    <Label Text="{Binding ValidationMessage}" TextColor="#B91C1C" FontSize="12" IsVisible="{Binding HasValidationMessage}" />
 
                     <Button Text="CONFIRM PAYMENT"
                             Command="{Binding ConfirmPaymentCommand}"
-                            BackgroundColor="#0097B2"
+                            BackgroundColor="#019BCF"
                             TextColor="White"
-                            FontAttributes="Bold"
+                            FontFamily="BarlowCondensedBold"
+                            FontSize="22"
+                            CornerRadius="24"
+                            HeightRequest="54"
                             Margin="0,8,0,0" />
                 </VerticalStackLayout>
             </Border>

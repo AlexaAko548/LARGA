@@ -2,14 +2,14 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LARGA.MobileApp.Models;
+using LARGA.MobileApp.Services;
 using LARGA.SharedCore.Models.FinancialLedger;
-using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.ViewModels.Manager;
 
 public partial class ManagerLedgerViewModel : ObservableObject
 {
-    private readonly FinancialLedgerService _ledgerService;
+    private readonly MobileFinancialLedgerService _ledgerService;
 
     [ObservableProperty]
 private ObservableCollection<LedgerItemModel> pendingClearances = new();
@@ -25,12 +25,14 @@ private ObservableCollection<LedgerItemModel> pendingClearances = new();
 
     public RecordPaymentViewModel PaymentModalViewModel { get; }
 
-    public ManagerLedgerViewModel(FinancialLedgerService ledgerService, RecordPaymentViewModel paymentModalViewModel)
+    public ManagerLedgerViewModel(MobileFinancialLedgerService ledgerService, RecordPaymentViewModel paymentModalViewModel)
     {
         _ledgerService = ledgerService;
         PaymentModalViewModel = paymentModalViewModel;
         PaymentModalViewModel.OnPaymentRecorded = async () => await LoadDailySettlementsAsync();
     }
+
+    public void EnsurePaymentModalClosed() => PaymentModalViewModel.EnsureClosed();
 
     [RelayCommand]
     public async Task LoadDailySettlementsAsync()
@@ -69,6 +71,17 @@ private ObservableCollection<LedgerItemModel> pendingClearances = new();
                 }
             }
 
+            HashSet<string> todayShiftIds = snapshot.Rows
+                .Where(row => !string.IsNullOrWhiteSpace(row.ShiftId))
+                .Select(row => row.ShiftId)
+                .ToHashSet();
+
+            List<LedgerItemModel> mergedExtras = await _ledgerService.GetCompletedEntriesForTodayAsync(DateTime.UtcNow, todayShiftIds);
+            foreach (LedgerItemModel entry in mergedExtras)
+            {
+                CompletedToday.Add(entry);
+            }
+
             PendingCount = PendingClearances.Count;
         }
         finally
@@ -81,6 +94,13 @@ private ObservableCollection<LedgerItemModel> pendingClearances = new();
     private void OpenRecordPayment(LedgerItemModel item)
     {
         if (item == null) return;
-        PaymentModalViewModel.Initialize(item);
+        PaymentModalViewModel.InitializeStandard(item);
+    }
+
+    [RelayCommand]
+    private async Task OpenOtherPaymentAsync()
+    {
+        List<LARGA.Shared.Models.Entities.UserProfile> drivers = await _ledgerService.GetDriversAsync();
+        PaymentModalViewModel.InitializeOtherPayment(drivers);
     }
 }

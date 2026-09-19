@@ -31,5 +31,6 @@ public partial class AppShell : Shell
         Routing.RegisterRoute("change-password", typeof(Views.Manager.ChangePasswordPage));
         Routing.RegisterRoute("update-contact-number", typeof(Views.Manager.UpdateContactNumberPage));
         Routing.RegisterRoute("coming-soon", typeof(Views.Shared.ComingSoonPage));
+        Routing.RegisterRoute(nameof(ScanReceiptPage), typeof(ScanReceiptPage));
     }
 }

@@ -15,6 +15,15 @@ public partial class ManagerLedgerPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        await _viewModel.LoadDailySettlementsAsync();
+        _viewModel.EnsurePaymentModalClosed();
+        try
+        {
+            await _viewModel.LoadDailySettlementsAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Ledger Crash Prevented] {ex}");
+            await DisplayAlert("Error", "Unable to load ledger data.", "OK");
+        }
     }
 }

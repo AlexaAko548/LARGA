@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Manager"
+             x:Class="LARGA.MobileApp.Views.Manager.ScanReceiptPage"
+             x:DataType="vm:ScanReceiptViewModel"
+             BackgroundColor="#FFFFFF"
+             NavigationPage.HasNavigationBar="False">
+
+    <Grid RowDefinitions="Auto, *, Auto" Padding="20,16,20,12" RowSpacing="12">
+        <!-- Top Bar -->
+        <Grid Grid.Row="0" ColumnDefinitions="Auto, *" Margin="0,10,0,4">
+            <ImageButton Source="back_icon.png"
+                         Command="{Binding CancelCommand}"
+                         HeightRequest="24" WidthRequest="24"
+                         HorizontalOptions="Start" />
+            <Border Grid.Column="1" BackgroundColor="#AEE2F0" StrokeThickness="0"
+                    StrokeShape="RoundRectangle 4" Padding="18,8" HorizontalOptions="Fill" Margin="8,0,0,0">
+                <Label Text="SCAN  E-RECEIPT" FontSize="22" FontFamily="BarlowCondensedBold" HorizontalTextAlignment="Center" TextColor="#0F172A" />
+            </Border>
+        </Grid>
+
+        <!-- Receipt Camera / Preview Area -->
+        <Grid Grid.Row="1" Margin="0,0,0,8">
+            <Border StrokeShape="RoundRectangle 0" BackgroundColor="#F8FAFC" Stroke="#1D29C5" StrokeThickness="5">
+                <Grid>
+                    <Image Source="{Binding CapturedImageSource}" Aspect="AspectFit" />
+
+                    <!-- Reticle Frame -->
+                    <Border Stroke="#0097B2" StrokeThickness="2" StrokeShape="RoundRectangle 12"
+                            WidthRequest="220" HeightRequest="160"
+                            HorizontalOptions="Center" VerticalOptions="Center"
+                            BackgroundColor="Transparent"
+                            IsVisible="{Binding IsScanning}" />
+
+                    <ActivityIndicator IsRunning="{Binding IsProcessing}"
+                                       IsVisible="{Binding IsProcessing}"
+                                       Color="#0097B2"
+                                       HorizontalOptions="Center" VerticalOptions="Center" />
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Parsed Fields and Bottom Actions -->
+        <VerticalStackLayout Grid.Row="2" Spacing="8">
+            <Border StrokeShape="RoundRectangle 12" Stroke="#38BDF8" BackgroundColor="#FFFFFF" Padding="12,4">
+                <Grid ColumnDefinitions="Auto, *" HeightRequest="34">
+                    <Label Text="Amount" TextColor="#64748B" FontSize="12" VerticalOptions="Center" />
+                    <Label Grid.Column="1" Text="{Binding ScannedAmount, StringFormat='₱ {0:N2}'}"
+                           FontAttributes="Bold" HorizontalTextAlignment="End" VerticalTextAlignment="Center" TextColor="#0F172A" />
+                </Grid>
+            </Border>
+
+            <Border StrokeShape="RoundRectangle 12" Stroke="#38BDF8" BackgroundColor="#FFFFFF" Padding="12,4">
+                <Grid ColumnDefinitions="Auto, *" HeightRequest="34">
+                    <Label Text="Date" TextColor="#64748B" FontSize="12" VerticalOptions="Center" />
+                    <Label Grid.Column="1" Text="{Binding ScannedDate, StringFormat='{0:MMM dd, yyyy}'}"
+                           HorizontalTextAlignment="End" VerticalTextAlignment="Center" TextColor="#0F172A" />
+                </Grid>
+            </Border>
+
+            <Border StrokeShape="RoundRectangle 12" Stroke="#38BDF8" BackgroundColor="#FFFFFF" Padding="12,4">
+                <Grid ColumnDefinitions="Auto, *" HeightRequest="34">
+                    <Label Text="Reference No." TextColor="#64748B" FontSize="12" VerticalOptions="Center" />
+                    <Label Grid.Column="1" Text="{Binding ScannedReference}"
+                           FontAttributes="Bold" HorizontalTextAlignment="End" VerticalTextAlignment="Center" TextColor="#0F172A" />
+                </Grid>
+            </Border>
+
+            <!-- Bottom Action Buttons -->
+            <Button Text="Confirm"
+                    Command="{Binding ConfirmReceiptCommand}"
+                    BackgroundColor="#0097B2"
+                    TextColor="White"
+                    FontFamily="BarlowCondensedBold"
+                    FontSize="26"
+                    CornerRadius="18"
+                    HeightRequest="48"
+                    Margin="0,8,0,0"
+                    HorizontalOptions="Center"
+                    WidthRequest="140" />
+
+            <Button Text="Cancel"
+                    Command="{Binding CancelCommand}"
+                    BackgroundColor="#0097B2"
+                    TextColor="White"
+                    FontFamily="BarlowCondensedBold"
+                    FontSize="22"
+                    CornerRadius="18"
+                    HeightRequest="48"
+                    HorizontalOptions="Center"
+                    WidthRequest="140" />
+        </VerticalStackLayout>
+    </Grid>
+</ContentPage>

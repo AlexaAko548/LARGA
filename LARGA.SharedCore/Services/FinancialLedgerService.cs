@@ -8,17 +8,6 @@ using LARGA.Shared.Models.Entities;
 using Microsoft.Extensions.Logging;
 
 namespace LARGA.SharedCore.Services;
-
-/// <summary>
-/// Backs the ManagerWeb Financial Ledger &amp; Debts page's "Daily Settlements (Today)" tab
-/// and the "+ Adjustment" modal. Same Lazy&lt;FirestoreDb&gt; pattern as FleetReportingService
-/// and DriverManagementService, for the same reason (credential failures should surface
-/// inside a page's try/catch, not at DI-construction time).
-///
-/// The "Master Debt Ledger" tab (a driver's running unpaid balance across all history, not
-/// just today) has no mockup yet as of 2026-09-10, so it isn't built here - the sidebar tab
-/// stays disabled until one exists, same treatment as the still-unbuilt nav pages.
-/// </summary>
 public class FinancialLedgerService
 {
     private const decimal DefaultBoundaryRate = 800m;

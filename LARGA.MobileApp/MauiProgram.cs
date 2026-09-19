@@ -47,6 +47,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IShiftManagementService, ShiftManagementService>();
         builder.Services.AddSingleton<INotificationService, NotificationService>();
         builder.Services.AddSingleton<IMaintenanceService, MaintenanceService>();
+        builder.Services.AddSingleton<MobileFinancialLedgerService>();
 
 #if ANDROID
         builder.Services.AddSingleton<IOcrService, LARGA.MobileApp.Platforms.Android.Services.AndroidOcrService>();
@@ -68,6 +69,7 @@ public static class MauiProgram
         builder.Services.AddTransient<DebtDetailViewModel>();
         builder.Services.AddTransient<ManagerLedgerViewModel>();
         builder.Services.AddTransient<RecordPaymentViewModel>();
+        builder.Services.AddTransient<ScanReceiptViewModel>();
 
         // Register Views 
         builder.Services.AddTransient<LandingPage>();
@@ -100,6 +102,7 @@ public static class MauiProgram
         builder.Services.AddTransient<ManagerDriverProfilePage>();
         builder.Services.AddTransient<ManagerChatsPage>();
         builder.Services.AddTransient<ManagerLedgerPage>();
+        builder.Services.AddTransient<ScanReceiptPage>();
         builder.Services.AddTransient<FleetRegistryPage>();
         builder.Services.AddTransient<ChangePasswordPage>();
         builder.Services.AddTransient<UpdateContactNumberPage>();
