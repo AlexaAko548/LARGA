@@ -97,6 +97,7 @@ builder.Services.AddSingleton<DriverManagementService>();
 builder.Services.AddSingleton<FinancialLedgerService>();
 builder.Services.AddSingleton<GarageService>();
 builder.Services.AddSingleton<AlertService>();
+builder.Services.AddSingleton<InventoryAuditService>();
 builder.Services.AddHostedService<IdleAlertMonitorService>();
 
 var app = builder.Build();

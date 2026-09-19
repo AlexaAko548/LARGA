@@ -18,6 +18,9 @@ public class SparePart
     [FirestoreProperty("reorderLevel")]
     public int ReorderLevel { get; set; }
 
+    [FirestoreProperty("unit")]
+    public string Unit { get; set; } = "pcs";
+
     [FirestoreProperty("unitPrice", ConverterType = typeof(DecimalConverter))]
     public decimal UnitPrice { get; set; }
 }

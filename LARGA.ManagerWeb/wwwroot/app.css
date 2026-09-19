@@ -2789,3 +2789,401 @@ color: #17475c;
 .payment-method-toggle.three-way {
 grid-template-columns: repeat(3, 1fr);
 }
+
+/*Inventory & Audit Page CSS*/
+
+/* .font-mono {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+} */
+
+.inventory-page-wrapper,
+.audit-page-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+}
+
+/* ---- Page header (matches .dashboard-header) ---- */
+.page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.3rem 0.2rem 0;
+}
+
+.page-title {
+    margin: 0;
+    font-size: clamp(1.5rem, 2vw, 2.1rem);
+    letter-spacing: -0.07em;
+    color: #1d3342;
+}
+
+.page-subtitle {
+    margin-top: 0.2rem;
+    color: #5f7d8b;
+    font-size: 0.8rem;
+    letter-spacing: 0.04em;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+/* ---- Toolbar (filters / search + primary action) ---- */
+.toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.filter-pills {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.filter-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.32rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(151, 168, 178, 0.12);
+    border: 1px solid rgba(151, 168, 178, 0.22);
+    color: #4e6473;
+    font-size: 0.73rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.filter-pill.active-pill {
+    background: rgba(219, 175, 52, 0.12);
+    border-color: rgba(219, 175, 52, 0.28);
+    color: #b87400;
+}
+
+.btn-log-part {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px solid #0a9ed8;
+    background: linear-gradient(180deg, #0db6f6, #109ad7);
+    color: white;
+    border-radius: 10px;
+    padding: 0.6rem 1rem;
+    font-weight: 700;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.btn-log-part:hover {
+    opacity: 0.94;
+}
+
+.btn-export {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid rgba(31, 148, 191, 0.4);
+    background: linear-gradient(180deg, #dff9ff, #c7edf9);
+    color: #0d6f95;
+    border-radius: 10px;
+    padding: 0.6rem 1rem;
+    font-weight: 700;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.btn-export:hover {
+    opacity: 0.92;
+}
+
+.export-icon {
+    font-size: 0.9rem;
+}
+
+.entry-counter {
+    font-size: 0.75rem;
+    color: #4d7385;
+}
+
+.search-box {
+    flex: 1;
+    min-width: 220px;
+    max-width: 320px;
+}
+
+.input-search {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid rgba(118, 148, 160, 0.38);
+    background: rgba(255, 255, 255, 0.5);
+    padding: 0.55rem 0.8rem;
+    font-size: 0.85rem;
+    color: #1d3649;
+}
+
+.input-search::placeholder {
+    color: #7a97a4;
+}
+
+.input-search:focus {
+    outline: none;
+    border-color: #1fa0dc;
+    box-shadow: 0 0 0 2px rgba(31, 160, 220, 0.12);
+}
+
+/* ---- Table (matches .data-table-wrap / .data-table) ---- */
+.table-container {
+    background: #ffffff;
+    border: 1px solid rgba(118, 146, 160, 0.24);
+    border-radius: 14px;
+    overflow-x: auto;
+}
+
+.inventory-table,
+.audit-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.inventory-table thead th,
+.audit-table thead th {
+    text-align: left;
+    padding: 0.8rem 0.9rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #4d7385;
+    border-bottom: 1px solid rgba(118, 146, 160, 0.24);
+    white-space: nowrap;
+}
+
+.inventory-table tbody td,
+.audit-table tbody td {
+    padding: 0.75rem 0.9rem;
+    border-bottom: 1px solid rgba(118, 146, 160, 0.14);
+    color: #1d3649;
+    vertical-align: middle;
+}
+
+.inventory-table tbody tr:last-child td,
+.audit-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.row-highlighted {
+    background: #eaf6fc;
+}
+
+.qty-number {
+    font-weight: 700;
+    color: #173d52;
+}
+
+.qty-unit {
+    margin-left: 0.3rem;
+    font-size: 0.72rem;
+    color: #4d7385;
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    font-weight: 600;
+    font-size: 0.83rem;
+    color: #1d3649;
+}
+
+.status-bullet {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.status-bullet.bullet-normal { background-color: #1b8b52; }
+.status-bullet.bullet-low { background-color: #b87400; }
+.status-bullet.bullet-critical { background-color: #b53d4a; }
+
+.col-actions {
+    white-space: nowrap;
+}
+
+.btn-table-action {
+    border: 1px solid rgba(94, 144, 165, 0.3);
+    background: rgba(255, 255, 255, 0.4);
+    color: #17475c;
+    border-radius: 8px;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-right: 0.35rem;
+    cursor: pointer;
+}
+
+.btn-table-action:last-child {
+    margin-right: 0;
+}
+
+.btn-table-action:hover {
+    background: rgba(142, 215, 238, 0.3);
+}
+
+/* ---- Audit log rows ---- */
+.actor-info {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.actor-icon-bubble {
+    width: 2rem;
+    height: 2rem;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: #eaf6fc;
+    border: 1px solid rgba(118, 146, 160, 0.24);
+    display: grid;
+    place-items: center;
+    font-size: 0.9rem;
+}
+
+.actor-name {
+    font-weight: 700;
+    color: #0c6d96;
+    font-size: 0.85rem;
+}
+
+.action-text {
+    color: #1d3649;
+    font-size: 0.85rem;
+}
+
+/* ---- "Log New Part" modal (matches .report-overlay / .report-modal) ---- */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(18, 32, 38, 0.42);
+    display: grid;
+    place-items: center;
+    z-index: 50;
+    padding: 1rem;
+}
+
+.modal-card {
+    width: min(92vw, 420px);
+    background: rgba(223, 241, 249, 0.98);
+    border: 1px solid rgba(100, 146, 171, 0.34);
+    border-radius: 16px;
+    box-shadow: 0 18px 48px rgba(15, 32, 40, 0.24);
+    padding: 1.1rem 1.2rem 1.3rem;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 1px solid rgba(102, 136, 150, 0.25);
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    letter-spacing: -0.04em;
+    color: #1d3342;
+}
+
+.modal-close-btn {
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid rgba(94, 127, 142, 0.25);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.16);
+    color: #345868;
+    font-size: 1.2rem;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+}
+
+.modal-close-btn:hover {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+.form-group {
+    margin-bottom: 0.9rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.4rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #44667a;
+}
+
+.form-group input {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid rgba(118, 148, 160, 0.38);
+    background: rgba(255, 255, 255, 0.5);
+    padding: 0.55rem 0.7rem;
+    font-size: 0.85rem;
+    color: #1d3649;
+}
+
+.form-group input::placeholder {
+    color: #7a97a4;
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: #1fa0dc;
+    box-shadow: 0 0 0 2px rgba(31, 160, 220, 0.12);
+}
+
+.btn-save-part {
+    width: 100%;
+    margin-top: 0.3rem;
+    border: 1px solid #0a9ed8;
+    background: linear-gradient(180deg, #0db6f6, #109ad7);
+    color: white;
+    border-radius: 10px;
+    padding: 0.7rem;
+    font-weight: 700;
+    font-size: 0.78rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.btn-save-part:hover {
+    opacity: 0.94;
+}

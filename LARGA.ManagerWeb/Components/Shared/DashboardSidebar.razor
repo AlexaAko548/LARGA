@@ -29,18 +29,18 @@
             <span class="nav-icon">◔</span>
             <span>Garage</span>
         </a>
-        <button class="nav-item" type="button" disabled>
+        <a href="/inventory" class="nav-item @(ActiveItem == "Inventory" ? "active" : "")">
             <span class="nav-icon">▣</span>
             <span>Inventory</span>
-        </button>
+        </a>
         <button class="nav-item" type="button" disabled>
             <span class="nav-icon">✓</span>
             <span>Fuel Verification</span>
         </button>
-        <button class="nav-item" type="button" disabled>
+        <a href="/audit-logs" class="nav-item @(ActiveItem == "AuditLogs" ? "active" : "")">
             <span class="nav-icon">◍</span>
             <span>Audit Logs</span>
-        </button>
+        </a>
     </nav>
 
     <div class="user-card">
