@@ -1,0 +1,57 @@
+@* Renders one Pre-Shift or Post-Shift inspection checklist. Used twice, side by side, by
+   DriverShifts.razor's checklist modal - deliberately NOT merged into a single combined
+   view, so a manager can compare the two directly instead of switching between tabs. *@
+@using LARGA.SharedCore.Models.DriverShifts
+
+<div class="checklist-column">
+    <div class="checklist-column-header">@Title</div>
+    @if (Detail is null)
+    {
+        <div class="table-empty">No @Title.ToLowerInvariant() checklist was submitted for this shift.</div>
+    }
+    else
+    {
+        <div class="checklist-summary @(Detail.AllPassed ? "pass" : "warn")">
+            <strong>@(Detail.AllPassed ? "All Items Passed" : "Some Items Need Attention")</strong>
+            <span>@Detail.PassedCount/@Detail.TotalCheckableCount checks completed</span>
+        </div>
+
+        <div class="checklist-photos-label">DRIVER PHOTOS</div>
+        <div class="checklist-photos">
+            <div class="checklist-photo-slot">
+                <span>@(string.IsNullOrEmpty(Detail.PrimaryPhotoUrl) ? "Not submitted" : "Photo attached")</span>
+                <small>@Detail.PrimaryPhotoLabel</small>
+            </div>
+            <div class="checklist-photo-slot">
+                <span>@(string.IsNullOrEmpty(Detail.SecondaryPhotoUrl) ? "Not submitted" : "Photo attached")</span>
+                <small>@Detail.SecondaryPhotoLabel</small>
+            </div>
+        </div>
+
+        <div class="checklist-items-label">CHECKLIST ITEMS</div>
+        <div class="checklist-items">
+            @foreach (ChecklistItemResult item in Detail.Items)
+            {
+                <div class="checklist-item-row">
+                    <span>@item.Label</span>
+                    @if (item.Passed is bool passed)
+                    {
+                        <span class="status-pill small @(passed ? "status-success" : "status-danger")">@(passed ? "PASS" : "FAIL")</span>
+                    }
+                    else
+                    {
+                        <span class="status-pill small status-neutral">@item.ValueText</span>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public ChecklistDetail? Detail { get; set; }
+}

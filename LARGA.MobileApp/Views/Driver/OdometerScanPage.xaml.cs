@@ -1,6 +1,8 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
 using LARGA.MobileApp.Services;
+using LARGA.SharedCore.Services;
+using Plugin.Firebase.Auth;
 using System;
 using System.IO;
 using System.Threading.Tasks;

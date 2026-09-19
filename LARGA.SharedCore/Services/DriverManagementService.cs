@@ -56,7 +56,7 @@ public class DriverManagementService
                 DriverId = d.UserId,
                 FullName = d.FullName,
                 LicenseStatus = ComputeLicenseStatus(d.LicenseExpiryDate, now),
-                IsOnShift = active is not null,
+                IsOnShift = active is not null && IsEligibleForShift(d.LicenseExpiryDate, now),
                 AssignedTaxiId = active?.TaxiId ?? (string.IsNullOrWhiteSpace(d.AssignedTaxiId) ? null : d.AssignedTaxiId),
             };
         }).ToList();
@@ -83,15 +83,29 @@ public class DriverManagementService
             return LicenseStatus.Expired;
         }
 
-        // 30 days is a judgment call - long enough for a manager to notice and remind the
-        // driver to renew before it actually lapses.
-        return expiry.Value <= now.AddDays(30) ? LicenseStatus.Expiring : LicenseStatus.Valid;
+        // Expiring = within 3 calendar months of today; anything further out is Valid.
+        return expiry.Value <= now.AddMonths(3) ? LicenseStatus.Expiring : LicenseStatus.Valid;
     }
+
+    // A driver isn't eligible to be shown/counted as "On Shift" once their license is within
+    // 1 month of expiring (or already expired) - this doesn't touch the underlying SHIFT_LOG
+    // document (nothing here ends a real active shift), it only overrides the *computed*
+    // on-shift status this page reports, the same "computed, not stored" pattern already used
+    // for LicenseStatus/live fleet status elsewhere. A manager still sees the real shift in
+    // Shift Logs; the roster/profile just won't call the driver On Shift while ineligible.
+    private static bool IsEligibleForShift(DateTime? licenseExpiry, DateTime now) =>
+        licenseExpiry is null || licenseExpiry.Value > now.AddMonths(1);
 
     // ---------------------------------------------------------------------
     // Schedule Planner
     // ---------------------------------------------------------------------
 
+    /// <summary>Every day defaults to "working the driver's permanently assigned unit"
+    /// (UserProfile.AssignedTaxiId) - under BLM Taxi's boundary system, one driver has one
+    /// unit assigned to them permanently, and works daily unless there's a specific reason
+    /// not to, so working is the norm and a manager should only ever have to touch the one
+    /// exception that matters: a day off. A "shift_schedules" document for a given
+    /// driver/date only exists to record that exception - there is no per-day unit swap.</summary>
     public async Task<WeekSchedule> GetWeekScheduleAsync(DateTime weekStartUtc)
     {
         DateTime weekStart = StartOfWeek(weekStartUtc);
@@ -99,29 +113,37 @@ public class DriverManagementService
 
         List<UserProfile> drivers = await GetDriversAsync();
         List<TaxiUnit> taxis = await GetAllAsync<TaxiUnit>("taxis");
-        List<ShiftSchedule> schedules = await GetBetweenAsync<ShiftSchedule>("shift_schedules", "scheduledStartTime", weekStart, weekEnd.AddTicks(-1));
+        List<ShiftSchedule> dayOffs = await GetBetweenAsync<ShiftSchedule>("shift_schedules", "scheduledStartTime", weekStart, weekEnd.AddTicks(-1));
 
         var rows = new List<DriverScheduleRow>();
         var unitsByDay = new int[7];
 
         foreach (UserProfile driver in drivers)
         {
+            string? defaultTaxiId = string.IsNullOrWhiteSpace(driver.AssignedTaxiId) ? null : driver.AssignedTaxiId;
+
             var row = new DriverScheduleRow
             {
                 DriverId = driver.UserId,
                 FullName = driver.FullName,
                 LicenseStatus = ComputeLicenseStatus(driver.LicenseExpiryDate, DateTime.UtcNow),
+                DefaultTaxiId = defaultTaxiId,
             };
 
             for (int i = 0; i < 7; i++)
             {
                 DateTime day = weekStart.AddDays(i);
-                ShiftSchedule? match = schedules.FirstOrDefault(s => s.DriverId == driver.UserId && s.ScheduledStartTime.Date == day.Date);
-                string? taxiId = string.IsNullOrWhiteSpace(match?.TaxiId) ? null : match!.TaxiId;
+                bool isDayOff = dayOffs.Any(s => s.DriverId == driver.UserId && s.ScheduledStartTime.Date == day.Date && s.Status == "DayOff");
+                string? effectiveTaxiId = isDayOff ? null : defaultTaxiId;
 
-                row.Days.Add(new ScheduleDayCell { Date = day, TaxiId = taxiId });
+                row.Days.Add(new ScheduleDayCell
+                {
+                    Date = day,
+                    TaxiId = effectiveTaxiId,
+                    IsDayOff = isDayOff,
+                });
 
-                if (taxiId is not null)
+                if (effectiveTaxiId is not null)
                 {
                     unitsByDay[i]++;
                 }
@@ -149,18 +171,22 @@ public class DriverManagementService
 
     private static string ScheduleDocId(string driverId, DateTime date) => $"{driverId}_{date:yyyyMMdd}";
 
-    public async Task AssignScheduleAsync(string driverId, DateTime dateUtc, string taxiId)
+    /// <summary>Marks this driver off for this day - the one exception a manager actually
+    /// needs to set, since every day otherwise defaults to working.</summary>
+    public async Task MarkDayOffAsync(string driverId, DateTime dateUtc)
     {
         var schedule = new ShiftSchedule
         {
             DriverId = driverId,
-            TaxiId = taxiId,
+            TaxiId = string.Empty,
             ScheduledStartTime = DateTime.SpecifyKind(dateUtc.Date, DateTimeKind.Utc),
-            Status = "Planned",
+            Status = "DayOff",
         };
         await Db.Collection("shift_schedules").Document(ScheduleDocId(driverId, dateUtc)).SetAsync(schedule, SetOptions.Overwrite);
     }
 
+    /// <summary>Removes the day-off exception for this day, reverting the cell back to its
+    /// default: working, with the driver's permanently assigned unit.</summary>
     public async Task ClearScheduleAsync(string driverId, DateTime dateUtc)
     {
         await Db.Collection("shift_schedules").Document(ScheduleDocId(driverId, dateUtc)).DeleteAsync();
@@ -218,7 +244,67 @@ public class DriverManagementService
             DriverName = drivers.FirstOrDefault(d => d.UserId == shift.DriverId)?.FullName ?? shift.DriverId,
             PreShift = checklists.Where(c => c.ChecklistType == ChecklistType.PreShift).Select(EvaluateChecklist).FirstOrDefault(),
             EndShift = checklists.Where(c => c.ChecklistType == ChecklistType.EndShift).Select(EvaluateChecklist).FirstOrDefault(),
+            PreviousChecklists = await GetPreviousChecklistsAsync(shift.TaxiId, shiftId),
+            DamageHistory = await GetDamageHistoryAsync(shift.TaxiId),
         };
+    }
+
+    /// <summary>The taxi unit's most recent past inspection checklists (excluding this shift),
+    /// for the manager to compare against while reviewing this shift's checklist. Single
+    /// equality filter on taxiId (auto-indexed) rather than a composite query, same
+    /// index-avoidance pattern used elsewhere in this codebase.</summary>
+    private async Task<List<ChecklistHistoryEntry>> GetPreviousChecklistsAsync(string taxiId, string excludeShiftId)
+    {
+        List<ShiftLog> taxiShifts = await GetWhereEqualAsync<ShiftLog>("shifts", "taxiId", taxiId);
+        List<string> otherShiftIds = taxiShifts
+            .Where(s => s.ShiftId != excludeShiftId && !string.IsNullOrEmpty(s.ShiftId))
+            .Select(s => s.ShiftId)
+            .ToList();
+
+        if (otherShiftIds.Count == 0)
+        {
+            return new List<ChecklistHistoryEntry>();
+        }
+
+        // Firestore caps WhereIn at 30 values - a unit with more shift history than that
+        // just has its oldest shifts excluded from this lookback, which is fine since only
+        // the most recent few checklists are ever shown here anyway.
+        List<HandoverChecklist> taxiChecklists = await GetWhereInAsync<HandoverChecklist>(
+            "handover_checklists", "shiftId", otherShiftIds.Take(30).ToList());
+
+        return taxiChecklists
+            .OrderByDescending(c => c.Timestamp)
+            .Take(6)
+            .Select(c =>
+            {
+                ChecklistDetail detail = EvaluateChecklist(c);
+                return new ChecklistHistoryEntry
+                {
+                    Timestamp = c.Timestamp,
+                    ChecklistType = detail.ChecklistType,
+                    PassedCount = detail.PassedCount,
+                    TotalCheckableCount = detail.TotalCheckableCount,
+                };
+            })
+            .ToList();
+    }
+
+    /// <summary>The taxi unit's past accident/damage maintenance records, for reference
+    /// alongside its checklist history.</summary>
+    private async Task<List<DamageHistoryEntry>> GetDamageHistoryAsync(string taxiId)
+    {
+        List<MaintenanceRecord> records = await GetWhereEqualAsync<MaintenanceRecord>("maintenance_logs", "taxiId", taxiId);
+        return records
+            .Where(m => m.MaintenanceType == MaintenanceType.AccidentCorrection)
+            .OrderByDescending(m => m.DateLogged)
+            .Take(5)
+            .Select(m => new DamageHistoryEntry
+            {
+                DateLogged = m.DateLogged,
+                IssueTitle = m.IssueTitle,
+                Status = m.Status,
+            })
+            .ToList();
     }
 
     // Firestore stores 5 raw signals (tireCondition, oilLevel, coolantLevel,
@@ -300,7 +386,7 @@ public class DriverManagementService
             PhoneNumber = profile.PhoneNumber,
             Address = profile.Address,
             DateJoined = profile.DateJoined,
-            IsOnShift = activeShift is not null,
+            IsOnShift = activeShift is not null && IsEligibleForShift(profile.LicenseExpiryDate, now),
             AssignedTaxiId = activeShift?.TaxiId ?? (string.IsNullOrWhiteSpace(profile.AssignedTaxiId) ? null : profile.AssignedTaxiId),
             LicenseNumber = profile.LicenseNumber,
             LicenseClassification = profile.LicenseClassification,
@@ -488,6 +574,12 @@ public class DriverManagementService
     private async Task<List<T>> GetWhereEqualAsync<T>(string collection, string field, object value) where T : class
     {
         QuerySnapshot snapshot = await Db.Collection(collection).WhereEqualTo(field, value).GetSnapshotAsync();
+        return ConvertDocuments<T>(snapshot, collection);
+    }
+
+    private async Task<List<T>> GetWhereInAsync<T>(string collection, string field, List<string> values) where T : class
+    {
+        QuerySnapshot snapshot = await Db.Collection(collection).WhereIn(field, values).GetSnapshotAsync();
         return ConvertDocuments<T>(snapshot, collection);
     }
 
