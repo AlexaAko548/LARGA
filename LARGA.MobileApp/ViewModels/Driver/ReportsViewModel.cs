@@ -3,7 +3,9 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.ApplicationModel;
 using LARGA.MobileApp.Services;
 using LARGA.SharedCore.Services;
 using Plugin.Firebase.Firestore;
@@ -40,6 +42,11 @@ public class ReportsViewModel : BindableObject
 
     public ReportsViewModel() 
     {
+        WeakReferenceMessenger.Default.Register<ReportsViewModel, FuelReportSubmittedMessage>(this, static (recipient, _) =>
+        {
+            recipient.RefreshReportsAfterFuelSubmission();
+        });
+
         SelectVehicleDefectTabCommand = new Command(() => IsVehicleDefectTabSelected = true);
         SelectFuelTabCommand = new Command(() => IsVehicleDefectTabSelected = false);
         AddVehicleReportCommand = new Command(async () => await Shell.Current.GoToAsync("vehicle-defect-page"));
@@ -50,6 +57,11 @@ public class ReportsViewModel : BindableObject
             if (item == null || string.IsNullOrEmpty(item.Id)) return;
             await Shell.Current.GoToAsync($"defect-report-detail?id={item.Id}");
         });
+    }
+
+    private void RefreshReportsAfterFuelSubmission()
+    {
+        MainThread.BeginInvokeOnMainThread(async () => await LoadReportsAsync());
     }
 
     private async Task LoadReportsAsync()

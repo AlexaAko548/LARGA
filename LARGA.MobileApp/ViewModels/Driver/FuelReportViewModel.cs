@@ -257,8 +257,6 @@ public class FuelReportViewModel : BindableObject
             OnPropertyChanged(nameof(CanSubmit));
         });
 
-        TryLoadPendingDraft();
-
         ScanOdometerCommand = new Command(async () => await ScanOdometerAsync());
         ScanReceiptCommand = new Command(async () => await Application.Current.MainPage.Navigation.PushModalAsync(new Views.Driver.ScanFuelReceiptPage()));
         RedoReceiptCommand = new Command(async () => await Application.Current.MainPage.Navigation.PushModalAsync(new Views.Driver.ScanFuelReceiptPage()));
@@ -302,8 +300,18 @@ public class FuelReportViewModel : BindableObject
                 var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 var baseStoragePath = $"fuel_logs/{currentUser.Uid}/{shiftId}/{timestamp}";
 
-                var receiptImageUrl = await UploadImageAsync(_receiptTempPath, $"{baseStoragePath}/receipt.jpg");
-                var odometerPhotoUrl = await UploadImageAsync(_odometerTempPath, $"{baseStoragePath}/odometer.jpg");
+                var receiptImageUrl = string.Empty;
+                var odometerPhotoUrl = string.Empty;
+
+                try
+                {
+                    receiptImageUrl = await UploadImageAsync(_receiptTempPath, $"{baseStoragePath}/receipt.jpg");
+                    odometerPhotoUrl = await UploadImageAsync(_odometerTempPath, $"{baseStoragePath}/odometer.jpg");
+                }
+                catch (Exception uploadEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Fuel image upload warning: {uploadEx.Message}");
+                }
 
                 var fuelData = new Dictionary<object, object>
                 {
@@ -334,20 +342,68 @@ public class FuelReportViewModel : BindableObject
                 _receiptTempPath = null;
                 _odometerTempPath = null;
 
+                WeakReferenceMessenger.Default.Send(new FuelReportSubmittedMessage());
+                ResetState();
+
                 await Shell.Current.DisplayAlert("Success", "Fuel report submitted for verification.", "OK");
                 await Shell.Current.GoToAsync("..");
             }
             catch (Exception ex)
             {
-                SavePendingDraft();
                 System.Diagnostics.Debug.WriteLine($"Fuel Submit Error: {ex.Message}");
-                await Shell.Current.DisplayAlert("Saved locally", "Upload failed. Your draft was kept on device. Tap Submit again to retry.", "OK");
+                await Shell.Current.DisplayAlert("Submission failed", "Unable to submit to Firebase right now. Please try again.", "OK");
             }
             finally
             {
                 IsSubmitting = false;
             }
         });
+    }
+
+    public void ResetState()
+    {
+        _isApplyingScanResult = true;
+
+        Cost = string.Empty;
+        Quantity = string.Empty;
+        FuelStation = string.Empty;
+        SelectedDate = null;
+        ReceiptDateText = string.Empty;
+        Odometer = string.Empty;
+        ReceiptPhoto = null;
+
+        IsReceiptParsingUncertain = false;
+        ReceiptParsingWarning = string.Empty;
+
+        IsCostEditable = false;
+        IsQuantityEditable = false;
+        IsFuelStationEditable = false;
+        IsReceiptDateEditable = false;
+
+        IsCostManuallyEdited = false;
+        IsQuantityManuallyEdited = false;
+        IsFuelStationManuallyEdited = false;
+        IsReceiptDateManuallyEdited = false;
+
+        _costWasUncertain = false;
+        _quantityWasUncertain = false;
+        _fuelStationWasUncertain = false;
+        _dateWasUncertain = false;
+        _originalCostValue = string.Empty;
+        _originalQuantityValue = string.Empty;
+        _originalFuelStationValue = string.Empty;
+        _originalReceiptDateText = string.Empty;
+
+        DeleteTempFile(_receiptTempPath);
+        DeleteTempFile(_odometerTempPath);
+        _receiptTempPath = null;
+        _odometerTempPath = null;
+        _receiptBytes = null;
+        _odometerPhotoBytes = null;
+
+        ClearPendingDraft();
+        _isApplyingScanResult = false;
+        OnPropertyChanged(nameof(CanSubmit));
     }
 
     private async Task ScanOdometerAsync()
@@ -586,4 +642,8 @@ public class OdometerScannedData
 {
     public string OdometerText { get; set; } = string.Empty;
     public byte[] PhotoBytes { get; set; } = Array.Empty<byte>();
+}
+
+public sealed class FuelReportSubmittedMessage
+{
 }

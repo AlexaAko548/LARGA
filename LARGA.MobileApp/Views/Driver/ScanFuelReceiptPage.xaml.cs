@@ -16,6 +16,7 @@ namespace LARGA.MobileApp.Views.Driver;
 public partial class ScanFuelReceiptPage : ContentPage
 {
     private readonly IOcrService _ocrService;
+    private ReceiptScanSnapshot? _lastSuccessfulScan;
     private byte[]? _capturedImageBytes;
     private DateTime? _capturedReceiptDate;
     private bool _isCostUncertain;
@@ -23,6 +24,7 @@ public partial class ScanFuelReceiptPage : ContentPage
     private bool _isVendorUncertain;
     private bool _isDateUncertain;
     private int _retakeCount;
+    private bool _isRetakeLocked;
     private bool _isScanned = false;
 
     private Camera.MAUI.CameraView? ReceiptCameraView => this.FindByName<Camera.MAUI.CameraView>("ReceiptCamera");
@@ -130,26 +132,39 @@ public partial class ScanFuelReceiptPage : ContentPage
                 var receiptDate = TryParseReceiptDate(fullText, lines);
                 var parsingWarning = BuildParsingWarning(vendor, amount, quantity, receiptDate);
                 var parsingUncertain = !string.IsNullOrWhiteSpace(parsingWarning);
-                _isCostUncertain = !amount.HasValue || amount.Value <= 0;
-                _isQuantityUncertain = !quantity.HasValue || quantity.Value <= 0;
-                _isVendorUncertain = string.IsNullOrWhiteSpace(vendor) || vendor.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase);
-                _isDateUncertain = !receiptDate.HasValue;
+                var currentScan = new ReceiptScanSnapshot
+                {
+                    Amount = amount?.ToString("0.00", CultureInfo.InvariantCulture) ?? "--",
+                    Quantity = quantity?.ToString("0.##", CultureInfo.InvariantCulture) ?? "--",
+                    Vendor = vendor ?? "UNKNOWN",
+                    ReceiptDate = receiptDate,
+                    ParsingWarning = parsingWarning,
+                    ParsingUncertain = parsingUncertain,
+                    IsCostUncertain = !amount.HasValue || amount.Value <= 0,
+                    IsQuantityUncertain = !quantity.HasValue || quantity.Value <= 0,
+                    IsVendorUncertain = string.IsNullOrWhiteSpace(vendor) || vendor.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase),
+                    IsDateUncertain = !receiptDate.HasValue,
+                    PhotoBytes = _capturedImageBytes ?? Array.Empty<byte>()
+                };
 
-                LblVendor.Text = vendor ?? "UNKNOWN";
-                LblAmount.Text = amount?.ToString("0.00", CultureInfo.InvariantCulture) ?? "--";
-                LblQuantity.Text = quantity?.ToString("0.##", CultureInfo.InvariantCulture) ?? "--";
-                if (ReceiptDateLabel != null)
+                if (parsingUncertain && _retakeCount >= 3 && _lastSuccessfulScan != null)
                 {
-                    ReceiptDateLabel.Text = receiptDate?.ToString("MMM dd, yyyy", CultureInfo.InvariantCulture) ?? "--";
+                    var warningMessage = string.IsNullOrWhiteSpace(_lastSuccessfulScan.ParsingWarning)
+                        ? parsingWarning
+                        : _lastSuccessfulScan.ParsingWarning;
+                    await Shell.Current.DisplayAlert("OCR check", warningMessage, "Use and Review");
+                    ApplyScanResult(_lastSuccessfulScan);
+                    _isRetakeLocked = true;
                 }
-                _capturedReceiptDate = receiptDate;
-                if (parsingUncertain && _retakeCount >= 3)
+                else
                 {
-                    await Shell.Current.DisplayAlert("OCR check", parsingWarning, "Use and Review");
+                    ApplyScanResult(currentScan);
+                    _lastSuccessfulScan = currentScan;
                 }
 
                 BtnCapture.Text = "Confirm";
-                BtnRetake.IsVisible = true;
+                BtnRetake.IsVisible = !_isRetakeLocked;
+                BtnRetake.IsEnabled = !_isRetakeLocked;
                 _isScanned = true;
             }
             else
@@ -198,7 +213,7 @@ public partial class ScanFuelReceiptPage : ContentPage
 
     private async void OnRetakeClicked(object sender, EventArgs e)
     {
-        if (!_isScanned)
+        if (!_isScanned || _isRetakeLocked)
             return;
 
         _retakeCount++;
@@ -231,6 +246,7 @@ public partial class ScanFuelReceiptPage : ContentPage
         }
 
         BtnRetake.IsVisible = false;
+        BtnRetake.IsEnabled = true;
         BtnCapture.Text = "Capture";
         BtnCapture.IsEnabled = true;
 
@@ -253,83 +269,122 @@ public partial class ScanFuelReceiptPage : ContentPage
         return string.IsNullOrWhiteSpace(cleaned) ? null : cleaned;
     }
 
+    private void ApplyScanResult(ReceiptScanSnapshot scan)
+    {
+        _capturedImageBytes = scan.PhotoBytes;
+        _capturedReceiptDate = scan.ReceiptDate;
+        _isCostUncertain = scan.IsCostUncertain;
+        _isQuantityUncertain = scan.IsQuantityUncertain;
+        _isVendorUncertain = scan.IsVendorUncertain;
+        _isDateUncertain = scan.IsDateUncertain;
+
+        LblVendor.Text = scan.Vendor;
+        LblAmount.Text = scan.Amount;
+        LblQuantity.Text = scan.Quantity;
+        if (ReceiptDateLabel != null)
+        {
+            ReceiptDateLabel.Text = scan.ReceiptDate?.ToString("MMM dd, yyyy", CultureInfo.InvariantCulture) ?? "--";
+        }
+
+        if (ReceiptPreviewImage != null)
+        {
+            ReceiptPreviewImage.Source = ImageSource.FromStream(() => new MemoryStream(scan.PhotoBytes));
+            ReceiptPreviewImage.IsVisible = true;
+        }
+    }
+
     private static decimal? TryParseAmount(string fullText, List<string> lines)
     {
-        var upper = fullText.ToUpperInvariant();
+        var candidates = new List<(decimal Value, int Score)>();
 
-        var amountKeywordLine = lines
-            .Select(l => l.ToUpperInvariant())
-            .FirstOrDefault(l => l.Contains("TOTAL") || l.Contains("AMOUNT") || l.Contains("AMT") || l.Contains("NET"));
-
-        if (!string.IsNullOrWhiteSpace(amountKeywordLine))
+        foreach (var line in lines)
         {
-            var keywordLineAmounts = Regex.Matches(amountKeywordLine, @"\b\d{1,3}(?:[\s,]\d{3})*(?:\.\d{2})\b|\b\d+\.\d{2}\b")
-                .Select(m => m.Value)
-                .ToList();
+            var upperLine = line.ToUpperInvariant();
+            var hasAmountKeyword = upperLine.Contains("TOTAL") || upperLine.Contains("AMOUNT") || upperLine.Contains("NET") || upperLine.Contains("SALE") || upperLine.Contains("DUE") || upperLine.Contains("PAYABLE");
+            var isLikelyNonTotal = upperLine.Contains("VAT") || upperLine.Contains("CHANGE") || upperLine.Contains("DISCOUNT") || upperLine.Contains("PRICE/L") || upperLine.Contains("UNIT PRICE") || upperLine.Contains("LITER") || upperLine.Contains("LTR") || upperLine.Contains("QTY");
+            var score = hasAmountKeyword ? (upperLine.Contains("TOTAL") ? 3 : 2) : 0;
 
-            decimal? lineMax = null;
-            foreach (var token in keywordLineAmounts)
+            if (isLikelyNonTotal)
             {
-                if (TryParseDecimal(token, out var value))
+                score--;
+            }
+
+            foreach (Match match in Regex.Matches(line, @"(?:PHP|P|?)?\s*\d{1,3}(?:[\s,]\d{3})*(?:[\.,]\d{2,3})|(?:PHP|P|?)?\s*\d+[\.,]\d{2,3}"))
+            {
+                if (TryParseDecimal(match.Value, out var value) && value > 0)
                 {
-                    lineMax = lineMax == null ? value : Math.Max(lineMax.Value, value);
+                    candidates.Add((value, score));
                 }
             }
-
-            if (lineMax.HasValue)
-                return lineMax;
         }
 
-        var keywordMatch = Regex.Match(upper,
-            @"(?:TOTAL\s+AMOUNT|AMOUNT\s+DUE|AMOUNT|TOTAL|SALE)\s*[:=]?\s*(\d{1,3}(?:[,\s]\d{3})*(?:\.\d{2})|\d+\.\d{2})");
-        if (keywordMatch.Success && TryParseDecimal(keywordMatch.Groups[1].Value, out var keyedAmount))
-            return keyedAmount;
+        var bestKeywordAmount = candidates
+            .Where(c => c.Score >= 2)
+            .OrderByDescending(c => c.Score)
+            .ThenByDescending(c => c.Value)
+            .FirstOrDefault();
 
-        var allAmounts = Regex.Matches(upper, @"\b\d{1,3}(?:[,\s]\d{3})*(?:\.\d{2})\b|\b\d+\.\d{2}\b")
-            .Select(m => m.Value)
-            .ToList();
-
-        decimal? max = null;
-        foreach (var token in allAmounts)
+        if (bestKeywordAmount.Value > 0)
         {
-            if (TryParseDecimal(token, out var value))
-            {
-                max = max == null ? value : Math.Max(max.Value, value);
-            }
+            return bestKeywordAmount.Value;
         }
 
-        return max;
+        var keywordMatch = Regex.Match(fullText.ToUpperInvariant(),
+            @"(?:TOTAL\s+AMOUNT|AMOUNT\s+DUE|NET\s+AMOUNT|GRAND\s+TOTAL|TOTAL|SALE)\s*[:=]?\s*(PHP|P|?)?\s*(\d{1,3}(?:[,\s]\d{3})*(?:[\.,]\d{2,3})|\d+[\.,]\d{2,3})");
+        if (keywordMatch.Success && TryParseDecimal(keywordMatch.Groups[2].Value, out var keyedAmount))
+        {
+            return keyedAmount;
+        }
+
+        var fallback = candidates
+            .Where(c => c.Value >= 10m)
+            .OrderByDescending(c => c.Value)
+            .FirstOrDefault();
+
+        return fallback.Value > 0 ? fallback.Value : null;
     }
 
     private static decimal? TryParseLiters(string fullText, List<string> lines)
     {
-        var upper = fullText.ToUpperInvariant();
+        var matches = new List<decimal>();
 
-        var quantityLine = lines
-            .Select(l => l.ToUpperInvariant())
-            .FirstOrDefault(l => l.Contains("LITER") || l.Contains("LITRE") || l.Contains("LTR") || l.Contains("QTY"));
-
-        if (!string.IsNullOrWhiteSpace(quantityLine))
+        foreach (var line in lines)
         {
-            var fromLine = Regex.Match(quantityLine, @"(\d{1,3}(?:[\.,]\d{1,3})?)\s*(?:LITERS|LITER|LITRE|LTRS?|L)\b");
-            if (fromLine.Success && TryParseDecimal(fromLine.Groups[1].Value.Replace(',', '.'), out var litersFromLine))
+            foreach (Match match in Regex.Matches(line.ToUpperInvariant(), @"(?:QTY|QUANTITY|VOLUME|VOL|LITERS?|LITRES?|LTRS?)\s*[:=]?\s*(\d{1,3}(?:[\.,]\d{1,3})?)"))
             {
-                return litersFromLine;
+                if (TryParseDecimal(match.Groups[1].Value, out var liters) && liters > 0m && liters <= 200m)
+                {
+                    matches.Add(liters);
+                }
+            }
+
+            foreach (Match match in Regex.Matches(line.ToUpperInvariant(), @"(\d{1,3}(?:[\.,]\d{1,3})?)\s*(?:LITERS?|LITRES?|LTRS?|L)\b"))
+            {
+                if (TryParseDecimal(match.Groups[1].Value, out var liters) && liters > 0m && liters <= 200m)
+                {
+                    matches.Add(liters);
+                }
             }
         }
 
-        var litersMatch = Regex.Match(upper,
-            @"(\d{1,3}(?:[\.,]\d{1,3})?)\s*(?:LITERS|LITER|LITRE|LTRS?|L)\b");
-
-        if (!litersMatch.Success)
+        if (matches.Count > 0)
         {
-            litersMatch = Regex.Match(upper, @"(?:QTY|QUANTITY)\s*[:=]?\s*(\d{1,3}(?:[\.,]\d{1,3})?)");
+            return matches.OrderByDescending(v => v).FirstOrDefault();
         }
 
-        if (!litersMatch.Success)
-            return null;
+        var fullTextMatch = Regex.Match(fullText.ToUpperInvariant(),
+            @"(?:QTY|QUANTITY|VOLUME|VOL)\s*[:=]?\s*(\d{1,3}(?:[\.,]\d{1,3})?)|(\d{1,3}(?:[\.,]\d{1,3})?)\s*(?:LITERS?|LITRES?|LTRS?|L)\b");
 
-        return TryParseDecimal(litersMatch.Groups[1].Value, out var liters) ? liters : null;
+        if (!fullTextMatch.Success)
+        {
+            return null;
+        }
+
+        var token = !string.IsNullOrWhiteSpace(fullTextMatch.Groups[1].Value)
+            ? fullTextMatch.Groups[1].Value
+            : fullTextMatch.Groups[2].Value;
+
+        return TryParseDecimal(token, out var parsedLiters) && parsedLiters > 0m ? parsedLiters : null;
     }
 
     private static DateTime? TryParseReceiptDate(string fullText, List<string> lines)
@@ -385,8 +440,30 @@ public partial class ScanFuelReceiptPage : ContentPage
 
     private static bool TryParseDecimal(string token, out decimal value)
     {
-        var normalized = token.Replace(" ", string.Empty).Replace(",", string.Empty);
-        return decimal.TryParse(normalized, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
+        value = 0m;
+        if (string.IsNullOrWhiteSpace(token))
+            return false;
+
+        var cleaned = Regex.Replace(token, @"[^\d,\.\-]", string.Empty);
+        if (string.IsNullOrWhiteSpace(cleaned))
+            return false;
+
+        var lastDot = cleaned.LastIndexOf('.');
+        var lastComma = cleaned.LastIndexOf(',');
+        var decimalSeparatorIndex = Math.Max(lastDot, lastComma);
+
+        if (decimalSeparatorIndex >= 0)
+        {
+            var integerPart = Regex.Replace(cleaned[..decimalSeparatorIndex], @"[^\d\-]", string.Empty);
+            var decimalPart = Regex.Replace(cleaned[(decimalSeparatorIndex + 1)..], @"[^\d]", string.Empty);
+            cleaned = string.IsNullOrWhiteSpace(decimalPart) ? integerPart : $"{integerPart}.{decimalPart}";
+        }
+        else
+        {
+            cleaned = Regex.Replace(cleaned, @"[^\d\-]", string.Empty);
+        }
+
+        return decimal.TryParse(cleaned, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out value);
     }
 
     private static bool TryParseDateFlexible(string token, out DateTime date)
@@ -472,5 +549,20 @@ public partial class ScanFuelReceiptPage : ContentPage
             return value == 0m;
 
         return text.Trim() == "--";
+    }
+
+    private sealed class ReceiptScanSnapshot
+    {
+        public string Amount { get; init; } = "--";
+        public string Quantity { get; init; } = "--";
+        public string Vendor { get; init; } = "UNKNOWN";
+        public DateTime? ReceiptDate { get; init; }
+        public string ParsingWarning { get; init; } = string.Empty;
+        public bool ParsingUncertain { get; init; }
+        public bool IsCostUncertain { get; init; }
+        public bool IsQuantityUncertain { get; init; }
+        public bool IsVendorUncertain { get; init; }
+        public bool IsDateUncertain { get; init; }
+        public byte[] PhotoBytes { get; init; } = Array.Empty<byte>();
     }
 }
