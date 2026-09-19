@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using LARGA.MobileApp.Models;
 using LARGA.MobileApp.Services;
 using LARGA.MobileApp.Views.Manager;
@@ -71,6 +72,10 @@ public partial class RecordPaymentViewModel : ObservableObject, IQueryAttributab
     public RecordPaymentViewModel(MobileFinancialLedgerService ledgerService)
     {
         _ledgerService = ledgerService;
+        WeakReferenceMessenger.Default.Register<RecordPaymentViewModel, ReceiptScanPayload, string>(this, "ReceiptScanned", static (recipient, payload) =>
+        {
+            recipient.ApplyScannedReceipt(payload);
+        });
     }
 
     public void ApplyQueryAttributes(IDictionary<string, object> query)
@@ -178,7 +183,7 @@ public partial class RecordPaymentViewModel : ObservableObject, IQueryAttributab
             {
                 if (SelectedCategory.Equals("Boundary", StringComparison.OrdinalIgnoreCase))
                 {
-                    string? shiftId = await _ledgerService.GetTodayPendingShiftForDriverAsync(SelectedDriver.UserId, DateTime.UtcNow);
+                    string? shiftId = await _ledgerService.GetTodayPendingShiftForDriverAsync(SelectedDriver.UserId, DateTime.Now);
                     if (string.IsNullOrWhiteSpace(shiftId))
                     {
                         ValidationMessage = "Selected driver has no pending boundary shift for today.";
@@ -276,5 +281,24 @@ public partial class RecordPaymentViewModel : ObservableObject, IQueryAttributab
     partial void OnValidationMessageChanged(string value)
     {
         OnPropertyChanged(nameof(HasValidationMessage));
+    }
+
+    private void ApplyScannedReceipt(ReceiptScanPayload payload)
+    {
+        if (payload.Amount.HasValue && payload.Amount.Value > 0)
+        {
+            AmountReceived = payload.Amount.Value;
+            ReceiptAmount = payload.Amount.Value.ToString("F2");
+        }
+
+        if (payload.Date.HasValue)
+        {
+            ReceiptDate = payload.Date.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(payload.ReferenceNumber))
+        {
+            ReferenceNumber = payload.ReferenceNumber.Trim();
+        }
     }
 }

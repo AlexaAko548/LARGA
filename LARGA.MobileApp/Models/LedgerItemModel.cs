@@ -16,6 +16,8 @@ public partial class LedgerItemModel : ObservableObject
     public string DriverName { get; set; } = string.Empty;
     public string TaxiId { get; set; } = string.Empty;
     public string PlateNumber { get; set; } = string.Empty;
+    public DateTime? ShiftStart { get; set; }
+    public DateTime? ShiftEnd { get; set; }
     public decimal ExpectedAmount { get; set; }
     public decimal AmountPaid { get; set; }
     public SettlementStatus Status { get; set; }

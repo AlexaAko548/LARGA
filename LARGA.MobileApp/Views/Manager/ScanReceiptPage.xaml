@@ -5,28 +5,31 @@
              x:Class="LARGA.MobileApp.Views.Manager.ScanReceiptPage"
              x:DataType="vm:ScanReceiptViewModel"
              BackgroundColor="#FFFFFF"
-             NavigationPage.HasNavigationBar="False">
+             Shell.NavBarIsVisible="True"
+             Shell.NavBarHasShadow="False"
+             Shell.BackgroundColor="White"
+             Shell.ForegroundColor="#0F172A"
+             Shell.TitleView="{x:Null}"
+             Title="">
 
-    <Grid RowDefinitions="Auto, *, Auto" Padding="20,16,20,12" RowSpacing="12">
-        <!-- Top Bar -->
-        <Grid Grid.Row="0" ColumnDefinitions="Auto, *" Margin="0,10,0,4">
-            <ImageButton Source="back_icon.png"
-                         Command="{Binding CancelCommand}"
-                         HeightRequest="24" WidthRequest="24"
-                         HorizontalOptions="Start" />
-            <Border Grid.Column="1" BackgroundColor="#AEE2F0" StrokeThickness="0"
-                    StrokeShape="RoundRectangle 4" Padding="18,8" HorizontalOptions="Fill" Margin="8,0,0,0">
-                <Label Text="SCAN  E-RECEIPT" FontSize="22" FontFamily="BarlowCondensedBold" HorizontalTextAlignment="Center" TextColor="#0F172A" />
-            </Border>
-        </Grid>
+    <Shell.BackButtonBehavior>
+        <BackButtonBehavior IconOverride="back_icon.png" Command="{Binding CancelCommand}" />
+    </Shell.BackButtonBehavior>
+
+    <Grid RowDefinitions="Auto, *, Auto" Padding="20,12,20,12" RowSpacing="12">
+        <!-- Title bar -->
+        <Border Grid.Row="0" BackgroundColor="#AEE2F0" StrokeThickness="0"
+                StrokeShape="RoundRectangle 4" Padding="18,8" HorizontalOptions="Fill" Margin="0,4,0,0">
+            <Label Text="SCAN  E-RECEIPT" FontSize="22" FontFamily="BarlowCondensedBold" HorizontalOptions="Center" TextColor="#0F172A" />
+        </Border>
 
         <!-- Receipt Camera / Preview Area -->
-        <Grid Grid.Row="1" Margin="0,0,0,8">
-            <Border StrokeShape="RoundRectangle 0" BackgroundColor="#F8FAFC" Stroke="#1D29C5" StrokeThickness="5">
+        <Grid Grid.Row="1" Margin="0,4,0,16">
+            <Border StrokeShape="RoundRectangle 4" BackgroundColor="#F8FAFC" Stroke="#1D29C5" StrokeThickness="5">
                 <Grid>
                     <Image Source="{Binding CapturedImageSource}" Aspect="AspectFit" />
 
-                    <!-- Reticle Frame -->
+                    <!-- Reticle Frame (shown before capture) -->
                     <Border Stroke="#0097B2" StrokeThickness="2" StrokeShape="RoundRectangle 12"
                             WidthRequest="220" HeightRequest="160"
                             HorizontalOptions="Center" VerticalOptions="Center"
@@ -39,11 +42,42 @@
                                        HorizontalOptions="Center" VerticalOptions="Center" />
                 </Grid>
             </Border>
+
+            <!-- Shutter / Retry ring — floats over the bottom edge of the frame.
+                 Requires a `HasCaptured` bool + `CaptureOrRetryCommand` on the ViewModel:
+                 shows a shutter glyph before capture, a retry glyph after. -->
+            <Border StrokeShape="RoundRectangle 32"
+                    Stroke="#0097B2"
+                    StrokeThickness="4"
+                    BackgroundColor="White"
+                    WidthRequest="72" HeightRequest="72"
+                    Padding="0"
+                    HorizontalOptions="Center" VerticalOptions="End"
+                    Margin="0,0,0,-36">
+                <Button Command="{Binding CaptureOrRetryCommand}"
+                        BackgroundColor="Transparent"
+                        TextColor="#0097B2"
+                        FontFamily="BarlowCondensedBold"
+                        FontSize="28"
+                        Text=""
+                        Padding="0"
+                        HorizontalOptions="Fill"
+                    VerticalOptions="Fill">
+                    <Button.Triggers>
+                        <DataTrigger TargetType="Button" Binding="{Binding HasCaptured}" Value="False">
+                            <Setter Property="Text" Value="📷" />
+                        </DataTrigger>
+                        <DataTrigger TargetType="Button" Binding="{Binding HasCaptured}" Value="True">
+                            <Setter Property="Text" Value="↻" />
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
+            </Border>
         </Grid>
 
         <!-- Parsed Fields and Bottom Actions -->
         <VerticalStackLayout Grid.Row="2" Spacing="8">
-            <Border StrokeShape="RoundRectangle 12" Stroke="#38BDF8" BackgroundColor="#FFFFFF" Padding="12,4">
+            <Border StrokeShape="RoundRectangle 12" Stroke="#8FE1F5" BackgroundColor="#F3FBFE" Padding="12,4">
                 <Grid ColumnDefinitions="Auto, *" HeightRequest="34">
                     <Label Text="Amount" TextColor="#64748B" FontSize="12" VerticalOptions="Center" />
                     <Label Grid.Column="1" Text="{Binding ScannedAmount, StringFormat='₱ {0:N2}'}"
@@ -51,15 +85,15 @@
                 </Grid>
             </Border>
 
-            <Border StrokeShape="RoundRectangle 12" Stroke="#38BDF8" BackgroundColor="#FFFFFF" Padding="12,4">
+            <Border StrokeShape="RoundRectangle 12" Stroke="#8FE1F5" BackgroundColor="#F3FBFE" Padding="12,4">
                 <Grid ColumnDefinitions="Auto, *" HeightRequest="34">
                     <Label Text="Date" TextColor="#64748B" FontSize="12" VerticalOptions="Center" />
                     <Label Grid.Column="1" Text="{Binding ScannedDate, StringFormat='{0:MMM dd, yyyy}'}"
-                           HorizontalTextAlignment="End" VerticalTextAlignment="Center" TextColor="#0F172A" />
+                           FontAttributes="Bold" HorizontalTextAlignment="End" VerticalTextAlignment="Center" TextColor="#0F172A" />
                 </Grid>
             </Border>
 
-            <Border StrokeShape="RoundRectangle 12" Stroke="#38BDF8" BackgroundColor="#FFFFFF" Padding="12,4">
+            <Border StrokeShape="RoundRectangle 12" Stroke="#8FE1F5" BackgroundColor="#F3FBFE" Padding="12,4">
                 <Grid ColumnDefinitions="Auto, *" HeightRequest="34">
                     <Label Text="Reference No." TextColor="#64748B" FontSize="12" VerticalOptions="Center" />
                     <Label Grid.Column="1" Text="{Binding ScannedReference}"
@@ -72,24 +106,14 @@
                     Command="{Binding ConfirmReceiptCommand}"
                     BackgroundColor="#0097B2"
                     TextColor="White"
-                    FontFamily="BarlowCondensedBold"
-                    FontSize="26"
+                    FontFamily="BarlowCondensedSemiBold"
+                    FontSize="24"
                     CornerRadius="18"
                     HeightRequest="48"
-                    Margin="0,8,0,0"
+                    Margin="0,12,0,6"
                     HorizontalOptions="Center"
-                    WidthRequest="140" />
-
-            <Button Text="Cancel"
-                    Command="{Binding CancelCommand}"
-                    BackgroundColor="#0097B2"
-                    TextColor="White"
-                    FontFamily="BarlowCondensedBold"
-                    FontSize="22"
-                    CornerRadius="18"
-                    HeightRequest="48"
-                    HorizontalOptions="Center"
-                    WidthRequest="140" />
+                    Padding="0"
+                    WidthRequest="180" />
         </VerticalStackLayout>
     </Grid>
 </ContentPage>

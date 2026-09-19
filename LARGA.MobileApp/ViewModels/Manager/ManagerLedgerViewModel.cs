@@ -42,7 +42,8 @@ private ObservableCollection<LedgerItemModel> pendingClearances = new();
 
         try
         {
-            DailySettlementSnapshot snapshot = await _ledgerService.GetDailySettlementAsync(DateTime.UtcNow);
+            DailySettlementSnapshot snapshot = await _ledgerService.GetDailySettlementAsync(DateTime.Now);
+            DateTime nowLocal = DateTime.Now;
 
             PendingClearances.Clear();
             CompletedToday.Clear();
@@ -56,16 +57,19 @@ private ObservableCollection<LedgerItemModel> pendingClearances = new();
                     DriverName = row.DriverName,
                     TaxiId = row.TaxiId,
                     PlateNumber = row.TaxiId,
+                    ShiftStart = row.ShiftStart,
+                    ShiftEnd = row.ShiftEnd,
                     ExpectedAmount = row.ExpectedTotal,
                     AmountPaid = row.AmountPaid,
                     Status = row.Status
                 };
 
-                if (row.Status == SettlementStatus.Waiting)
+                if (IsPendingDueNow(item, nowLocal))
                 {
                     PendingClearances.Add(item);
                 }
-                else
+
+                if (row.Status == SettlementStatus.Cleared)
                 {
                     CompletedToday.Add(item);
                 }
@@ -76,13 +80,20 @@ private ObservableCollection<LedgerItemModel> pendingClearances = new();
                 .Select(row => row.ShiftId)
                 .ToHashSet();
 
-            List<LedgerItemModel> mergedExtras = await _ledgerService.GetCompletedEntriesForTodayAsync(DateTime.UtcNow, todayShiftIds);
+            List<LedgerItemModel> mergedExtras = await _ledgerService.GetCompletedEntriesForTodayAsync(DateTime.Now, todayShiftIds);
             foreach (LedgerItemModel entry in mergedExtras)
             {
                 CompletedToday.Add(entry);
             }
 
             PendingCount = PendingClearances.Count;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"ManagerLedger load failed: {ex}");
+            PendingClearances.Clear();
+            CompletedToday.Clear();
+            PendingCount = 0;
         }
         finally
         {
@@ -102,5 +113,42 @@ private ObservableCollection<LedgerItemModel> pendingClearances = new();
     {
         List<LARGA.Shared.Models.Entities.UserProfile> drivers = await _ledgerService.GetDriversAsync();
         PaymentModalViewModel.InitializeOtherPayment(drivers);
+    }
+
+    private static bool IsPendingDueNow(LedgerItemModel item, DateTime nowLocal)
+    {
+        if (item.Status == SettlementStatus.Cleared)
+        {
+            return false;
+        }
+
+        // Pending cards are only for active shifts nearing expected end.
+        if (item.ShiftEnd.HasValue || !item.ShiftStart.HasValue)
+        {
+            return false;
+        }
+
+        DateTime shiftStart = ToLocal(item.ShiftStart) ?? nowLocal;
+        DateTime expectedEnd = shiftStart.AddHours(10);
+        DateTime dueWindowStart = expectedEnd.AddHours(-3);
+        DateTime dueWindowEnd = expectedEnd.AddHours(2);
+
+        return nowLocal >= dueWindowStart && nowLocal <= dueWindowEnd;
+    }
+
+    private static DateTime? ToLocal(DateTime? value)
+    {
+        if (!value.HasValue)
+        {
+            return null;
+        }
+
+        DateTime date = value.Value;
+        return date.Kind switch
+        {
+            DateTimeKind.Utc => date.ToLocalTime(),
+            DateTimeKind.Local => date,
+            _ => DateTime.SpecifyKind(date, DateTimeKind.Local),
+        };
     }
 }

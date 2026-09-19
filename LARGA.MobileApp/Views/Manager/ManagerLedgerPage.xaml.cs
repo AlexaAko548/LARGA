@@ -5,6 +5,7 @@ namespace LARGA.MobileApp.Views.Manager;
 public partial class ManagerLedgerPage : ContentPage
 {
     private readonly ManagerLedgerViewModel _viewModel;
+    private bool _hasAppeared;
 
     public ManagerLedgerPage(ManagerLedgerViewModel viewModel)
     {
@@ -15,7 +16,11 @@ public partial class ManagerLedgerPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        _viewModel.EnsurePaymentModalClosed();
+        if (!_hasAppeared)
+        {
+            _viewModel.EnsurePaymentModalClosed();
+            _hasAppeared = true;
+        }
         try
         {
             await _viewModel.LoadDailySettlementsAsync();

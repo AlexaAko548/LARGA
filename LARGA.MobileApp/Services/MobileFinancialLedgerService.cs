@@ -25,7 +25,13 @@ public class MobileFinancialLedgerService
             }
 
             string role = GetString(document.Data, "role");
-            if (!role.Equals("Driver", StringComparison.OrdinalIgnoreCase))
+            string normalizedRole = NormalizeRole(role);
+            bool looksLikeDriver = normalizedRole.Equals("driver", StringComparison.OrdinalIgnoreCase)
+                || (string.IsNullOrWhiteSpace(normalizedRole)
+                    && !string.IsNullOrWhiteSpace(GetString(document.Data, "assignedTaxiId"))
+                    && string.IsNullOrWhiteSpace(GetString(document.Data, "managerNote")));
+
+            if (!looksLikeDriver)
             {
                 continue;
             }
@@ -33,8 +39,8 @@ public class MobileFinancialLedgerService
             drivers.Add(new UserProfile
             {
                 UserId = document.Reference.Id,
-                FullName = GetString(document.Data, "fullName", document.Reference.Id),
-                Role = role,
+                FullName = GetString(document.Data, "fullName", GetString(document.Data, "name", document.Reference.Id)),
+                Role = string.IsNullOrWhiteSpace(role) ? "Driver" : role,
                 AssignedTaxiId = GetString(document.Data, "assignedTaxiId"),
             });
         }
@@ -46,8 +52,7 @@ public class MobileFinancialLedgerService
 
     public async Task<DailySettlementSnapshot> GetDailySettlementAsync(DateTime dateUtc)
     {
-        DateTime dayStart = dateUtc.Date;
-        DateTime dayEnd = dayStart.AddDays(1);
+        (DateTime dayStartUtc, DateTime dayEndUtc, DateTime localDate) = GetUtcBoundsForLocalDay(dateUtc);
         var shifts = await CrossFirebaseFirestore.Current
             .GetCollection("shifts")
             .GetDocumentsAsync<Dictionary<string, object>>();
@@ -67,13 +72,15 @@ public class MobileFinancialLedgerService
                 continue;
             }
 
-            DateTime? shiftStart = GetDate(document.Data, "shiftStart");
-            if (!shiftStart.HasValue || shiftStart.Value < dayStart || shiftStart.Value >= dayEnd)
+            string shiftId = GetString(document.Data, "shiftId", document.Reference.Id);
+            DateTime? shiftStartUtc = ToUtc(GetDate(document.Data, "shiftStart"));
+            bool inDay = IsWithinUtcWindow(shiftStartUtc, dayStartUtc, dayEndUtc)
+                || IsShiftIdOnLocalDay(shiftId, localDate);
+            if (!inDay)
             {
                 continue;
             }
 
-            string shiftId = GetString(document.Data, "shiftId", document.Reference.Id);
             string driverId = GetString(document.Data, "driverId");
             string taxiId = GetString(document.Data, "taxiId");
             var payment = await GetPaymentAsync(shiftId);
@@ -91,6 +98,7 @@ public class MobileFinancialLedgerService
                 DriverId = driverId,
                 DriverName = driverName,
                 TaxiId = taxiId,
+                ShiftStart = ToUtc(GetDate(document.Data, "shiftStart")),
                 ShiftEnd = GetDate(document.Data, "shiftEnd"),
                 ExpectedTotal = expected,
                 AmountPaid = paid,
@@ -105,7 +113,7 @@ public class MobileFinancialLedgerService
 
         return new DailySettlementSnapshot
         {
-            Date = dayStart,
+            Date = localDate,
             ExpectedCollection = rows.Sum(row => row.ExpectedTotal),
             CollectedSoFar = rows.Sum(row => row.AmountPaid),
             ClearedCount = rows.Count(row => row.Status == SettlementStatus.Cleared),
@@ -202,15 +210,14 @@ public class MobileFinancialLedgerService
 
         DailySettlementSnapshot snapshot = await GetDailySettlementAsync(dateUtc);
         SettlementRow? row = snapshot.Rows
-            .FirstOrDefault(r => r.DriverId == driverId && r.Status == SettlementStatus.Waiting);
+            .FirstOrDefault(r => r.DriverId == driverId && r.Status != SettlementStatus.Cleared);
 
         return string.IsNullOrWhiteSpace(row?.ShiftId) ? null : row.ShiftId;
     }
 
     public async Task<List<LedgerItemModel>> GetCompletedEntriesForTodayAsync(DateTime dateUtc, IEnumerable<string>? excludeShiftIds)
     {
-        DateTime dayStart = dateUtc.Date;
-        DateTime dayEnd = dayStart.AddDays(1);
+        (DateTime dayStartUtc, DateTime dayEndUtc, DateTime localDate) = GetUtcBoundsForLocalDay(dateUtc);
         HashSet<string> excluded = excludeShiftIds == null
             ? new HashSet<string>()
             : excludeShiftIds.Where(id => !string.IsNullOrWhiteSpace(id)).ToHashSet();
@@ -260,13 +267,16 @@ public class MobileFinancialLedgerService
                 continue;
             }
 
-            DateTime? timestamp = GetDate(paymentDocument.Data, "timestamp");
-            if (!timestamp.HasValue || timestamp.Value < dayStart || timestamp.Value >= dayEnd)
+            string shiftId = GetShiftIdFromPaymentDoc(paymentDocument.Reference.Id, paymentDocument.Data);
+            DateTime? timestampUtc = ToUtc(GetDate(paymentDocument.Data, "timestamp"));
+            bool inDay = IsWithinUtcWindow(timestampUtc, dayStartUtc, dayEndUtc)
+                || IsShiftIdOnLocalDay(shiftId, localDate)
+                || (!timestampUtc.HasValue && !ShiftIdHasDatePrefix(shiftId));
+            if (!inDay)
             {
                 continue;
             }
 
-            string shiftId = GetString(paymentDocument.Data, "shiftId");
             if (!string.IsNullOrWhiteSpace(shiftId) && excluded.Contains(shiftId))
             {
                 continue;
@@ -306,8 +316,8 @@ public class MobileFinancialLedgerService
                 continue;
             }
 
-            DateTime? timestamp = GetDate(adjustmentDocument.Data, "timestamp");
-            if (!timestamp.HasValue || timestamp.Value < dayStart || timestamp.Value >= dayEnd)
+            DateTime? timestampUtc = ToUtc(GetDate(adjustmentDocument.Data, "timestamp"));
+            if (!timestampUtc.HasValue || timestampUtc.Value < dayStartUtc || timestampUtc.Value >= dayEndUtc)
             {
                 continue;
             }
@@ -507,7 +517,18 @@ public class MobileFinancialLedgerService
             .WhereEqualsTo("shiftId", shiftId)
             .GetDocumentsAsync<Dictionary<string, object>>();
         var document = snapshot.Documents.FirstOrDefault(document => document.Data != null);
-        return document == null || document.Data == null ? null : new DocumentData(document.Reference.Id, document.Data);
+        if (document != null && document.Data != null)
+        {
+            return new DocumentData(document.Reference.Id, document.Data);
+        }
+
+        // Fallback for legacy/sparse docs where shiftId was omitted but deterministic doc ID was used.
+        var direct = await CrossFirebaseFirestore.Current
+            .GetCollection("boundary_payments")
+            .GetDocument($"{shiftId}_PAY")
+            .GetDocumentSnapshotAsync<Dictionary<string, object>>();
+
+        return direct?.Data == null ? null : new DocumentData(direct.Reference.Id, direct.Data);
     }
 
     private static async Task<decimal> GetDefaultBoundaryRateAsync()
@@ -574,9 +595,165 @@ public class MobileFinancialLedgerService
             return dateTimeOffset.UtcDateTime;
         }
 
+        if (value is long longValue)
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(longValue).UtcDateTime;
+        }
+
+        if (value is int intValue)
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(intValue).UtcDateTime;
+        }
+
+        if (value is double doubleValue)
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds((long)doubleValue).UtcDateTime;
+        }
+
+        DateTime? reflectedTimestamp = TryConvertFirestoreTimestampObject(value);
+        if (reflectedTimestamp.HasValue)
+        {
+            return reflectedTimestamp.Value;
+        }
+
         return DateTime.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTime parsed)
             ? parsed.ToUniversalTime()
             : null;
+    }
+
+    private static (DateTime StartUtc, DateTime EndUtc, DateTime LocalDate) GetUtcBoundsForLocalDay(DateTime reference)
+    {
+        DateTime localReference = reference.Kind == DateTimeKind.Utc ? reference.ToLocalTime() : reference;
+        DateTime localDay = localReference.Date;
+        DateTime startLocal = DateTime.SpecifyKind(localDay, DateTimeKind.Local);
+        DateTime endLocal = startLocal.AddDays(1);
+        return (startLocal.ToUniversalTime(), endLocal.ToUniversalTime(), localDay);
+    }
+
+    private static DateTime? ToUtc(DateTime? value)
+    {
+        if (!value.HasValue)
+        {
+            return null;
+        }
+
+        DateTime date = value.Value;
+        return date.Kind switch
+        {
+            DateTimeKind.Utc => date,
+            DateTimeKind.Local => date.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(date, DateTimeKind.Local).ToUniversalTime(),
+        };
+    }
+
+    private static bool IsWithinUtcWindow(DateTime? utcValue, DateTime startUtc, DateTime endUtc)
+    {
+        return utcValue.HasValue && utcValue.Value >= startUtc && utcValue.Value < endUtc;
+    }
+
+    private static bool IsShiftIdOnLocalDay(string shiftId, DateTime localDate)
+    {
+        if (!TryGetDateFromShiftId(shiftId, out DateTime parsedDate))
+        {
+            return false;
+        }
+
+        return parsedDate.Date == localDate.Date;
+    }
+
+    private static bool ShiftIdHasDatePrefix(string shiftId)
+    {
+        return TryGetDateFromShiftId(shiftId, out _);
+    }
+
+    private static bool TryGetDateFromShiftId(string shiftId, out DateTime parsedDate)
+    {
+        parsedDate = default;
+        if (string.IsNullOrWhiteSpace(shiftId))
+        {
+            return false;
+        }
+
+        // Seed/live IDs commonly look like SHIFT_2026091901 or SHIFT_TEST_001.
+        int underscoreIndex = shiftId.IndexOf('_');
+        if (underscoreIndex < 0 || shiftId.Length < underscoreIndex + 9)
+        {
+            return false;
+        }
+
+        string tail = shiftId[(underscoreIndex + 1)..];
+        if (tail.Length < 8)
+        {
+            return false;
+        }
+
+        string datePart = tail[..8];
+        if (!datePart.All(char.IsDigit))
+        {
+            return false;
+        }
+
+        if (!int.TryParse(datePart[..4], out int year)
+            || !int.TryParse(datePart.Substring(4, 2), out int month)
+            || !int.TryParse(datePart.Substring(6, 2), out int day))
+        {
+            return false;
+        }
+
+        try
+        {
+            parsedDate = new DateTime(year, month, day);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string GetShiftIdFromPaymentDoc(string paymentDocId, Dictionary<string, object>? data)
+    {
+        string shiftId = GetString(data, "shiftId");
+        if (!string.IsNullOrWhiteSpace(shiftId))
+        {
+            return shiftId;
+        }
+
+        const string paySuffix = "_PAY";
+        if (!string.IsNullOrWhiteSpace(paymentDocId)
+            && paymentDocId.EndsWith(paySuffix, StringComparison.OrdinalIgnoreCase)
+            && paymentDocId.Length > paySuffix.Length)
+        {
+            return paymentDocId[..^paySuffix.Length];
+        }
+
+        return paymentDocId;
+    }
+
+    private static DateTime? TryConvertFirestoreTimestampObject(object value)
+    {
+        Type valueType = value.GetType();
+        var secondsProperty = valueType.GetProperty("Seconds");
+        if (secondsProperty?.GetValue(value) is long seconds)
+        {
+            long nanos = 0;
+            var nanosProperty = valueType.GetProperty("Nanoseconds");
+            if (nanosProperty?.GetValue(value) is int nanosInt)
+            {
+                nanos = nanosInt;
+            }
+
+            var timestamp = DateTimeOffset.FromUnixTimeSeconds(seconds).AddTicks(nanos / 100);
+            return timestamp.UtcDateTime;
+        }
+
+        var millisecondsProperty = valueType.GetProperty("Milliseconds");
+        if (millisecondsProperty?.GetValue(value) is long milliseconds)
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(milliseconds).UtcDateTime;
+        }
+
+        return null;
     }
 
     private static string NormalizePaymentMethod(string raw)
@@ -587,6 +764,13 @@ public class MobileFinancialLedgerService
         }
 
         return "CASH";
+    }
+
+    private static string NormalizeRole(string role)
+    {
+        return string.IsNullOrWhiteSpace(role)
+            ? string.Empty
+            : role.Trim().Replace("_", string.Empty).Replace("-", string.Empty).Replace(" ", string.Empty);
     }
 
     private readonly record struct DocumentData(string ReferenceId, Dictionary<string, object> Data)

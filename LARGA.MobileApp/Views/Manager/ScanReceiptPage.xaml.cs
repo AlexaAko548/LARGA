@@ -9,6 +9,7 @@ public partial class ScanReceiptPage : ContentPage
     public ScanReceiptPage(ScanReceiptViewModel viewModel)
     {
         InitializeComponent();
+        Shell.SetNavBarIsVisible(this, false);
         BindingContext = _viewModel = viewModel;
     }
 

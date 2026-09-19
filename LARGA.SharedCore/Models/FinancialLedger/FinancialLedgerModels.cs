@@ -19,6 +19,9 @@ public class SettlementRow
     public string DriverName { get; set; } = string.Empty;
     public string TaxiId { get; set; } = string.Empty;
 
+    /// <summary>Shift start used by mobile quick-ledger due-window logic.</summary>
+    public DateTime? ShiftStart { get; set; }
+
     /// <summary>Null while the shift is still active ("On road" in the UI).</summary>
     public DateTime? ShiftEnd { get; set; }
 

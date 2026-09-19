@@ -7,7 +7,8 @@
              x:DataType="vm:ManagerLedgerViewModel"
              x:Name="RootPage"
              BackgroundColor="#FFFFFF"
-             NavigationPage.HasNavigationBar="False">
+             NavigationPage.HasNavigationBar="False"
+             Shell.NavBarIsVisible="False">
 
     <Grid>
         <!-- MAIN CONTENT -->
@@ -15,8 +16,13 @@
             <VerticalStackLayout Padding="20" Spacing="16">
                 <!-- Header -->
                 <Grid ColumnDefinitions="*, Auto">
-                    <VerticalStackLayout Grid.Column="0">
-                        <Label Text="Quick Ledger" FontSize="42" FontAttributes="Bold" TextColor="#111827" FontFamily="BarlowCondensedBold" />
+                    <VerticalStackLayout Grid.Column="0" VerticalOptions="Center">
+                        <Label Text="Quick Ledger"
+                               FontSize="28"
+                               LineBreakMode="NoWrap"
+                               FontAttributes="Bold"
+                               TextColor="#111827"
+                               FontFamily="BarlowCondensedBold" />
                         <Label Text="{Binding PendingCount, StringFormat='{0} pending clearances'}" FontSize="14" TextColor="#6B7280" />
                     </VerticalStackLayout>
                     <Button Grid.Column="1"
@@ -25,10 +31,12 @@
                             BackgroundColor="#019BCF"
                             TextColor="White"
                             CornerRadius="20"
-                            FontSize="20"
+                            FontSize="16"
                             FontFamily="BarlowCondensedBold"
                             Padding="14,4"
-                            HeightRequest="40" />
+                            HeightRequest="40"
+                            VerticalOptions="Center"
+                            HorizontalOptions="End" />
                 </Grid>
 
                 <!-- PENDING SECTION -->
@@ -100,40 +108,52 @@
                     BindingContext="{Binding Source={x:Reference RootPage}, Path=BindingContext.PaymentModalViewModel}"
                     x:DataType="vm:RecordPaymentViewModel">
                 <VerticalStackLayout Spacing="12">
+                    <!-- Header row -->
                     <Grid ColumnDefinitions="*, Auto">
                         <VerticalStackLayout Grid.Column="0">
-                            <Label Text="{Binding ModalTitle}" FontSize="18" FontAttributes="Bold" TextColor="#111827" FontFamily="BarlowCondensedBold" />
+                            <Label Text="{Binding ModalTitle}" FontSize="19" FontAttributes="Bold" TextColor="#111827" FontFamily="BarlowCondensedBold" />
                             <Label Text="{Binding CurrentDriverName}" FontSize="12" TextColor="#6B7280" />
                         </VerticalStackLayout>
-                        <Button Grid.Column="1" Text="✕" Command="{Binding CloseCommand}" BackgroundColor="#A6DCEE" TextColor="#1D1D1D" WidthRequest="30" HeightRequest="30" CornerRadius="15" FontSize="12" />
+                        <Border Grid.Column="1"
+                                StrokeShape="RoundRectangle 16"
+                                BackgroundColor="#D7EEF7"
+                                StrokeThickness="0"
+                                WidthRequest="32" HeightRequest="32"
+                                Padding="0"
+                                HorizontalOptions="End" VerticalOptions="Start">
+                            <Button Text="✕"
+                                    Command="{Binding CloseCommand}"
+                                    BackgroundColor="Transparent"
+                                    TextColor="#1D1D1D"
+                                    FontSize="13"
+                                    Padding="0" />
+                        </Border>
                     </Grid>
 
+                    <!-- Driver / Category pickers (Other Payment flow only) -->
                     <Grid ColumnDefinitions="*, *" ColumnSpacing="10" IsVisible="{Binding IsOtherPayment}">
-                        <VerticalStackLayout Spacing="6">
-                            <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="14,0" HeightRequest="44">
-                                <Picker ItemsSource="{Binding AvailableDrivers}"
-                                        SelectedItem="{Binding SelectedDriver}"
-                                        ItemDisplayBinding="{Binding FullName}"
-                                        Title="Select Driver"
-                                        BackgroundColor="Transparent"
-                                        TextColor="#1D1D1D"
-                                        FontAttributes="Bold"
-                                        VerticalOptions="Center" />
-                            </Border>
-                        </VerticalStackLayout>
-                        <VerticalStackLayout Grid.Column="1" Spacing="6">
-                            <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="14,0" HeightRequest="44">
-                                <Picker ItemsSource="{Binding Categories}"
-                                        SelectedItem="{Binding SelectedCategory}"
-                                        Title="Category"
-                                        BackgroundColor="Transparent"
-                                        TextColor="#1D1D1D"
-                                        FontAttributes="Bold"
-                                        VerticalOptions="Center" />
-                            </Border>
-                        </VerticalStackLayout>
+                        <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="14,0" HeightRequest="44">
+                            <Picker ItemsSource="{Binding AvailableDrivers}"
+                                    SelectedItem="{Binding SelectedDriver}"
+                                    ItemDisplayBinding="{Binding FullName}"
+                                    Title="Select Driver"
+                                    BackgroundColor="Transparent"
+                                    TextColor="#1D1D1D"
+                                    FontAttributes="Bold"
+                                    VerticalOptions="Center" />
+                        </Border>
+                        <Border Grid.Column="1" StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="14,0" HeightRequest="44">
+                            <Picker ItemsSource="{Binding Categories}"
+                                    SelectedItem="{Binding SelectedCategory}"
+                                    Title="Category"
+                                    BackgroundColor="Transparent"
+                                    TextColor="#1D1D1D"
+                                    FontAttributes="Bold"
+                                    VerticalOptions="Center" />
+                        </Border>
                     </Grid>
 
+                    <!-- Expected Amount (regular payment flow only) -->
                     <VerticalStackLayout Spacing="4" IsVisible="{Binding ShowExpectedAmount}">
                         <Label Text="Expected Amount" FontSize="12" TextColor="#6B7280" />
                         <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="16,0" HeightRequest="48">
@@ -184,16 +204,70 @@
 
                     <!-- E-Wallet Specific Section -->
                     <VerticalStackLayout Spacing="10" IsVisible="{Binding IsEWallet}">
-                        <Button Text="📷 Scan receipt" Command="{Binding OpenScanReceiptCommand}" BackgroundColor="#E6F5FA" TextColor="#1D1D1D" BorderColor="#40B4DB" BorderWidth="1" CornerRadius="16" HorizontalOptions="End" Padding="16,6" />
-                        <Label Text="Receipt Details" FontSize="11" TextColor="#6B7280" />
-                        <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="16,0" HeightRequest="46">
-                            <Entry Placeholder="Amount" Text="{Binding ReceiptAmount}" BackgroundColor="Transparent" TextColor="#111111" PlaceholderColor="#6B8A97" VerticalOptions="Center" />
+                        <Button Text="📷 Scan receipt"
+                                Command="{Binding OpenScanReceiptCommand}"
+                                BackgroundColor="#E6F5FA"
+                                TextColor="#1D1D1D"
+                                BorderColor="#40B4DB"
+                                BorderWidth="1"
+                                CornerRadius="16"
+                                HorizontalOptions="End"
+                                Padding="16,6" />
+
+                        <Label Text="Receipt Details" FontSize="11" TextColor="#6B7280" Margin="0,2,0,0" />
+
+                        <!-- Amount row -->
+                        <Border StrokeShape="RoundRectangle 14" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="14,0" HeightRequest="44">
+                            <Grid ColumnDefinitions="Auto, *" ColumnSpacing="8">
+                                <Label Text="Amount" FontSize="13" TextColor="#3E5B66" VerticalOptions="Center" />
+                                <Entry Grid.Column="1"
+                                       Text="{Binding ReceiptAmount}"
+                                       Placeholder="—"
+                                       Keyboard="Numeric"
+                                        IsReadOnly="True"
+                                       BackgroundColor="Transparent"
+                                       TextColor="#111111"
+                                       PlaceholderColor="#6B8A97"
+                                       FontAttributes="Bold"
+                                       FontSize="14"
+                                       HorizontalTextAlignment="End"
+                                       VerticalOptions="Center" />
+                            </Grid>
                         </Border>
-                        <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="16,0" HeightRequest="46">
-                            <DatePicker Date="{Binding ReceiptDate}" BackgroundColor="Transparent" TextColor="#111111" VerticalOptions="Center" />
+
+                        <!-- Date row -->
+                        <Border StrokeShape="RoundRectangle 14" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="14,0" HeightRequest="44">
+                            <Grid ColumnDefinitions="Auto, *" ColumnSpacing="8">
+                                <Label Text="Date" FontSize="13" TextColor="#3E5B66" VerticalOptions="Center" />
+                                <DatePicker Grid.Column="1"
+                                            Date="{Binding ReceiptDate}"
+                                            Format="MMM dd, yyyy"
+                                            IsEnabled="False"
+                                            BackgroundColor="Transparent"
+                                            TextColor="#111111"
+                                            FontAttributes="Bold"
+                                            FontSize="14"
+                                            HorizontalOptions="End"
+                                            VerticalOptions="Center" />
+                            </Grid>
                         </Border>
-                        <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="16,0" HeightRequest="46">
-                            <Entry Placeholder="Reference No." Text="{Binding ReferenceNumber}" BackgroundColor="Transparent" TextColor="#111111" PlaceholderColor="#6B8A97" VerticalOptions="Center" />
+
+                        <!-- Reference No. row -->
+                        <Border StrokeShape="RoundRectangle 14" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="14,0" HeightRequest="44">
+                            <Grid ColumnDefinitions="Auto, *" ColumnSpacing="8">
+                                <Label Text="Reference No." FontSize="13" TextColor="#3E5B66" VerticalOptions="Center" />
+                                <Entry Grid.Column="1"
+                                       Text="{Binding ReferenceNumber}"
+                                       Placeholder="—"
+                                        IsReadOnly="True"
+                                       BackgroundColor="Transparent"
+                                       TextColor="#111111"
+                                       PlaceholderColor="#6B8A97"
+                                       FontAttributes="Bold"
+                                       FontSize="14"
+                                       HorizontalTextAlignment="End"
+                                       VerticalOptions="Center" />
+                            </Grid>
                         </Border>
                     </VerticalStackLayout>
 
