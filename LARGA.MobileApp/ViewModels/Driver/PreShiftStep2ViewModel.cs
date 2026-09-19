@@ -1,4 +1,6 @@
-﻿using Microsoft.Maui.Controls;
+﻿using LARGA.MobileApp.Services;
+using LARGA.SharedCore.Services;
+using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
 using Plugin.Firebase.Auth;
@@ -11,9 +13,22 @@ using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
-public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
+// Removed IQueryAttributable since we are now using WeakReferenceMessenger for Modals
+public class PreShiftStep2ViewModel : BindableObject
 {
     private bool _areStep1InspectionsComplete = true;
+
+    // Inject both required services
+    private readonly IShiftManagementService _shiftService;
+    private readonly IOcrService _ocrService;
+
+    private string _assignedUnitPlate = "Loading...";
+    public string AssignedUnitPlate
+    {
+        get => _assignedUnitPlate;
+        private set { _assignedUnitPlate = value; OnPropertyChanged(); }
+    }
+
     public bool AreStep1InspectionsComplete
     {
         get => _areStep1InspectionsComplete;
@@ -114,15 +129,40 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
     public ICommand AttachPhotoCommand { get; }
     public ICommand ConfirmStartShiftCommand { get; }
 
-    private readonly IPhotoStorageService _photoStorageService;
-
-    public PreShiftStep2ViewModel(IPhotoStorageService photoStorageService)
+    public PreShiftStep2ViewModel(IShiftManagementService shiftService, IOcrService ocrService)
     {
-        _photoStorageService = photoStorageService;
+        _shiftService = shiftService;
+        _ocrService = ocrService; // Store the service to pass to the modal
+
+        // Register the Messenger to listen for the modal's return value
+        CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Register<PreShiftStep2ViewModel, string, string>(this, "OdometerScanned", (r, scannedText) =>
+        {
+            StartingOdometer = scannedText;
+        });
+
+        _ = LoadAssignedUnitAsync();
 
         ScanOdometerCommand = new Command(async () => await ScanOdometerAsync());
         AttachPhotoCommand = new Command(async () => await AttachPhotoAsync());
         ConfirmStartShiftCommand = new Command(async () => await ConfirmStartShiftAsync());
+    }
+
+    private async Task LoadAssignedUnitAsync()
+    {
+        try
+        {
+            var taxi = await _shiftService.GetCurrentUserAssignedTaxiAsync();
+            if (taxi != null)
+            {
+                AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber)
+                    ? taxi.Model
+                    : taxi.PlateNumber.Replace("-", "·");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Assigned Unit Error: {ex.Message}");
+        }
     }
 
     private async Task AttachPhotoAsync()
@@ -165,7 +205,30 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
 
     private async Task ScanOdometerAsync()
     {
-        await Shell.Current.GoToAsync("odometer-scan");
+        var status = await Permissions.CheckStatusAsync<Permissions.Camera>();
+        if (status != PermissionStatus.Granted)
+        {
+            status = await Permissions.RequestAsync<Permissions.Camera>();
+            if (status != PermissionStatus.Granted) return;
+        }
+
+        if (MediaPicker.Default.IsCaptureSupported)
+        {
+            // 1. Hand complete control to the phone's native camera app for perfect focus
+            var photo = await MediaPicker.Default.CapturePhotoAsync();
+
+            if (photo != null)
+            {
+                using var stream = await photo.OpenReadAsync();
+                using var memoryStream = new MemoryStream();
+                await stream.CopyToAsync(memoryStream);
+                byte[] imageBytes = memoryStream.ToArray();
+
+                // 2. Pass the high-resolution photo bytes into the Modal
+                await Application.Current.MainPage.Navigation.PushModalAsync(
+                    new LARGA.MobileApp.Views.Driver.OdometerScanPage(_ocrService, imageBytes));
+            }
+        }
     }
 
     private async Task ConfirmStartShiftAsync()
@@ -178,17 +241,5 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
 
         Microsoft.Maui.Storage.Preferences.Set("IsShiftActive", true);
         await Shell.Current.GoToAsync("../../active-shift");
-    }
-
-    public void ApplyQueryAttributes(IDictionary<string, object> query)
-    {
-        if (query.TryGetValue("ScannedOdometer", out var odometer))
-        {
-            StartingOdometer = odometer.ToString();
-        }
-        if (query.TryGetValue("OdometerPhotoUrl", out var photoUrl))
-        {
-            OdometerPhotoUrl = photoUrl.ToString();
-        }
     }
 }

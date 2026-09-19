@@ -87,7 +87,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         set { _shiftEndsAt = value; OnPropertyChanged(); }
     }
 
-    public string Distance { get; set; } = "0km";
+    public string Distance { get; set; } = "0";
     public string BoundaryStatus { get; set; } = "Pending";
 
     private string _durationDisplay = "00:00:00";

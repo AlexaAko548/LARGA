@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             xmlns:cv="clr-namespace:Camera.MAUI;assembly=Camera.MAUI"
              x:Class="LARGA.MobileApp.Views.Driver.OdometerScanPage"
              Shell.NavBarIsVisible="False"
              BackgroundColor="Black">
 
     <Grid>
-        <!-- Removed the invalid FrameReady event -->
-        <cv:CameraView x:Name="LiveCamera" CamerasLoaded="Camera_CamerasLoaded" HorizontalOptions="Fill" VerticalOptions="Fill" />
-
+        <!-- Change Aspect="AspectFill" to Aspect="Fill" to align the OCR coordinates -->
+        <Image x:Name="CapturedImage" Aspect="Fill" HorizontalOptions="Fill" VerticalOptions="Fill" />
+        
         <AbsoluteLayout x:Name="TextOverlayLayout" HorizontalOptions="Fill" VerticalOptions="Fill" />
 
         <VerticalStackLayout VerticalOptions="End" HorizontalOptions="Center" Spacing="15" Margin="0,0,0,40">

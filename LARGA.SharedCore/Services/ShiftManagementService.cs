@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Plugin.Firebase.Firestore;
+using Plugin.Firebase.Auth;
 using LARGA.Shared.Models.Entities;
 
 namespace LARGA.SharedCore.Services;
@@ -12,6 +13,7 @@ public interface IShiftManagementService
     Task<string> StartShiftLogAsync(ShiftLog shift);
     Task<bool> UpdateTaxiStatusAsync(string taxiId, string newStatus);
     Task<TaxiUnit> GetTaxiUnitAsync(string taxiId);
+    Task<TaxiUnit> GetCurrentUserAssignedTaxiAsync();
 }
 
 public class ShiftManagementService : IShiftManagementService
@@ -25,6 +27,7 @@ public class ShiftManagementService : IShiftManagementService
                 .AddDocumentAsync(schedule);
             return true;
         }
+
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Schedule Error: {ex.Message}");
@@ -95,6 +98,27 @@ public class ShiftManagementService : IShiftManagementService
         }
     }
 
+    public async Task<TaxiUnit> GetCurrentUserAssignedTaxiAsync()
+    {
+        var user = CrossFirebaseAuth.Current.CurrentUser;
+        if (user == null)
+        {
+            return null;
+        }
+
+        var profile = await CrossFirebaseFirestore.Current
+            .GetCollection("users")
+            .GetDocument(user.Uid)
+            .GetDocumentSnapshotAsync<UserProfileProxy>();
+
+        if (string.IsNullOrWhiteSpace(profile?.Data?.AssignedTaxiId))
+        {
+            return null;
+        }
+
+        return await GetTaxiUnitAsync(profile.Data.AssignedTaxiId);
+    }
+
     // Proxy class using mobile-specific Plugin.Firebase attributes
     public class TaxiUnitProxy
     {
@@ -112,5 +136,11 @@ public class ShiftManagementService : IShiftManagementService
 
         [Plugin.Firebase.Firestore.FirestoreProperty("yearManufactured")]
         public int YearManufactured { get; set; }
+    }
+
+    private class UserProfileProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("assignedTaxiId")]
+        public string AssignedTaxiId { get; set; }
     }
 }

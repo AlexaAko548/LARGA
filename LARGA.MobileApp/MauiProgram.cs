@@ -44,7 +44,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IChatService, ChatService>();
         builder.Services.AddSingleton<IShiftManagementService, ShiftManagementService>();
         builder.Services.AddSingleton<INotificationService, NotificationService>();
-        builder.Services.AddSingleton<IPhotoStorageService, PhotoStorageService>();
+        builder.Services.AddSingleton<IMaintenanceService, MaintenanceService>();
 
 #if ANDROID
         builder.Services.AddSingleton<IOcrService, LARGA.MobileApp.Platforms.Android.Services.AndroidOcrService>();
@@ -62,6 +62,8 @@ public static class MauiProgram
         builder.Services.AddTransient<ShiftCompletedViewModel>();
         builder.Services.AddSingleton<ActiveShiftViewModel>();
         builder.Services.AddTransient<LedgerViewModel>();
+        builder.Services.AddTransient<PaymentHistoryViewModel>();
+        builder.Services.AddTransient<DebtDetailViewModel>();
 
         // Register Views 
         builder.Services.AddTransient<LandingPage>();
@@ -83,6 +85,13 @@ public static class MauiProgram
         builder.Services.AddTransient<EndShiftStep2ViewModel>();
         builder.Services.AddTransient<EndShiftStep2Page>();
         builder.Services.AddTransient<ShiftCompletedPage>();
+        builder.Services.AddTransient<VehicleDefectViewModel>();
+        builder.Services.AddTransient<VehicleDefectPage>();
+        builder.Services.AddTransient<PaymentHistoryPage>();
+        builder.Services.AddTransient<DebtDetailPage>();
+        builder.Services.AddTransient<DefectReportDetailViewModel>();
+        builder.Services.AddTransient<DefectReportDetailPage>();
+
 
 #if DEBUG
         builder.Logging.AddDebug();
