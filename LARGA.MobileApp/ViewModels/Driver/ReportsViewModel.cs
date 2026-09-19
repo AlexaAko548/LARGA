@@ -40,7 +40,7 @@ public class ReportsViewModel : BindableObject
     public ICommand LoadReportsCommand { get; }
     public ICommand ViewReportDetailsCommand { get; }
 
-    public ReportsViewModel() 
+    public ReportsViewModel()
     {
         WeakReferenceMessenger.Default.Register<ReportsViewModel, FuelReportSubmittedMessage>(this, static (recipient, _) =>
         {
@@ -108,14 +108,21 @@ public class ReportsViewModel : BindableObject
             foreach (var doc in fuelSnapshot.Documents)
             {
                 if (doc.Data == null) continue;
-                var dateLogged = FirestoreDateTimeFix.Apply(doc.Data.ReceiptTimestamp).ToLocalTime();
+
+                var parsedTimestamp = ParseTimestamp(doc.Data.ReceiptTimestamp);
+                if (!parsedTimestamp.HasValue)
+                {
+                    continue;
+                }
+
+                var dateLogged = FirestoreDateTimeFix.Apply(parsedTimestamp.Value).ToLocalTime();
                 tempFuels.Add(new FuelReportItem
                 {
                     Id = doc.Reference.Id,
                     DateLogged = dateLogged,
                     DateDisplay = dateLogged.ToString("MMM d, yyyy"),
-                    Cost = doc.Data.FuelCost.ToString("N2"),
-                    Status = doc.Data.VerificationStatus ?? "Pending"
+                    Cost = ParseFuelCost(doc.Data.FuelCost).ToString("N2"),
+                    Status = string.IsNullOrWhiteSpace(doc.Data.VerificationStatus) ? "Pending" : doc.Data.VerificationStatus
                 });
             }
 
@@ -146,13 +153,53 @@ public class ReportsViewModel : BindableObject
     public class FuelReportProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("receiptTimestamp")]
-        public System.DateTime ReceiptTimestamp { get; set; }
+        public object? ReceiptTimestamp { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("fuelCost")]
-        public double FuelCost { get; set; }
+        public object? FuelCost { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("verificationStatus")]
-        public string VerificationStatus { get; set; }
+        public string? VerificationStatus { get; set; }
+    }
+
+    private static DateTime? ParseTimestamp(object? value)
+    {
+        if (value is null)
+            return null;
+
+        if (value is DateTime dateTime)
+            return dateTime;
+
+        if (DateTime.TryParse(value.ToString(), out var parsed))
+            return parsed;
+
+        return null;
+    }
+
+    private static decimal ParseFuelCost(object? value)
+    {
+        if (value is null)
+            return 0m;
+
+        if (value is decimal d)
+            return d;
+
+        if (value is double dbl)
+            return Convert.ToDecimal(dbl);
+
+        if (value is float f)
+            return Convert.ToDecimal(f);
+
+        if (value is long l)
+            return l;
+
+        if (value is int i)
+            return i;
+
+        if (decimal.TryParse(value.ToString(), out var parsed))
+            return parsed;
+
+        return 0m;
     }
 }
 
