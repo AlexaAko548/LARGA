@@ -285,12 +285,15 @@ else if (_isAuthorized)
 @if (_showHistoryModal)
 {
     <div class="report-overlay" @onclick="CloseHistoryModal">
-        <div class="report-modal wide" @onclick:stopPropagation="true">
+        <div class="report-modal wide history-modal" @onclick:stopPropagation="true">
             <div class="report-header">
-                <h3>Maintenance History</h3>
-                <button type="button" class="close-modal" @onclick="CloseHistoryModal">×</button>
+                <div class="history-title-wrap">
+                    <h3>Maintenance History</h3>
+                    <div class="history-subtitle">@(_history is null ? "Loading…" : $"{_history.Count} {(_history.Count == 1 ? "record" : "records")}")</div>
+                </div>
+                <button type="button" class="close-modal" @onclick="CloseHistoryModal" aria-label="Close">×</button>
             </div>
-            <div class="report-body">
+            <div class="report-body history-body">
                 @if (_history is null)
                 {
                     <div class="table-empty">Loading history...</div>
@@ -298,7 +301,7 @@ else if (_isAuthorized)
                 else
                 {
                     <div class="data-table-wrap">
-                        <table class="data-table">
+                        <table class="data-table history-table">
                             <thead>
                                 <tr>
                                     <th>Unit</th>
@@ -319,12 +322,12 @@ else if (_isAuthorized)
                                     @foreach (HistoryEntry h in _history)
                                     {
                                         <tr>
-                                            <td>@h.UnitLabel</td>
-                                            <td>@h.IssueTitle</td>
-                                            <td>@h.ReportedByName</td>
-                                            <td>@h.DateLogged.ToPhilippineTime().ToString("MMM d, yyyy")</td>
-                                            <td>@(h.DateResolved.HasValue ? h.DateResolved.Value.ToPhilippineTime().ToString("MMM d, yyyy") : "–")</td>
-                                            <td><span class="status-pill @(h.Status == "Resolved" ? "status-success" : "status-neutral")">@h.Status.ToUpperInvariant()</span></td>
+                                            <td class="history-unit"><span class="history-unit-chip">@h.UnitLabel</span></td>
+                                            <td class="history-issue">@h.IssueTitle</td>
+                                            <td class="history-reporter">@h.ReportedByName</td>
+                                            <td class="history-date">@h.DateLogged.ToPhilippineTime().ToString("MMM d, yyyy")</td>
+                                            <td class="history-date">@(h.DateResolved.HasValue ? h.DateResolved.Value.ToPhilippineTime().ToString("MMM d, yyyy") : "–")</td>
+                                            <td class="history-status"><span class="status-pill small @(h.Status == "Resolved" ? "status-success" : "status-neutral")">@h.Status.ToUpperInvariant()</span></td>
                                         </tr>
                                     }
                                 }
