@@ -79,6 +79,14 @@
                     <BindableLayout.ItemTemplate>
                         <DataTemplate x:DataType="vm:FuelReportItem">
                             <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+
+                                <!-- ADD THIS GESTURE RECOGNIZER -->
+                                <Border.GestureRecognizers>
+                                    <TapGestureRecognizer 
+                                        Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.ViewFuelReportDetailsCommand}"
+                                        CommandParameter="{Binding .}" />
+                                </Border.GestureRecognizers>
+
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                     <Label Grid.Column="0" Text="{Binding DisplayText}" FontSize="14" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center" />
                                     <Label Grid.Column="1" Text="&gt;" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center" />

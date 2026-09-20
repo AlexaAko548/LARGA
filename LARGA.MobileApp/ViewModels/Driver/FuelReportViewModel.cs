@@ -1,5 +1,4 @@
 using System;
-using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -7,11 +6,12 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using LARGA.MobileApp.Services;
+using LARGA.SharedCore.Services;
+using LARGA.Shared.Models.Entities;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
-using Plugin.Firebase.Firestore;
 using Plugin.Firebase.Storage;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
@@ -33,6 +33,7 @@ public class FuelReportViewModel : BindableObject
     private const string PendingDateEditedKey = PendingPrefix + "DateEdited";
 
     private readonly IOcrService _ocrService;
+    private readonly IFuelService _fuelService;
 
     private string _cost = string.Empty;
     public string Cost
@@ -183,9 +184,7 @@ public class FuelReportViewModel : BindableObject
     public ImageSource? ReceiptPhoto { get => _receiptPhoto; set { _receiptPhoto = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasPhoto)); } }
     public bool HasPhoto => ReceiptPhoto != null;
 
-    // Holds raw bytes in memory so upload can be retried without forcing a rescan.
-    private byte[]? _receiptBytes;
-    private byte[]? _odometerPhotoBytes;
+    // THE FIX: Retained only the file paths. byte[] arrays have been deleted.
     private string? _receiptTempPath;
     private string? _odometerTempPath;
 
@@ -200,23 +199,23 @@ public class FuelReportViewModel : BindableObject
         SelectedDate.HasValue &&
         !string.IsNullOrWhiteSpace(Odometer) &&
         HasPhoto &&
-        _receiptBytes != null &&
-        _odometerPhotoBytes != null;
+        !string.IsNullOrWhiteSpace(_receiptTempPath) &&
+        !string.IsNullOrWhiteSpace(_odometerTempPath);
 
     public ICommand ScanOdometerCommand { get; }
     public ICommand ScanReceiptCommand { get; }
     public ICommand RedoReceiptCommand { get; }
     public ICommand SubmitReportCommand { get; }
 
-    public FuelReportViewModel(IOcrService ocrService)
+    public FuelReportViewModel(IOcrService ocrService, IFuelService fuelService)
     {
         _ocrService = ocrService;
+        _fuelService = fuelService;
 
         WeakReferenceMessenger.Default.Register<FuelReportViewModel, OdometerScannedData, string>(this, "OdometerScanned", (r, data) =>
         {
             Odometer = data.OdometerText;
-            _odometerPhotoBytes = data.PhotoBytes;
-            _odometerTempPath = SaveImageToTempFile(data.PhotoBytes, "odometer");
+            _odometerTempPath = data.PhotoFilePath; // THE FIX: Assign path directly
             OnPropertyChanged(nameof(CanSubmit));
         });
 
@@ -251,9 +250,9 @@ public class FuelReportViewModel : BindableObject
             IsReceiptDateManuallyEdited = false;
             _isApplyingScanResult = false;
 
-            _receiptBytes = data.PhotoBytes;
-            _receiptTempPath = SaveImageToTempFile(data.PhotoBytes, "receipt");
-            ReceiptPhoto = ImageSource.FromStream(() => new MemoryStream(data.PhotoBytes));
+            _receiptTempPath = data.PhotoFilePath; // THE FIX: Assign path directly
+            ReceiptPhoto = null;
+            ReceiptPhoto = ImageSource.FromFile(data.PhotoFilePath); // THE FIX: Bind from file
             OnPropertyChanged(nameof(CanSubmit));
         });
 
@@ -269,7 +268,7 @@ public class FuelReportViewModel : BindableObject
                 return;
             }
 
-            if (IsSubmitting) return; // Prevent double taps
+            if (IsSubmitting) return;
             IsSubmitting = true;
 
             var currentUser = Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser;
@@ -281,7 +280,7 @@ public class FuelReportViewModel : BindableObject
 
             try
             {
-                if (_receiptBytes == null || _odometerPhotoBytes == null)
+                if (string.IsNullOrWhiteSpace(_receiptTempPath) || string.IsNullOrWhiteSpace(_odometerTempPath))
                 {
                     await Shell.Current.DisplayAlert("Required", "Images are missing. Please redo the scans.", "OK");
                     return;
@@ -293,9 +292,6 @@ public class FuelReportViewModel : BindableObject
                     return;
                 }
 
-                _receiptTempPath ??= SaveImageToTempFile(_receiptBytes, "receipt");
-                _odometerTempPath ??= SaveImageToTempFile(_odometerPhotoBytes, "odometer");
-
                 var shiftId = Preferences.Get("CurrentShiftId", "UNKNOWN_SHIFT");
                 var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 var baseStoragePath = $"fuel_logs/{currentUser.Uid}/{shiftId}/{timestamp}";
@@ -305,36 +301,49 @@ public class FuelReportViewModel : BindableObject
 
                 try
                 {
+                    // THE FIX: Upload using file paths
                     receiptImageUrl = await UploadImageAsync(_receiptTempPath, $"{baseStoragePath}/receipt.jpg");
                     odometerPhotoUrl = await UploadImageAsync(_odometerTempPath, $"{baseStoragePath}/odometer.jpg");
                 }
                 catch (Exception uploadEx)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Fuel image upload warning: {uploadEx.Message}");
+                    System.Diagnostics.Debug.WriteLine($"Fuel image upload error: {uploadEx.Message}");
+                    IsSubmitting = false;
+                    await Shell.Current.DisplayAlert("Upload Failed", "Unable to upload photos to cloud storage. Please check your internet connection and try again.", "OK");
+                    return;
                 }
 
-                var fuelData = new Dictionary<object, object>
+                var fuelRecord = new FuelLog
                 {
-                    { "driverId", currentUser.Uid },
-                    { "shiftId", shiftId },
-                    { "fuelCost", ParseDecimal(Cost) },
-                    { "litersRefueled", ParseDecimal(Quantity) },
-                    { "fuelStation", FuelStation },
-                    { "receiptTimestamp", NormalizeReceiptTimestamp(SelectedDate.Value) },
-                    { "odometerReading", int.TryParse(Odometer.Replace(",", ""), out var odoVal) ? odoVal : 0 },
-                    { "verificationStatus", "Pending" },
-                    { "receiptImageUrl", receiptImageUrl },
-                    { "odometerPhotoUrl", odometerPhotoUrl },
-                    { "isCostManuallyEdited", IsCostManuallyEdited },
-                    { "isQuantityManuallyEdited", IsQuantityManuallyEdited },
-                    { "isFuelStationManuallyEdited", IsFuelStationManuallyEdited },
-                    { "isReceiptDateManuallyEdited", IsReceiptDateManuallyEdited },
-                    { "isAnyFieldManuallyEdited", IsAnyFieldManuallyEdited }
+                    DriverId = currentUser.Uid,
+                    ShiftId = shiftId,
+                    FuelCost = ParseDecimal(Cost),
+                    LitersRefueled = ParseDecimal(Quantity),
+                    FuelStation = FuelStation,
+                    ReceiptTimestamp = NormalizeReceiptTimestamp(SelectedDate.Value),
+                    OdometerReading = int.TryParse(Odometer.Replace(",", ""), out var odoVal) ? odoVal : 0,
+                    VerificationStatus = FuelVerificationStatus.Pending,
+                    ReceiptImageUrl = receiptImageUrl,
+                    OdometerPhotoUrl = odometerPhotoUrl,
+                    IsCostManuallyEdited = IsCostManuallyEdited,
+                    IsQuantityManuallyEdited = IsQuantityManuallyEdited,
+                    IsFuelStationManuallyEdited = IsFuelStationManuallyEdited,
+                    IsReceiptDateManuallyEdited = IsReceiptDateManuallyEdited,
+                    IsAnyFieldManuallyEdited = IsAnyFieldManuallyEdited
                 };
 
-                await CrossFirebaseFirestore.Current
-                    .GetCollection("fuel_logs")
-                    .AddDocumentAsync(fuelData);
+                var recordId = string.Empty;
+
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    recordId = await _fuelService.SubmitFuelReportAsync(fuelRecord);
+                });
+
+                if (string.IsNullOrEmpty(recordId))
+                {
+                    await Shell.Current.DisplayAlert("Submission failed", "Unable to submit to Firebase right now. Please try again.", "OK");
+                    return;
+                }
 
                 ClearPendingDraft();
                 DeleteTempFile(_receiptTempPath);
@@ -351,7 +360,7 @@ public class FuelReportViewModel : BindableObject
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Fuel Submit Error: {ex.Message}");
-                await Shell.Current.DisplayAlert("Submission failed", "Unable to submit to Firebase right now. Please try again.", "OK");
+                await Shell.Current.DisplayAlert("Submission failed", "An unexpected error occurred. Please try again.", "OK");
             }
             finally
             {
@@ -398,8 +407,6 @@ public class FuelReportViewModel : BindableObject
         DeleteTempFile(_odometerTempPath);
         _receiptTempPath = null;
         _odometerTempPath = null;
-        _receiptBytes = null;
-        _odometerPhotoBytes = null;
 
         ClearPendingDraft();
         _isApplyingScanResult = false;
@@ -421,13 +428,20 @@ public class FuelReportViewModel : BindableObject
 
             if (photo != null)
             {
-                using var stream = await photo.OpenReadAsync();
-                using var memoryStream = new MemoryStream();
-                await stream.CopyToAsync(memoryStream);
-                byte[] imageBytes = memoryStream.ToArray();
+                // THE FIX: Add Guid.NewGuid() to prevent file lock crashes on rescans
+                string localFilePath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_{photo.FileName}");
 
-                await Application.Current.MainPage.Navigation.PushModalAsync(
-                    new Views.Driver.OdometerScanPage(_ocrService, imageBytes));
+                using (var sourceStream = await photo.OpenReadAsync())
+                using (var localFileStream = File.OpenWrite(localFilePath))
+                {
+                    await sourceStream.CopyToAsync(localFileStream);
+                }
+
+                MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    await Application.Current.MainPage.Navigation.PushModalAsync(
+                        new LARGA.MobileApp.Views.Driver.OdometerScanPage(_ocrService, localFilePath));
+                });
             }
         }
     }
@@ -448,13 +462,6 @@ public class FuelReportViewModel : BindableObject
         return DateTime.SpecifyKind(selectedDate.Date, DateTimeKind.Utc);
     }
 
-    private static string SaveImageToTempFile(byte[] bytes, string prefix)
-    {
-        var path = Path.Combine(FileSystem.CacheDirectory, $"{prefix}_{Guid.NewGuid():N}.jpg");
-        File.WriteAllBytes(path, bytes);
-        return path;
-    }
-
     private static void DeleteTempFile(string? path)
     {
         if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
@@ -463,15 +470,18 @@ public class FuelReportViewModel : BindableObject
         }
     }
 
-    private static async Task<string> UploadImageAsync(string? localPath, string remotePath)
+    // THE FIX: Modify upload method to stream from file path directly
+    private static async Task<string> UploadImageAsync(string localFilePath, string remotePath)
     {
-        if (string.IsNullOrWhiteSpace(localPath) || !File.Exists(localPath))
+        if (string.IsNullOrWhiteSpace(localFilePath) || !File.Exists(localFilePath))
         {
-            throw new FileNotFoundException("Local image file missing", localPath);
+            throw new ArgumentException("File path is invalid or does not exist", nameof(localFilePath));
         }
 
         var storageRef = CrossFirebaseStorage.Current.GetRootReference().GetChild(remotePath);
-        await storageRef.PutFile(localPath, null).AwaitAsync();
+
+        // PutFile reads the bytes from disk in chunks rather than loading it all into memory
+        await storageRef.PutFile(localFilePath).AwaitAsync();
         return await storageRef.GetDownloadUrlAsync();
     }
 
@@ -538,15 +548,10 @@ public class FuelReportViewModel : BindableObject
         _receiptTempPath = Preferences.Get(PendingReceiptPathKey, string.Empty);
         if (!string.IsNullOrWhiteSpace(_receiptTempPath) && File.Exists(_receiptTempPath))
         {
-            _receiptBytes = File.ReadAllBytes(_receiptTempPath);
-            ReceiptPhoto = ImageSource.FromFile(_receiptTempPath);
+            ReceiptPhoto = ImageSource.FromFile(_receiptTempPath); // THE FIX: Bind from file directly
         }
 
         _odometerTempPath = Preferences.Get(PendingOdometerPathKey, string.Empty);
-        if (!string.IsNullOrWhiteSpace(_odometerTempPath) && File.Exists(_odometerTempPath))
-        {
-            _odometerPhotoBytes = File.ReadAllBytes(_odometerTempPath);
-        }
 
         OnPropertyChanged(nameof(CanSubmit));
     }
@@ -635,13 +640,15 @@ public class ReceiptExtractedData
     public bool IsQuantityUncertain { get; set; }
     public bool IsVendorUncertain { get; set; }
     public bool IsDateUncertain { get; set; }
-    public byte[] PhotoBytes { get; set; } = Array.Empty<byte>();
+    // THE FIX: Pass file path instead of bytes
+    public string PhotoFilePath { get; set; } = string.Empty;
 }
 
 public class OdometerScannedData
 {
     public string OdometerText { get; set; } = string.Empty;
-    public byte[] PhotoBytes { get; set; } = Array.Empty<byte>();
+    // THE FIX: Pass file path instead of bytes
+    public string PhotoFilePath { get; set; } = string.Empty;
 }
 
 public sealed class FuelReportSubmittedMessage

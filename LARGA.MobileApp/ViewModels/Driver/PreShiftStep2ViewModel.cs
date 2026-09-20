@@ -1,23 +1,26 @@
-﻿using LARGA.MobileApp.Services;
+using LARGA.MobileApp.Services;
 using LARGA.SharedCore.Services;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
-using System.Collections.Generic;
+using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Input;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
-// Removed IQueryAttributable since we are now using WeakReferenceMessenger for Modals
 public class PreShiftStep2ViewModel : BindableObject
 {
     private bool _areStep1InspectionsComplete = true;
 
-    // Inject both required services
     private readonly IShiftManagementService _shiftService;
     private readonly IOcrService _ocrService;
+    private string _assignedTaxiId = string.Empty;
+    private string? _odometerPhotoLocalPath;
+    private string? _fuelPhotoLocalPath;
 
     private string _assignedUnitPlate = "Loading...";
     public string AssignedUnitPlate
@@ -42,17 +45,15 @@ public class PreShiftStep2ViewModel : BindableObject
             OnPropertyChanged();
             OnPropertyChanged(nameof(CanStartShift));
             OnPropertyChanged(nameof(IsOdometerScanned));
-            OnPropertyChanged(nameof(OdometerButtonText)); // Triggers the dynamic text update
+            OnPropertyChanged(nameof(OdometerButtonText));
         }
     }
 
     public bool IsOdometerScanned => !string.IsNullOrWhiteSpace(StartingOdometer);
-
-    // Dynamically formats the button text to match the design exactly
     public string OdometerButtonText => IsOdometerScanned ? $"📷 {StartingOdometer} km" : "📷 Scan odometer dashboard";
 
-    private ImageSource _fuelPhoto;
-    public ImageSource FuelPhoto
+    private ImageSource? _fuelPhoto;
+    public ImageSource? FuelPhoto
     {
         get => _fuelPhoto;
         set
@@ -108,12 +109,11 @@ public class PreShiftStep2ViewModel : BindableObject
     public PreShiftStep2ViewModel(IShiftManagementService shiftService, IOcrService ocrService)
     {
         _shiftService = shiftService;
-        _ocrService = ocrService; // Store the service to pass to the modal
+        _ocrService = ocrService;
 
-        // Register the Messenger to listen for the modal's return value
-        CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Register<PreShiftStep2ViewModel, string, string>(this, "OdometerScanned", (r, scannedText) =>
+        CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Register<PreShiftStep2ViewModel, OdometerScannedData, string>(this, "PreShiftOdometerScanned", (r, data) =>
         {
-            StartingOdometer = scannedText;
+            r.StartingOdometer = data.OdometerText;
         });
 
         _ = LoadAssignedUnitAsync();
@@ -130,12 +130,13 @@ public class PreShiftStep2ViewModel : BindableObject
             var taxi = await _shiftService.GetCurrentUserAssignedTaxiAsync();
             if (taxi != null)
             {
+                _assignedTaxiId = taxi.TaxiId;
                 AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber)
                     ? taxi.Model
                     : taxi.PlateNumber.Replace("-", " · ");
             }
         }
-        catch (System.Exception ex)
+        catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Assigned Unit Error: {ex.Message}");
         }
@@ -150,26 +151,24 @@ public class PreShiftStep2ViewModel : BindableObject
                 var photo = await MediaPicker.Default.CapturePhotoAsync();
                 if (photo != null)
                 {
-                    // Read the full-resolution capture into memory once, then hand back a
-                    // brand-new MemoryStream on every call. MAUI's Image control can invoke
-                    // the ImageSource.FromStream factory more than once per photo (layout
-                    // passes, DPI recalculation, re-render on rebind) - closing over a single
-                    // already-opened Stream meant every read after the first hit an
-                    // exhausted/consumed stream and decoded a corrupt, blurry-looking bitmap.
-                    // This is why the first capture always looked fine but a retake didn't.
-                    byte[] photoBytes;
-                    using (var stream = await photo.OpenReadAsync())
-                    using (var buffer = new MemoryStream())
-                    {
-                        await stream.CopyToAsync(buffer);
-                        photoBytes = buffer.ToArray();
-                    }
+                    string localFilePath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_{photo.FileName}");
 
-                    FuelPhoto = ImageSource.FromStream(() => new MemoryStream(photoBytes));
+                    await ProcessAndOrientPhotoAsync(photo.FullPath, localFilePath, maxDimension: 1024, quality: 75);
+
+                    string? oldFilePath = _fuelPhotoLocalPath;
+                    _fuelPhotoLocalPath = localFilePath;
+
+                    await MainThread.InvokeOnMainThreadAsync(() =>
+                    {
+                        FuelPhoto = null;
+                        FuelPhoto = ImageSource.FromFile(localFilePath);
+                    });
+
+                    TryDeleteCachedFile(oldFilePath);
                 }
             }
         }
-        catch (System.Exception ex)
+        catch (Exception ex)
         {
             await Shell.Current.DisplayAlert("Error", $"Camera failed: {ex.Message}", "OK");
         }
@@ -177,29 +176,37 @@ public class PreShiftStep2ViewModel : BindableObject
 
     private async Task ScanOdometerAsync()
     {
-        var status = await Permissions.CheckStatusAsync<Permissions.Camera>();
-        if (status != PermissionStatus.Granted)
+        try
         {
-            status = await Permissions.RequestAsync<Permissions.Camera>();
-            if (status != PermissionStatus.Granted) return;
-        }
-
-        if (MediaPicker.Default.IsCaptureSupported)
-        {
-            // 1. Hand complete control to the phone's native camera app for perfect focus
-            var photo = await MediaPicker.Default.CapturePhotoAsync();
-
-            if (photo != null)
+            if (MediaPicker.Default.IsCaptureSupported)
             {
-                using var stream = await photo.OpenReadAsync();
-                using var memoryStream = new MemoryStream();
-                await stream.CopyToAsync(memoryStream);
-                byte[] imageBytes = memoryStream.ToArray();
+                var photo = await MediaPicker.Default.CapturePhotoAsync();
+                if (photo != null)
+                {
+                    string localFilePath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_{photo.FileName}");
 
-                // 2. Pass the high-resolution photo bytes into the Modal
-                await Application.Current.MainPage.Navigation.PushModalAsync(
-                    new LARGA.MobileApp.Views.Driver.OdometerScanPage(_ocrService, imageBytes));
+                    await ProcessAndOrientPhotoAsync(photo.FullPath, localFilePath, maxDimension: 1280, quality: 85);
+
+                    string? oldFilePath = _odometerPhotoLocalPath;
+                    _odometerPhotoLocalPath = localFilePath;
+
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
+                    {
+                        var navigation = Shell.Current?.Navigation ?? Application.Current?.MainPage?.Navigation;
+                        if (navigation != null)
+                        {
+                            await navigation.PushModalAsync(
+                                new LARGA.MobileApp.Views.Driver.OdometerScanPage(_ocrService, localFilePath, "PreShiftOdometerScanned"));
+                        }
+                    });
+
+                    TryDeleteCachedFile(oldFilePath);
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            await Shell.Current.DisplayAlert("Error", $"Camera failed: {ex.Message}", "OK");
         }
     }
 
@@ -211,7 +218,165 @@ public class PreShiftStep2ViewModel : BindableObject
             return;
         }
 
-        Microsoft.Maui.Storage.Preferences.Set("IsShiftActive", true);
-        await Shell.Current.GoToAsync("../../active-shift");
+        if (string.IsNullOrWhiteSpace(_assignedTaxiId))
+        {
+            await Shell.Current.DisplayAlert("Missing assignment", "No assigned taxi was found for your account. Please contact the manager.", "OK");
+            return;
+        }
+
+        try
+        {
+            string digitsOnly = new string(StartingOdometer.Where(char.IsDigit).ToArray());
+            if (string.IsNullOrWhiteSpace(digitsOnly) || !int.TryParse(digitsOnly, out int startMileage) || startMileage <= 0)
+            {
+                await Shell.Current.DisplayAlert("Invalid odometer reading", "Please rescan or enter a valid starting odometer reading before starting the shift.", "OK");
+                return;
+            }
+
+            string newDocumentId = await _shiftService.ClockInAsync(_assignedTaxiId, startMileage);
+            if (string.IsNullOrWhiteSpace(newDocumentId))
+            {
+                await Shell.Current.DisplayAlert("Error", "Failed to start shift. Please try again.", "OK");
+                return;
+            }
+
+            await SecureStorage.SetAsync("ActiveShiftDocumentId", newDocumentId);
+            Preferences.Set("IsShiftActive", true);
+            Preferences.Set("ShiftStartTime", DateTime.Now.ToString("o"));
+
+            StartingOdometer = string.Empty;
+            FuelPhoto = null;
+            IsHalfTankSelected = false;
+            IsBelowHalfTankSelected = false;
+
+            TryDeleteCachedFile(_odometerPhotoLocalPath);
+            TryDeleteCachedFile(_fuelPhotoLocalPath);
+            _odometerPhotoLocalPath = null;
+            _fuelPhotoLocalPath = null;
+
+            await Shell.Current.GoToAsync("active-shift");
+        }
+        catch (Exception ex)
+        {
+            await Shell.Current.DisplayAlert("Error", $"Failed to start shift: {ex.Message}", "OK");
+        }
+    }
+
+    private static Task<string> ProcessAndOrientPhotoAsync(string sourcePath, string targetPath, int maxDimension = 1280, int quality = 80)
+    {
+        return Task.Run(() =>
+        {
+#if ANDROID
+            Android.Graphics.Bitmap? sampledBitmap = null;
+            Android.Graphics.Bitmap? finalBitmap = null;
+            Android.Graphics.Matrix? matrix = null;
+
+            try
+            {
+                int rotationDegrees = 0;
+                try
+                {
+                    var exif = new Android.Media.ExifInterface(sourcePath);
+                    int orientation = exif.GetAttributeInt(Android.Media.ExifInterface.TagOrientation, 1);
+                    rotationDegrees = orientation switch
+                    {
+                        6 => 90,
+                        3 => 180,
+                        8 => 270,
+                        _ => 0
+                    };
+                }
+                catch { }
+
+                var options = new Android.Graphics.BitmapFactory.Options { InJustDecodeBounds = true };
+                using (var boundsStream = File.OpenRead(sourcePath))
+                {
+                    Android.Graphics.BitmapFactory.DecodeStream(boundsStream, null, options);
+                }
+
+                int sampleSize = 1;
+                int maxSourceDim = Math.Max(options.OutWidth, options.OutHeight);
+                while (maxSourceDim / sampleSize > maxDimension)
+                {
+                    sampleSize *= 2;
+                }
+
+                options.InJustDecodeBounds = false;
+                options.InSampleSize = sampleSize;
+
+                using (var decodeStream = File.OpenRead(sourcePath))
+                {
+                    sampledBitmap = Android.Graphics.BitmapFactory.DecodeStream(decodeStream, null, options);
+                }
+
+                if (sampledBitmap == null) throw new Exception("Native stream decode failed.");
+
+                finalBitmap = sampledBitmap;
+                if (rotationDegrees != 0)
+                {
+                    matrix = new Android.Graphics.Matrix();
+                    matrix.PostRotate(rotationDegrees);
+                    finalBitmap = Android.Graphics.Bitmap.CreateBitmap(
+                        sampledBitmap, 0, 0, sampledBitmap.Width, sampledBitmap.Height, matrix, true);
+                }
+
+                using (var fileStream = File.Create(targetPath))
+                {
+                    finalBitmap.Compress(Android.Graphics.Bitmap.CompressFormat.Jpeg!, quality, fileStream);
+                }
+
+                return targetPath;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Native image processing error: {ex.Message}");
+                using var stream = File.OpenRead(sourcePath);
+                using var image = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(stream);
+                using var downsized = image.Downsize(maxDimension, true);
+                using var outStream = File.Create(targetPath);
+                downsized.Save(outStream, Microsoft.Maui.Graphics.ImageFormat.Jpeg, quality / 100f);
+
+                return targetPath;
+            }
+            finally
+            {
+                if (finalBitmap != null && finalBitmap != sampledBitmap)
+                {
+                    finalBitmap.Recycle();
+                    finalBitmap.Dispose();
+                }
+                if (sampledBitmap != null)
+                {
+                    sampledBitmap.Recycle();
+                    sampledBitmap.Dispose();
+                }
+                matrix?.Dispose();
+            }
+#else
+            using var stream = File.OpenRead(sourcePath);
+            using var image = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(stream);
+            using var downsized = image.Downsize(maxDimension, true);
+            using var outStream = File.Create(targetPath);
+            downsized.Save(outStream, Microsoft.Maui.Graphics.ImageFormat.Jpeg, quality / 100f);
+            return targetPath;
+#endif
+        });
+    }
+
+    private static void TryDeleteCachedFile(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath)) return;
+
+        try
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to delete cached file '{filePath}': {ex.Message}");
+        }
     }
 }

@@ -7,6 +7,7 @@ using System.Windows.Input;
 using LARGA.MobileApp.Services;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
+using Microsoft.Maui.Storage;
 using Plugin.Firebase.Firestore;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
@@ -21,7 +22,7 @@ public class ScanDriverLicenseViewModel : BindableObject
 {
     private readonly IOcrService _ocrService;
     private readonly string _targetUserId;
-    private byte[] _imageBytes;
+    private string _localFilePath; // THE FIX: Store path instead of byte[]
     private DriverLicenseTextParser.ParsedLicense? _parsed;
 
     private ImageSource? _capturedImage;
@@ -49,9 +50,6 @@ public class ScanDriverLicenseViewModel : BindableObject
 
     public bool IsNotBusy => !IsBusy;
 
-    // These are two-way bound to Entry/DatePicker on the Verify step, not just read-only
-    // display - OCR is a best-effort starting point, and the manager can correct or fill in
-    // anything it missed (e.g. an expiry date OCR failed to read) before saving.
     private string _nameDisplay = string.Empty;
     public string NameDisplay { get => _nameDisplay; set { _nameDisplay = value; OnPropertyChanged(); } }
 
@@ -64,9 +62,6 @@ public class ScanDriverLicenseViewModel : BindableObject
     private string _licenseNumberDisplay = string.Empty;
     public string LicenseNumberDisplay { get => _licenseNumberDisplay; set { _licenseNumberDisplay = value; OnPropertyChanged(); } }
 
-    // OCR couldn't find an expiry date on this particular scan, so this starts at today's date
-    // as an obvious placeholder the manager needs to correct on the Verify step, rather than
-    // silently saving a blank/wrong date.
     private DateTime _expiryDate = DateTime.Today;
     public DateTime ExpiryDate { get => _expiryDate; set { _expiryDate = value; OnPropertyChanged(); } }
 
@@ -75,12 +70,15 @@ public class ScanDriverLicenseViewModel : BindableObject
     public ICommand ConfirmAndSaveCommand { get; }
     public ICommand CancelCommand { get; }
 
-    public ScanDriverLicenseViewModel(IOcrService ocrService, byte[] imageBytes, string targetUserId)
+    // THE FIX: Constructor now accepts string localFilePath
+    public ScanDriverLicenseViewModel(IOcrService ocrService, string localFilePath, string targetUserId)
     {
         _ocrService = ocrService;
-        _imageBytes = imageBytes;
+        _localFilePath = localFilePath;
         _targetUserId = targetUserId;
-        CapturedImage = ImageSource.FromStream(() => new MemoryStream(_imageBytes));
+
+        // Bind natively from file
+        CapturedImage = ImageSource.FromFile(_localFilePath);
 
         RetakeCommand = new Command(async () => await RetakeAsync());
         ConfirmScanCommand = new Command(async () => await RunOcrAsync());
@@ -96,11 +94,20 @@ public class ScanDriverLicenseViewModel : BindableObject
             var photo = await MediaPicker.Default.CapturePhotoAsync();
             if (photo == null) return;
 
-            using var stream = await photo.OpenReadAsync();
-            using var buffer = new MemoryStream();
-            await stream.CopyToAsync(buffer);
-            _imageBytes = buffer.ToArray();
-            CapturedImage = ImageSource.FromStream(() => new MemoryStream(_imageBytes));
+            string newLocalFilePath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_{photo.FileName}");
+
+            using (var stream = await photo.OpenReadAsync())
+            using (var localFileStream = File.OpenWrite(newLocalFilePath))
+            {
+                await stream.CopyToAsync(localFileStream);
+            }
+
+            TryDeleteCachedFile(_localFilePath);
+
+            // THE FIX: Save retaken photo directly to disk
+            _localFilePath = newLocalFilePath;
+
+            CapturedImage = ImageSource.FromFile(_localFilePath);
         }
         catch (Exception ex)
         {
@@ -113,7 +120,8 @@ public class ScanDriverLicenseViewModel : BindableObject
         IsBusy = true;
         try
         {
-            var blocks = await _ocrService.ExtractTextBlocksAsync(_imageBytes);
+            // THE FIX: Pass file path to OCR
+            var blocks = await _ocrService.ExtractTextBlocksAsync(_localFilePath);
             _parsed = DriverLicenseTextParser.Parse(blocks.Select(b => b.Text));
 
             if (!_parsed.HasMinimumData)
@@ -125,8 +133,6 @@ public class ScanDriverLicenseViewModel : BindableObject
                 return;
             }
 
-            // Reject a scan of someone else's license outright, rather than letting it
-            // through and quietly overwriting this driver's record with a different name.
             var registeredName = await GetRegisteredNameAsync();
             if (!DriverLicenseTextParser.NamesLikelyMatch(registeredName, _parsed.FullName))
             {
@@ -188,8 +194,6 @@ public class ScanDriverLicenseViewModel : BindableObject
         IsBusy = true;
         try
         {
-            // Read from the bound fields, not the raw OCR parse - the manager may have
-            // corrected or filled in anything OCR missed on the Verify step.
             var updates = new Dictionary<object, object>
             {
                 ["licenseNumber"] = LicenseNumberDisplay,
@@ -215,11 +219,30 @@ public class ScanDriverLicenseViewModel : BindableObject
         }
     }
 
-    private static async Task ClosePageAsync()
+    private async Task ClosePageAsync()
     {
+        TryDeleteCachedFile(_localFilePath);
+
         if (Application.Current?.MainPage?.Navigation is { } navigation)
         {
             await navigation.PopModalAsync();
+        }
+    }
+
+    private static void TryDeleteCachedFile(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath)) return;
+
+        try
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to delete cached file '{filePath}': {ex.Message}");
         }
     }
 }

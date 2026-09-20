@@ -59,6 +59,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IShiftManagementService, ShiftManagementService>();
         builder.Services.AddSingleton<INotificationService, NotificationService>();
         builder.Services.AddSingleton<IMaintenanceService, MaintenanceService>();
+        builder.Services.AddSingleton<IFuelService, FuelService>();
 
 #if ANDROID
         builder.Services.AddSingleton<IOcrService, LARGA.MobileApp.Platforms.Android.Services.AndroidOcrService>();
@@ -80,6 +81,7 @@ public static class MauiProgram
         builder.Services.AddTransient<DebtDetailViewModel>();
         builder.Services.AddTransient<ReportsViewModel>();
         builder.Services.AddTransient<FuelReportViewModel>();
+        builder.Services.AddTransient<FuelReportDetailViewModel>();
 
         // Register Views 
         builder.Services.AddTransient<LandingPage>();
@@ -117,6 +119,8 @@ public static class MauiProgram
         builder.Services.AddTransient<UpdateContactNumberPage>();
         builder.Services.AddTransient<ComingSoonPage>();
         builder.Services.AddTransient<FuelReportPage>();
+        builder.Services.AddTransient<Views.Driver.ScanFuelReceiptPage>();
+        builder.Services.AddTransient<FuelReportDetailPage>();
 
 
 #if DEBUG

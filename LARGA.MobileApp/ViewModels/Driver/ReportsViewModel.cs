@@ -1,15 +1,16 @@
-﻿using System.Collections.Generic;
+using CommunityToolkit.Mvvm.Messaging;
+using LARGA.MobileApp.Services;
+using LARGA.MobileApp.Views.Driver;
+using LARGA.SharedCore.Services;
+using Microsoft.Maui.ApplicationModel;
+using Microsoft.Maui.Controls;
+using Plugin.Firebase.Auth;
+using Plugin.Firebase.Firestore;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Input;
-using CommunityToolkit.Mvvm.Messaging;
-using Microsoft.Maui.Controls;
-using Microsoft.Maui.ApplicationModel;
-using LARGA.MobileApp.Services;
-using LARGA.SharedCore.Services;
-using Plugin.Firebase.Firestore;
-using Plugin.Firebase.Auth;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -39,6 +40,7 @@ public class ReportsViewModel : BindableObject
     public ICommand AddVehicleReportCommand { get; }
     public ICommand LoadReportsCommand { get; }
     public ICommand ViewReportDetailsCommand { get; }
+    public ICommand ViewFuelReportDetailsCommand { get; }
 
     public ReportsViewModel()
     {
@@ -56,6 +58,11 @@ public class ReportsViewModel : BindableObject
         {
             if (item == null || string.IsNullOrEmpty(item.Id)) return;
             await Shell.Current.GoToAsync($"defect-report-detail?id={item.Id}");
+        });
+        ViewFuelReportDetailsCommand = new Command<FuelReportItem>(async (item) =>
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.Id)) return;
+            await Shell.Current.GoToAsync($"{nameof(FuelReportDetailPage)}?id={item.Id}");
         });
     }
 

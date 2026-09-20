@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.Messaging;
+﻿using CommunityToolkit.Mvvm.Messaging;
 using LARGA.MobileApp.Services;
 using LARGA.MobileApp.ViewModels.Driver;
 using Microsoft.Maui.Controls;
@@ -17,7 +17,7 @@ public partial class ScanFuelReceiptPage : ContentPage
 {
     private readonly IOcrService _ocrService;
     private ReceiptScanSnapshot? _lastSuccessfulScan;
-    private byte[]? _capturedImageBytes;
+    private string? _capturedImagePath; // THE FIX: Store path, not byte[]
     private DateTime? _capturedReceiptDate;
     private bool _isCostUncertain;
     private bool _isQuantityUncertain;
@@ -34,8 +34,6 @@ public partial class ScanFuelReceiptPage : ContentPage
     public ScanFuelReceiptPage()
     {
         InitializeComponent();
-
-        // Resolve the service manually if not using DI in code-behind
         _ocrService = Application.Current.MainPage.Handler.MauiContext.Services.GetService<IOcrService>();
     }
 
@@ -89,7 +87,6 @@ public partial class ScanFuelReceiptPage : ContentPage
     {
         if (!_isScanned)
         {
-            // 1. CAPTURE PHASE
             BtnCapture.Text = "Processing...";
             BtnCapture.IsEnabled = false;
 
@@ -107,17 +104,19 @@ public partial class ScanFuelReceiptPage : ContentPage
 
             if (snapResult && File.Exists(tempPath))
             {
-                _capturedImageBytes = File.ReadAllBytes(tempPath);
+                // THE FIX: Assign path directly without reading file into RAM
+                _capturedImagePath = tempPath;
                 if (ReceiptPreviewImage != null)
                 {
-                    ReceiptPreviewImage.Source = ImageSource.FromFile(tempPath);
+                    ReceiptPreviewImage.Source = ImageSource.FromFile(_capturedImagePath);
                     ReceiptPreviewImage.IsVisible = true;
                 }
 
                 camera.IsVisible = false;
                 await StopCameraSafelyAsync();
 
-                var detectedBlocks = await _ocrService.ExtractTextBlocksAsync(_capturedImageBytes);
+                // THE FIX: Pass string path to OCR
+                var detectedBlocks = await _ocrService.ExtractTextBlocksAsync(_capturedImagePath);
                 var lines = detectedBlocks
                     .Select(b => b.Text?.Trim())
                     .Where(t => !string.IsNullOrWhiteSpace(t))
@@ -144,7 +143,7 @@ public partial class ScanFuelReceiptPage : ContentPage
                     IsQuantityUncertain = !quantity.HasValue || quantity.Value <= 0,
                     IsVendorUncertain = string.IsNullOrWhiteSpace(vendor) || vendor.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase),
                     IsDateUncertain = !receiptDate.HasValue,
-                    PhotoBytes = _capturedImageBytes ?? Array.Empty<byte>()
+                    PhotoFilePath = _capturedImagePath // THE FIX: Assign path property
                 };
 
                 if (parsingUncertain && _retakeCount >= 3 && _lastSuccessfulScan != null)
@@ -175,7 +174,7 @@ public partial class ScanFuelReceiptPage : ContentPage
         }
         else
         {
-            if (_capturedImageBytes != null)
+            if (!string.IsNullOrWhiteSpace(_capturedImagePath))
             {
                 var payloadWarning = BuildParsingWarning(
                     LblVendor.Text == "--" ? null : LblVendor.Text,
@@ -195,7 +194,7 @@ public partial class ScanFuelReceiptPage : ContentPage
                     IsQuantityUncertain = _isQuantityUncertain || IsZeroValue(LblQuantity.Text),
                     IsVendorUncertain = _isVendorUncertain,
                     IsDateUncertain = _isDateUncertain,
-                    PhotoBytes = _capturedImageBytes
+                    PhotoFilePath = _capturedImagePath // THE FIX: Assign path property
                 };
 
                 CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Send(payload);
@@ -218,7 +217,7 @@ public partial class ScanFuelReceiptPage : ContentPage
 
         _retakeCount++;
         _isScanned = false;
-        _capturedImageBytes = null;
+        _capturedImagePath = null; // THE FIX: Reset path string
         _capturedReceiptDate = null;
         _isCostUncertain = false;
         _isQuantityUncertain = false;
@@ -271,7 +270,7 @@ public partial class ScanFuelReceiptPage : ContentPage
 
     private void ApplyScanResult(ReceiptScanSnapshot scan)
     {
-        _capturedImageBytes = scan.PhotoBytes;
+        _capturedImagePath = scan.PhotoFilePath;
         _capturedReceiptDate = scan.ReceiptDate;
         _isCostUncertain = scan.IsCostUncertain;
         _isQuantityUncertain = scan.IsQuantityUncertain;
@@ -286,9 +285,10 @@ public partial class ScanFuelReceiptPage : ContentPage
             ReceiptDateLabel.Text = scan.ReceiptDate?.ToString("MMM dd, yyyy", CultureInfo.InvariantCulture) ?? "--";
         }
 
-        if (ReceiptPreviewImage != null)
+        if (ReceiptPreviewImage != null && !string.IsNullOrWhiteSpace(scan.PhotoFilePath))
         {
-            ReceiptPreviewImage.Source = ImageSource.FromStream(() => new MemoryStream(scan.PhotoBytes));
+            // THE FIX: Bind from file directly
+            ReceiptPreviewImage.Source = ImageSource.FromFile(scan.PhotoFilePath);
             ReceiptPreviewImage.IsVisible = true;
         }
     }
@@ -309,7 +309,7 @@ public partial class ScanFuelReceiptPage : ContentPage
                 score--;
             }
 
-            foreach (Match match in Regex.Matches(line, @"(?:PHP|P|?)?\s*\d{1,3}(?:[\s,]\d{3})*(?:[\.,]\d{2,3})|(?:PHP|P|?)?\s*\d+[\.,]\d{2,3}"))
+            foreach (Match match in Regex.Matches(line, @"(?:PHP|P|₱|\?)?\s*\d{1,3}(?:[\s,]\d{3})*(?:[\.,]\d{2,3})|(?:PHP|P|₱|\?)?\s*\d+[\.,]\d{2,3}"))
             {
                 if (TryParseDecimal(match.Value, out var value) && value > 0)
                 {
@@ -330,7 +330,7 @@ public partial class ScanFuelReceiptPage : ContentPage
         }
 
         var keywordMatch = Regex.Match(fullText.ToUpperInvariant(),
-            @"(?:TOTAL\s+AMOUNT|AMOUNT\s+DUE|NET\s+AMOUNT|GRAND\s+TOTAL|TOTAL|SALE)\s*[:=]?\s*(PHP|P|?)?\s*(\d{1,3}(?:[,\s]\d{3})*(?:[\.,]\d{2,3})|\d+[\.,]\d{2,3})");
+            @"(?:TOTAL\s+AMOUNT|AMOUNT\s+DUE|NET\s+AMOUNT|GRAND\s+TOTAL|TOTAL|SALE)\s*[:=]?\s*(PHP|P|₱|\?)?\s*(\d{1,3}(?:[,\s]\d{3})*(?:[\.,]\d{2,3})|\d+[\.,]\d{2,3})");
         if (keywordMatch.Success && TryParseDecimal(keywordMatch.Groups[2].Value, out var keyedAmount))
         {
             return keyedAmount;
@@ -563,6 +563,8 @@ public partial class ScanFuelReceiptPage : ContentPage
         public bool IsQuantityUncertain { get; init; }
         public bool IsVendorUncertain { get; init; }
         public bool IsDateUncertain { get; init; }
-        public byte[] PhotoBytes { get; init; } = Array.Empty<byte>();
+
+        // THE FIX: Change property to accept file path instead of bytes
+        public string PhotoFilePath { get; init; } = string.Empty;
     }
 }

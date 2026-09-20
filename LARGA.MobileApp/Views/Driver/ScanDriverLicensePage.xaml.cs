@@ -1,13 +1,17 @@
 using LARGA.MobileApp.Services;
 using LARGA.MobileApp.ViewModels.Driver;
+using Microsoft.Maui.Controls;
 
 namespace LARGA.MobileApp.Views.Driver;
 
 public partial class ScanDriverLicensePage : ContentPage
 {
-    public ScanDriverLicensePage(IOcrService ocrService, byte[] imageBytes, string targetUserId)
+    // THE FIX: Accept string localFilePath instead of byte[] imageBytes
+    public ScanDriverLicensePage(IOcrService ocrService, string localFilePath, string targetUserId)
     {
         InitializeComponent();
-        BindingContext = new ScanDriverLicenseViewModel(ocrService, imageBytes, targetUserId);
+
+        // THE FIX: Pass the string directly to the updated ViewModel
+        BindingContext = new ScanDriverLicenseViewModel(ocrService, localFilePath, targetUserId);
     }
 }

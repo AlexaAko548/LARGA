@@ -25,7 +25,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     public Color StatusColor => IsOffline ? Colors.Red : Colors.Green;
 
     // Dynamically updates based on offline state and last login time
-    public string GpsStatusText => IsOffline ? $"GPS inactive � Last login {LastLoginTime}" : "GPS active � Tracking On";
+    public string GpsStatusText => IsOffline ? $"GPS inactive - Last login {LastLoginTime}" : "GPS active - Tracking On";
     public bool IsOnline => !IsOffline;
 
     private string _lastLoginTime = "--:--";

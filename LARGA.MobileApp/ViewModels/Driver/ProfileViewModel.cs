@@ -1,11 +1,10 @@
 using System;
-using System.Collections.Generic;
+using System;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using LARGA.MobileApp.Services;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
-using Microsoft.Maui.Storage;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
 
@@ -23,7 +22,35 @@ public class ProfileViewModel : BindableObject
         set { _fullName = value; OnPropertyChanged(); }
     }
 
-    private string _statusText = "none";
+    private string _contactNumber = "N/A";
+    public string ContactNumber
+    {
+        get => _contactNumber;
+        set { _contactNumber = value; OnPropertyChanged(); }
+    }
+
+    private string _profileImageUrl = string.Empty;
+    public string ProfileImageUrl
+    {
+        get => _profileImageUrl;
+        set { _profileImageUrl = value; OnPropertyChanged(); }
+    }
+
+    private string _licenseNumber = "N/A";
+    public string LicenseNumber
+    {
+        get => _licenseNumber;
+        set { _licenseNumber = value; OnPropertyChanged(); }
+    }
+
+    private string _expiryDateDisplay = "N/A";
+    public string ExpiryDateDisplay
+    {
+        get => _expiryDateDisplay;
+        set { _expiryDateDisplay = value; OnPropertyChanged(); }
+    }
+
+    private string _statusText = "NONE";
     public string StatusText
     {
         get => _statusText;
@@ -37,24 +64,47 @@ public class ProfileViewModel : BindableObject
         set { _statusColor = value; OnPropertyChanged(); }
     }
 
-    private string _credentialsSummary = "No details yet.";
-    public string CredentialsSummary
+    private string _dlCodes = "N/A";
+    public string DlCodes
     {
-        get => _credentialsSummary;
-        set { _credentialsSummary = value; OnPropertyChanged(); }
+        get => _dlCodes;
+        set { _dlCodes = value; OnPropertyChanged(); }
+    }
+
+    private string _paymentReliability = "N/A";
+    public string PaymentReliability
+    {
+        get => _paymentReliability;
+        set { _paymentReliability = value; OnPropertyChanged(); }
+    }
+
+    private string _shiftPunctualityDisplay = "0%";
+    public string ShiftPunctualityDisplay
+    {
+        get => _shiftPunctualityDisplay;
+        set { _shiftPunctualityDisplay = value; OnPropertyChanged(); }
+    }
+
+    private string _damageHistoryDisplay = "0 Incidents";
+    public string DamageHistoryDisplay
+    {
+        get => _damageHistoryDisplay;
+        set { _damageHistoryDisplay = value; OnPropertyChanged(); }
     }
 
     public ICommand LoadProfileCommand { get; }
+    public ICommand ChangePasswordCommand { get; }
+    public ICommand UpdateContactNumberCommand { get; }
     public ICommand LogoutCommand { get; }
 
     public ProfileViewModel()
     {
         LoadProfileCommand = new Command(async () => await LoadProfileAsync());
+        ChangePasswordCommand = new Command(async () => await Shell.Current.GoToAsync("driver-change-password"));
+        UpdateContactNumberCommand = new Command(async () => await Shell.Current.GoToAsync("driver-update-contact-number"));
 
         LogoutCommand = new Command(async () =>
         {
-            Preferences.Remove("IsShiftActive");
-            Preferences.Remove("ShiftStartTime");
             await CrossFirebaseAuth.Current.SignOutAsync();
             await Shell.Current.GoToAsync("//landing");
         });
@@ -67,26 +117,39 @@ public class ProfileViewModel : BindableObject
             var currentUser = CrossFirebaseAuth.Current.CurrentUser;
             if (currentUser == null) return;
 
-            var doc = await CrossFirebaseFirestore.Current
+            var profileDoc = await CrossFirebaseFirestore.Current
                 .GetCollection("users")
                 .GetDocument(currentUser.Uid)
                 .GetDocumentSnapshotAsync<DriverProfileProxy>();
 
-            if (doc?.Data == null) return;
+            if (profileDoc?.Data == null) return;
 
-            FullName = string.IsNullOrWhiteSpace(doc.Data.FullName) ? "Driver" : doc.Data.FullName;
-            (StatusText, StatusColor) = LicenseStatusHelper.Describe(doc.Data.LicenseExpiryDate);
+            var profile = profileDoc.Data;
+            FullName = string.IsNullOrWhiteSpace(profile.FullName) ? "Driver" : profile.FullName;
+            ContactNumber = string.IsNullOrWhiteSpace(profile.PhoneNumber) ? "N/A" : profile.PhoneNumber;
+            ProfileImageUrl = profile.ProfileImageUrl ?? string.Empty;
 
-            var details = new List<string>();
-            if (!string.IsNullOrWhiteSpace(doc.Data.LicenseNumber)) details.Add($"License No: {doc.Data.LicenseNumber}");
-            if (!string.IsNullOrWhiteSpace(doc.Data.LicenseClassification)) details.Add($"DL Codes: {doc.Data.LicenseClassification}");
-            if (doc.Data.LicenseExpiryDate != null)
+            LicenseNumber = string.IsNullOrWhiteSpace(profile.LicenseNumber) ? "N/A" : profile.LicenseNumber;
+            DlCodes = string.IsNullOrWhiteSpace(profile.LicenseClassification) ? "N/A" : profile.LicenseClassification;
+            ExpiryDateDisplay = profile.LicenseExpiryDate != null
+                ? FirestoreDateTimeFix.Apply(profile.LicenseExpiryDate.Value.UtcDateTime).ToLocalTime().ToString("MMM dd, yyyy").ToUpperInvariant()
+                : "N/A";
+
+            var (licenseText, licenseColor) = LicenseStatusHelper.Describe(profile.LicenseExpiryDate);
+            StatusText = licenseText switch
             {
-                var expiry = FirestoreDateTimeFix.Apply(doc.Data.LicenseExpiryDate.Value.UtcDateTime).ToLocalTime();
-                details.Add($"Expires: {expiry:MMM d, yyyy}");
-            }
+                "active" => "VALID",
+                "expiring soon" => "EXPIRING SOON",
+                "expired" => "EXPIRED",
+                _ => "NONE"
+            };
+            StatusColor = licenseColor;
 
-            CredentialsSummary = details.Count == 0 ? "No details yet." : string.Join("\n", details);
+            PaymentReliability = "N/A";
+            ShiftPunctualityDisplay = "0%";
+            DamageHistoryDisplay = "0 Incidents";
+
+            await LoadPerformanceAsync(currentUser.Uid);
         }
         catch (Exception ex)
         {
@@ -94,10 +157,101 @@ public class ProfileViewModel : BindableObject
         }
     }
 
+    private async Task LoadPerformanceAsync(string uid)
+    {
+        try
+        {
+            var userPerformanceDoc = await CrossFirebaseFirestore.Current
+                .GetCollection("users")
+                .GetDocument(uid)
+                .GetDocumentSnapshotAsync<UserPerformanceProxy>();
+
+            if (userPerformanceDoc?.Data != null)
+            {
+                PaymentReliability = ResolvePaymentReliability(userPerformanceDoc.Data);
+                ShiftPunctualityDisplay = ResolveShiftPunctuality(userPerformanceDoc.Data);
+                DamageHistoryDisplay = ResolveDamageHistory(userPerformanceDoc.Data.DamageHistory);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Driver Profile User Performance Load Error: {ex.Message}");
+        }
+
+        try
+        {
+            var performanceDoc = await CrossFirebaseFirestore.Current
+                .GetCollection("driverPerformance")
+                .GetDocument(uid)
+                .GetDocumentSnapshotAsync<DriverPerformanceProxy>();
+
+            if (performanceDoc?.Data == null) return;
+
+            if (!string.IsNullOrWhiteSpace(performanceDoc.Data.PaymentReliability))
+            {
+                PaymentReliability = performanceDoc.Data.PaymentReliability.ToUpperInvariant();
+            }
+
+            if (performanceDoc.Data.ShiftPunctuality != null)
+            {
+                var punctuality = performanceDoc.Data.ShiftPunctuality.Value;
+                if (punctuality <= 1) punctuality *= 100;
+                ShiftPunctualityDisplay = $"{Math.Clamp(Math.Round(punctuality), 0, 100)}%";
+            }
+
+            if (performanceDoc.Data.DamageHistory != null)
+            {
+                DamageHistoryDisplay = ResolveDamageHistory(performanceDoc.Data.DamageHistory);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Driver Profile Performance Collection Load Error: {ex.Message}");
+        }
+    }
+
+    private static string ResolvePaymentReliability(UserPerformanceProxy profile)
+    {
+        if (!string.IsNullOrWhiteSpace(profile.PaymentReliability)) return profile.PaymentReliability.ToUpperInvariant();
+
+        var arrears = profile.CurrentArrears ?? 0;
+        if (arrears <= 0) return "EXCELLENT";
+        if (arrears <= 100) return "GOOD";
+        if (arrears <= 300) return "FAIR";
+
+        return "POOR";
+    }
+
+    private static string ResolveShiftPunctuality(UserPerformanceProxy profile)
+    {
+        var punctuality = profile.ShiftPunctuality
+                         ?? profile.ShiftPunctualityRate;
+
+        if (punctuality == null) return "0%";
+
+        var value = punctuality.Value;
+        if (value <= 1) value *= 100;
+
+        return $"{Math.Clamp(Math.Round(value), 0, 100)}%";
+    }
+
+    private static string ResolveDamageHistory(long? damageHistory)
+    {
+        var incidents = damageHistory ?? 0;
+
+        return incidents == 1 ? "1 Incident" : $"{incidents} Incidents";
+    }
+
     private class DriverProfileProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("fullName")]
         public string FullName { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("phoneNumber")]
+        public string PhoneNumber { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("profileImageUrl")]
+        public string? ProfileImageUrl { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("licenseNumber")]
         public string LicenseNumber { get; set; } = string.Empty;
@@ -105,8 +259,37 @@ public class ProfileViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("licenseClassification")]
         public string LicenseClassification { get; set; } = string.Empty;
 
-        // DateTimeOffset?, not DateTime? - see LicenseStatusHelper.Describe for why.
         [Plugin.Firebase.Firestore.FirestoreProperty("licenseExpiryDate")]
         public DateTimeOffset? LicenseExpiryDate { get; set; }
+    }
+
+    private class UserPerformanceProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("currentArrears")]
+        public double? CurrentArrears { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("paymentReliability")]
+        public string PaymentReliability { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftPunctuality")]
+        public double? ShiftPunctuality { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftPunctualityRate")]
+        public double? ShiftPunctualityRate { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("damageHistory")]
+        public long? DamageHistory { get; set; }
+    }
+
+    private class DriverPerformanceProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("paymentReliability")]
+        public string PaymentReliability { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftPunctuality")]
+        public double? ShiftPunctuality { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("damageHistory")]
+        public long? DamageHistory { get; set; }
     }
 }

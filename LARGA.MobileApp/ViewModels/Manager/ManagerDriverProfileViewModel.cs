@@ -4,9 +4,11 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using LARGA.MobileApp.Services;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
 using Microsoft.Maui.Media;
+using Microsoft.Maui.Storage;
 using Plugin.Firebase.Firestore;
 
 namespace LARGA.MobileApp.ViewModels.Manager;
@@ -102,20 +104,48 @@ public class ManagerDriverProfileViewModel : BindableObject
             var photo = await MediaPicker.Default.CapturePhotoAsync();
             if (photo == null) return;
 
-            using var stream = await photo.OpenReadAsync();
-            using var buffer = new MemoryStream();
-            await stream.CopyToAsync(buffer);
-            var imageBytes = buffer.ToArray();
+            // Save the photo to a local cache file with a unique name to avoid collisions/locks
+            string localFilePath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_{photo.FileName}");
 
-            if (Application.Current?.MainPage?.Navigation is { } navigation)
+            using (var sourceStream = await photo.OpenReadAsync())
+            using (var localFileStream = File.OpenWrite(localFilePath))
             {
-                await navigation.PushModalAsync(
-                    new Views.Driver.ScanDriverLicensePage(_ocrService, imageBytes, DriverId));
+                await sourceStream.CopyToAsync(localFileStream);
             }
+
+            // Safely update navigation on the Main Thread; exceptions bubble up to the outer try/catch.
+            // NOTE: PushModalAsync only awaits until the page is pushed, not until it's dismissed,
+            // so the cached file must not be deleted here - ScanDriverLicensePage/ViewModel still
+            // needs it while the modal is open (it is responsible for cleaning it up when done).
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                if (Application.Current?.MainPage?.Navigation is { } navigation)
+                {
+                    await navigation.PushModalAsync(
+                        new Views.Driver.ScanDriverLicensePage(_ocrService, localFilePath, DriverId));
+                }
+            });
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Manager Upload License Photo Error: {ex.Message}");
+        }
+    }
+
+    private static void TryDeleteCachedFile(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath)) return;
+
+        try
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to delete cached file '{filePath}': {ex.Message}");
         }
     }
 

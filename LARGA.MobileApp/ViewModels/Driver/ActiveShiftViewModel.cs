@@ -157,33 +157,49 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     // This method fires every single time the user routes to the Active Shift screen
     public void ApplyQueryAttributes(IDictionary<string, object> query)
     {
-        var savedStartTimeStr = Preferences.Get("ShiftStartTime", string.Empty);
-
-        // If empty, this is a fresh clock-in
-        if (string.IsNullOrEmpty(savedStartTimeStr))
+        try
         {
+            var savedStartTimeStr = Preferences.Get("ShiftStartTime", string.Empty);
+
+            if (string.IsNullOrWhiteSpace(savedStartTimeStr) || !DateTime.TryParse(savedStartTimeStr, out var parsedStartTime))
+            {
+                _shiftStartTime = DateTime.Now;
+                Preferences.Set("ShiftStartTime", _shiftStartTime.ToString("o"));
+
+                // Wipe stale timing state for a fresh shift
+                _totalBreakTime = TimeSpan.Zero;
+                IsPaused = false;
+            }
+            else
+            {
+                _shiftStartTime = parsedStartTime;
+            }
+
+            ShiftStartTimeDisplay = _shiftStartTime.ToString("hh:mm tt");
+            ShiftEndsAt = _shiftStartTime.AddHours(10).ToString("hh:mm tt");
+
+            // Force the timer to restart if it was stopped during a previous clock-out
+            if (!_shiftTimer.IsRunning)
+            {
+                _shiftTimer.Start();
+            }
+
+            _ = InitializeDynamicTaxiAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"ApplyQueryAttributes Error: {ex.Message}");
+
             _shiftStartTime = DateTime.Now;
             Preferences.Set("ShiftStartTime", _shiftStartTime.ToString("o"));
+            ShiftStartTimeDisplay = _shiftStartTime.ToString("hh:mm tt");
+            ShiftEndsAt = _shiftStartTime.AddHours(10).ToString("hh:mm tt");
 
-            // Wipe the stale data from the previous shift
-            _totalBreakTime = TimeSpan.Zero;
-            IsPaused = false;
+            if (!_shiftTimer.IsRunning)
+            {
+                _shiftTimer.Start();
+            }
         }
-        else
-        {
-            _shiftStartTime = DateTime.Parse(savedStartTimeStr);
-        }
-
-        ShiftStartTimeDisplay = _shiftStartTime.ToString("hh:mm tt");
-        ShiftEndsAt = _shiftStartTime.AddHours(10).ToString("hh:mm tt");
-
-        // Force the timer to restart if it was stopped during a previous clock-out
-        if (!_shiftTimer.IsRunning)
-        {
-            _shiftTimer.Start();
-        }
-
-        _ = InitializeDynamicTaxiAsync();
     }
 
     private async Task InitializeDynamicTaxiAsync()
