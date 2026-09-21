@@ -32,19 +32,26 @@ public partial class OdometerScanPage : ContentPage
         base.OnAppearing();
 
         CapturedImage.Source = ImageSource.FromFile(_localFilePath);
-
-        // FIX 1: Hook into SizeChanged to guarantee the layout is fully measured before drawing
         TextOverlayLayout.SizeChanged += OnLayoutSizeChanged;
 
         try
         {
             _pendingBlocks = await _ocrService.ExtractTextBlocksAsync(_localFilePath);
-            DrawOcrBoxes(); // Attempt draw if layout is somehow already ready
+            DrawOcrBoxes();
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"OCR Failed: {ex.Message}");
         }
+    }
+
+    // FIX 3: Explicitly tear down resources and unhook events to prevent silent memory ballooning
+    // each time the driver enters and exits the scanning page.
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        TextOverlayLayout.SizeChanged -= OnLayoutSizeChanged;
+        CapturedImage.Source = null;
     }
 
     private void OnLayoutSizeChanged(object? sender, EventArgs e)
@@ -54,7 +61,6 @@ public partial class OdometerScanPage : ContentPage
 
     private void DrawOcrBoxes()
     {
-        // FIX 2: Ensure all UI modifications happen strictly on the Main Thread
         MainThread.BeginInvokeOnMainThread(() =>
         {
             if (_isDrawn || _pendingBlocks == null) return;
@@ -62,7 +68,6 @@ public partial class OdometerScanPage : ContentPage
             double layoutWidth = TextOverlayLayout.Width;
             double layoutHeight = TextOverlayLayout.Height;
 
-            // FIX 3: Prevent negative bounds crash by validating layout measurement
             if (layoutWidth <= 0 || layoutHeight <= 0) return;
 
             _isDrawn = true;
@@ -116,7 +121,6 @@ public partial class OdometerScanPage : ContentPage
 
     private async void OnCancelClicked(object sender, EventArgs e)
     {
-        // FIX 4: Prevent double-tap fatal crash on the Cancel button
         if (sender is Button btn) btn.IsEnabled = false;
         await Navigation.PopModalAsync();
     }
