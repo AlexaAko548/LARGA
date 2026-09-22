@@ -1,0 +1,283 @@
+@page "/inventory"
+@using System.Text.Json
+@using LARGA.Shared.Models.Entities
+@using LARGA.SharedCore.Services
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject InventoryAuditService InventoryAudit
+
+@if (_isCheckingAccess)
+{
+    <div class="auth-page">
+        <div class="auth-card">
+            <h2>Checking access...</h2>
+        </div>
+    </div>
+}
+else if (_isAuthorized)
+{
+<div class="dashboard-shell">
+    <DashboardSidebar ActiveItem="Inventory" />
+
+    <main class="dashboard-main">
+<div class="inventory-page-wrapper">
+    <header class="dashboard-header">
+        <div class="header-title-wrap">
+            <h1>SPARE PARTS INVENTORY</h1>
+            <div class="header-date">Stock levels &amp; part management</div>
+        </div>
+
+        <div class="header-actions">
+            <NotificationBell />
+            <button class="icon-btn" type="button" aria-label="Messages">✉</button>
+            <div class="manager-pill">
+                <span class="manager-dot"></span>
+                <span>Manager</span>
+                <span class="caret">▾</span>
+            </div>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_loadError))
+    {
+        <div class="data-warning-banner">Inventory data unavailable: @_loadError</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_actionError))
+    {
+        <div class="report-error">@_actionError</div>
+    }
+
+    <!-- Filter & Action Controls -->
+    <div class="toolbar">
+        <div class="filter-pills">
+            <span class="filter-pill">@parts.Count(p => GetStatus(p) == "Normal") Normal</span>
+            <span class="filter-pill active-pill">@parts.Count(p => GetStatus(p) != "Normal") Low / Critical</span>
+        </div>
+        <button class="btn-log-part" @onclick="() => showAddModal = true">
+            + LOG NEW SPARE PART
+        </button>
+    </div>
+
+    <!-- Inventory Table -->
+    <div class="table-container">
+        <table class="inventory-table">
+            <thead>
+                <tr>
+                    <th class="col-id">ID</th>
+                    <th class="col-name">PART NAME</th>
+                    <th class="col-qty">QTY</th>
+                    <th class="col-min">MIN STOCK</th>
+                    <th class="col-status">STATUS</th>
+                    <th class="col-actions">ACTIONS</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (parts.Count == 0)
+                {
+                    <tr>
+                        <td colspan="6" class="table-empty">No spare parts found.</td>
+                    </tr>
+                }
+                else
+                {
+                    @for (int i = 0; i < parts.Count; i++)
+                    {
+                        SparePart item = parts[i];
+                        string status = GetStatus(item);
+                        <tr class="@(status == "Normal" ? "row-highlighted" : "")">
+                            <td class="col-id font-mono">@ToDisplayPartId(i + 1)</td>
+                            <td class="col-name fw-bold">@item.PartName</td>
+                            <td class="col-qty">
+                                <span class="qty-number">@item.StockQuantity</span>
+                                <span class="qty-unit font-mono">@item.Unit</span>
+                            </td>
+                            <td class="col-min font-mono">@item.ReorderLevel @item.Unit</td>
+                            <td class="col-status">
+                                <span class="status-badge">
+                                    <span class="status-bullet @GetStatusClass(status)"></span>
+                                    @status
+                                </span>
+                            </td>
+                            <td class="col-actions">
+                                <button class="btn-table-action" @onclick="() => EditPart(item)">✎ Edit</button>
+                                <button class="btn-table-action" @onclick="() => DeductPartAsync(item)">− Deduct</button>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Log New Part Modal Dialog -->
+@if (showAddModal)
+{
+    <div class="modal-overlay" @onclick="() => showAddModal = false">
+        <div class="modal-card" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Log New Part</h3>
+                <button class="modal-close-btn" @onclick="() => showAddModal = false">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Part Name</label>
+                    <input type="text" placeholder="e.g. Brake Pads" @bind="newPart.PartName" />
+                </div>
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input type="number" placeholder="e.g. 10" @bind="newPart.StockQuantity" />
+                </div>
+                <div class="form-group">
+                    <label>Unit</label>
+                    <input type="text" placeholder="pcs / set / L" @bind="newPart.Unit" />
+                </div>
+                <div class="form-group">
+                    <label>Min Stock Level</label>
+                    <input type="number" placeholder="Alert threshold" @bind="newPart.ReorderLevel" />
+                </div>
+                <button class="btn-save-part" @onclick="SavePartAsync">SAVE PART</button>
+            </div>
+        </div>
+    </div>
+}
+    </main>
+</div>
+}
+
+@code {
+    private bool _isCheckingAccess = true;
+    private bool _isAuthorized;
+    private IJSObjectReference? _firebaseModule;
+    private string? _loadError;
+    private string? _actionError;
+
+    private bool showAddModal = false;
+    private SparePart newPart = new() { Unit = "pcs" };
+    private List<SparePart> parts = new();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+        JsonElement result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
+        _isAuthorized = result.TryGetProperty("ok", out JsonElement okProp) && okProp.ValueKind == JsonValueKind.True;
+        _isCheckingAccess = false;
+
+        if (!_isAuthorized)
+        {
+            Navigation.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        await LoadPartsAsync();
+        StateHasChanged();
+    }
+
+    private async Task LoadPartsAsync()
+    {
+        try
+        {
+            _loadError = null;
+            parts = await InventoryAudit.GetSparePartsAsync();
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+            parts = new List<SparePart>();
+        }
+    }
+
+    private string GetStatusClass(string status) => status switch
+    {
+        "Normal" => "bullet-normal",
+        "Low Stock" => "bullet-low",
+        "Critical" => "bullet-critical",
+        _ => ""
+    };
+
+    private string GetStatus(SparePart item)
+    {
+        if (item.StockQuantity <= 0 || item.StockQuantity <= item.ReorderLevel / 2)
+        {
+            return "Critical";
+        }
+
+        if (item.StockQuantity <= item.ReorderLevel)
+        {
+            return "Low Stock";
+        }
+
+        return "Normal";
+    }
+
+    private static string ToDisplayPartId(int rowNumber) => rowNumber.ToString("D2");
+
+    private async Task DeductPartAsync(SparePart item)
+    {
+        _actionError = null;
+
+        try
+        {
+            SparePart? updated = await InventoryAudit.DeductPartAsync(item.PartId);
+            if (updated is null)
+            {
+                _actionError = "This part no longer exists in Firestore.";
+                return;
+            }
+
+            int idx = parts.FindIndex(p => p.PartId == updated.PartId);
+            if (idx >= 0)
+            {
+                parts[idx] = updated;
+            }
+        }
+        catch (Exception ex)
+        {
+            _actionError = $"Couldn't deduct stock: {ex.Message}";
+        }
+    }
+
+    private void EditPart(SparePart item)
+    {
+        // Add edit logic or navigation
+    }
+
+    private async Task SavePartAsync()
+    {
+        _actionError = null;
+
+        if (string.IsNullOrWhiteSpace(newPart.PartName))
+        {
+            _actionError = "Part name is required.";
+            return;
+        }
+
+        try
+        {
+            SparePart saved = await InventoryAudit.AddSparePartAsync(new SparePart
+            {
+                PartName = newPart.PartName,
+                StockQuantity = newPart.StockQuantity,
+                ReorderLevel = newPart.ReorderLevel,
+                Unit = newPart.Unit,
+                UnitPrice = 0m,
+            });
+
+            parts.Add(saved);
+            parts = parts.OrderBy(p => p.PartName, StringComparer.OrdinalIgnoreCase).ToList();
+            newPart = new SparePart { Unit = "pcs" };
+            showAddModal = false;
+        }
+        catch (Exception ex)
+        {
+            _actionError = $"Couldn't save part: {ex.Message}";
+        }
+    }
+}
