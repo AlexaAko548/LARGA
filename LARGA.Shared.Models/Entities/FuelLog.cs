@@ -63,7 +63,7 @@ public class FuelLog
     [FirestoreProperty("fuelCost", ConverterType = typeof(DecimalConverter))]
     public decimal FuelCost { get; set; }
 
-    [FirestoreProperty("orNumber")]
+    [FirestoreProperty("orNumber")] 
     public string? ORNumber { get; set; }
 
     [FirestoreProperty("receiptImageUrl")]
@@ -75,7 +75,7 @@ public class FuelLog
     [FirestoreProperty("verificationStatus", ConverterType = typeof(FuelVerificationStatusConverter))]
     public FuelVerificationStatus VerificationStatus { get; set; } = FuelVerificationStatus.Pending;
 
-    [FirestoreProperty("fuelLogDetails")]
+    [FirestoreProperty("fuelLogDetails")] 
     public string? FuelLogDetails { get; set; }
 
     [FirestoreProperty("odometerReading")]
@@ -83,4 +83,22 @@ public class FuelLog
 
     [FirestoreProperty("odometerPhotoUrl")]
     public string? OdometerPhotoUrl { get; set; }
+
+    [FirestoreProperty("driverId")] // new property to store the driver ID
+    public string DriverId { get; set; } = string.Empty;
+
+    [FirestoreProperty("isCostManuallyEdited")]
+    public bool IsCostManuallyEdited { get; set; }
+
+    [FirestoreProperty("isQuantityManuallyEdited")]
+    public bool IsQuantityManuallyEdited { get; set; }
+
+    [FirestoreProperty("isFuelStationManuallyEdited")]
+    public bool IsFuelStationManuallyEdited { get; set; }
+
+    [FirestoreProperty("isReceiptDateManuallyEdited")]
+    public bool IsReceiptDateManuallyEdited { get; set; }
+
+    [FirestoreProperty("isAnyFieldManuallyEdited")]
+    public bool IsAnyFieldManuallyEdited { get; set; }
 }

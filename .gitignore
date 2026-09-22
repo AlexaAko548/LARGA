@@ -43,6 +43,9 @@ LARGA.ManagerWeb/appsettings.Local.json
 # Contains a real MapTiler API key - untracked on 2026-09-07, use the .example template
 LARGA.ManagerWeb/appsettings.Development.json
 
+# Mobile Live Fleet map (LAR-48) MapTiler key - use MapTilerConfig.example.cs as the template
+LARGA.MobileApp/Services/MapTilerConfig.cs
+
 # Mono auto generated files
 mono_crash.*
 

@@ -1,0 +1,534 @@
+@page "/fuel-verification"
+@using System.Text.Json
+@using LARGA.SharedCore.Models.FuelVerification
+@using LARGA.SharedCore.Services
+@using LARGA.Shared.Models.Entities
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject FuelVerificationService FuelVerificationSvc
+
+<PageTitle>Fuel Verification</PageTitle>
+
+@if (_isCheckingAccess)
+{
+    <div class="auth-page">
+        <div class="auth-card">
+            <h2>Checking access...</h2>
+        </div>
+    </div>
+}
+else if (_isAuthorized)
+{
+<div class="dashboard-shell">
+    <DashboardSidebar ActiveItem="FuelVerification" />
+
+    <main class="dashboard-main">
+        <header class="dashboard-header">
+            <div class="header-title-wrap">
+                <h1>FUEL VERIFICATION QUEUE</h1>
+                <div class="header-date">Review, compare, and approve fuel reports</div>
+            </div>
+
+            <div class="header-actions">
+                <button class="icon-btn" type="button" aria-label="Notifications">◌</button>
+                <button class="icon-btn" type="button" aria-label="Messages">✉</button>
+                <div class="manager-pill">
+                    <span class="manager-dot"></span>
+                    <span>Manager</span>
+                    <span class="caret">▾</span>
+                </div>
+            </div>
+        </header>
+
+        @if (_error is not null)
+        {
+            <div class="data-warning-banner">Fuel log data unavailable: @_error</div>
+        }
+
+        <section class="stats-grid">
+            <article class="stat-card">
+                <div class="stat-icon">▤</div>
+                <div class="stat-body">
+                    <div class="stat-value">@(_snapshot?.PendingCount ?? 0)</div>
+                    <div class="stat-label">Pending Submissions</div>
+                </div>
+            </article>
+            <article class="stat-card">
+                <div class="stat-icon">▤</div>
+                <div class="stat-body">
+                    <div class="stat-value">@(_snapshot?.VerifiedCount ?? 0)</div>
+                    <div class="stat-label">Verified Submissions</div>
+                </div>
+            </article>
+            <article class="stat-card">
+                <div class="stat-icon">▤</div>
+                <div class="stat-body">
+                    <div class="stat-value">@(_snapshot?.FlaggedCount ?? 0)</div>
+                    <div class="stat-label">Flagged Submissions</div>
+                </div>
+            </article>
+        </section>
+
+        <section class="tab-bar">
+            <div class="tab-group">
+                <button class="tab-btn @(_activeTab == FuelVerificationStatus.Pending ? "active" : "")" type="button" @onclick='() => _activeTab = FuelVerificationStatus.Pending'>
+                    Pending <span class="tab-count">@(_snapshot?.PendingCount ?? 0)</span>
+                </button>
+                <button class="tab-btn @(_activeTab == FuelVerificationStatus.Verified ? "active" : "")" type="button" @onclick='() => _activeTab = FuelVerificationStatus.Verified'>
+                    Verified <span class="tab-count">@(_snapshot?.VerifiedCount ?? 0)</span>
+                </button>
+                <button class="tab-btn @(_activeTab == FuelVerificationStatus.Flagged ? "active" : "")" type="button" @onclick='() => _activeTab = FuelVerificationStatus.Flagged'>
+                    Flagged <span class="tab-count">@(_snapshot?.FlaggedCount ?? 0)</span>
+                </button>
+            </div>
+        </section>
+
+        <div class="data-table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date &amp; Time</th>
+                        <th>Refuel Instance</th>
+                        <th>Driver</th>
+                        <th>Unit</th>
+                        <th>Cost</th>
+                        <th>Qty / Odo</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_snapshot is null)
+                    {
+                        <tr><td colspan="8" class="table-empty">Loading fuel submissions...</td></tr>
+                    }
+                    else if (VisibleEntries.Count == 0)
+                    {
+                        <tr><td colspan="8" class="table-empty">No @(_activeTab.ToString().ToLowerInvariant()) submissions.</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (FuelLogEntry e in VisibleEntries)
+                        {
+                            <tr>
+                                <td>@(e.Timestamp.HasValue ? e.Timestamp.Value.ToLocalTime().ToString("MMM d, h:mm tt") : "—")</td>
+                                <td><span class="unit-pill">@e.RefuelLabel</span></td>
+                                <td>@e.DriverName</td>
+                                <td>@e.TaxiId</td>
+                                <td>₱@e.Cost.ToString("N2")</td>
+                                <td>@e.Liters.ToString("N0") L / @e.OdometerReading.ToString("N0") km</td>
+                                <td><span class="status-pill @StatusCss(e.Status)"><span class="dot"></span> @e.Status.ToString().ToUpperInvariant()</span></td>
+                                <td>
+                                    @if (e.Status == FuelVerificationStatus.Flagged)
+                                    {
+                                        <button class="profile-btn" type="button" @onclick="() => OpenResolveModal(e)">Resolve Issue</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="profile-btn" type="button" @onclick="() => OpenReviewModal(e)">Review</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+}
+
+@if (_showReviewModal)
+{
+    <div class="report-overlay" @onclick="CloseReviewModal">
+        <div class="report-modal review-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <div>
+                    <h3>Review Fuel Submission@(_reviewDetail is not null ? $" — {_reviewDetail.TaxiId}" : "")</h3>
+                    @if (_reviewDetail is not null)
+                    {
+                        <div class="review-header-meta">
+                            @_reviewDetail.DriverName · @_reviewDetail.RefuelLabel
+                            @(_reviewDetail.Timestamp.HasValue ? $"· {_reviewDetail.Timestamp.Value.ToLocalTime():MMM d, h:mm tt}" : "")
+                        </div>
+                    }
+                </div>
+                <button type="button" class="close-modal" @onclick="CloseReviewModal">×</button>
+            </div>
+            <div class="report-body">
+                @if (_isLoadingReview)
+                {
+                    <div class="table-empty">Loading submission...</div>
+                }
+                else if (_reviewDetail is null)
+                {
+                    <div class="table-empty">This submission could not be loaded.</div>
+                }
+                else
+                {
+                    <div class="review-columns">
+                        <div class="review-col">
+                            <div class="review-col-title">Driver's Submission</div>
+
+                            @if (!string.IsNullOrWhiteSpace(_reviewDetail.ReceiptImageUrl))
+                            {
+                                <a class="review-photo-link" href="@_reviewDetail.ReceiptImageUrl" target="_blank" rel="noopener">
+                                    <span class="photo-icon">🔍</span>
+                                    Click to view receipt photo
+                                    @if (!string.IsNullOrWhiteSpace(_reviewDetail.FuelStation) || !string.IsNullOrWhiteSpace(_reviewDetail.ORNumber))
+                                    {
+                                        <div class="fact-sub">
+                                            @_reviewDetail.FuelStation
+                                            @(!string.IsNullOrWhiteSpace(_reviewDetail.ORNumber) ? $" · OR# {_reviewDetail.ORNumber}" : "")
+                                        </div>
+                                    }
+                                </a>
+                            }
+                            else
+                            {
+                                <div class="review-fact">
+                                    <div class="fact-label">Receipt Photo</div>
+                                    <div class="fact-value">No photo submitted</div>
+                                </div>
+                            }
+
+                            <div class="review-fact">
+                                <div class="fact-label">Submitted Fuel Cost</div>
+                                <div class="fact-value">₱@_reviewDetail.Cost.ToString("N2")</div>
+                            </div>
+                            <div class="review-fact">
+                                <div class="fact-label">Submitted Quantity</div>
+                                <div class="fact-value">@_reviewDetail.Liters.ToString("N0") Liters</div>
+                            </div>
+                            <div class="review-fact">
+                                <div class="fact-label">Submitted Odometer</div>
+                                <div class="fact-value">@_reviewDetail.OdometerReading.ToString("N0") km</div>
+                            </div>
+                        </div>
+
+                        <div class="review-col">
+                            <div class="review-col-title">System Data &amp; Validation</div>
+
+                            <div class="review-status-badge @StatusBadgeCss(_reviewDetail.MatchesExpectedRange)">
+                                <span class="badge-icon">@StatusBadgeIcon(_reviewDetail.MatchesExpectedRange)</span>
+                                <div>
+                                    <div class="badge-title">@StatusBadgeTitle(_reviewDetail)</div>
+                                    <div class="badge-sub">@StatusBadgeSubtext(_reviewDetail)</div>
+                                </div>
+                            </div>
+
+                            <div class="review-fact">
+                                <div class="fact-label">Previous Odometer</div>
+                                <div class="fact-value">@(_reviewDetail.PreviousOdometerReading?.ToString("N0") ?? "—") km</div>
+                                <div class="fact-sub">@_reviewDetail.PreviousOdometerLabel</div>
+                            </div>
+                            <div class="review-fact">
+                                <div class="fact-label">Current Odometer</div>
+                                <div class="fact-value">@_reviewDetail.OdometerReading.ToString("N0") km</div>
+                                <div class="fact-sub">@_reviewDetail.RefuelLabel</div>
+                            </div>
+                            <div class="review-fact">
+                                <div class="fact-label">Driver's Claimed Distance</div>
+                                <div class="fact-value">@(_reviewDetail.ClaimedDistanceKm?.ToString("N0") ?? "—") km</div>
+                                <div class="fact-sub">Current odo − previous odo</div>
+                            </div>
+                            <div class="review-fact">
+                                <div class="fact-label">System GPS Distance</div>
+                                <div class="fact-value">@(_reviewDetail.GpsDistanceKm.HasValue ? $"{_reviewDetail.GpsDistanceKm.Value:N0} km" : "No data")</div>
+                                <div class="fact-sub">Tracked between refuel timestamps</div>
+                            </div>
+                            @if (_reviewDetail.VarianceKm.HasValue)
+                            {
+                                <div class="review-fact">
+                                    <div class="fact-label">Odometer vs. GPS Variance</div>
+                                    <div class="fact-value">@_reviewDetail.VarianceKm.Value.ToString("N0") km (@_reviewDetail.VariancePercent?.ToString("N0")%)</div>
+                                </div>
+                            }
+                            @if (_reviewDetail.CostPerKm.HasValue)
+                            {
+                                <div class="review-fact">
+                                    <div class="fact-label">Cost / km sanity check</div>
+                                    <div class="fact-value">₱@_reviewDetail.CostPerKm.Value.ToString("N2") /km</div>
+                                    <div class="fact-sub">Typical range: ₱@FuelReviewDetail.TypicalCostPerKmMin.ToString("N2")–@FuelReviewDetail.TypicalCostPerKmMax.ToString("N2")/km</div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="report-section">
+                        <label>Flag Reason (only needed to flag)</label>
+                        <textarea class="text-input textarea" @bind="_flagReason" placeholder="Why is this submission being flagged?"></textarea>
+                    </div>
+                }
+
+                @if (_reviewError is not null)
+                {
+                    <div class="report-error">@_reviewError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn pull-left" type="button" @onclick="CloseReviewModal">Cancel</button>
+                @if (_reviewDetail is not null)
+                {
+                    @if (_reviewDetail.Status != FuelVerificationStatus.Pending)
+                    {
+                        <button class="cancel-btn" type="button" disabled="@_isSavingReview" @onclick="() => ResolveAsync(ResolveAction.ResetToPending)">Reset to Pending</button>
+                    }
+                    <button class="cancel-btn" type="button" disabled="@_isSavingReview" @onclick="() => ResolveAsync(ResolveAction.Flag)">🚩 Flag Irregularity</button>
+                    <button class="download-btn" type="button" disabled="@_isSavingReview" @onclick="() => ResolveAsync(ResolveAction.Verify)">@(_isSavingReview ? "Saving…" : "✓ Verify & Approve")</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showResolveModal && _resolveEntry is not null)
+{
+    <div class="report-overlay" @onclick="CloseResolveModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <div>
+                    <h3>Resolve Flag</h3>
+                    <div class="review-header-meta">@_resolveEntry.DriverName · @_resolveEntry.TaxiId</div>
+                </div>
+                <button type="button" class="close-modal" @onclick="CloseResolveModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="info-banner warning">
+                    ⚠ @(string.IsNullOrWhiteSpace(_resolveEntry.FuelLogDetails) ? "No reason was recorded when this was flagged." : _resolveEntry.FuelLogDetails)
+                </div>
+
+                <div class="report-section">
+                    <label>Resolution Note</label>
+                    <textarea class="text-input textarea" @bind="_resolutionNote" placeholder="Explain how this was resolved (e.g. driver provided explanation, penalty applied)..."></textarea>
+                </div>
+
+                @if (_resolveError is not null)
+                {
+                    <div class="report-error">@_resolveError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn pull-left" type="button" disabled="@_isSavingResolve" @onclick="CloseResolveModal">Cancel</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingResolve || string.IsNullOrWhiteSpace(_resolutionNote))" @onclick="ConfirmResolveAsync">@(_isSavingResolve ? "Saving…" : "Mark Resolved")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _isCheckingAccess = true;
+    private bool _isAuthorized;
+    private IJSObjectReference? _firebaseModule;
+
+    private FuelVerificationSnapshot? _snapshot;
+    private string? _error;
+    private FuelVerificationStatus _activeTab = FuelVerificationStatus.Pending;
+
+    private bool _showReviewModal;
+    private bool _isLoadingReview;
+    private FuelReviewDetail? _reviewDetail;
+    private string _flagReason = string.Empty;
+    private bool _isSavingReview;
+    private string? _reviewError;
+
+    private bool _showResolveModal;
+    private FuelLogEntry? _resolveEntry;
+    private string _resolutionNote = string.Empty;
+    private bool _isSavingResolve;
+    private string? _resolveError;
+
+    private enum ResolveAction { Verify, Flag, ResetToPending }
+
+    private List<FuelLogEntry> VisibleEntries =>
+        _snapshot?.Entries.Where(e => e.Status == _activeTab).ToList() ?? new List<FuelLogEntry>();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+        var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
+        _isAuthorized = result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True;
+        _isCheckingAccess = false;
+
+        if (!_isAuthorized)
+        {
+            Navigation.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        await LoadSnapshotAsync();
+        StateHasChanged();
+    }
+
+    private async Task LoadSnapshotAsync()
+    {
+        try
+        {
+            _snapshot = await FuelVerificationSvc.GetSnapshotAsync();
+            _error = null;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task OpenReviewModal(FuelLogEntry entry)
+    {
+        _flagReason = string.Empty;
+        _reviewError = null;
+        _reviewDetail = null;
+        _showReviewModal = true;
+        _isLoadingReview = true;
+        StateHasChanged();
+
+        try
+        {
+            _reviewDetail = await FuelVerificationSvc.GetReviewDetailAsync(entry.FuelId);
+        }
+        catch (Exception ex)
+        {
+            _reviewError = ex.Message;
+        }
+        finally
+        {
+            _isLoadingReview = false;
+        }
+    }
+
+    private void CloseReviewModal()
+    {
+        _showReviewModal = false;
+        _reviewDetail = null;
+    }
+
+    private void OpenResolveModal(FuelLogEntry entry)
+    {
+        _resolveEntry = entry;
+        _resolutionNote = string.Empty;
+        _resolveError = null;
+        _showResolveModal = true;
+    }
+
+    private void CloseResolveModal()
+    {
+        _showResolveModal = false;
+        _resolveEntry = null;
+    }
+
+    private async Task ConfirmResolveAsync()
+    {
+        if (_resolveEntry is null || string.IsNullOrWhiteSpace(_resolutionNote))
+        {
+            return;
+        }
+
+        _isSavingResolve = true;
+        _resolveError = null;
+        try
+        {
+            FuelActionResult result = await FuelVerificationSvc.ResolveFlagAsync(_resolveEntry.FuelId, _resolutionNote);
+            if (!result.Ok)
+            {
+                _resolveError = result.ErrorMessage ?? "Could not resolve this flag.";
+                return;
+            }
+
+            _showResolveModal = false;
+            _resolveEntry = null;
+            await LoadSnapshotAsync();
+        }
+        finally
+        {
+            _isSavingResolve = false;
+        }
+    }
+
+    private async Task ResolveAsync(ResolveAction action)
+    {
+        if (_reviewDetail is null)
+        {
+            return;
+        }
+
+        _isSavingReview = true;
+        _reviewError = null;
+        try
+        {
+            FuelActionResult result = action switch
+            {
+                ResolveAction.Verify => await FuelVerificationSvc.VerifyAsync(_reviewDetail.FuelId),
+                ResolveAction.Flag => await FuelVerificationSvc.FlagAsync(_reviewDetail.FuelId, _flagReason),
+                _ => await FuelVerificationSvc.ResetToPendingAsync(_reviewDetail.FuelId),
+            };
+
+            if (!result.Ok)
+            {
+                _reviewError = result.ErrorMessage ?? "Could not update this submission.";
+                return;
+            }
+
+            _showReviewModal = false;
+            _reviewDetail = null;
+            await LoadSnapshotAsync();
+        }
+        finally
+        {
+            _isSavingReview = false;
+        }
+    }
+
+    private static string StatusCss(FuelVerificationStatus status) => status switch
+    {
+        FuelVerificationStatus.Verified => "status-success",
+        FuelVerificationStatus.Flagged => "status-danger",
+        _ => "status-warning",
+    };
+
+    private static string StatusBadgeCss(bool? matches) => matches switch
+    {
+        true => "status-good",
+        false => "status-bad",
+        null => "status-unknown",
+    };
+
+    private static string StatusBadgeIcon(bool? matches) => matches switch
+    {
+        true => "✓",
+        false => "⚠",
+        null => "ⓘ",
+    };
+
+    private static string StatusBadgeTitle(FuelReviewDetail d) => d.MatchesExpectedRange switch
+    {
+        true => "Matches Expected Range",
+        false => "Review Recommended",
+        null => "No GPS Data To Compare",
+    };
+
+    private static string StatusBadgeSubtext(FuelReviewDetail d)
+    {
+        if (d.MatchesExpectedRange is null)
+        {
+            return "Driver-submitted values only - nothing to cross-check them against yet.";
+        }
+
+        var parts = new List<string>();
+        if (d.VariancePercent.HasValue)
+        {
+            var toleranceWord = d.IsWithinOdometerTolerance == true ? "within" : "over";
+            parts.Add($"{d.VariancePercent.Value:N0}% deviation vs. GPS - {toleranceWord} the acceptable {FuelReviewDetail.OdometerToleranceComparisonPercent:N0}% tolerance");
+        }
+        if (d.IsWithinCostRange == false)
+        {
+            parts.Add("cost/km is outside the typical range");
+        }
+        return parts.Count > 0 ? string.Join("; ", parts) : "Looks consistent with GPS tracking.";
+    }
+}

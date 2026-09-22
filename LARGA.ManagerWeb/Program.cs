@@ -98,6 +98,7 @@ builder.Services.AddSingleton<FinancialLedgerService>();
 builder.Services.AddSingleton<GarageService>();
 builder.Services.AddSingleton<AlertService>();
 builder.Services.AddHostedService<IdleAlertMonitorService>();
+builder.Services.AddSingleton<FuelVerificationService>();
 
 var app = builder.Build();
 
