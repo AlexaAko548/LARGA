@@ -1,5 +1,6 @@
 @page "/driver-shifts"
 @using System.Text.Json
+@using LARGA.SharedCore
 @using LARGA.SharedCore.Models.DriverShifts
 @using LARGA.SharedCore.Services
 @rendermode InteractiveServer
@@ -30,7 +31,7 @@ else if (_isAuthorized)
             </div>
 
             <div class="header-actions">
-                <button class="icon-btn" type="button" aria-label="Notifications">◌</button>
+                <NotificationBell />
                 <button class="icon-btn" type="button" aria-label="Messages">✉</button>
                 <div class="manager-pill">
                     <span class="manager-dot"></span>
@@ -142,7 +143,7 @@ else if (_isAuthorized)
                         <span>WEEK OF @WeekLabel()</span>
                         <button class="week-nav" type="button" @onclick="() => ChangeWeekAsync(1)">▶</button>
                     </div>
-                    <div class="schedule-hint">Click any cell to assign or clear a unit</div>
+                    <div class="schedule-hint">Every day defaults to working - click a cell to toggle it to a day off</div>
                 </div>
 
                 @if (_weekSchedule is null)
@@ -182,21 +183,29 @@ else if (_isAuthorized)
                                         {
                                             ScheduleDayCell cell = row.Days[i];
                                             string driverId = row.DriverId;
-                                            string cellKey = $"{driverId}_{cell.Date:yyyyMMdd}";
+                                            bool wasDayOff = cell.IsDayOff;
                                             <td class="schedule-cell-wrap @(IsToday(cell.Date) ? "schedule-today" : "")">
-                                                <button class="schedule-cell @(cell.TaxiId is null ? "rest" : "")" type="button" @onclick="() => ToggleCell(driverId, cell.Date)">
-                                                    @(cell.TaxiId ?? "-REST DAY-")
+                                                <button class="schedule-cell @ScheduleCellCss(cell)" type="button"
+                                                        disabled="@cell.IsLicenseIneligible"
+                                                        title="@(cell.IsLicenseIneligible ? "License expired or expiring within a month of this date - cannot be scheduled" : null)"
+                                                        @onclick="() => ToggleDayOffAsync(driverId, cell.Date, wasDayOff)">
+                                                    @if (cell.IsLicenseIneligible)
+                                                    {
+                                                        <span>🚫 INELIGIBLE</span>
+                                                    }
+                                                    else if (cell.IsDayOff)
+                                                    {
+                                                        <span>✕ DAY OFF</span>
+                                                    }
+                                                    else if (cell.TaxiId is null)
+                                                    {
+                                                        <span>⚠ NO UNIT</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>✓ @cell.TaxiId</span>
+                                                    }
                                                 </button>
-                                                @if (_openCellKey == cellKey)
-                                                {
-                                                    <div class="schedule-dropdown">
-                                                        <button type="button" @onclick="() => AssignCellAsync(driverId, cell.Date, null)">-REST DAY-</button>
-                                                        @foreach (string taxiId in _weekSchedule.TaxiIds)
-                                                        {
-                                                            <button type="button" @onclick="() => AssignCellAsync(driverId, cell.Date, taxiId)">@taxiId</button>
-                                                        }
-                                                    </div>
-                                                }
                                             </td>
                                         }
                                     </tr>
@@ -366,50 +375,39 @@ else if (_isAuthorized)
                 <button type="button" class="close-modal" @onclick="CloseChecklistModal">×</button>
             </div>
 
-            <div class="checklist-tabs">
-                <button class="checklist-tab @(_checklistTab == "Pre-Shift" ? "active" : "")" type="button" disabled="@(_selectedChecklists.PreShift is null)" @onclick='() => _checklistTab = "Pre-Shift"'>Pre-Shift</button>
-                <button class="checklist-tab @(_checklistTab == "Post-Shift" ? "active" : "")" type="button" disabled="@(_selectedChecklists.EndShift is null)" @onclick='() => _checklistTab = "Post-Shift"'>Post-Shift</button>
-            </div>
-
-            @{ ChecklistDetail? detail = _checklistTab == "Pre-Shift" ? _selectedChecklists.PreShift : _selectedChecklists.EndShift; }
-
             <div class="report-body">
-                @if (detail is null)
-                {
-                    <div class="table-empty">No @(_checklistTab.ToLowerInvariant()) checklist was submitted for this shift.</div>
-                }
-                else
-                {
-                    <div class="checklist-summary @(detail.AllPassed ? "pass" : "warn")">
-                        <strong>@(detail.AllPassed ? "All Items Passed" : "Some Items Need Attention")</strong>
-                        <span>@detail.PassedCount/@detail.TotalCheckableCount checks completed · @detail.ChecklistType Inspection</span>
-                    </div>
+                @* Pre-Shift and Post-Shift are deliberately shown side by side rather than
+                   merged/tab-switched, so a manager can compare the two directly. *@
+                <div class="checklist-compare">
+                    <ChecklistPanel Title="Pre-Shift" Detail="_selectedChecklists.PreShift" />
+                    <ChecklistPanel Title="Post-Shift" Detail="_selectedChecklists.EndShift" />
+                </div>
 
-                    <div class="checklist-photos-label">DRIVER PHOTOS</div>
-                    <div class="checklist-photos">
-                        <div class="checklist-photo-slot">
-                            <span>@(string.IsNullOrEmpty(detail.PrimaryPhotoUrl) ? "Not submitted" : "Photo attached")</span>
-                            <small>@detail.PrimaryPhotoLabel</small>
-                        </div>
-                        <div class="checklist-photo-slot">
-                            <span>@(string.IsNullOrEmpty(detail.SecondaryPhotoUrl) ? "Not submitted" : "Photo attached")</span>
-                            <small>@detail.SecondaryPhotoLabel</small>
-                        </div>
-                    </div>
-
-                    <div class="checklist-items-label">CHECKLIST ITEMS</div>
-                    <div class="checklist-items">
-                        @foreach (ChecklistItemResult item in detail.Items)
+                @if (_selectedChecklists.PreviousChecklists.Count > 0 || _selectedChecklists.DamageHistory.Count > 0)
+                {
+                    <div class="checklist-history">
+                        <div class="checklist-items-label">PREVIOUS INSPECTION &amp; DAMAGE HISTORY — @_selectedChecklists.TaxiId</div>
+                        @if (_selectedChecklists.PreviousChecklists.Count > 0)
                         {
-                            <div class="checklist-item-row">
-                                <span>@item.Label</span>
-                                @if (item.Passed is bool passed)
+                            <div class="history-mini-list">
+                                @foreach (ChecklistHistoryEntry h in _selectedChecklists.PreviousChecklists)
                                 {
-                                    <span class="status-pill small @(passed ? "status-success" : "status-danger")">@(passed ? "PASS" : "FAIL")</span>
+                                    <div class="history-mini-row">
+                                        <span>@h.Timestamp.ToPhilippineTime().ToString("MMM d") · @h.ChecklistType</span>
+                                        <span class="status-pill small @(h.AllPassed ? "status-success" : "status-warning")">@h.PassedCount/@h.TotalCheckableCount passed</span>
+                                    </div>
                                 }
-                                else
+                            </div>
+                        }
+                        @if (_selectedChecklists.DamageHistory.Count > 0)
+                        {
+                            <div class="history-mini-list">
+                                @foreach (DamageHistoryEntry d in _selectedChecklists.DamageHistory)
                                 {
-                                    <span class="status-pill small status-neutral">@item.ValueText</span>
+                                    <div class="history-mini-row">
+                                        <span>@d.DateLogged.ToPhilippineTime().ToString("MMM d") · @d.IssueTitle</span>
+                                        <span class="status-pill small status-neutral">@d.Status.ToUpperInvariant()</span>
+                                    </div>
                                 }
                             </div>
                         }
@@ -652,7 +650,6 @@ else if (_isAuthorized)
 
     private WeekSchedule? _weekSchedule;
     private string? _scheduleError;
-    private string? _openCellKey;
 
     private List<ShiftLogEntry>? _shiftLogs;
     private string? _shiftLogsError;
@@ -666,7 +663,6 @@ else if (_isAuthorized)
     private bool _showDateFilterMenu, _showDriverFilterMenu, _showUnitFilterMenu, _showStatusFilterMenu;
 
     private ShiftChecklists? _selectedChecklists;
-    private string _checklistTab = "Pre-Shift";
     private bool _showChecklistModal;
 
     private bool _showAddDriverModal;
@@ -833,35 +829,48 @@ else if (_isAuthorized)
         _showStatusFilterMenu = false;
     }
 
-    private void ToggleCell(string driverId, DateTime date)
+    /// <summary>One driver, one permanently assigned unit - so a cell only ever has two
+    /// states to toggle between: working (the default) and day off. No per-day unit
+    /// reassignment.</summary>
+    private async Task ToggleDayOffAsync(string driverId, DateTime date, bool wasDayOff)
     {
-        string key = $"{driverId}_{date:yyyyMMdd}";
-        _openCellKey = _openCellKey == key ? null : key;
-    }
-
-    private async Task AssignCellAsync(string driverId, DateTime date, string? taxiId)
-    {
-        _openCellKey = null;
         try
         {
-            if (taxiId is null)
+            if (wasDayOff)
             {
                 await DriverManagement.ClearScheduleAsync(driverId, date);
             }
             else
             {
-                await DriverManagement.AssignScheduleAsync(driverId, date, taxiId);
+                await DriverManagement.MarkDayOffAsync(driverId, date);
             }
-
-            if (_weekSchedule is not null)
-            {
-                await LoadScheduleAsync(_weekSchedule.WeekStart);
-            }
+            await ReloadCurrentWeekAsync();
         }
         catch (Exception ex)
         {
             _scheduleError = ex.Message;
         }
+    }
+
+    private async Task ReloadCurrentWeekAsync()
+    {
+        if (_weekSchedule is not null)
+        {
+            await LoadScheduleAsync(_weekSchedule.WeekStart);
+        }
+    }
+
+    private static string ScheduleCellCss(ScheduleDayCell cell)
+    {
+        if (cell.IsLicenseIneligible)
+        {
+            return "ineligible";
+        }
+        if (cell.IsDayOff)
+        {
+            return "off";
+        }
+        return cell.TaxiId is null ? "no-unit" : string.Empty;
     }
 
     private async Task ChangeWeekAsync(int deltaWeeks)
@@ -875,7 +884,6 @@ else if (_isAuthorized)
         try
         {
             _selectedChecklists = await DriverManagement.GetShiftChecklistsAsync(shiftId);
-            _checklistTab = _selectedChecklists?.PreShift is not null ? "Pre-Shift" : "Post-Shift";
             _showChecklistModal = _selectedChecklists is not null;
         }
         catch (Exception ex)
@@ -1103,8 +1111,8 @@ else if (_isAuthorized)
             return "—";
         }
 
-        DateTime value = dt.Value;
-        DateTime today = DateTime.UtcNow.Date;
+        DateTime value = dt.Value.ToPhilippineTime();
+        DateTime today = PhilippineTime.Now.Date;
         string day = value.Date == today ? "Today" : value.Date == today.AddDays(-1) ? "Yesterday" : value.ToString("MMM d");
         return $"{day}, {value:h:mm tt}";
     }

@@ -5,6 +5,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
+using LARGA.SharedCore;
+using LARGA.SharedCore.Models.Alerts;
 using LARGA.SharedCore.Models.Dashboard;
 using LARGA.Shared.Models.Entities;
 using Microsoft.Extensions.Logging;
@@ -32,7 +34,7 @@ namespace LARGA.SharedCore.Services;
 /// </summary>
 public class FleetReportingService
 {
-    private const double DefaultIdleThresholdMinutes = 10;
+    private const double DefaultIdleThresholdMinutes = 15;
 
     // Lazy: credential/connection failures should surface when a method below actually
     // runs (where callers like Dashboard.razor already catch them), not at DI-construction
@@ -256,6 +258,56 @@ public class FleetReportingService
         return isRecent && latest.Speed > 0;
     }
 
+    /// <summary>Which taxis are *currently* computed as Idle, with enough identity to raise an
+    /// alert about each one - used by IdleAlertMonitorService. Mirrors BuildFleetStatusAsync's
+    /// precedence (a taxi under maintenance, on break, or with an unresolved SOS is never
+    /// "Idle" even if it's not moving) but only bothers evaluating taxis with an active shift,
+    /// since a taxi with no driver on it right now has nobody to alert.</summary>
+    public async Task<List<IdleDriverInfo>> GetIdleDriversAsync()
+    {
+        DateTime now = DateTime.UtcNow;
+
+        List<TaxiUnit> taxis = await GetAllAsync<TaxiUnit>("taxis");
+        List<UserProfile> drivers = await GetAllAsync<UserProfile>("users");
+        List<EmergencyAlert> alerts = await GetAllAsync<EmergencyAlert>("emergency_alerts");
+        List<ShiftLog> activeShifts = await GetWhereEqualAsync<ShiftLog>("shifts", "status", "Active");
+        double idleThresholdMinutes = await GetIdleThresholdMinutesAsync();
+
+        Dictionary<string, TaxiUnit> taxiById = taxis.ToDictionary(t => t.TaxiId);
+        Dictionary<string, UserProfile> driverById = drivers.ToDictionary(d => d.UserId);
+
+        var result = new List<IdleDriverInfo>();
+        foreach (ShiftLog shift in activeShifts)
+        {
+            if (!taxiById.TryGetValue(shift.TaxiId, out TaxiUnit? taxi)) continue;
+            if (string.Equals(taxi.Status, "Under Maintenance", StringComparison.OrdinalIgnoreCase)) continue;
+            if (shift.IsOnBreak) continue;
+            if (alerts.Any(a => a.ShiftId == shift.ShiftId && !a.IsResolved)) continue; // unresolved SOS takes precedence
+            if (await IsMovingAsync(shift.ShiftId, idleThresholdMinutes, now)) continue;
+
+            driverById.TryGetValue(shift.DriverId, out UserProfile? driver);
+            result.Add(new IdleDriverInfo
+            {
+                DriverId = shift.DriverId,
+                DriverName = driver?.FullName ?? "Unknown driver",
+                TaxiId = shift.TaxiId,
+                UnitLabel = FormatUnitLabel(shift.TaxiId),
+                ShiftId = shift.ShiftId,
+                IdleThresholdMinutes = idleThresholdMinutes,
+            });
+        }
+
+        return result;
+    }
+
+    // Same "TAXI_004" -> "Unit 04" convention as GarageService.FormatUnitLabel.
+    private static string FormatUnitLabel(string taxiId)
+    {
+        int lastUnderscore = taxiId.LastIndexOf('_');
+        string suffix = lastUnderscore >= 0 ? taxiId[(lastUnderscore + 1)..] : taxiId;
+        return int.TryParse(suffix, out int n) ? $"Unit {n:00}" : $"Unit {taxiId}";
+    }
+
     // ---------------------------------------------------------------------
     // Top Driver Standings
     // ---------------------------------------------------------------------
@@ -378,7 +430,7 @@ public class FleetReportingService
             new[] { "Date", "ShiftId", "ExpectedBoundary", "LateFees", "AmountPaid", "PaymentMethod", "PaymentStatus" },
             payments.OrderBy(p => p.Timestamp).Select(p => new object?[]
             {
-                p.Timestamp.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                p.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
                 p.ShiftId, p.ExpectedBoundary, p.LateFees, p.AmountPaid, p.PaymentMethod, p.PaymentStatus,
             }));
     }
@@ -391,9 +443,9 @@ public class FleetReportingService
             new[] { "DateLogged", "TaxiId", "MaintenanceType", "IssueTitle", "PriorityLevel", "LaborCost", "TotalCost", "DateResolved" },
             records.OrderBy(m => m.DateLogged).Select(m => new object?[]
             {
-                m.DateLogged.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                m.DateLogged.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
                 m.TaxiId, m.MaintenanceType, m.IssueTitle, m.PriorityLevel, m.LaborCost, m.TotalCost,
-                m.DateResolved?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? "Open",
+                m.DateResolved.ToPhilippineTime()?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? "Open",
             }));
     }
 
@@ -408,7 +460,7 @@ public class FleetReportingService
             new[] { "ReceiptTimestamp", "ShiftId", "FuelStation", "LitersRefueled", "FuelCost", "VerificationStatus", "OdometerReading" },
             fuelLogs.OrderBy(f => f.ReceiptTimestamp).Select(f => new object?[]
             {
-                f.ReceiptTimestamp?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? string.Empty,
+                f.ReceiptTimestamp.ToPhilippineTime()?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? string.Empty,
                 f.ShiftId, f.FuelStation, f.LitersRefueled, f.FuelCost, f.VerificationStatus, f.OdometerReading,
             })));
 
@@ -450,7 +502,7 @@ public class FleetReportingService
             new[] { "Timestamp", "UserId", "ActionType", "Details", "IpAddress" },
             logs.OrderBy(a => a.Timestamp).Select(a => new object?[]
             {
-                a.Timestamp.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                a.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
                 a.UserId, a.ActionType, a.AuditLogDetails, a.IpAddress,
             }));
     }

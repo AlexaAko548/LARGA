@@ -34,8 +34,20 @@ public class ScheduleDayCell
 {
     public DateTime Date { get; set; }
 
-    /// <summary>Assigned taxi for this driver/day, or null for a rest day.</summary>
+    /// <summary>The driver's permanently assigned unit, or null when they're off this day
+    /// or have no unit assigned. One driver = one unit, permanently - there is no per-day
+    /// reassignment.</summary>
     public string? TaxiId { get; set; }
+
+    /// <summary>True when this day was explicitly marked off (a "DayOff" exception exists
+    /// for this driver/date), as opposed to just defaulting to a working day.</summary>
+    public bool IsDayOff { get; set; }
+
+    /// <summary>True when the driver's license makes them ineligible to be scheduled on
+    /// this specific date - either this date falls on/after their license's expiry, or
+    /// within one month before it (mirrors the same 1-month cutoff used for "On Shift"
+    /// eligibility elsewhere). The cell is locked (no unit, no day-off toggle) when true.</summary>
+    public bool IsLicenseIneligible { get; set; }
 }
 
 public class DriverScheduleRow
@@ -43,6 +55,10 @@ public class DriverScheduleRow
     public string DriverId { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
     public LicenseStatus LicenseStatus { get; set; }
+
+    /// <summary>The driver's permanently assigned unit (from their profile), or null if
+    /// none is set. Every day in this row defaults to this unit unless overridden.</summary>
+    public string? DefaultTaxiId { get; set; }
 
     /// <summary>Always 7 entries, Monday through Sunday.</summary>
     public List<ScheduleDayCell> Days { get; set; } = new();
@@ -113,6 +129,35 @@ public class ShiftChecklists
     public string DriverName { get; set; } = string.Empty;
     public ChecklistDetail? PreShift { get; set; }
     public ChecklistDetail? EndShift { get; set; }
+
+    /// <summary>The taxi unit's most recent past inspection checklists (other shifts),
+    /// newest first - reference material for the manager reviewing this shift's checklist,
+    /// not this shift's own Pre/End-Shift data above.</summary>
+    public List<ChecklistHistoryEntry> PreviousChecklists { get; set; } = new();
+
+    /// <summary>The taxi unit's past damage/accident maintenance records, newest first.</summary>
+    public List<DamageHistoryEntry> DamageHistory { get; set; } = new();
+}
+
+public class ChecklistHistoryEntry
+{
+    public DateTime Timestamp { get; set; }
+
+    /// <summary>"Pre-Shift" or "Post-Shift" (display label).</summary>
+    public string ChecklistType { get; set; } = string.Empty;
+
+    public int PassedCount { get; set; }
+    public int TotalCheckableCount { get; set; }
+    public bool AllPassed => TotalCheckableCount > 0 && PassedCount == TotalCheckableCount;
+}
+
+public class DamageHistoryEntry
+{
+    public DateTime DateLogged { get; set; }
+    public string IssueTitle { get; set; } = string.Empty;
+
+    /// <summary>Raw MaintenanceRecord.Status (Reported/InProgress/Resolved/Dismissed).</summary>
+    public string Status { get; set; } = string.Empty;
 }
 
 public class DriverProfileDetail

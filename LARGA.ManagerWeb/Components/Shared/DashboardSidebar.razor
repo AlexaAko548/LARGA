@@ -1,6 +1,7 @@
 @* Shared across ManagerWeb's authenticated pages so the nav stays consistent as new
-   pages land - Dashboard, Driver & Shifts, Fin. Ledger, and Garage are real routes so
-   far; the rest stay inert until they have their own mockups/build. *@
+   pages land - Dashboard, Driver & Shifts, Financial Ledger, and Garage are real routes
+   so far; the rest stay inert until they have their own mockups/build. "Financial Ledger"
+   is the standardized label everywhere in the app - no "Fin. Ledger" abbreviation. *@
 
 <aside class="dashboard-sidebar">
     <div class="sidebar-brand">
@@ -22,7 +23,7 @@
         </a>
         <a href="/financial-ledger" class="nav-item @(ActiveItem == "FinancialLedger" ? "active" : "")">
             <span class="nav-icon">◌</span>
-            <span>Fin. Ledger</span>
+            <span>Financial Ledger</span>
         </a>
         <a href="/garage" class="nav-item @(ActiveItem == "Garage" ? "active" : "")">
             <span class="nav-icon">◔</span>
