@@ -23,6 +23,8 @@ private ObservableCollection<LedgerItemModel> pendingClearances = new();
     [ObservableProperty]
     private bool isBusy;
 
+    public bool ShowPendingEmptyState => !IsBusy && PendingCount == 0;
+
     public RecordPaymentViewModel PaymentModalViewModel { get; }
 
     public ManagerLedgerViewModel(MobileFinancialLedgerService ledgerService, RecordPaymentViewModel paymentModalViewModel)
@@ -111,8 +113,30 @@ private ObservableCollection<LedgerItemModel> pendingClearances = new();
     [RelayCommand]
     private async Task OpenOtherPaymentAsync()
     {
-        List<LARGA.Shared.Models.Entities.UserProfile> drivers = await _ledgerService.GetDriversAsync();
-        PaymentModalViewModel.InitializeOtherPayment(drivers);
+        try
+        {
+            List<LARGA.Shared.Models.Entities.UserProfile> drivers = await _ledgerService.GetDriversForOtherPaymentAsync();
+            PaymentModalViewModel.InitializeOtherPayment(drivers);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"OpenOtherPayment failed: {ex}");
+            PaymentModalViewModel.InitializeOtherPayment(new List<LARGA.Shared.Models.Entities.UserProfile>());
+            if (Shell.Current != null)
+            {
+                await Shell.Current.DisplayAlert("Error", "Unable to load drivers for Other Payment.", "OK");
+            }
+        }
+    }
+
+    partial void OnPendingCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(ShowPendingEmptyState));
+    }
+
+    partial void OnIsBusyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowPendingEmptyState));
     }
 
     private static bool IsPendingDueNow(LedgerItemModel item, DateTime nowLocal)

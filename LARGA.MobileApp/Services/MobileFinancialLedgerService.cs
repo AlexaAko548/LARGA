@@ -12,6 +12,109 @@ public class MobileFinancialLedgerService
 
     public async Task<List<UserProfile>> GetDriversAsync()
     {
+        return await GetDriversInternalAsync();
+    }
+
+    public async Task<List<UserProfile>> GetDriversForOtherPaymentAsync()
+    {
+        try
+        {
+            List<UserProfile> baseDrivers = await GetDriversInternalAsync();
+
+            var shifts = await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .GetDocumentsAsync<Dictionary<string, object>>();
+            var payments = await CrossFirebaseFirestore.Current
+                .GetCollection("boundary_payments")
+                .GetDocumentsAsync<Dictionary<string, object>>();
+            var adjustments = await CrossFirebaseFirestore.Current
+                .GetCollection("debt_adjustments")
+                .GetDocumentsAsync<Dictionary<string, object>>();
+
+            Dictionary<string, string> shiftToDriver = shifts.Documents
+                .Where(document => document.Data != null)
+                .Select(document =>
+                {
+                    Dictionary<string, object> data = document.Data!;
+                    string shiftId = GetString(data, "shiftId", document.Reference.Id);
+                    string driverId = GetString(data, "driverId");
+                    return (shiftId, driverId);
+                })
+                .Where(row => !string.IsNullOrWhiteSpace(row.shiftId) && !string.IsNullOrWhiteSpace(row.driverId))
+                .GroupBy(row => row.shiftId)
+                .ToDictionary(group => group.Key, group => group.First().driverId);
+
+            Dictionary<string, decimal> debtByDriver = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var paymentDocument in payments.Documents)
+            {
+                if (paymentDocument.Data == null)
+                {
+                    continue;
+                }
+
+                string shiftId = GetShiftIdFromPaymentDoc(paymentDocument.Reference.Id, paymentDocument.Data);
+                if (!shiftToDriver.TryGetValue(shiftId, out string? driverId) || string.IsNullOrWhiteSpace(driverId))
+                {
+                    continue;
+                }
+
+                decimal expected = GetDecimal(paymentDocument.Data, "expectedBoundary") + GetDecimal(paymentDocument.Data, "lateFees");
+                decimal paid = GetDecimal(paymentDocument.Data, "amountPaid");
+                decimal shortfall = Math.Max(0m, expected - paid);
+                if (shortfall <= 0)
+                {
+                    continue;
+                }
+
+                debtByDriver[driverId] = debtByDriver.TryGetValue(driverId, out decimal running)
+                    ? running + shortfall
+                    : shortfall;
+            }
+
+            foreach (var adjustmentDocument in adjustments.Documents)
+            {
+                if (adjustmentDocument.Data == null)
+                {
+                    continue;
+                }
+
+                string driverId = GetString(adjustmentDocument.Data, "driverId");
+                if (string.IsNullOrWhiteSpace(driverId))
+                {
+                    continue;
+                }
+
+                decimal amount = GetDecimal(adjustmentDocument.Data, "amount");
+                debtByDriver[driverId] = debtByDriver.TryGetValue(driverId, out decimal running)
+                    ? running + amount
+                    : amount;
+            }
+
+            HashSet<string> debtDriverIds = debtByDriver
+                .Where(row => row.Value > 0)
+                .Select(row => row.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (debtDriverIds.Count == 0)
+            {
+                return baseDrivers;
+            }
+
+            return baseDrivers
+                .Where(driver => debtDriverIds.Contains(driver.UserId))
+                .OrderBy(driver => driver.FullName)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Other payment drivers load failed: {ex}");
+            return await GetDriversAsync();
+        }
+    }
+
+    private static async Task<List<UserProfile>> GetDriversInternalAsync()
+    {
         var users = await CrossFirebaseFirestore.Current
             .GetCollection("users")
             .GetDocumentsAsync<Dictionary<string, object>>();

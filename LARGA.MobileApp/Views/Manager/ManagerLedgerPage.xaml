@@ -74,6 +74,26 @@
                     </CollectionView.ItemTemplate>
                 </CollectionView>
 
+                <Border IsVisible="{Binding ShowPendingEmptyState}"
+                        StrokeShape="RoundRectangle 16"
+                        BackgroundColor="#EAF6FB"
+                        Stroke="#B8E3F2"
+                        StrokeThickness="1"
+                        Padding="16"
+                        Margin="0,-6,0,6">
+                    <VerticalStackLayout Spacing="2" HorizontalOptions="Center">
+                        <Label Text="No pending payments"
+                               FontFamily="BarlowCondensedSemiBold"
+                               FontSize="18"
+                               HorizontalTextAlignment="Center"
+                               TextColor="#274454" />
+                        <Label Text="You're all caught up for now."
+                               FontSize="12"
+                               HorizontalTextAlignment="Center"
+                               TextColor="#5A6B75" />
+                    </VerticalStackLayout>
+                </Border>
+
                 <!-- PAYMENT DONE TODAY SECTION -->
                 <Label Text="PAYMENT DONE TODAY" FontSize="13" FontAttributes="Bold" TextColor="#1D1D1D" Margin="0,8,0,0" />
 
@@ -131,7 +151,7 @@
                     </Grid>
 
                     <!-- Driver / Category pickers (Other Payment flow only) -->
-                    <Grid ColumnDefinitions="*, *" ColumnSpacing="10" IsVisible="{Binding IsOtherPayment}">
+                    <Grid ColumnDefinitions="*, *" ColumnSpacing="10" IsVisible="{Binding HasAvailableDrivers}">
                         <Border StrokeShape="RoundRectangle 20" BackgroundColor="#A6DCEE" Stroke="#40B4DB" StrokeThickness="1.5" Padding="14,0" HeightRequest="44">
                             <Picker ItemsSource="{Binding AvailableDrivers}"
                                     SelectedItem="{Binding SelectedDriver}"
@@ -152,6 +172,23 @@
                                     VerticalOptions="Center" />
                         </Border>
                     </Grid>
+
+                    <Border IsVisible="{Binding ShowOtherPaymentEmptyState}"
+                            StrokeShape="RoundRectangle 14"
+                            BackgroundColor="#EAF6FB"
+                            Stroke="#B8E3F2"
+                            StrokeThickness="1"
+                            Padding="14,10">
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="No drivers with pending debts"
+                                   FontFamily="BarlowCondensedSemiBold"
+                                   FontSize="17"
+                                   TextColor="#274454" />
+                            <Label Text="There are currently no eligible drivers for Other Payment."
+                                   FontSize="12"
+                                   TextColor="#5A6B75" />
+                        </VerticalStackLayout>
+                    </Border>
 
                     <!-- Expected Amount (regular payment flow only) -->
                     <VerticalStackLayout Spacing="4" IsVisible="{Binding ShowExpectedAmount}">

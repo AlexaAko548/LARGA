@@ -66,6 +66,8 @@ public partial class RecordPaymentViewModel : ObservableObject, IQueryAttributab
     public string ModalTitle => IsOtherPayment ? "Record Other Payment" : "Record Payment";
     public bool ShowExpectedAmount => !IsOtherPayment;
     public bool HasValidationMessage => !string.IsNullOrWhiteSpace(ValidationMessage);
+    public bool HasAvailableDrivers => AvailableDrivers.Count > 0;
+    public bool ShowOtherPaymentEmptyState => IsOtherPayment && !HasAvailableDrivers;
 
     public bool IsEWallet => SelectedMethod == PaymentMethodOption.EWalletGCash;
 
@@ -132,6 +134,8 @@ public partial class RecordPaymentViewModel : ObservableObject, IQueryAttributab
         OnPropertyChanged(nameof(ModalTitle));
         OnPropertyChanged(nameof(ShowExpectedAmount));
         OnPropertyChanged(nameof(HasValidationMessage));
+        OnPropertyChanged(nameof(HasAvailableDrivers));
+        OnPropertyChanged(nameof(ShowOtherPaymentEmptyState));
     }
 
     public void Initialize(LedgerItemModel item) => InitializeStandard(item);
@@ -276,6 +280,13 @@ public partial class RecordPaymentViewModel : ObservableObject, IQueryAttributab
         OnPropertyChanged(nameof(CurrentExpectedAmount));
         OnPropertyChanged(nameof(ModalTitle));
         OnPropertyChanged(nameof(ShowExpectedAmount));
+        OnPropertyChanged(nameof(ShowOtherPaymentEmptyState));
+    }
+
+    partial void OnAvailableDriversChanged(ObservableCollection<UserProfile> value)
+    {
+        OnPropertyChanged(nameof(HasAvailableDrivers));
+        OnPropertyChanged(nameof(ShowOtherPaymentEmptyState));
     }
 
     partial void OnValidationMessageChanged(string value)
