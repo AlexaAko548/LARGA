@@ -49,7 +49,20 @@
                             <Label Text="{Binding MaintenanceStatus}" TextColor="{StaticResource LargaWhite}" FontSize="14" />
                         </Border>
                     </Grid>
+
+                    <Label Text="{Binding MaintenanceDayLabel}" TextColor="{StaticResource LargaDarkText}" FontSize="12" HorizontalTextAlignment="End" IsVisible="{Binding HasMaintenanceDayLabel}" />
                 </VerticalStackLayout>
+            </Border>
+
+            <!-- License Expiry Alert -->
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20" IsVisible="{Binding HasLicenseAlert}">
+                <Grid ColumnDefinitions="Auto, *">
+                    <Image Grid.Column="0" Source="warning_icon.png" WidthRequest="20" HeightRequest="20" VerticalOptions="Start" Margin="0,0,10,0" />
+                    <VerticalStackLayout Grid.Column="1" Spacing="5">
+                        <Label Text="License Alert" FontAttributes="Bold" TextColor="{Binding LicenseAlertColor}" FontSize="16" />
+                        <Label Text="{Binding LicenseAlertMessage}" TextColor="{StaticResource LargaDarkText}" FontSize="14" />
+                    </VerticalStackLayout>
+                </Grid>
             </Border>
 
             <!-- Manager Note -->

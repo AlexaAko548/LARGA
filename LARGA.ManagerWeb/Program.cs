@@ -5,6 +5,7 @@ using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Firestore;
 using Google.Cloud.Firestore.V1;
 using LARGA.ManagerWeb.Components;
+using LARGA.ManagerWeb.Services;
 using LARGA.SharedCore.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -95,6 +96,9 @@ builder.Services.AddSingleton(sp => new Lazy<FirebaseAuth>(() =>
 builder.Services.AddSingleton<DriverManagementService>();
 builder.Services.AddSingleton<FinancialLedgerService>();
 builder.Services.AddSingleton<GarageService>();
+builder.Services.AddSingleton<AlertService>();
+builder.Services.AddSingleton<InventoryAuditService>();
+builder.Services.AddHostedService<IdleAlertMonitorService>();
 builder.Services.AddSingleton<FuelVerificationService>();
 
 var app = builder.Build();

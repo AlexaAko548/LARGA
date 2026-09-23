@@ -68,10 +68,12 @@ internal static class Program
         Console.WriteLine("TAXI_002=On Break, TAXI_004=SOS (unresolved alert). TAXI_003=Maintenance and");
         Console.WriteLine("TAXI_005=Idle (no currently active shift) round out all 5 states.");
         Console.WriteLine();
-        Console.WriteLine("A 4th shift (TAXI_005/Carlos) is seeded as already ended earlier today with a");
-        Console.WriteLine("partial payment, so the Financial Ledger's Daily Settlements tab has a mix of");
-        Console.WriteLine("Waiting/Partial rows on first run. debt_adjustments has no seed data - it only");
-        Console.WriteLine("gets documents once a manager uses the page's \"+ Adjustment\" modal.");
+        Console.WriteLine("A 4th and 5th shift (TAXI_005/Carlos, TAXI_003/Pedro) are seeded as already");
+        Console.WriteLine("ended earlier today with a partial and a fully-paid payment respectively, so");
+        Console.WriteLine("the Financial Ledger's Daily Settlements tab shows all 3 statuses on every");
+        Console.WriteLine("run: Waiting (the 3 active shifts above), Partial, and Cleared. debt_adjustments");
+        Console.WriteLine("has no seed data - it only gets documents once a manager uses the page's");
+        Console.WriteLine("\"+ Adjustment\" modal.");
         Console.WriteLine();
         Console.WriteLine("maintenance_logs now also carries 3 pending driver reports (Status='Reported',");
         Console.WriteLine("no ticket yet) and the TAXI_003 engine record is now an active work order");
@@ -320,6 +322,7 @@ internal static class Program
     public const string ShiftAnaSep2Late = "SHIFT_2026090201";
     public const string ShiftAnaActiveSos = "SHIFT_2026090503"; // demonstrates the "SOS" fleet status
     public const string ShiftCarlosCompletedToday = "SHIFT_2026091001"; // ended earlier today - demonstrates a "Partial" row on the Financial Ledger's Daily Settlements tab
+    public const string ShiftPedroClearedToday = "SHIFT_2026091502"; // ended earlier today - demonstrates a "Cleared" row on the Financial Ledger's Daily Settlements tab
 
     private static async Task SeedShiftsAsync(FirestoreDb db)
     {
@@ -451,10 +454,9 @@ internal static class Program
 
         // Ended earlier today (TAXI_005, otherwise idle) - alongside the 3 still-active
         // shifts above, this gives the Financial Ledger's Daily Settlements tab a realistic
-        // mix on first run: 3 "Waiting" rows (no payment yet) and 1 "Partial" row (paid
-        // below in SeedBoundaryPaymentsAsync). Nothing seeds a "Cleared" row on purpose -
-        // recording a payment through the UI yourself is the more convincing demo of the
-        // write path actually working.
+        // mix on every run: 3 "Waiting" rows (no payment yet), 1 "Partial" row, and 1
+        // "Cleared" row (both paid below in SeedBoundaryPaymentsAsync) - every status the
+        // tab can show, without needing to record a payment through the UI first.
         await SetAsync(db, "shifts", ShiftCarlosCompletedToday, new ShiftLog
         {
             ShiftId = ShiftCarlosCompletedToday,
@@ -464,6 +466,23 @@ internal static class Program
             ShiftEnd = DateTime.UtcNow.Date.AddHours(9),
             StartMileage = 500,
             EndMileage = 560,
+            Status = "Completed",
+            ManagerNote = string.Empty,
+        });
+
+        // Also ended earlier today (TAXI_003/Pedro - otherwise "Under Maintenance" for the
+        // fleet-status pill demo; a completed shift here doesn't change that, since live
+        // fleet status keys off TaxiUnit.Status directly, not shift history). Fully paid -
+        // the "Cleared" example for Daily Settlements.
+        await SetAsync(db, "shifts", ShiftPedroClearedToday, new ShiftLog
+        {
+            ShiftId = ShiftPedroClearedToday,
+            DriverId = DriverPedro,
+            TaxiId = Taxi3,
+            ShiftStart = DateTime.UtcNow.Date.AddHours(6),
+            ShiftEnd = DateTime.UtcNow.Date.AddHours(10),
+            StartMileage = 120710,
+            EndMileage = 120890,
             Status = "Completed",
             ManagerNote = string.Empty,
         });
@@ -569,8 +588,8 @@ internal static class Program
             Timestamp = new DateTime(2026, 9, 2, 19, 15, 0, DateTimeKind.Utc),
         });
 
-        // Partial payment against today's Carlos/TAXI_005 shift above - see that shift's
-        // comment for why this is the only "today" row seeded with a payment at all.
+        // Partial payment against today's Carlos/TAXI_005 shift above - the "Partial" example
+        // for Daily Settlements.
         await SetAsync(db, "boundary_payments", $"{ShiftCarlosCompletedToday}_PAY", new BoundaryPayment
         {
             ShiftId = ShiftCarlosCompletedToday,
@@ -582,6 +601,21 @@ internal static class Program
             ReferenceNumber = 0,
             EPayReceiptPhoto = "",
             Timestamp = DateTime.UtcNow.Date.AddHours(9).AddMinutes(15),
+        });
+
+        // Fully paid against today's Pedro/TAXI_003 shift above - the "Cleared" example for
+        // Daily Settlements.
+        await SetAsync(db, "boundary_payments", $"{ShiftPedroClearedToday}_PAY", new BoundaryPayment
+        {
+            ShiftId = ShiftPedroClearedToday,
+            ExpectedBoundary = 800,
+            LateFees = 0,
+            AmountPaid = 800,
+            PaymentMethod = PaymentMethod.EWallet,
+            PaymentStatus = PaymentStatus.Paid,
+            ReferenceNumber = 992104,
+            EPayReceiptPhoto = "https://storage.googleapis.com/larga-blmtaxi.appspot.com/epay_receipts/SHIFT_PEDRO_CLEARED_TODAY.jpg",
+            Timestamp = DateTime.UtcNow.Date.AddHours(10).AddMinutes(5),
         });
     }
 
@@ -1214,30 +1248,34 @@ internal static class Program
         Console.WriteLine("Seeding shift_schedules...");
 
         // Doc IDs match ManagerWeb's Schedule Planner exactly ({driverId}_{yyyyMMdd}) so a
-        // manager clicking a cell to assign/clear a unit overwrites/deletes these same
+        // manager clicking a cell to mark/clear an exception overwrites/deletes these same
         // documents instead of creating duplicates alongside them.
+        //
+        // Every day defaults to "working the driver's permanently assigned unit"
+        // (UserProfile.AssignedTaxiId, set in SeedUsersAsync) with NO document needed here -
+        // a document only exists to record an *exception*. This seeds a couple of day-off
+        // exceptions per driver, spread through the week, so the planner isn't a wall of
+        // identical working cells.
         DateTime today = DateTime.UtcNow.Date;
         int daysSinceMonday = (7 + (int)today.DayOfWeek - (int)DayOfWeek.Monday) % 7;
         DateTime weekStart = today.AddDays(-daysSinceMonday);
 
-        // Mon..Sun per driver - null means a rest day (no document at all). Each driver
-        // mostly keeps their own AssignedTaxiId from SeedUsersAsync, with a couple of rest
-        // days spread through the week so the planner isn't a wall of identical cells.
-        (string DriverId, string?[] Days)[] plan =
+        // Mon..Sun per driver - true marks that day as a "DayOff" exception; false leaves it
+        // at the default (working, no document written).
+        (string DriverId, bool[] DaysOff)[] plan =
         {
-            (DriverJuan,   new[] { Taxi1, null,  Taxi1, Taxi1, Taxi1, Taxi1, null  }),
-            (DriverMaria,  new[] { Taxi2, Taxi2, null,  Taxi2, Taxi2, null,  Taxi2 }),
-            (DriverPedro,  new[] { Taxi3, Taxi3, Taxi3, null,  Taxi3, Taxi3, null  }),
-            (DriverAna,    new[] { Taxi4, null,  Taxi4, Taxi4, null,  Taxi4, Taxi4 }),
-            (DriverCarlos, new[] { null,  Taxi5, Taxi5, Taxi5, Taxi5, null,  Taxi5 }),
+            (DriverJuan,   new[] { false, true,  false, false, false, false, true  }),
+            (DriverMaria,  new[] { false, false, true,  false, false, true,  false }),
+            (DriverPedro,  new[] { false, false, false, true,  false, false, true  }),
+            (DriverAna,    new[] { false, true,  false, false, true,  false, false }),
+            (DriverCarlos, new[] { true,  false, false, false, false, true,  false }),
         };
 
-        foreach ((string driverId, string?[] days) in plan)
+        foreach ((string driverId, bool[] daysOff) in plan)
         {
             for (int i = 0; i < 7; i++)
             {
-                string? taxiId = days[i];
-                if (taxiId is null)
+                if (!daysOff[i])
                 {
                     continue;
                 }
@@ -1246,9 +1284,9 @@ internal static class Program
                 await SetAsync(db, "shift_schedules", $"{driverId}_{date:yyyyMMdd}", new ShiftSchedule
                 {
                     DriverId = driverId,
-                    TaxiId = taxiId,
+                    TaxiId = string.Empty,
                     ScheduledStartTime = date.AddHours(6),
-                    Status = "Planned",
+                    Status = "DayOff",
                 });
             }
         }
@@ -1268,7 +1306,7 @@ internal static class Program
         {
             StandardLatePenalty = 100,
             DefaultBoundaryRate = 800,
-            IdleThresholdMinutes = 10,
+            IdleThresholdMinutes = 15,
         });
     }
 }
