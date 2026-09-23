@@ -40,7 +40,15 @@ public class FinancialLedgerService
 
     public async Task<DailySettlementSnapshot> GetDailySettlementAsync(DateTime dateUtc)
     {
-        DateTime dayStart = dateUtc.Date;
+        // "Today" means the Philippine calendar day, not the UTC one - PH is 8 hours ahead,
+        // so a shift starting at, say, 6 AM Philippine time is stored with a UTC shiftStart of
+        // 22:00 the *previous* UTC calendar date. Truncating dateUtc.Date directly (the old
+        // behavior) would silently drop that shift from "today" for a chunk of the business
+        // day. Converting to PH time first, then truncating, gets the boundary right; the
+        // query itself still runs in UTC (Firestore timestamps are UTC), only the boundary
+        // instants are computed differently.
+        DateTime phDate = dateUtc.ToPhilippineTime().Date;
+        DateTime dayStart = phDate - PhilippineTime.Offset;
         DateTime dayEnd = dayStart.AddDays(1).AddTicks(-1);
 
         List<ShiftLog> todaysShifts = await GetBetweenAsync<ShiftLog>("shifts", "shiftStart", dayStart, dayEnd);
@@ -83,7 +91,7 @@ public class FinancialLedgerService
 
         return new DailySettlementSnapshot
         {
-            Date = dayStart,
+            Date = phDate, // the PH calendar date this covers - dayStart/dayEnd are UTC query bounds, not for display
             ExpectedCollection = rows.Sum(r => r.ExpectedTotal),
             CollectedSoFar = rows.Sum(r => r.AmountPaid),
             ClearedCount = rows.Count(r => r.Status == SettlementStatus.Cleared),

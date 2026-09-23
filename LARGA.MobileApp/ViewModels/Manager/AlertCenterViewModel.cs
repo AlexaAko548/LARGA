@@ -390,11 +390,28 @@ public class AlertCenterViewModel : BindableObject
     }
 }
 
+    private static async Task MarkAlertReadAsync(string alertId)
+    {
+        try
+        {
+            await CrossFirebaseFirestore.Current
+                .GetCollection("system_alerts")
+                .GetDocument(alertId)
+                .UpdateDataAsync(new Dictionary<object, object> { { "isRead", true } });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Mark Alert Read Error: {ex.Message}");
+        }
+    }
+}
+
 public enum AlertType
 {
     Sos,
     FuelDiscrepancy,
-    ShiftApproval
+    ShiftApproval,
+    DriverIdle
 }
 
 public class AlertItem

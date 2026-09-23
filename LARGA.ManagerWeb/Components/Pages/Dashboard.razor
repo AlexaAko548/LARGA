@@ -1,5 +1,6 @@
 @page "/dashboard"
 @using System.Text.Json
+@using LARGA.SharedCore
 @using LARGA.SharedCore.Models.Dashboard
 @using LARGA.SharedCore.Services
 @rendermode InteractiveServer
@@ -26,11 +27,11 @@ else if (_isAuthorized)
         <header class="dashboard-header">
             <div class="header-title-wrap">
                 <h1>EXECUTIVE DASHBOARD</h1>
-                <div class="header-date">@DateTime.Now.ToString("dddd, MMM d, yyyy")</div>
+                <div class="header-date">@PhilippineTime.Now.ToString("dddd, MMM d, yyyy")</div>
             </div>
 
             <div class="header-actions">
-                <button class="icon-btn" type="button" aria-label="Notifications">◌</button>
+                <NotificationBell />
                 <button class="icon-btn" type="button" aria-label="Messages">✉</button>
                 <div class="manager-pill">
                     <span class="manager-dot"></span>
@@ -78,7 +79,7 @@ else if (_isAuthorized)
                 <div class="stat-body">
                     <div class="stat-trend">@(_snapshot is null ? "No data" : $"{_snapshot.ActiveDrivers.RatioPercent:0}%")</div>
                     <div class="stat-value">@(_snapshot?.ActiveDrivers.ActiveCount ?? 0) / @(_snapshot?.ActiveDrivers.TotalDrivers ?? 0)</div>
-                    <div class="stat-label">Active Drivers</div>
+                    <div class="stat-label">Drivers On-shift</div>
                 </div>
             </article>
 

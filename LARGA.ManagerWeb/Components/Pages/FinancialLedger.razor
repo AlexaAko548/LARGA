@@ -1,5 +1,6 @@
 @page "/financial-ledger"
 @using System.Text.Json
+@using LARGA.SharedCore
 @using LARGA.SharedCore.Models.DriverShifts
 @using LARGA.SharedCore.Models.FinancialLedger
 @using LARGA.SharedCore.Services
@@ -33,7 +34,7 @@ else if (_isAuthorized)
             </div>
 
             <div class="header-actions">
-                <button class="icon-btn" type="button" aria-label="Notifications">◌</button>
+                <NotificationBell />
                 <button class="icon-btn" type="button" aria-label="Messages">✉</button>
                 <div class="manager-pill">
                     <span class="manager-dot"></span>
@@ -137,7 +138,7 @@ else if (_isAuthorized)
                                     <td><span class="status-pill @StatusCss(row.Status)"><span class="dot"></span> @row.Status.ToString().ToUpperInvariant()</span></td>
                                     <td class="driver-cell"><div class="table-avatar">@Initials(row.DriverName)</div><span>@row.DriverName</span></td>
                                     <td>@row.TaxiId</td>
-                                    <td>@(row.ShiftEnd.HasValue ? row.ShiftEnd.Value.ToString("h:mm tt") : "On road")</td>
+                                    <td>@(row.ShiftEnd.HasValue ? row.ShiftEnd.Value.ToPhilippineTime().ToString("h:mm tt") : "On road")</td>
                                     <td>₱ @row.ExpectedTotal.ToString("N0")</td>
                                     <td>
                                         @if (row.AmountPaid > 0)
@@ -173,6 +174,18 @@ else if (_isAuthorized)
                             }
                         }
                     </tbody>
+                    @if (_snapshot.Rows.Count > 0)
+                    {
+                        <tfoot>
+                            <tr class="totals-row">
+                                <td colspan="4">TOTAL</td>
+                                <td>₱ @_snapshot.ExpectedCollection.ToString("N0")</td>
+                                <td>₱ @_snapshot.CollectedSoFar.ToString("N0")</td>
+                                <td>₱ @_snapshot.StillOutstanding.ToString("N0")</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    }
                 </table>
             </div>
         }
@@ -235,7 +248,7 @@ else if (_isAuthorized)
                                         <td class="driver-cell"><div class="table-avatar">@Initials(row.DriverName)</div><span>@row.DriverName</span></td>
                                         <td>@(row.TaxiId ?? "–")</td>
                                         <td>@(row.UnpaidCount > 0 ? row.UnpaidCount.ToString() : "–")</td>
-                                        <td>@(row.LastPaymentDate.HasValue ? row.LastPaymentDate.Value.ToString("MMM d") : "–")</td>
+                                        <td>@(row.LastPaymentDate.HasValue ? row.LastPaymentDate.Value.ToPhilippineTime().ToString("MMM d") : "–")</td>
                                         <td>@(row.LastPaymentAmount.HasValue ? $"₱ {row.LastPaymentAmount.Value:N0}" : "–")</td>
                                         <td>₱ @row.TotalDebt.ToString("N0")</td>
                                         <td class="ledger-actions">
@@ -249,6 +262,16 @@ else if (_isAuthorized)
                                 }
                             }
                         </tbody>
+                        @if (_ledgerSnapshot.Rows.Count > 0)
+                        {
+                            <tfoot>
+                                <tr class="totals-row">
+                                    <td colspan="5">TOTAL</td>
+                                    <td>₱ @_ledgerSnapshot.TotalOutstandingDebt.ToString("N0")</td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        }
                     </table>
                 </div>
             }
@@ -448,7 +471,7 @@ else if (_isAuthorized)
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th>Date &amp; Time</th>
+                                    <th>Date</th>
                                     <th>Transaction Type</th>
                                     <th>Expected</th>
                                     <th>Amount Paid</th>
@@ -465,7 +488,7 @@ else if (_isAuthorized)
                                     @foreach (LedgerTransaction tx in FilteredHistoryTransactions)
                                     {
                                         <tr>
-                                            <td>@tx.Timestamp.ToString("MMM d, yyyy h:mm tt")</td>
+                                            <td>@tx.Timestamp.ToPhilippineTime().ToString("MMM d, yyyy")</td>
                                             <td>@tx.TransactionType</td>
                                             <td>@(tx.Expected.HasValue ? $"₱ {tx.Expected.Value:N0}" : "–")</td>
                                             <td>
@@ -826,10 +849,10 @@ else if (_isAuthorized)
             return;
         }
 
-        var headers = new[] { "Date & Time", "Transaction Type", "Expected", "Amount Paid", "Running Debt" };
+        var headers = new[] { "Date", "Transaction Type", "Expected", "Amount Paid", "Running Debt" };
         var rows = FilteredHistoryTransactions.Select(t => new object?[]
         {
-            t.Timestamp.ToString("yyyy-MM-dd HH:mm"),
+            t.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd"),
             t.TransactionType,
             t.Expected,
             t.AmountPaid ?? t.AdjustmentAmount,
@@ -859,7 +882,7 @@ else if (_isAuthorized)
                 var rows = snapshot.Rows.Select(r => new object?[]
                 {
                     r.DriverName, r.TaxiId, r.UnpaidCount,
-                    r.LastPaymentDate?.ToString("yyyy-MM-dd"), r.LastPaymentAmount, r.TotalDebt,
+                    r.LastPaymentDate.ToPhilippineTime()?.ToString("yyyy-MM-dd"), r.LastPaymentAmount, r.TotalDebt,
                 });
                 csv = BuildCsv(headers, rows);
                 fileName = $"Master_Debt_Ledger_{DateTime.UtcNow:yyyyMMdd}.csv";
