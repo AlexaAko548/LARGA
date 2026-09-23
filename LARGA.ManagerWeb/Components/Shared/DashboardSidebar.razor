@@ -42,10 +42,10 @@
             <span class="nav-icon"><svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8"/></svg></span>
             <span class="nav-label">Inventory</span>
         </a>
-        <button class="nav-item" type="button" disabled title="Fuel Verification">
+        <a href="/fuel-verification" class="nav-item @(ActiveItem == "FuelVerification" ? "active" : "")">
             <span class="nav-icon"><svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16"/><path d="M3 21h12"/><path d="M14 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V9l-3-3"/><path d="M7 9h4"/></svg></span>
             <span class="nav-label">Fuel Verification</span>
-        </button>
+        </a>
         <a href="/audit-logs" class="nav-item @(ActiveItem == "AuditLogs" ? "active" : "")" title="Audit Logs">
             <span class="nav-icon"><svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/></svg></span>
             <span class="nav-label">Audit Logs</span>

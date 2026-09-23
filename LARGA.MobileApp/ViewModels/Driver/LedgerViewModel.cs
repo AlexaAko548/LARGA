@@ -1,6 +1,7 @@
-﻿using Microsoft.Maui.Controls;
+using Microsoft.Maui.Controls;
 using Plugin.Firebase.Firestore;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
@@ -45,56 +46,137 @@ public class LedgerViewModel : INotifyPropertyChanged
     }
 
     private async Task LoadDynamicLedgerDataAsync()
-{
-    var user = CrossFirebaseAuth.Current.CurrentUser;
-    if (user != null)
     {
+        var user = CrossFirebaseAuth.Current.CurrentUser;
+        if (user == null) return;
+
         try
         {
-                // 1. Live Background Fetch (Two-Step Workaround for Payments)
-                var shiftsSnapshot = await CrossFirebaseFirestore.Current.GetCollection("shifts").WhereEqualsTo("driverId", user.Uid).GetDocumentsAsync<Dictionary<string, object>>();
+            PaymentHistory.Clear();
+            decimal totalDebt = 0m;
+            var tempPayments = new List<PaymentRecord>();
 
-                foreach (var shift in shiftsSnapshot.Documents)
+            // 1. Fetch Debts & Calculate Outstanding Balance
+            var debtsSnapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("debt_adjustments")
+                .WhereEqualsTo("DriverId", user.Uid) // Adjusted for groupmate's PascalCase
+                .GetDocumentsAsync<Dictionary<string, object>>();
+
+            // Fallback to camelCase if PascalCase returns empty
+            if (!debtsSnapshot.Documents.Any())
             {
-                if (shift.Data != null && shift.Data.ContainsKey("shiftId"))
+                debtsSnapshot = await CrossFirebaseFirestore.Current
+                    .GetCollection("debt_adjustments")
+                    .WhereEqualsTo("driverId", user.Uid)
+                    .GetDocumentsAsync<Dictionary<string, object>>();
+            }
+
+            foreach (var doc in debtsSnapshot.Documents)
+            {
+                object amountObj = doc.Data.ContainsKey("Amount") ? doc.Data["Amount"] :
+                                   doc.Data.ContainsKey("amount") ? doc.Data["amount"] : null;
+
+                if (amountObj != null)
                 {
-                    string shiftId = shift.Data["shiftId"]?.ToString();
-                    if (!string.IsNullOrEmpty(shiftId))
+                    totalDebt += Convert.ToDecimal(amountObj);
+                }
+            }
+            OutstandingDebtBalance = $"₱ {Math.Max(0, totalDebt):N2}";
+
+            // 2. Fetch Shifts to get ShiftIds
+            var shiftsSnapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .WhereEqualsTo("driverId", user.Uid)
+                .GetDocumentsAsync<Dictionary<string, object>>();
+
+            foreach (var shift in shiftsSnapshot.Documents)
+            {
+                object shiftIdObj = shift.Data.ContainsKey("ShiftId") ? shift.Data["ShiftId"] :
+                                    shift.Data.ContainsKey("shiftId") ? shift.Data["shiftId"] : null;
+
+                string shiftId = shiftIdObj?.ToString();
+
+                if (!string.IsNullOrEmpty(shiftId))
+                {
+                    // 3. Fetch Payments linked to ShiftId
+                    var paymentsSnapshot = await CrossFirebaseFirestore.Current
+                        .GetCollection("boundary_payments")
+                        .WhereEqualsTo("ShiftId", shiftId)
+                        .GetDocumentsAsync<Dictionary<string, object>>();
+
+                    if (!paymentsSnapshot.Documents.Any())
                     {
-                            await CrossFirebaseFirestore.Current.GetCollection("boundary_payments").WhereEqualsTo("shiftId", shiftId).GetDocumentsAsync<Dictionary<string, object>>();
+                        paymentsSnapshot = await CrossFirebaseFirestore.Current
+                            .GetCollection("boundary_payments")
+                            .WhereEqualsTo("shiftId", shiftId)
+                            .GetDocumentsAsync<Dictionary<string, object>>();
+                    }
+
+                    foreach (var paymentDoc in paymentsSnapshot.Documents)
+                    {
+                        if (paymentDoc.Data != null)
+                        {
+                            // Status Evaluation (0=Waiting, 1=Partial, 2=Paid)
+                            string statusText = "UNPAID";
+                            object statusObj = paymentDoc.Data.ContainsKey("PaymentStatus") ? paymentDoc.Data["PaymentStatus"] :
+                                               paymentDoc.Data.ContainsKey("paymentStatus") ? paymentDoc.Data["paymentStatus"] : null;
+
+                            string statusStr = statusObj?.ToString() ?? "";
+                            if (statusStr == "1" || statusStr.Contains("Partial")) statusText = "(Partial)";
+                            else if (statusStr == "2" || statusStr.Contains("Paid")) statusText = "(Full)";
+
+                            // Timestamp Evaluation
+                            string dateStr = "N/A";
+                            object timeObj = paymentDoc.Data.ContainsKey("Timestamp") ? paymentDoc.Data["Timestamp"] :
+                                             paymentDoc.Data.ContainsKey("timestamp") ? paymentDoc.Data["timestamp"] : null;
+
+                            if (timeObj is DateTime dt)
+                            {
+                                dateStr = dt.ToLocalTime().ToString("M/dd");
+                            }
+
+                            // Amount Evaluation
+                            object amountObj = paymentDoc.Data.ContainsKey("AmountPaid") ? paymentDoc.Data["AmountPaid"] :
+                                               paymentDoc.Data.ContainsKey("amountPaid") ? paymentDoc.Data["amountPaid"] : null;
+
+                            decimal amount = amountObj != null ? Convert.ToDecimal(amountObj) : 0.00m;
+
+                            tempPayments.Add(new PaymentRecord
+                            {
+                                DateStr = dateStr,
+                                Amount = $"{amount:N2}",
+                                Status = statusText,
+                                RawDate = timeObj is DateTime rawDt ? rawDt : DateTime.MinValue
+                            });
                         }
+                    }
                 }
             }
 
-                // Debts already have a DriverId, so they only need a standard single query
-                await CrossFirebaseFirestore.Current.GetCollection("debt_adjustments").WhereEqualsTo("driverId", user.Uid).GetDocumentsAsync<Dictionary<string, object>>();
+            // 4. Update the UI and Sort
+            var sortedPayments = tempPayments.OrderByDescending(p => p.RawDate).ToList();
+
+            foreach (var payment in sortedPayments)
+            {
+                PaymentHistory.Add(payment);
             }
+
+            if (PaymentHistory.Any())
+            {
+                CurrentShiftPayment = PaymentHistory.First().Status.Replace("(", "").Replace(")", "").ToUpper();
+            }
+            else
+            {
+                CurrentShiftPayment = "UNPAID";
+            }
+        }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Ledger Firebase Error: {ex.Message}");
+            OutstandingDebtBalance = "₱ 0.00";
+            CurrentShiftPayment = "ERROR";
         }
     }
-
-    // 2. DEMO OVERRIDE: Inject presentation data
-    PaymentHistory.Clear();
-    PaymentHistory.Add(new PaymentRecord { DateStr = "7/22", Amount = "400.00", Status = "(Partial)" });
-    PaymentHistory.Add(new PaymentRecord { DateStr = "7/21", Amount = "800.00", Status = "(Full)" });
-    PaymentHistory.Add(new PaymentRecord { DateStr = "7/20", Amount = "600.00", Status = "(Partial)" });
-    PaymentHistory.Add(new PaymentRecord { DateStr = "7/19", Amount = "800.00", Status = "(Full)" });
-    PaymentHistory.Add(new PaymentRecord { DateStr = "7/18", Amount = "700.00", Status = "(Partial)" });
-    PaymentHistory.Add(new PaymentRecord { DateStr = "7/17", Amount = "800.00", Status = "(Full)" });
-    PaymentHistory.Add(new PaymentRecord { DateStr = "7/16", Amount = "800.00", Status = "(Full)" });
-
-    var currentDebts = new[]
-    {
-        new { DateStr = "7/22", Amount = 400.00m },
-        new { DateStr = "7/20", Amount = 200.00m },
-        new { DateStr = "7/18", Amount = 100.00m }
-    };
-
-    decimal totalDebt = currentDebts.Sum(d => d.Amount);
-    OutstandingDebtBalance = $"₱ {totalDebt:N2}";
-}
 
     protected void OnPropertyChanged([CallerMemberName] string propertyName = "")
     {
@@ -102,10 +184,12 @@ public class LedgerViewModel : INotifyPropertyChanged
     }
 }
 
+// Proxy Class
 public class PaymentRecord
 {
     public string DateStr { get; set; }
     public string Amount { get; set; }
     public string Status { get; set; }
+    public DateTime RawDate { get; set; }
     public string DisplayText => $"{DateStr} - ₱ {Amount} {Status}".Trim();
 }

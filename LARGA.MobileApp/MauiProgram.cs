@@ -12,7 +12,12 @@ using LARGA.MobileApp.ViewModels.Driver;
 using LARGA.MobileApp.ViewModels.Auth;
 using Plugin.Firebase.CloudMessaging;
 using LARGA.MobileApp.Services;
+using LARGA.MobileApp.Views.Shared;
 using Camera.MAUI; // Added Camera.MAUI namespace
+using SkiaSharp.Views.Maui.Controls.Hosting;
+using Mapsui.Utilities;
+using Mapsui.Widgets;
+using Mapsui.Widgets.InfoWidgets;
 
 namespace LARGA.MobileApp;
 
@@ -20,11 +25,20 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+        // Mapsui's built-in FPS/log overlay (LAR-48 Live Fleet map) defaults to
+        // OnlyInDebugMode - only ON when a debugger is attached. That's exactly how QA runs
+        // the app from Visual Studio, so they always see it, while a plain adb-installed APK
+        // (how this was tested here) never does. Force both off unconditionally so nobody
+        // sees Mapsui's internal debug info on the map, regardless of how they launched it.
+        LoggingWidget.ShowLoggingInMap = ActiveMode.No;
+        Performance.DefaultIsActive = ActiveMode.No;
+
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()
             .UseMauiCommunityToolkit()
             .UseMauiCameraView() // Registered the Camera View
+            .UseSkiaSharp() // Required by Mapsui (LAR-48 Live Fleet map, renders MapTiler tiles)
             .RegisterFirebaseServices()
             .ConfigureFonts(fonts =>
             {
@@ -45,6 +59,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IShiftManagementService, ShiftManagementService>();
         builder.Services.AddSingleton<INotificationService, NotificationService>();
         builder.Services.AddSingleton<IMaintenanceService, MaintenanceService>();
+        builder.Services.AddSingleton<IFuelService, FuelService>();
 
 #if ANDROID
         builder.Services.AddSingleton<IOcrService, LARGA.MobileApp.Platforms.Android.Services.AndroidOcrService>();
@@ -64,6 +79,9 @@ public static class MauiProgram
         builder.Services.AddTransient<LedgerViewModel>();
         builder.Services.AddTransient<PaymentHistoryViewModel>();
         builder.Services.AddTransient<DebtDetailViewModel>();
+        builder.Services.AddTransient<ReportsViewModel>();
+        builder.Services.AddTransient<FuelReportViewModel>();
+        builder.Services.AddTransient<FuelReportDetailViewModel>();
 
         // Register Views 
         builder.Services.AddTransient<LandingPage>();
@@ -91,6 +109,18 @@ public static class MauiProgram
         builder.Services.AddTransient<DebtDetailPage>();
         builder.Services.AddTransient<DefectReportDetailViewModel>();
         builder.Services.AddTransient<DefectReportDetailPage>();
+        builder.Services.AddTransient<ManagerProfilePage>();
+        builder.Services.AddTransient<DriverManagementPage>();
+        builder.Services.AddTransient<ManagerDriverProfilePage>();
+        builder.Services.AddTransient<ManagerChatsPage>();
+        builder.Services.AddTransient<ManagerLedgerPage>();
+        builder.Services.AddTransient<FleetRegistryPage>();
+        builder.Services.AddTransient<ChangePasswordPage>();
+        builder.Services.AddTransient<UpdateContactNumberPage>();
+        builder.Services.AddTransient<ComingSoonPage>();
+        builder.Services.AddTransient<FuelReportPage>();
+        builder.Services.AddTransient<Views.Driver.ScanFuelReceiptPage>();
+        builder.Services.AddTransient<FuelReportDetailPage>();
 
 
 #if DEBUG

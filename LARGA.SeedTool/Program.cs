@@ -1032,8 +1032,8 @@ internal static class Program
         await SetAsync(db, "emergency_alerts", "ALERT_ANA_SEP2", new EmergencyAlert
         {
             ShiftId = ShiftAnaSep2Late,
-            Latitude = 14.5547,
-            Longitude = 121.0244,
+            Latitude = 10.2470,
+            Longitude = 123.8510,
             IsResolved = true,
             Timestamp = new DateTime(2026, 9, 2, 12, 30, 0, DateTimeKind.Utc),
         });
@@ -1041,8 +1041,8 @@ internal static class Program
         await SetAsync(db, "emergency_alerts", "ALERT_ANA_ACTIVE", new EmergencyAlert
         {
             ShiftId = ShiftAnaActiveSos,
-            Latitude = 14.5547,
-            Longitude = 121.0244,
+            Latitude = 10.2470,
+            Longitude = 123.8510,
             IsResolved = false, // still open - this taxi is the dedicated "SOS" fleet-status example
             Timestamp = DateTime.UtcNow.AddMinutes(-15),
         });
@@ -1057,11 +1057,11 @@ internal static class Program
 
         (double lat, double lng, int speed, int minutesAgo)[] points =
         {
-            (14.5995, 120.9842, 0, 60),
-            (14.6010, 120.9865, 22, 45),
-            (14.6035, 120.9901, 35, 30),
-            (14.6050, 120.9930, 18, 15),
-            (14.5995, 120.9842, 5, 1),
+            (10.2447, 123.8494, 0, 60),
+            (10.2462, 123.8517, 22, 45),
+            (10.2487, 123.8553, 35, 30),
+            (10.2502, 123.8582, 18, 15),
+            (10.2447, 123.8494, 5, 1),
         };
 
         for (int i = 0; i < points.Length; i++)
@@ -1076,6 +1076,32 @@ internal static class Program
                 Timestamp = DateTime.UtcNow.AddMinutes(-minutesAgo),
             });
         }
+
+        // The On Break and SOS shifts previously had no telemetry at all, so the Manager
+        // mobile Live Fleet map's "On Break"/"SOS" stat pills counted them but no pin ever
+        // rendered for either - nothing to tap. One fresh, stationary point each is enough
+        // to place them on the map (their status badge is driven by shift/alert state, not
+        // by this point's speed or recency).
+        await SetAsync(db, "gps_telemetry", $"{ShiftMariaActiveOnBreak}_PT1", new GpsTelemetry
+        {
+            ShiftId = ShiftMariaActiveOnBreak,
+            Latitude = 10.2510,
+            Longitude = 123.8470,
+            Speed = 0,
+            Timestamp = DateTime.UtcNow.AddMinutes(-3),
+        });
+
+        await SetAsync(db, "gps_telemetry", $"{ShiftAnaActiveSos}_PT1", new GpsTelemetry
+        {
+            ShiftId = ShiftAnaActiveSos,
+            // Verified against MapTiler's geocoding API before use (unlike the original
+            // 10.2430/123.8520, which was an unchecked eyeball guess that ended up in the
+            // water) - this resolves to P. del Rosario Street, Talisay, well inland.
+            Latitude = 10.2460,
+            Longitude = 123.8475,
+            Speed = 0,
+            Timestamp = DateTime.UtcNow.AddMinutes(-2),
+        });
     }
 
     // ---------------------------------------------------------------------

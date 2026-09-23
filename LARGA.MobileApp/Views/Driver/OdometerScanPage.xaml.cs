@@ -1,10 +1,12 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
+using Microsoft.Maui.ApplicationModel;
 using LARGA.MobileApp.Services;
-using LARGA.SharedCore.Services;
-using Plugin.Firebase.Auth;
+using LARGA.MobileApp.ViewModels.Driver;
 using System;
-using System.IO;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace LARGA.MobileApp.Views.Driver;
@@ -12,69 +14,130 @@ namespace LARGA.MobileApp.Views.Driver;
 public partial class OdometerScanPage : ContentPage
 {
     private readonly IOcrService _ocrService;
-    private readonly byte[] _imageBytes;
+    private readonly string _localFilePath;
+    private readonly string _messageToken;
+    private List<OcrTextBlock>? _pendingBlocks;
+    private bool _isDrawn = false;
 
-    public OdometerScanPage(IOcrService ocrService, byte[] imageBytes)
+    public OdometerScanPage(IOcrService ocrService, string localFilePath, string messageToken = "OdometerScanned")
     {
         InitializeComponent();
         _ocrService = ocrService;
-        _imageBytes = imageBytes;
+        _localFilePath = localFilePath;
+        _messageToken = messageToken;
     }
 
     protected override async void OnAppearing()
     {
         base.OnAppearing();
 
-        CapturedImage.Source = ImageSource.FromStream(() => new MemoryStream(_imageBytes));
-        await Task.Delay(300);
+        CapturedImage.Source = ImageSource.FromFile(_localFilePath);
+        TextOverlayLayout.SizeChanged += OnLayoutSizeChanged;
 
-        var detectedBlocks = await _ocrService.ExtractTextBlocksAsync(_imageBytes);
-
-        double layoutWidth = TextOverlayLayout.Width;
-        double layoutHeight = TextOverlayLayout.Height;
-
-        TextOverlayLayout.Children.Clear();
-        foreach (var block in detectedBlocks)
+        try
         {
-            var textBtn = new Button
-            {
-                Text = block.Text,
-                BackgroundColor = Colors.Green.WithAlpha(0.4f),
-                TextColor = Colors.White,
-                Padding = new Thickness(0),
-                FontSize = 12,
-                CornerRadius = 4,
-                // THE FIX: Prevent the text from being cut off or separated into multiple lines
-                LineBreakMode = LineBreakMode.NoWrap
-            };
-
-            double exactX = block.BoundingBox.X * layoutWidth;
-            double exactY = block.BoundingBox.Y * layoutHeight;
-            double exactWidth = block.BoundingBox.Width * layoutWidth;
-            double exactHeight = block.BoundingBox.Height * layoutHeight;
-
-            var preciseBounds = new Rect(
-                exactX - 8,
-                exactY - 8,
-                exactWidth + 16,
-                exactHeight + 16
-            );
-
-            AbsoluteLayout.SetLayoutBounds(textBtn, preciseBounds);
-            AbsoluteLayout.SetLayoutFlags(textBtn, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.None);
-
-            textBtn.Clicked += async (s, args) =>
-            {
-                CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Send(block.Text, "OdometerScanned");
-                await Navigation.PopModalAsync();
-            };
-
-            TextOverlayLayout.Children.Add(textBtn);
+            _pendingBlocks = await _ocrService.ExtractTextBlocksAsync(_localFilePath);
+            DrawOcrBoxes();
         }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"OCR Failed: {ex.Message}");
+        }
+    }
+
+    // FIX 3: Explicitly tear down resources and unhook events to prevent silent memory ballooning
+    // each time the driver enters and exits the scanning page.
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        TextOverlayLayout.SizeChanged -= OnLayoutSizeChanged;
+        CapturedImage.Source = null;
+    }
+
+    private void OnLayoutSizeChanged(object? sender, EventArgs e)
+    {
+        DrawOcrBoxes();
+    }
+
+    private void DrawOcrBoxes()
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (_isDrawn || _pendingBlocks == null) return;
+
+            double layoutWidth = TextOverlayLayout.Width;
+            double layoutHeight = TextOverlayLayout.Height;
+
+            if (layoutWidth <= 0 || layoutHeight <= 0) return;
+
+            _isDrawn = true;
+            TextOverlayLayout.SizeChanged -= OnLayoutSizeChanged;
+            TextOverlayLayout.Children.Clear();
+
+            var seenCandidates = new HashSet<string>();
+            foreach (var block in _pendingBlocks)
+            {
+                var candidate = NormalizeOdometerCandidate(block.Text);
+                if (string.IsNullOrWhiteSpace(candidate) || !seenCandidates.Add(candidate)) continue;
+
+                var textBtn = new Button
+                {
+                    Text = candidate,
+                    BackgroundColor = Colors.Green.WithAlpha(0.4f),
+                    TextColor = Colors.White,
+                    Padding = new Thickness(0),
+                    FontSize = 12,
+                    CornerRadius = 4,
+                    LineBreakMode = LineBreakMode.NoWrap
+                };
+
+                double exactX = block.BoundingBox.X * layoutWidth;
+                double exactY = block.BoundingBox.Y * layoutHeight;
+                double exactWidth = block.BoundingBox.Width * layoutWidth;
+                double exactHeight = block.BoundingBox.Height * layoutHeight;
+
+                var preciseBounds = new Rect(exactX - 8, exactY - 8, exactWidth + 16, exactHeight + 16);
+
+                AbsoluteLayout.SetLayoutBounds(textBtn, preciseBounds);
+                AbsoluteLayout.SetLayoutFlags(textBtn, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.None);
+
+                textBtn.Clicked += async (s, args) =>
+                {
+                    if (s is Button btn) btn.IsEnabled = false;
+
+                    CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Send<OdometerScannedData, string>(new OdometerScannedData
+                    {
+                        OdometerText = candidate,
+                        PhotoFilePath = _localFilePath
+                    }, _messageToken);
+
+                    await Navigation.PopModalAsync();
+                };
+
+                TextOverlayLayout.Children.Add(textBtn);
+            }
+        });
     }
 
     private async void OnCancelClicked(object sender, EventArgs e)
     {
+        if (sender is Button btn) btn.IsEnabled = false;
         await Navigation.PopModalAsync();
+    }
+
+    private static string? NormalizeOdometerCandidate(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+
+        var cleaned = text.ToUpperInvariant()
+            .Replace('O', '0').Replace('D', '0')
+            .Replace('I', '1').Replace('L', '1')
+            .Replace('S', '5').Replace('B', '8');
+
+        cleaned = Regex.Replace(cleaned, "[^0-9]", string.Empty);
+        if (cleaned.Length < 3 || cleaned.Length > 7) return null;
+        if (cleaned.All(c => c == cleaned[0])) return null;
+
+        return cleaned;
     }
 }
