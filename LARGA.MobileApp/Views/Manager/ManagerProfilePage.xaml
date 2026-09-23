@@ -26,7 +26,7 @@
                 </Border.GestureRecognizers>
                 <Grid ColumnDefinitions="*,Auto">
                     <VerticalStackLayout Grid.Column="0" Spacing="2">
-                        <Label Text="👥 Driver Management" FontSize="15" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" />
+                        <Label Text="Driver Management" FontSize="15" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" />
                         <Label Text="{Binding DriverCountDisplay}" FontSize="12" TextColor="#555555" />
                     </VerticalStackLayout>
                     <Label Grid.Column="1" Text="&gt;" FontSize="18" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center" />
@@ -40,7 +40,7 @@
                 </Border.GestureRecognizers>
                 <Grid ColumnDefinitions="*,Auto">
                     <VerticalStackLayout Grid.Column="0" Spacing="2">
-                        <Label Text="🚕 Fleet Registry" FontSize="15" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" />
+                        <Label Text="Fleet Registry" FontSize="15" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" />
                         <Label Text="{Binding FleetCountDisplay}" FontSize="12" TextColor="#555555" />
                     </VerticalStackLayout>
                     <Label Grid.Column="1" Text="&gt;" FontSize="18" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center" />

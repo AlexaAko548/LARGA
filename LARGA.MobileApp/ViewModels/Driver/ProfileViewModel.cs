@@ -1,8 +1,9 @@
 using System;
-using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using LARGA.MobileApp.Services;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
 using Plugin.Firebase.Auth;
@@ -92,6 +93,13 @@ public class ProfileViewModel : BindableObject
         set { _damageHistoryDisplay = value; OnPropertyChanged(); }
     }
 
+    private bool _isBusy;
+    public bool IsBusy
+    {
+        get => _isBusy;
+        set { _isBusy = value; OnPropertyChanged(); }
+    }
+
     public ICommand LoadProfileCommand { get; }
     public ICommand ChangePasswordCommand { get; }
     public ICommand UpdateContactNumberCommand { get; }
@@ -108,57 +116,93 @@ public class ProfileViewModel : BindableObject
             await CrossFirebaseAuth.Current.SignOutAsync();
             await Shell.Current.GoToAsync("//landing");
         });
+
+        // Automatically load profile on instantiation
+        Task.Run(async () => await LoadProfileAsync());
     }
 
-    private async Task LoadProfileAsync()
+    public async Task LoadProfileAsync()
     {
+        if (IsBusy) return;
+
         try
         {
-            var currentUser = CrossFirebaseAuth.Current.CurrentUser;
-            if (currentUser == null) return;
+            SetPropertyOnMainThread(() => IsBusy = true);
 
+            // Give Firebase Auth up to 1.5 seconds to restore cached credentials if null
+            var currentUser = CrossFirebaseAuth.Current.CurrentUser;
+            int retries = 0;
+            while (currentUser == null && retries < 3)
+            {
+                await Task.Delay(500);
+                currentUser = CrossFirebaseAuth.Current.CurrentUser;
+                retries++;
+            }
+
+            if (currentUser == null)
+            {
+                Debug.WriteLine("[ProfileViewModel] CurrentUser is NULL. User not authenticated.");
+                SetPropertyOnMainThread(() => FullName = "Driver");
+                return;
+            }
+
+            // 1. Fetch User / Driver Profile Record
             var profileDoc = await CrossFirebaseFirestore.Current
                 .GetCollection("users")
                 .GetDocument(currentUser.Uid)
                 .GetDocumentSnapshotAsync<DriverProfileProxy>();
 
-            if (profileDoc?.Data == null) return;
-
-            var profile = profileDoc.Data;
-            FullName = string.IsNullOrWhiteSpace(profile.FullName) ? "Driver" : profile.FullName;
-            ContactNumber = string.IsNullOrWhiteSpace(profile.PhoneNumber) ? "N/A" : profile.PhoneNumber;
-            ProfileImageUrl = profile.ProfileImageUrl ?? string.Empty;
-
-            LicenseNumber = string.IsNullOrWhiteSpace(profile.LicenseNumber) ? "N/A" : profile.LicenseNumber;
-            DlCodes = string.IsNullOrWhiteSpace(profile.LicenseClassification) ? "N/A" : profile.LicenseClassification;
-            ExpiryDateDisplay = profile.LicenseExpiryDate != null
-                ? FirestoreDateTimeFix.Apply(profile.LicenseExpiryDate.Value.UtcDateTime).ToLocalTime().ToString("MMM dd, yyyy").ToUpperInvariant()
-                : "N/A";
-
-            var (licenseText, licenseColor) = LicenseStatusHelper.Describe(profile.LicenseExpiryDate);
-            StatusText = licenseText switch
+            if (profileDoc?.Data != null)
             {
-                "active" => "VALID",
-                "expiring soon" => "EXPIRING SOON",
-                "expired" => "EXPIRED",
-                _ => "NONE"
-            };
-            StatusColor = licenseColor;
+                var profile = profileDoc.Data;
 
-            PaymentReliability = "N/A";
-            ShiftPunctualityDisplay = "0%";
-            DamageHistoryDisplay = "0 Incidents";
+                var (licenseText, licenseColor) = LicenseStatusHelper.Describe(profile.LicenseExpiryDate);
+                var formattedExpiry = profile.LicenseExpiryDate != null
+                    ? FirestoreDateTimeFix.Apply(profile.LicenseExpiryDate.Value.UtcDateTime).ToLocalTime().ToString("MMM dd, yyyy").ToUpperInvariant()
+                    : "N/A";
 
+                var statusDisplay = licenseText switch
+                {
+                    "active" => "VALID",
+                    "expiring soon" => "EXPIRING SOON",
+                    "expired" => "EXPIRED",
+                    _ => "NONE"
+                };
+
+                SetPropertyOnMainThread(() =>
+                {
+                    FullName = string.IsNullOrWhiteSpace(profile.FullName) ? "Driver" : profile.FullName;
+                    ContactNumber = string.IsNullOrWhiteSpace(profile.PhoneNumber) ? "N/A" : profile.PhoneNumber;
+                    ProfileImageUrl = profile.ProfileImageUrl ?? string.Empty;
+                    LicenseNumber = string.IsNullOrWhiteSpace(profile.LicenseNumber) ? "N/A" : profile.LicenseNumber;
+                    DlCodes = string.IsNullOrWhiteSpace(profile.LicenseClassification) ? "N/A" : profile.LicenseClassification;
+                    ExpiryDateDisplay = formattedExpiry;
+                    StatusText = statusDisplay;
+                    StatusColor = licenseColor;
+                });
+            }
+            else
+            {
+                Debug.WriteLine($"[ProfileViewModel] Document data not found for users/{currentUser.Uid}");
+                SetPropertyOnMainThread(() => FullName = "Driver");
+            }
+
+            // 2. Fetch Performance Record
             await LoadPerformanceAsync(currentUser.Uid);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Driver Profile Load Error: {ex.Message}");
+            Debug.WriteLine($"[ProfileViewModel] Driver Profile Load Error: {ex.Message}");
+        }
+        finally
+        {
+            SetPropertyOnMainThread(() => IsBusy = false);
         }
     }
 
     private async Task LoadPerformanceAsync(string uid)
     {
+        // Try user-level performance metrics first
         try
         {
             var userPerformanceDoc = await CrossFirebaseFirestore.Current
@@ -168,16 +212,25 @@ public class ProfileViewModel : BindableObject
 
             if (userPerformanceDoc?.Data != null)
             {
-                PaymentReliability = ResolvePaymentReliability(userPerformanceDoc.Data);
-                ShiftPunctualityDisplay = ResolveShiftPunctuality(userPerformanceDoc.Data);
-                DamageHistoryDisplay = ResolveDamageHistory(userPerformanceDoc.Data.DamageHistory);
+                var data = userPerformanceDoc.Data;
+                var reliability = ResolvePaymentReliability(data);
+                var punctuality = ResolveShiftPunctuality(data);
+                var damage = ResolveDamageHistory(data.DamageHistory);
+
+                SetPropertyOnMainThread(() =>
+                {
+                    PaymentReliability = reliability;
+                    ShiftPunctualityDisplay = punctuality;
+                    DamageHistoryDisplay = damage;
+                });
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Driver Profile User Performance Load Error: {ex.Message}");
+            Debug.WriteLine($"[ProfileViewModel] User Performance Load Error: {ex.Message}");
         }
 
+        // Try standalone driverPerformance collection metrics
         try
         {
             var performanceDoc = await CrossFirebaseFirestore.Current
@@ -185,34 +238,53 @@ public class ProfileViewModel : BindableObject
                 .GetDocument(uid)
                 .GetDocumentSnapshotAsync<DriverPerformanceProxy>();
 
-            if (performanceDoc?.Data == null) return;
-
-            if (!string.IsNullOrWhiteSpace(performanceDoc.Data.PaymentReliability))
+            if (performanceDoc?.Data != null)
             {
-                PaymentReliability = performanceDoc.Data.PaymentReliability.ToUpperInvariant();
-            }
+                var data = performanceDoc.Data;
 
-            if (performanceDoc.Data.ShiftPunctuality != null)
-            {
-                var punctuality = performanceDoc.Data.ShiftPunctuality.Value;
-                if (punctuality <= 1) punctuality *= 100;
-                ShiftPunctualityDisplay = $"{Math.Clamp(Math.Round(punctuality), 0, 100)}%";
-            }
+                SetPropertyOnMainThread(() =>
+                {
+                    if (!string.IsNullOrWhiteSpace(data.PaymentReliability))
+                    {
+                        PaymentReliability = data.PaymentReliability.ToUpperInvariant();
+                    }
 
-            if (performanceDoc.Data.DamageHistory != null)
-            {
-                DamageHistoryDisplay = ResolveDamageHistory(performanceDoc.Data.DamageHistory);
+                    if (data.ShiftPunctuality != null)
+                    {
+                        var punctuality = data.ShiftPunctuality.Value;
+                        if (punctuality <= 1) punctuality *= 100;
+                        ShiftPunctualityDisplay = $"{Math.Clamp(Math.Round(punctuality), 0, 100)}%";
+                    }
+
+                    if (data.DamageHistory != null)
+                    {
+                        DamageHistoryDisplay = ResolveDamageHistory(data.DamageHistory);
+                    }
+                });
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Driver Profile Performance Collection Load Error: {ex.Message}");
+            Debug.WriteLine($"[ProfileViewModel] DriverPerformance Collection Load Error: {ex.Message}");
+        }
+    }
+
+    private void SetPropertyOnMainThread(Action action)
+    {
+        if (MainThread.IsMainThread)
+        {
+            action();
+        }
+        else
+        {
+            MainThread.BeginInvokeOnMainThread(action);
         }
     }
 
     private static string ResolvePaymentReliability(UserPerformanceProxy profile)
     {
-        if (!string.IsNullOrWhiteSpace(profile.PaymentReliability)) return profile.PaymentReliability.ToUpperInvariant();
+        if (!string.IsNullOrWhiteSpace(profile.PaymentReliability))
+            return profile.PaymentReliability.ToUpperInvariant();
 
         var arrears = profile.CurrentArrears ?? 0;
         if (arrears <= 0) return "EXCELLENT";
@@ -224,9 +296,7 @@ public class ProfileViewModel : BindableObject
 
     private static string ResolveShiftPunctuality(UserPerformanceProxy profile)
     {
-        var punctuality = profile.ShiftPunctuality
-                         ?? profile.ShiftPunctualityRate;
-
+        var punctuality = profile.ShiftPunctuality ?? profile.ShiftPunctualityRate;
         if (punctuality == null) return "0%";
 
         var value = punctuality.Value;
@@ -238,58 +308,57 @@ public class ProfileViewModel : BindableObject
     private static string ResolveDamageHistory(long? damageHistory)
     {
         var incidents = damageHistory ?? 0;
-
         return incidents == 1 ? "1 Incident" : $"{incidents} Incidents";
     }
 
-    private class DriverProfileProxy
+    public class DriverProfileProxy
     {
-        [Plugin.Firebase.Firestore.FirestoreProperty("fullName")]
+        [FirestoreProperty("fullName")]
         public string FullName { get; set; } = string.Empty;
 
-        [Plugin.Firebase.Firestore.FirestoreProperty("phoneNumber")]
+        [FirestoreProperty("phoneNumber")]
         public string PhoneNumber { get; set; } = string.Empty;
 
-        [Plugin.Firebase.Firestore.FirestoreProperty("profileImageUrl")]
+        [FirestoreProperty("profileImageUrl")]
         public string? ProfileImageUrl { get; set; }
 
-        [Plugin.Firebase.Firestore.FirestoreProperty("licenseNumber")]
+        [FirestoreProperty("licenseNumber")]
         public string LicenseNumber { get; set; } = string.Empty;
 
-        [Plugin.Firebase.Firestore.FirestoreProperty("licenseClassification")]
+        [FirestoreProperty("licenseClassification")]
         public string LicenseClassification { get; set; } = string.Empty;
 
-        [Plugin.Firebase.Firestore.FirestoreProperty("licenseExpiryDate")]
+        [FirestoreProperty("licenseExpiryDate")]
         public DateTimeOffset? LicenseExpiryDate { get; set; }
     }
 
-    private class UserPerformanceProxy
+    public class UserPerformanceProxy
     {
-        [Plugin.Firebase.Firestore.FirestoreProperty("currentArrears")]
-        public double? CurrentArrears { get; set; }
+        [FirestoreProperty("currentArrears")]
+        public int? CurrentArrears { get; set; }
 
-        [Plugin.Firebase.Firestore.FirestoreProperty("paymentReliability")]
+        [FirestoreProperty("paymentReliability")]
         public string PaymentReliability { get; set; } = string.Empty;
 
-        [Plugin.Firebase.Firestore.FirestoreProperty("shiftPunctuality")]
+        [FirestoreProperty("shiftPunctuality")]
         public double? ShiftPunctuality { get; set; }
 
-        [Plugin.Firebase.Firestore.FirestoreProperty("shiftPunctualityRate")]
+        [FirestoreProperty("shiftPunctualityRate")]
         public double? ShiftPunctualityRate { get; set; }
 
-        [Plugin.Firebase.Firestore.FirestoreProperty("damageHistory")]
-        public long? DamageHistory { get; set; }
+        [FirestoreProperty("damageHistory")]
+        public int? DamageHistory { get; set; }
     }
 
-    private class DriverPerformanceProxy
+    public class DriverPerformanceProxy
     {
-        [Plugin.Firebase.Firestore.FirestoreProperty("paymentReliability")]
+        [FirestoreProperty("paymentReliability")]
         public string PaymentReliability { get; set; } = string.Empty;
 
-        [Plugin.Firebase.Firestore.FirestoreProperty("shiftPunctuality")]
+        [FirestoreProperty("shiftPunctuality")]
         public double? ShiftPunctuality { get; set; }
 
-        [Plugin.Firebase.Firestore.FirestoreProperty("damageHistory")]
-        public long? DamageHistory { get; set; }
+        [FirestoreProperty("damageHistory")]
+        public int? DamageHistory { get; set; }
     }
 }
