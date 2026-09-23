@@ -25,7 +25,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     public Color StatusColor => IsOffline ? Colors.Red : Colors.Green;
 
     // Dynamically updates based on offline state and last login time
-    public string GpsStatusText => IsOffline ? $"GPS inactive · Last login {LastLoginTime}" : "GPS active · Tracking On";
+    public string GpsStatusText => IsOffline ? $"GPS inactive - Last login {LastLoginTime}" : "GPS active - Tracking On";
     public bool IsOnline => !IsOffline;
 
     private string _lastLoginTime = "--:--";
@@ -112,7 +112,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                     var taxi = await _shiftService.GetTaxiUnitAsync(dynamicTaxiId);
                     if (taxi != null)
                     {
-                        AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber) ? taxi.Model : taxi.PlateNumber.Replace("-", " · ");
+                        AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber) ? taxi.Model : taxi.PlateNumber.Replace("-", " Â· ");
                         AssignedUnitDetails = $"{taxi.YearManufactured} {taxi.Model}";
                         MaintenanceStatus = taxi.Status;
                     }
