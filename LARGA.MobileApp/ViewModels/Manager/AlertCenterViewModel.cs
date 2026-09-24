@@ -388,7 +388,6 @@ public class AlertCenterViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
         public string? TaxiId { get; set; }
     }
-}
 
     private static async Task MarkAlertReadAsync(string alertId)
     {
