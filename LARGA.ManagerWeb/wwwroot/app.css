@@ -3055,7 +3055,65 @@ color: #6a8a9a;
 margin-top: 0.15rem;
 }
 
+.ocr-section .ocr-row {
+display: flex;
+justify-content: space-between;
+gap: 0.75rem;
+font-size: 0.82rem;
+padding: 0.3rem 0;
+border-bottom: 1px solid rgba(1,155,207,0.12);
+}
+
+.ocr-tag {
+font-size: 0.65rem;
+border-radius: 999px;
+padding: 0.05rem 0.4rem;
+margin-left: 0.3rem;
+}
+
+.ocr-tag.ocr-auto {
+background: rgba(46, 143, 90, 0.14);
+color: #1c6b41;
+}
+
+.ocr-tag.ocr-edited {
+background: rgba(214, 138, 20, 0.16);
+color: #8a5a0a;
+}
+
+.photo-overlay {
+z-index: 60;
+}
+
+.photo-modal {
+width: min(92vw, 640px);
+max-height: 92vh;
+display: flex;
+flex-direction: column;
+background: #ffffff;
+border: 1px solid rgba(1,155,207,0.24);
+border-radius: 14px;
+overflow: hidden;
+}
+
+.photo-modal-body {
+overflow: auto;
+padding: 0.75rem;
+text-align: center;
+}
+
+.photo-modal-body img {
+max-width: 100%;
+max-height: 75vh;
+object-fit: contain;
+border-radius: 8px;
+}
+
 .review-photo-link {
+width: 100%;
+border: 0;
+cursor: pointer;
+font-family: inherit;
 display: block;
 background: #eaf6fc;
 border-radius: 10px;
