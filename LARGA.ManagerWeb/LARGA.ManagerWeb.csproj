@@ -7,6 +7,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Remove="appsettings.Local.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="appsettings.Local.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="MudBlazor" Version="9.8.0" />
   </ItemGroup>
 

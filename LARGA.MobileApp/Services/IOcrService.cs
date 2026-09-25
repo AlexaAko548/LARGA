@@ -12,6 +12,6 @@ public class OcrTextBlock
 
 public interface IOcrService
 {
-    // Accepts continuous camera frames for real-time viewfinder text extraction
-    Task<List<OcrTextBlock>> ExtractTextBlocksAsync(byte[] imageBytes);
+    // THE FIX: Accepts a file path instead of a massive byte array
+    Task<List<OcrTextBlock>> ExtractTextBlocksAsync(string localFilePath);
 }

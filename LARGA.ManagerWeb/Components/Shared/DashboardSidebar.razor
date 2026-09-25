@@ -1,48 +1,58 @@
-@* Shared across ManagerWeb's authenticated pages so the nav stays consistent as new
-   pages land - Dashboard, Driver & Shifts, Fin. Ledger, and Garage are real routes so
-   far; the rest stay inert until they have their own mockups/build. *@
-
-<aside class="dashboard-sidebar">
+<aside class="dashboard-sidebar @(Collapsed ? "collapsed" : "")">
     <div class="sidebar-brand">
         <div class="sidebar-logo">L</div>
-        <div>
+        <div class="sidebar-brand-text">
             <div class="brand-name">LARGA</div>
             <div class="brand-subtext">Fleet Ops</div>
         </div>
+        <button class="sidebar-toggle-btn" type="button" @onclick="ToggleCollapsed"
+                title="@(Collapsed ? "Expand sidebar" : "Collapse sidebar")"
+                aria-label="@(Collapsed ? "Expand sidebar" : "Collapse sidebar")">
+            <span class="sidebar-toggle-icon">
+                @if (Collapsed)
+                {
+                    <svg class="toggle-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10 7 5 5-5 5"/></svg>
+                }
+                else
+                {
+                    <svg class="toggle-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 7-5 5 5 5"/></svg>
+                }
+            </span>
+        </button>
     </div>
 
     <nav class="sidebar-nav">
-        <a href="/dashboard" class="nav-item @(ActiveItem == "Dashboard" ? "active" : "")">
-            <span class="nav-icon">◫</span>
-            <span>Dashboard</span>
+        <a href="/dashboard" class="nav-item @(ActiveItem == "Dashboard" ? "active" : "")" title="Dashboard">
+            <span class="nav-icon"><svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span>
+            <span class="nav-label">Dashboard</span>
         </a>
-        <a href="/driver-shifts" class="nav-item @(ActiveItem == "DriverShifts" ? "active" : "")">
-            <span class="nav-icon">☰</span>
-            <span>Driver &amp; Shifts</span>
+        <a href="/driver-shifts" class="nav-item @(ActiveItem == "DriverShifts" ? "active" : "")" title="Driver &amp; Shifts">
+            <span class="nav-icon"><svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 4.6a3.2 3.2 0 0 1 0 6.2"/><path d="M18 14.3c1.8.7 3 2.5 3 4.7"/></svg></span>
+            <span class="nav-label">Driver &amp; Shifts</span>
         </a>
-        <a href="/financial-ledger" class="nav-item @(ActiveItem == "FinancialLedger" ? "active" : "")">
-            <span class="nav-icon">◌</span>
-            <span>Fin. Ledger</span>
+        <a href="/financial-ledger" class="nav-item @(ActiveItem == "FinancialLedger" ? "active" : "")" title="Financial Ledger">
+            <span class="nav-icon"><svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/><path d="M16 15h2"/><path d="M6 6V5a2 2 0 0 1 2-2h8"/></svg></span>
+            <span class="nav-label">Financial Ledger</span>
         </a>
-        <a href="/garage" class="nav-item @(ActiveItem == "Garage" ? "active" : "")">
-            <span class="nav-icon">◔</span>
-            <span>Garage</span>
+        <a href="/garage" class="nav-item @(ActiveItem == "Garage" ? "active" : "")" title="Garage">
+            <span class="nav-icon"><svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L3.6 17.1a2 2 0 0 0 2.8 2.8l5.7-5.7a4 4 0 0 0 5.1-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg></span>
+            <span class="nav-label">Garage</span>
         </a>
-        <button class="nav-item" type="button" disabled>
-            <span class="nav-icon">▣</span>
-            <span>Inventory</span>
-        </button>
-        <button class="nav-item" type="button" disabled>
-            <span class="nav-icon">✓</span>
-            <span>Fuel Verification</span>
-        </button>
-        <button class="nav-item" type="button" disabled>
-            <span class="nav-icon">◍</span>
-            <span>Audit Logs</span>
-        </button>
+        <a href="/inventory" class="nav-item @(ActiveItem == "Inventory" ? "active" : "")" title="Inventory">
+            <span class="nav-icon"><svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8"/></svg></span>
+            <span class="nav-label">Inventory</span>
+        </a>
+        <a href="/fuel-verification" class="nav-item @(ActiveItem == "FuelVerification" ? "active" : "")">
+            <span class="nav-icon"><svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16"/><path d="M3 21h12"/><path d="M14 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V9l-3-3"/><path d="M7 9h4"/></svg></span>
+            <span class="nav-label">Fuel Verification</span>
+        </a>
+        <a href="/audit-logs" class="nav-item @(ActiveItem == "AuditLogs" ? "active" : "")" title="Audit Logs">
+            <span class="nav-icon"><svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/></svg></span>
+            <span class="nav-label">Audit Logs</span>
+        </a>
     </nav>
 
-    <div class="user-card">
+    <div class="user-card" title="Antonio G. Medina - Manager">
         <div class="user-avatar">RC</div>
         <div class="user-meta">
             <div class="user-name">Antonio G. Medina</div>
@@ -55,4 +65,11 @@
 @code {
     [Parameter]
     public string ActiveItem { get; set; } = string.Empty;
+
+    private bool Collapsed { get; set; }
+
+    private void ToggleCollapsed()
+    {
+        Collapsed = !Collapsed;
+    }
 }
