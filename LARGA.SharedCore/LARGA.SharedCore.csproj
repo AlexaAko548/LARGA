@@ -4,12 +4,8 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UseMauiEssentials>true</UseMauiEssentials>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="FirebaseAdmin" Version="3.6.0" />
-    <PackageReference Include="Google.Cloud.Firestore" Version="4.4.0" />
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\LARGA.Shared.Models\LARGA.Shared.Models.csproj" />
@@ -17,6 +13,13 @@
 
 	<ItemGroup>
 		<PackageReference Include="Plugin.Firebase" Version="4.1.0" />
+		<PackageReference Include="Google.Cloud.Firestore" Version="4.4.0" />
+		<PackageReference Include="FirebaseAdmin" Version="3.6.0" />
+		<!-- NotificationService.cs uses Microsoft.Maui.ApplicationModel.Permissions. Since
+		     .NET 8, UseMauiEssentials=true (above) no longer auto-includes this package on
+		     its own (MA002) - add it explicitly, pinned to the same version as MobileApp's
+		     MauiVersion-based packages. -->
+		<PackageReference Include="Microsoft.Maui.Essentials" Version="9.0.120" />
 	</ItemGroup>
 
 </Project>

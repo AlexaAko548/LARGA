@@ -1,0 +1,92 @@
+@page "/register"
+@using System.ComponentModel.DataAnnotations
+@rendermode InteractiveServer
+@inject NavigationManager Navigation
+
+<PageTitle>Register - web</PageTitle>
+
+<div class="auth-page">
+    <div class="back-link">
+        <a href="/">← Back to Home</a>
+    </div>
+
+    <EditForm Model="_model" FormName="manager-register" OnValidSubmit="Continue" class="auth-card register-card">
+        <DataAnnotationsValidator />
+
+        <div class="brand-lockup compact">
+            <img class="mini-logo" src="/images/larga-logo-taxi.png" alt="LARGA Fleet OS logo" />
+            <div class="brand-title">LARGA Fleet OS</div>
+            <div class="brand-subtitle">Manager Portal</div>
+        </div>
+
+        <div class="step-indicator">
+            <div class="step active">1</div>
+            <div class="step inactive">2</div>
+        </div>
+
+        <h2>Create Manager Account</h2>
+        <p>Manager access only. Drivers use the mobile app.</p>
+
+        <div class="form-block">
+            <label for="fullName">FULL NAME</label>
+            <InputText id="fullName" @bind-Value="_model.FullName" class="form-control" placeholder="e.g. Regina Cruz" />
+        </div>
+
+        <div class="form-block">
+            <label for="workEmail">WORK EMAIL</label>
+            <InputText id="workEmail" @bind-Value="_model.Email" class="form-control" type="email" placeholder="manager@company.com" />
+        </div>
+
+        <div class="two-column">
+            <div class="form-block">
+                <label for="fleetSize">FLEET SIZE</label>
+                <InputText id="fleetSize" @bind-Value="_model.FleetSize" class="form-control" placeholder="e.g. 20" />
+            </div>
+            <div class="form-block">
+                <label for="phone">PHONE</label>
+                <InputText id="phone" @bind-Value="_model.Phone" class="form-control" type="tel" placeholder="+63 9XX XXX XXXX" />
+            </div>
+        </div>
+
+        <button class="primary-btn full-width" type="submit">CONTINUE <span>›</span></button>
+
+        <div class="auth-divider"><span>OR</span></div>
+
+        <div class="switch-copy">
+            Already have an account? <a href="/login">Sign In</a>
+        </div>
+    </EditForm>
+
+    <div class="portal-note">
+        <span class="shield-icon">◈</span>
+        <span>Manager-only portal</span>
+        <span class="dot-separator">•</span>
+        <span>Drivers use the mobile app</span>
+    </div>
+</div>
+
+@code {
+    private readonly RegisterFormModel _model = new();
+
+    private void Continue()
+    {
+        var url = $"/register/password?fullName={Uri.EscapeDataString(_model.FullName)}&email={Uri.EscapeDataString(_model.Email)}&fleetSize={Uri.EscapeDataString(_model.FleetSize)}&phone={Uri.EscapeDataString(_model.Phone)}";
+        Navigation.NavigateTo(url, forceLoad: false);
+    }
+
+    private class RegisterFormModel
+    {
+        [Required(ErrorMessage = "Full name is required.")]
+        public string FullName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Work email is required.")]
+        [EmailAddress(ErrorMessage = "Please enter a valid work email.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Fleet size is required.")]
+        public string FleetSize { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Phone number is required.")]
+        public string Phone { get; set; } = string.Empty;
+    }
+}

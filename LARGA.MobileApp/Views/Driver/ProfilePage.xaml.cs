@@ -1,15 +1,22 @@
 using LARGA.MobileApp.ViewModels.Driver;
-using Microsoft.Maui.Controls;
-using System;
 
 namespace LARGA.MobileApp.Views.Driver;
 
 public partial class ProfilePage : ContentPage
 {
-
-    public ProfilePage(ViewModels.Driver.ProfileViewModel viewModel)
+    public ProfilePage(ProfileViewModel viewModel)
     {
         InitializeComponent();
         BindingContext = viewModel;
+    }
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+
+        if (BindingContext is ProfileViewModel vm)
+        {
+            vm.LoadProfileCommand.Execute(null);
+        }
     }
 }

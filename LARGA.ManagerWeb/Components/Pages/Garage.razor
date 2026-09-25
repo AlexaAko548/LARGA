@@ -1,0 +1,614 @@
+@page "/garage"
+@using System.Text.Json
+@using LARGA.SharedCore
+@using LARGA.SharedCore.Models.Garage
+@using LARGA.SharedCore.Services
+@using LARGA.Shared.Models.Entities
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject GarageService GarageService
+
+<PageTitle>Maintenance Scheduler</PageTitle>
+
+@if (_isCheckingAccess)
+{
+    <div class="auth-page">
+        <div class="auth-card">
+            <h2>Checking access...</h2>
+        </div>
+    </div>
+}
+else if (_isAuthorized)
+{
+<div class="dashboard-shell">
+    <DashboardSidebar ActiveItem="Garage" />
+
+    <main class="dashboard-main">
+        <header class="dashboard-header">
+            <div class="header-title-wrap">
+                <h1>MAINTENANCE SCHEDULER</h1>
+                <div class="header-date">Driver reports &amp; routine checks</div>
+            </div>
+
+            <div class="header-actions">
+                <NotificationBell />
+                <button class="icon-btn" type="button" aria-label="Messages">✉</button>
+                <div class="manager-pill">
+                    <span class="manager-dot"></span>
+                    <span>Manager</span>
+                    <span class="caret">▾</span>
+                </div>
+            </div>
+        </header>
+
+        @if (_error is not null)
+        {
+            <div class="data-warning-banner">Garage data unavailable: @_error</div>
+        }
+        @if (_actionError is not null)
+        {
+            <div class="report-error">@_actionError</div>
+        }
+
+        <div class="garage-toolbar">
+            <button class="outline-btn" type="button" @onclick="OpenHistoryModalAsync">History</button>
+        </div>
+
+        @if (_snapshot is null)
+        {
+            <div class="table-empty">Loading the garage...</div>
+        }
+        else
+        {
+            <section class="garage-section">
+                <h2 class="garage-section-title">△ Pending Driver Reports (@_snapshot.PendingReports.Count)</h2>
+                @if (_snapshot.PendingReports.Count == 0)
+                {
+                    <div class="table-empty">No pending driver reports.</div>
+                }
+                else
+                {
+                    @foreach (DriverReportEntry r in _snapshot.PendingReports)
+                    {
+                        <article class="report-card">
+                            <div class="report-card-icon">⚒</div>
+                            <div class="report-card-body">
+                                <div class="report-card-meta">
+                                    <span class="unit-pill">@r.UnitLabel.ToUpperInvariant()</span>
+                                    <span class="priority-pill @PriorityCss(r.Priority)">@r.Priority.ToString().ToUpperInvariant()</span>
+                                </div>
+                                <div class="report-card-title">"@r.IssueTitle"</div>
+                                <div class="report-card-sub">Reported by @r.ReportedByName · @r.DateLogged.ToPhilippineTime().ToString("MMM d")</div>
+                                <button class="link-btn" type="button" @onclick="() => OpenEvidenceModal(r.IssueTitle, r.ReportedByName, r.IssueDescription, r.SupportingPhotoUrl)">↗ View Evidence</button>
+                            </div>
+                            <div class="report-card-actions">
+                                <button class="solid-btn" type="button" @onclick="() => OpenCreateTicketModal(r)">+ Create Ticket</button>
+                                <button class="cancel-btn" type="button" disabled="@_isBusy" @onclick="() => DismissAsync(r.MaintenanceId)">Dismiss</button>
+                            </div>
+                        </article>
+                    }
+                }
+            </section>
+
+            <section class="garage-section">
+                <h2 class="garage-section-title">⚙ Active Work Orders (Currently In Shop)</h2>
+                @if (_snapshot.ActiveWorkOrders.Count == 0)
+                {
+                    <div class="table-empty">No active work orders.</div>
+                }
+                else
+                {
+                    @foreach (WorkOrderEntry w in _snapshot.ActiveWorkOrders)
+                    {
+                        <article class="report-card">
+                            <div class="report-card-icon">⚒</div>
+                            <div class="report-card-body">
+                                <div class="report-card-meta">
+                                    <span class="unit-pill">@w.UnitLabel.ToUpperInvariant()</span>
+                                    <span class="priority-pill @PriorityCss(w.Priority)">@w.Priority.ToString().ToUpperInvariant()</span>
+                                </div>
+                                <div class="report-card-title">"@w.IssueTitle"</div>
+                                <div class="report-card-sub">Reported by @w.ReportedByName · @w.DateLogged.ToPhilippineTime().ToString("MMM d")</div>
+                                <button class="link-btn" type="button" @onclick="() => OpenEvidenceModal(w.IssueTitle, w.ReportedByName, w.IssueDescription, w.SupportingPhotoUrl)">↗ View Evidence</button>
+                            </div>
+                            <div class="report-card-status">
+                                <span class="status-inline">STATUS: In Progress</span>
+                                <span class="day-badge">Day @w.DayNumber</span>
+                            </div>
+                            <div class="report-card-actions">
+                                <button class="solid-btn" type="button" disabled="@_isBusy" @onclick="() => MarkResolvedAsync(w.MaintenanceId)">Mark as Resolved</button>
+                            </div>
+                        </article>
+                    }
+                }
+            </section>
+
+            <section class="garage-section">
+                <h2 class="garage-section-title">▦ Upcoming Routine Checks</h2>
+                @if (_snapshot.UpcomingChecks.Count == 0)
+                {
+                    <div class="table-empty">No upcoming routine checks.</div>
+                }
+                else
+                {
+                    <div class="routine-check-list">
+                        @foreach (RoutineCheckEntry c in _snapshot.UpcomingChecks)
+                        {
+                            <div class="routine-check-row">
+                                <span class="routine-check-dot"></span>
+                                <span class="routine-check-name">@c.UnitLabel · @c.CheckName</span>
+                                <span class="routine-check-due @(!c.DueDate.HasValue && c.DueInKm <= 0 ? "overdue" : "")">
+                                    @(c.DueDate.HasValue ? $"Expires {c.DueDate.Value:MMM d, yyyy}" : c.DueInKm <= 0 ? "Overdue" : $"Due in {c.DueInKm} km")
+                                </span>
+                                <button class="profile-btn" type="button" disabled="@_isBusy" @onclick="() => OpenScheduleModal(c)">Schedule</button>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+        }
+    </main>
+</div>
+}
+
+@if (_showEvidenceModal)
+{
+    <div class="report-overlay" @onclick="CloseEvidenceModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Driver Report Evidence</h3>
+                <button type="button" class="close-modal" @onclick="CloseEvidenceModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="settlement-modal-subject">Issue: "@_evidenceTitle"</div>
+                <div class="settlement-modal-subject">Reported by: @_evidenceReportedBy</div>
+
+                <div class="report-section">
+                    <label>Description</label>
+                    <div class="evidence-box">@_evidenceDescription</div>
+                </div>
+
+                <div class="report-section">
+                    <label>Photo Evidence</label>
+                    @if (!string.IsNullOrWhiteSpace(_evidencePhotoUrl))
+                    {
+                        <img class="evidence-photo" src="@_evidencePhotoUrl" alt="Photo evidence" />
+                    }
+                    else
+                    {
+                        <div class="evidence-box evidence-photo-empty">No photo evidence available.</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showTicketModal && _ticketReport is not null)
+{
+    <div class="report-overlay" @onclick="CloseCreateTicketModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Create Work Order Ticket</h3>
+                <button type="button" class="close-modal" @onclick="CloseCreateTicketModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="ticket-chip-row">
+                    <span class="ticket-chip">@_ticketReport.UnitLabel</span>
+                    <span class="ticket-chip">Issue: @_ticketReport.IssueTitle</span>
+                </div>
+
+                <div class="report-section">
+                    <label>Priority Level</label>
+                    <div class="payment-method-toggle three-way">
+                        <button type="button" class="payment-method-btn @(_ticketPriority == PriorityLevel.Low ? "active" : "")" @onclick="() => _ticketPriority = PriorityLevel.Low">Low</button>
+                        <button type="button" class="payment-method-btn @(_ticketPriority == PriorityLevel.Medium ? "active" : "")" @onclick="() => _ticketPriority = PriorityLevel.Medium">Medium</button>
+                        <button type="button" class="payment-method-btn @(_ticketPriority == PriorityLevel.High ? "active" : "")" @onclick="() => _ticketPriority = PriorityLevel.High">High</button>
+                    </div>
+                </div>
+
+                <div class="report-section">
+                    <label>Mechanic Instructions</label>
+                    <textarea class="text-input textarea" @bind="_ticketInstructions" placeholder="What should the shop do?"></textarea>
+                </div>
+
+                <div class="report-section">
+                    <label>Estimated Completion Date</label>
+                    <input class="text-input" type="date" @bind="_ticketEstimatedDate" />
+                </div>
+
+                @if (_ticketError is not null)
+                {
+                    <div class="report-error">@_ticketError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="CloseCreateTicketModal">Cancel</button>
+                <button class="download-btn" type="button" disabled="@_isSavingTicket" @onclick="ConfirmCreateTicketAsync">@(_isSavingTicket ? "Saving…" : "Confirm & Create")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showScheduleModal && _scheduleCheck is not null)
+{
+    <div class="report-overlay" @onclick="CloseScheduleModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Schedule Routine Check</h3>
+                <button type="button" class="close-modal" @onclick="CloseScheduleModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="ticket-chip-row">
+                    <span class="ticket-chip">@_scheduleCheck.UnitLabel</span>
+                    <span class="ticket-chip">@_scheduleCheck.CheckName</span>
+                </div>
+
+                <div class="payment-method-toggle">
+                    <button type="button" class="payment-method-btn @(_scheduleMode == "Auto" ? "active" : "")" @onclick='() => SelectScheduleModeAsync("Auto")'>AUTOMATIC</button>
+                    <button type="button" class="payment-method-btn @(_scheduleMode == "Manual" ? "active" : "")" @onclick='() => SelectScheduleModeAsync("Manual")'>MANUAL</button>
+                </div>
+
+                @if (_scheduleMode == "Auto")
+                {
+                    <div class="report-section">
+                        <label>Scheduled Date</label>
+                        <div class="evidence-box">
+                            @(_isLoadingAutoDate ? "Finding the next available date…" : _scheduleDate?.ToString("dddd, MMM d, yyyy"))
+                        </div>
+                    </div>
+                    <div class="info-banner">Picks the earliest day from tomorrow onward that has fewer than @DailyScheduleCapacityDisplay other maintenance jobs already scheduled.</div>
+                }
+                else
+                {
+                    <div class="report-section">
+                        <label>Scheduled Date</label>
+                        <input class="text-input" type="date" min="@DateTime.UtcNow.Date.ToString("yyyy-MM-dd")" @bind="_scheduleDate" />
+                    </div>
+                    <div class="info-banner">Manually chosen - not checked against the shop's daily capacity.</div>
+                }
+
+                @if (_scheduleError is not null)
+                {
+                    <div class="report-error">@_scheduleError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="CloseScheduleModal">Cancel</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingSchedule || _isLoadingAutoDate || !_scheduleDate.HasValue)" @onclick="ConfirmScheduleAsync">@(_isSavingSchedule ? "Saving…" : "Confirm Schedule")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showHistoryModal)
+{
+    <div class="report-overlay" @onclick="CloseHistoryModal">
+        <div class="report-modal wide history-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <div class="history-title-wrap">
+                    <h3>Maintenance History</h3>
+                    <div class="history-subtitle">@(_history is null ? "Loading…" : $"{_history.Count} {(_history.Count == 1 ? "record" : "records")}")</div>
+                </div>
+                <button type="button" class="close-modal" @onclick="CloseHistoryModal" aria-label="Close">×</button>
+            </div>
+            <div class="report-body history-body">
+                @if (_history is null)
+                {
+                    <div class="table-empty">Loading history...</div>
+                }
+                else
+                {
+                    <div class="data-table-wrap">
+                        <table class="data-table history-table">
+                            <thead>
+                                <tr>
+                                    <th>Unit</th>
+                                    <th>Issue</th>
+                                    <th>Reported By</th>
+                                    <th>Date Logged</th>
+                                    <th>Date Resolved</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (_history.Count == 0)
+                                {
+                                    <tr><td colspan="6" class="table-empty">No history yet.</td></tr>
+                                }
+                                else
+                                {
+                                    @foreach (HistoryEntry h in _history)
+                                    {
+                                        <tr>
+                                            <td class="history-unit"><span class="history-unit-chip">@h.UnitLabel</span></td>
+                                            <td class="history-issue">@h.IssueTitle</td>
+                                            <td class="history-reporter">@h.ReportedByName</td>
+                                            <td class="history-date">@h.DateLogged.ToPhilippineTime().ToString("MMM d, yyyy")</td>
+                                            <td class="history-date">@(h.DateResolved.HasValue ? h.DateResolved.Value.ToPhilippineTime().ToString("MMM d, yyyy") : "–")</td>
+                                            <td class="history-status"><span class="status-pill small @(h.Status == "Resolved" ? "status-success" : "status-neutral")">@h.Status.ToUpperInvariant()</span></td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _isCheckingAccess = true;
+    private bool _isAuthorized;
+    private IJSObjectReference? _firebaseModule;
+
+    private GarageSnapshot? _snapshot;
+    private string? _error;
+    private string? _actionError;
+    private bool _isBusy;
+
+    private bool _showEvidenceModal;
+    private string _evidenceTitle = string.Empty;
+    private string _evidenceReportedBy = string.Empty;
+    private string _evidenceDescription = string.Empty;
+    private string? _evidencePhotoUrl;
+
+    private bool _showTicketModal;
+    private DriverReportEntry? _ticketReport;
+    private PriorityLevel _ticketPriority = PriorityLevel.Medium;
+    private string _ticketInstructions = string.Empty;
+    private DateTime? _ticketEstimatedDate;
+    private bool _isSavingTicket;
+    private string? _ticketError;
+
+    // Must match GarageService.DailyScheduleCapacity - only used for the modal's helper text.
+    private const int DailyScheduleCapacityDisplay = 2;
+
+    private bool _showScheduleModal;
+    private RoutineCheckEntry? _scheduleCheck;
+    private string _scheduleMode = "Auto";
+    private DateTime? _scheduleDate;
+    private bool _isLoadingAutoDate;
+    private bool _isSavingSchedule;
+    private string? _scheduleError;
+
+    private bool _showHistoryModal;
+    private List<HistoryEntry>? _history;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+        var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
+        _isAuthorized = result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True;
+        _isCheckingAccess = false;
+
+        if (!_isAuthorized)
+        {
+            Navigation.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        await LoadSnapshotAsync();
+        StateHasChanged();
+    }
+
+    private async Task LoadSnapshotAsync()
+    {
+        try
+        {
+            _snapshot = await GarageService.GetGarageSnapshotAsync();
+            _error = null;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private void OpenEvidenceModal(string title, string reportedBy, string description, string? photoUrl)
+    {
+        _evidenceTitle = title;
+        _evidenceReportedBy = reportedBy;
+        _evidenceDescription = description;
+        _evidencePhotoUrl = photoUrl;
+        _showEvidenceModal = true;
+    }
+
+    private void CloseEvidenceModal() => _showEvidenceModal = false;
+
+    private void OpenCreateTicketModal(DriverReportEntry report)
+    {
+        _ticketReport = report;
+        _ticketPriority = report.Priority;
+        _ticketInstructions = string.Empty;
+        _ticketEstimatedDate = null;
+        _ticketError = null;
+        _showTicketModal = true;
+    }
+
+    private void CloseCreateTicketModal()
+    {
+        _showTicketModal = false;
+        _ticketReport = null;
+    }
+
+    private async Task ConfirmCreateTicketAsync()
+    {
+        if (_ticketReport is null)
+        {
+            return;
+        }
+
+        _isSavingTicket = true;
+        _ticketError = null;
+        try
+        {
+            DateTime? estimated = _ticketEstimatedDate.HasValue
+                ? DateTime.SpecifyKind(_ticketEstimatedDate.Value, DateTimeKind.Utc)
+                : null;
+
+            GarageActionResult result = await GarageService.CreateTicketAsync(_ticketReport.MaintenanceId, _ticketPriority, _ticketInstructions, estimated);
+            if (!result.Ok)
+            {
+                _ticketError = result.ErrorMessage ?? "Could not create this ticket.";
+                return;
+            }
+
+            _showTicketModal = false;
+            _ticketReport = null;
+            await LoadSnapshotAsync();
+        }
+        finally
+        {
+            _isSavingTicket = false;
+        }
+    }
+
+    private async Task DismissAsync(string maintenanceId)
+    {
+        _isBusy = true;
+        _actionError = null;
+        try
+        {
+            GarageActionResult result = await GarageService.DismissReportAsync(maintenanceId);
+            if (!result.Ok)
+            {
+                _actionError = result.ErrorMessage ?? "Could not dismiss this report.";
+                return;
+            }
+            await LoadSnapshotAsync();
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task MarkResolvedAsync(string maintenanceId)
+    {
+        _isBusy = true;
+        _actionError = null;
+        try
+        {
+            GarageActionResult result = await GarageService.MarkResolvedAsync(maintenanceId);
+            if (!result.Ok)
+            {
+                _actionError = result.ErrorMessage ?? "Could not mark this resolved.";
+                return;
+            }
+            await LoadSnapshotAsync();
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task OpenScheduleModal(RoutineCheckEntry check)
+    {
+        _scheduleCheck = check;
+        _scheduleMode = "Auto";
+        _scheduleDate = null;
+        _scheduleError = null;
+        _showScheduleModal = true;
+        await RefreshAutoDateAsync();
+    }
+
+    private async Task SelectScheduleModeAsync(string mode)
+    {
+        _scheduleMode = mode;
+        if (mode == "Auto")
+        {
+            await RefreshAutoDateAsync();
+        }
+        else
+        {
+            // Manual: seed with tomorrow if nothing's picked yet, otherwise leave whatever
+            // Auto had already found - a reasonable starting point either way.
+            _scheduleDate ??= DateTime.UtcNow.Date.AddDays(1);
+        }
+    }
+
+    private async Task RefreshAutoDateAsync()
+    {
+        _isLoadingAutoDate = true;
+        StateHasChanged();
+        try
+        {
+            _scheduleDate = await GarageService.GetNextAvailableScheduleDateAsync();
+        }
+        finally
+        {
+            _isLoadingAutoDate = false;
+        }
+    }
+
+    private void CloseScheduleModal()
+    {
+        _showScheduleModal = false;
+        _scheduleCheck = null;
+    }
+
+    private async Task ConfirmScheduleAsync()
+    {
+        if (_scheduleCheck is null || !_scheduleDate.HasValue)
+        {
+            return;
+        }
+
+        _isSavingSchedule = true;
+        _scheduleError = null;
+        try
+        {
+            DateTime scheduledUtc = DateTime.SpecifyKind(_scheduleDate.Value, DateTimeKind.Utc);
+            GarageActionResult result = await GarageService.ScheduleRoutineCheckAsync(_scheduleCheck.CheckId, scheduledUtc);
+            if (!result.Ok)
+            {
+                _scheduleError = result.ErrorMessage ?? "Could not schedule this check.";
+                return;
+            }
+
+            _showScheduleModal = false;
+            _scheduleCheck = null;
+            await LoadSnapshotAsync();
+        }
+        finally
+        {
+            _isSavingSchedule = false;
+        }
+    }
+
+    private async Task OpenHistoryModalAsync()
+    {
+        _showHistoryModal = true;
+        _history = null;
+        StateHasChanged();
+
+        try
+        {
+            _history = await GarageService.GetHistoryAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = $"History unavailable: {ex.Message}";
+            _showHistoryModal = false;
+        }
+    }
+
+    private void CloseHistoryModal() => _showHistoryModal = false;
+
+    private static string PriorityCss(PriorityLevel priority) => priority switch
+    {
+        PriorityLevel.High => "priority-high",
+        PriorityLevel.Medium => "priority-medium",
+        _ => "priority-low",
+    };
+}

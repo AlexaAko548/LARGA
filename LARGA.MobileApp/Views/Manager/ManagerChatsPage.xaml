@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="LARGA.MobileApp.Views.Manager.ManagerChatsPage"
+             xmlns:viewmodels="clr-namespace:LARGA.MobileApp.ViewModels.Manager"
+             BackgroundColor="{StaticResource LargaWhite}"
+             Shell.NavBarIsVisible="False">
+
+    <Grid RowDefinitions="Auto, *">
+        <!-- Header Section -->
+        <VerticalStackLayout Grid.Row="0" Padding="20,20,20,10">
+            <Label Text="Messages" FontSize="28" FontAttributes="Bold" TextColor="Black" />
+            <Label Text="{Binding UnreadMessagesText}" FontSize="16" TextColor="Gray" Margin="0,5,0,0" />
+        </VerticalStackLayout>
+
+        <!-- Chat List -->
+        <!-- FIX 1: Removed native Selection properties and set SelectionMode to None -->
+        <CollectionView Grid.Row="1" ItemsSource="{Binding ChatSessions}" SelectionMode="None">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Grid ColumnDefinitions="Auto, *, Auto" Padding="20,15" BackgroundColor="Transparent">
+
+                        <!-- FIX 2: Manually handle the tap gesture to navigate without highlighting orange -->
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:ChatsViewModel}}, Path=OpenChatCommand}"
+                                                  CommandParameter="{Binding .}" />
+                        </Grid.GestureRecognizers>
+
+                        <!-- Avatar -->
+                        <Border Grid.Column="0" StrokeThickness="0" StrokeShape="RoundRectangle 25" WidthRequest="50" HeightRequest="50" BackgroundColor="{StaticResource LargaPrimaryBlue}" VerticalOptions="Center">
+                            <Label Text="{Binding Initials}" TextColor="{StaticResource LargaWhite}" FontAttributes="Bold" FontSize="16" HorizontalOptions="Center" VerticalOptions="Center" />
+                        </Border>
+
+                        <!-- Name and Last Message -->
+                        <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Margin="15,0,10,0">
+                            <Label Text="{Binding DriverName}" FontSize="16">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label" Binding="{Binding IsUnread}" Value="True">
+                                        <Setter Property="FontAttributes" Value="Bold" />
+                                        <Setter Property="TextColor" Value="Black" />
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Label" Binding="{Binding IsUnread}" Value="False">
+                                        <Setter Property="FontAttributes" Value="None" />
+                                        <Setter Property="TextColor" Value="DarkGray" />
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
+                            <Label Text="{Binding LastMessage}" FontSize="14" MaxLines="1" LineBreakMode="TailTruncation" Margin="0,2,0,0">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label" Binding="{Binding IsUnread}" Value="True">
+                                        <Setter Property="FontAttributes" Value="Bold" />
+                                        <Setter Property="TextColor" Value="Black" />
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Label" Binding="{Binding IsUnread}" Value="False">
+                                        <Setter Property="FontAttributes" Value="None" />
+                                        <Setter Property="TextColor" Value="Gray" />
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
+                        </VerticalStackLayout>
+
+                        <!-- Timestamp -->
+                        <Label Grid.Column="2" Text="{Binding DisplayTime}" FontSize="14" VerticalOptions="Start" Margin="0,5,0,0">
+                            <Label.Triggers>
+                                <DataTrigger TargetType="Label" Binding="{Binding IsUnread}" Value="True">
+                                    <Setter Property="FontAttributes" Value="Bold" />
+                                    <Setter Property="TextColor" Value="Black" />
+                                </DataTrigger>
+                                <DataTrigger TargetType="Label" Binding="{Binding IsUnread}" Value="False">
+                                    <Setter Property="FontAttributes" Value="None" />
+                                    <Setter Property="TextColor" Value="Gray" />
+                                </DataTrigger>
+                            </Label.Triggers>
+                        </Label>
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+    </Grid>
+</ContentPage>

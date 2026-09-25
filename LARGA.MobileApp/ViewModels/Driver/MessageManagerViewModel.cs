@@ -14,7 +14,10 @@ public class MessageManagerViewModel : INotifyPropertyChanged
 {
     private readonly IChatService _chatService;
     private string _newMessage = string.Empty;
-    private readonly string _driverId = Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser?.Uid ?? "unknown_driver";
+
+    // Updated property name
+    private string DriverId => Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser?.Uid ?? "unknown_driver";
+
     private IDisposable? _chatListener;
 
     public ObservableCollection<ChatMessage> Messages { get; set; } = new();
@@ -48,8 +51,8 @@ public class MessageManagerViewModel : INotifyPropertyChanged
 
     private void StartListening()
     {
-        // Automatically populates the UI whenever a new message is detected in Firestore
-        _chatListener = _chatService.ListenForMessages(_driverId, messages =>
+        // FIX 1: Replaced _driverId with DriverId
+        _chatListener = _chatService.ListenForMessages(DriverId, messages =>
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
@@ -64,7 +67,6 @@ public class MessageManagerViewModel : INotifyPropertyChanged
 
     private async void OnSendMessage()
     {
-        // If the input is empty, send a thumbs-up emoji instead of text
         if (string.IsNullOrWhiteSpace(NewMessage))
         {
             var likeMessage = new ChatMessage
@@ -72,11 +74,12 @@ public class MessageManagerViewModel : INotifyPropertyChanged
                 Text = "👍",
                 IsDriver = true
             };
-            await _chatService.SendMessageAsync(_driverId, likeMessage);
+
+            // FIX 2: Replaced _driverId with DriverId
+            await _chatService.SendMessageAsync(DriverId, likeMessage);
             return;
         }
 
-        // Otherwise, send the standard typed text
         var message = new ChatMessage
         {
             Text = NewMessage,
@@ -84,7 +87,9 @@ public class MessageManagerViewModel : INotifyPropertyChanged
         };
 
         NewMessage = string.Empty;
-        await _chatService.SendMessageAsync(_driverId, message);
+
+        // FIX 3: Replaced _driverId with DriverId
+        await _chatService.SendMessageAsync(DriverId, message);
     }
 
     private async void OnCallManager()
@@ -93,26 +98,23 @@ public class MessageManagerViewModel : INotifyPropertyChanged
         {
             string managerPhoneNumber = "09123456789";
 
-            // 1. Request the live calling permission from the driver
             var status = await Permissions.CheckStatusAsync<Permissions.Phone>();
             if (status != PermissionStatus.Granted)
             {
                 status = await Permissions.RequestAsync<Permissions.Phone>();
             }
 
-            // 2. If granted, execute the direct call
             if (status == PermissionStatus.Granted)
             {
-    #if ANDROID
-                // Bypasses the dialer UI and initiates the call instantly
+#if ANDROID
                 var uri = Android.Net.Uri.Parse($"tel:{managerPhoneNumber}");
                 var intent = new Android.Content.Intent(Android.Content.Intent.ActionCall, uri);
                 intent.AddFlags(Android.Content.ActivityFlags.NewTask);
                 Android.App.Application.Context.StartActivity(intent);
-    #else
+#else
             if (Microsoft.Maui.ApplicationModel.Communication.PhoneDialer.Default.IsSupported)
                 Microsoft.Maui.ApplicationModel.Communication.PhoneDialer.Default.Open(managerPhoneNumber);
-    #endif
+#endif
             }
         }
         catch (Exception ex)

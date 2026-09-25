@@ -15,25 +15,18 @@
                 StrokeThickness="0">
             <Grid RowDefinitions="Auto, *">
                 <!-- Header -->
-                <Grid Grid.Row="0" Padding="10,20,20,0">
-                    <ImageButton Source="back_icon.png" 
-                     HorizontalOptions="Start" 
-                     WidthRequest="24" 
-                     HeightRequest="24" 
-                     Aspect="AspectFit"
-                     Padding="4"
-                     BackgroundColor="Transparent" 
-                     Clicked="OnBackButtonClicked" />   
+                <Grid Padding="15,15" ColumnDefinitions="Auto, *, Auto">
+                    <ImageButton Grid.Column="0" Source="back_icon.png" WidthRequest="32" Margin="-10,-10,0,0" HeightRequest="32" Aspect="AspectFit" Padding="10" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
                 </Grid>
 
                 <!-- Content Inside Blue Area -->
                 <VerticalStackLayout Grid.Row="1" Padding="30, 0, 30, 30" Spacing="15" VerticalOptions="Center">
                     <Label Text="Welcome back!" 
-                           FontSize="36" 
-                           FontAttributes="Bold" 
+                           Style="{StaticResource HeaderTitleStyle}" 
+                           FontSize="40"
                            TextColor="Black"
                            HorizontalOptions="Center" 
-                           Margin="0, 0, 0, 30" />
+                           Margin="0, 0, 0, 70" />
 
                     <!-- Blue filled input fields -->
                     <Border BackgroundColor="#0099CC" StrokeShape="RoundRectangle 10" StrokeThickness="0" HeightRequest="50">
@@ -44,15 +37,11 @@
                         <Entry Placeholder="Password" Text="{Binding Password}" IsPassword="True" PlaceholderColor="#E0E0E0" TextColor="White" VerticalOptions="Center" Margin="15,0" BackgroundColor="Transparent" />
                     </Border>
 
-                    <Label Text="Forgot password?" 
-                           TextColor="Black"
-                           HorizontalOptions="End" 
-                           TextDecorations="Underline"
-                           FontSize="14">
-                        <Label.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding ForgotPasswordCommand}" />
-                        </Label.GestureRecognizers>
-                    </Label>
+                    <!-- Remember Me Checkbox (Aligned to Left) -->
+                    <HorizontalStackLayout Spacing="10" HorizontalOptions="Start" Margin="0,5,0,0">
+                        <CheckBox IsChecked="{Binding RememberMe}" Color="#0099CC" />
+                        <Label Text="Remember Me" VerticalOptions="Center" TextColor="Black" FontSize="14" />
+                    </HorizontalStackLayout>
                 </VerticalStackLayout>
             </Grid>
         </Border>
@@ -61,7 +50,18 @@
         <VerticalStackLayout Grid.Row="1" Padding="30,20,30,40" Spacing="15">
             <Label Text="{Binding ErrorMessage}" TextColor="Red" HorizontalOptions="Center" />
 
-            <Button Text="Login" BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="50" FontAttributes="Bold" Command="{Binding LoginCommand}" WidthRequest="250" HorizontalOptions="Center"/>
+            <Button Text="Login" BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="50" Style="{StaticResource LargaButtonStyle}" FontSize="18" Command="{Binding LoginCommand}" WidthRequest="250" HorizontalOptions="Center"/>
+
+            <!-- Forgot Password (Moved below Login button and Centered) -->
+            <Label Text="Forgot password?" 
+                   TextColor="Black"
+                   HorizontalOptions="Center" 
+                   TextDecorations="Underline"
+                   FontSize="14">
+                <Label.GestureRecognizers>
+                    <TapGestureRecognizer Command="{Binding ForgotPasswordCommand}" />
+                </Label.GestureRecognizers>
+            </Label>
 
             <Label Text="Don't have an account?&#10;Please refer to your manager to open your account."
                    HorizontalTextAlignment="Center"
