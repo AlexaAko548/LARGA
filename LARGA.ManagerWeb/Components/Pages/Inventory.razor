@@ -101,8 +101,8 @@ else if (_isAuthorized)
                                 </span>
                             </td>
                             <td class="col-actions">
-                                <button class="btn-table-action" @onclick="() => EditPart(item)">✎ Edit</button>
-                                <button class="btn-table-action" @onclick="() => DeductPartAsync(item)">− Deduct</button>
+                                <button class="btn-table-action" type="button" @onclick="() => OpenAdjustStockModal(item, true)">+ Add</button>
+                                <button class="btn-table-action" type="button" @onclick="() => OpenAdjustStockModal(item, false)">− Deduct</button>
                             </td>
                         </tr>
                     }
@@ -143,6 +143,31 @@ else if (_isAuthorized)
         </div>
     </div>
 }
+
+@if (showAdjustModal && selectedPart is not null)
+{
+    <div class="modal-overlay" @onclick="CloseAdjustStockModal">
+        <div class="modal-card" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>@(isAddMode ? "Add Stock" : "Deduct Stock")</h3>
+                <button class="modal-close-btn" @onclick="CloseAdjustStockModal">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Part</label>
+                    <input type="text" value="@selectedPart.PartName" disabled />
+                </div>
+                <div class="form-group">
+                    <label>Quantity (@selectedPart.Unit)</label>
+                    <input type="number" min="1" @bind="adjustAmount" />
+                </div>
+                <button class="btn-save-part" type="button" disabled="@isApplyingAdjustment" @onclick="ApplyStockAdjustmentAsync">
+                    @(isApplyingAdjustment ? "PROCESSING..." : isAddMode ? "CONFIRM ADD" : "CONFIRM DEDUCT")
+                </button>
+            </div>
+        </div>
+    </div>
+}
     </main>
 </div>
 }
@@ -150,11 +175,17 @@ else if (_isAuthorized)
 @code {
     private bool _isCheckingAccess = true;
     private bool _isAuthorized;
+    private string _managerUserId = string.Empty;
     private IJSObjectReference? _firebaseModule;
     private string? _loadError;
     private string? _actionError;
 
     private bool showAddModal = false;
+    private bool showAdjustModal = false;
+    private bool isAddMode = true;
+    private bool isApplyingAdjustment;
+    private int adjustAmount = 1;
+    private SparePart? selectedPart;
     private SparePart newPart = new() { Unit = "pcs" };
     private List<SparePart> parts = new();
 
@@ -168,6 +199,10 @@ else if (_isAuthorized)
         _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
         JsonElement result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
         _isAuthorized = result.TryGetProperty("ok", out JsonElement okProp) && okProp.ValueKind == JsonValueKind.True;
+        if (_isAuthorized && result.TryGetProperty("uid", out JsonElement uidProp) && uidProp.ValueKind == JsonValueKind.String)
+        {
+            _managerUserId = uidProp.GetString() ?? string.Empty;
+        }
         _isCheckingAccess = false;
 
         if (!_isAuthorized)
@@ -219,13 +254,47 @@ else if (_isAuthorized)
 
     private static string ToDisplayPartId(int rowNumber) => rowNumber.ToString("D2");
 
-    private async Task DeductPartAsync(SparePart item)
+    private void OpenAdjustStockModal(SparePart item, bool addMode)
+    {
+        _actionError = null;
+        selectedPart = item;
+        isAddMode = addMode;
+        adjustAmount = 1;
+        showAdjustModal = true;
+    }
+
+    private void CloseAdjustStockModal()
+    {
+        showAdjustModal = false;
+        selectedPart = null;
+        adjustAmount = 1;
+        isApplyingAdjustment = false;
+    }
+
+    private async Task ApplyStockAdjustmentAsync()
     {
         _actionError = null;
 
+        if (selectedPart is null)
+        {
+            _actionError = "No part selected.";
+            return;
+        }
+
+        if (adjustAmount <= 0)
+        {
+            _actionError = "Please enter a valid positive quantity.";
+            return;
+        }
+
+        isApplyingAdjustment = true;
+
         try
         {
-            SparePart? updated = await InventoryAudit.DeductPartAsync(item.PartId);
+            SparePart? updated = isAddMode
+                ? await InventoryAudit.AddPartStockAsync(selectedPart.PartId, adjustAmount, actorUserId: _managerUserId)
+                : await InventoryAudit.DeductPartAsync(selectedPart.PartId, adjustAmount, actorUserId: _managerUserId);
+
             if (updated is null)
             {
                 _actionError = "This part no longer exists in Firestore.";
@@ -237,16 +306,19 @@ else if (_isAuthorized)
             {
                 parts[idx] = updated;
             }
+
+            CloseAdjustStockModal();
         }
         catch (Exception ex)
         {
-            _actionError = $"Couldn't deduct stock: {ex.Message}";
+            _actionError = isAddMode
+                ? $"Couldn't add stock: {ex.Message}"
+                : $"Couldn't deduct stock: {ex.Message}";
         }
-    }
-
-    private void EditPart(SparePart item)
-    {
-        // Add edit logic or navigation
+        finally
+        {
+            isApplyingAdjustment = false;
+        }
     }
 
     private async Task SavePartAsync()
@@ -268,7 +340,7 @@ else if (_isAuthorized)
                 ReorderLevel = newPart.ReorderLevel,
                 Unit = newPart.Unit,
                 UnitPrice = 0m,
-            });
+            }, actorUserId: _managerUserId);
 
             parts.Add(saved);
             parts = parts.OrderBy(p => p.PartName, StringComparer.OrdinalIgnoreCase).ToList();
