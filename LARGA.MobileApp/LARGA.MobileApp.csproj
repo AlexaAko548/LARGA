@@ -168,6 +168,9 @@
 	  <MauiXaml Update="Views\Driver\ScanFuelReceiptPage.xaml">
 	    <Generator>MSBuild:Compile</Generator>
 	  </MauiXaml>
+	  <MauiXaml Update="Views\Manager\ChatsDetailPage.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </MauiXaml>
 	  <MauiXaml Update="Views\Manager\ManagerDashboardPage.xaml">
 	    <Generator>MSBuild:Compile</Generator>
 	  </MauiXaml>
@@ -184,7 +187,6 @@
 
 	<ItemGroup>
 	  <Folder Include="NewFolder\" />
-	  <Folder Include="ViewModels\Manager\" />
 	</ItemGroup>
 
 </Project>

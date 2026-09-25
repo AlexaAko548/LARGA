@@ -35,5 +35,6 @@ public partial class AppShell : Shell
         Routing.RegisterRoute("coming-soon", typeof(Views.Shared.ComingSoonPage));
         Routing.RegisterRoute("fuel-report-page", typeof(Views.Driver.FuelReportPage));
         Routing.RegisterRoute(nameof(FuelReportDetailPage), typeof(Views.Driver.FuelReportDetailPage));
+        Routing.RegisterRoute("ChatsDetailPage", typeof(ChatsDetailPage));
     }
 }

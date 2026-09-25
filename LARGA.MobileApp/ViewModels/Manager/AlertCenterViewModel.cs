@@ -14,13 +14,12 @@ namespace LARGA.MobileApp.ViewModels.Manager;
 
 public class AlertCenterViewModel : BindableObject
 {
-    // Three independent live feeds merged into one list for the UI. Each Firestore
-    // snapshot listener owns its slice and rebuilds it in full on every change (SOS/fuel/
-    // defect volume is incident-driven and low, per FleetReportingService's own comment on
-    // these same collections - not worth diffing).
+    // Four independent live feeds merged into one list for the UI. Each Firestore
+    // snapshot listener owns its slice and rebuilds it in full on every change.
     private readonly List<AlertItem> _sosItems = new();
     private readonly List<AlertItem> _fuelItems = new();
     private readonly List<AlertItem> _defectItems = new();
+    private readonly List<AlertItem> _idleItems = new();
 
     private readonly Dictionary<string, DriverLookup> _driverCache = new();
     private readonly Dictionary<string, ShiftProxy> _shiftCache = new();
@@ -29,6 +28,7 @@ public class AlertCenterViewModel : BindableObject
     private IDisposable? _sosListener;
     private IDisposable? _fuelListener;
     private IDisposable? _defectListener;
+    private IDisposable? _idleListener;
 
     public ObservableCollection<AlertItem> Alerts { get; } = new();
 
@@ -185,12 +185,40 @@ public class AlertCenterViewModel : BindableObject
                 _defectItems.AddRange(items);
                 MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
             });
+
+        // Loads real, unread "driver idle" alerts from system_alerts. Single equality filter 
+        // (type == "DriverIdle") only - no composite index needed - with the isRead filter 
+        // and timestamp ordering done client-side.
+        _idleListener = CrossFirebaseFirestore.Current
+            .GetCollection("system_alerts")
+            .WhereEqualsTo("type", "DriverIdle")
+            .AddSnapshotListener<SystemAlertProxy>(snapshot =>
+            {
+                var items = snapshot.Documents
+                    .Where(doc => doc.Data != null && !doc.Data.IsRead)
+                    .OrderByDescending(doc => doc.Data!.Timestamp)
+                    .Select(doc => new AlertItem
+                    {
+                        Id = doc.Reference.Id,
+                        Type = AlertType.DriverIdle,
+                        DriverId = doc.Data!.DriverId,
+                        TaxiId = doc.Data.TaxiId,
+                        DriverName = $"{doc.Data.DriverName} · {doc.Data.UnitLabel}",
+                        Subtitle = doc.Data.Message,
+                        Timestamp = FirestoreDateTimeFix.Apply(doc.Data.Timestamp).ToLocalTime().ToString("h:mm tt")
+                    })
+                    .ToList();
+
+                _idleItems.Clear();
+                _idleItems.AddRange(items);
+                MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
+            });
     }
 
     private void RefreshCombinedAlerts()
     {
         Alerts.Clear();
-        foreach (var item in _sosItems.Concat(_fuelItems).Concat(_defectItems))
+        foreach (var item in _sosItems.Concat(_fuelItems).Concat(_defectItems).Concat(_idleItems))
         {
             Alerts.Add(item);
         }
@@ -258,8 +286,10 @@ public class AlertCenterViewModel : BindableObject
                 case AlertType.ShiftApproval:
                     // No status write here - Approve/Deny are the real decisions for a defect
                     // report; the top-right X just hides the card from this session's view.
-                    // (The live listener will bring it right back on its own next snapshot
-                    // unless Approve/Deny actually changed its status, which is intentional.)
+                    break;
+
+                case AlertType.DriverIdle:
+                    await MarkAlertReadAsync(alert.Id);
                     break;
             }
         }
@@ -280,9 +310,7 @@ public class AlertCenterViewModel : BindableObject
                 .GetDocument(alert.Id)
                 .UpdateDataAsync(new Dictionary<object, object> { ["status"] = newStatus });
 
-            // "Deny & Send to Garage" means the taxi itself is now unavailable, not just that
-            // a work order exists for it - without this, Fleet Registry would keep showing it
-            // as available/active while it's actually sitting in the shop.
+            // "Deny & Send to Garage" means the taxi itself is now unavailable.
             if (newStatus == "InProgress" && !string.IsNullOrWhiteSpace(alert.TaxiId))
             {
                 await CrossFirebaseFirestore.Current
@@ -291,10 +319,6 @@ public class AlertCenterViewModel : BindableObject
                     .UpdateDataAsync(new Dictionary<object, object> { ["status"] = "Maintenance" });
             }
 
-            // The card just disappears from this list once its status leaves "Reported" -
-            // with no confirmation, that silent vanish reads exactly like the tap did
-            // nothing, even though the write to maintenance_logs (which ManagerWeb's Garage
-            // page reads) already succeeded. Say so explicitly.
             if (newStatus == "InProgress")
             {
                 await Shell.Current.DisplayAlert("Sent to Garage", $"{alert.DriverName}'s report has been sent to the garage for a work order. {alert.TaxiId} is now marked under maintenance.", "OK");
@@ -312,12 +336,6 @@ public class AlertCenterViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("fullName")]
         public string FullName { get; set; } = string.Empty;
 
-        // object, not string: some real records have phoneNumber stored as a number rather
-        // than a string (the same inconsistency LARGA.Shared.Models.Entities.UserProfile
-        // works around with its own LenientStringConverter for this exact field, on the
-        // Google.Cloud.Firestore side). Plugin.Firebase.Firestore has no equivalent lenient
-        // converter, and throws instead of coercing, which was silently emptying the whole
-        // alert list whenever any looked-up driver had a numeric phoneNumber.
         [Plugin.Firebase.Firestore.FirestoreProperty("phoneNumber")]
         public object? PhoneNumber { get; set; }
     }
@@ -363,7 +381,6 @@ public class AlertCenterViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("fuelLogDetails")]
         public string? FuelLogDetails { get; set; }
 
-        // DateTimeOffset?, not DateTime? - see LicenseStatusHelper.Describe for why.
         [Plugin.Firebase.Firestore.FirestoreProperty("receiptTimestamp")]
         public DateTimeOffset? ReceiptTimestamp { get; set; }
     }
@@ -388,7 +405,36 @@ public class AlertCenterViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
         public string? TaxiId { get; set; }
     }
-}
+
+    private class SystemAlertProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("type")]
+        public string Type { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
+        public string DriverId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverName")]
+        public string DriverName { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
+        public string TaxiId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("unitLabel")]
+        public string UnitLabel { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
+        public string ShiftId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
+        public DateTime Timestamp { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("isRead")]
+        public bool IsRead { get; set; }
+    }
 
     private static async Task MarkAlertReadAsync(string alertId)
     {
@@ -433,4 +479,5 @@ public class AlertItem
     public bool IsSos => Type == AlertType.Sos;
     public bool IsFuelDiscrepancy => Type == AlertType.FuelDiscrepancy;
     public bool IsShiftApproval => Type == AlertType.ShiftApproval;
+    public bool IsDriverIdle => Type == AlertType.DriverIdle;
 }

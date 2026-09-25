@@ -8,19 +8,45 @@ using LARGA.SharedCore.Services;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 
-namespace LARGA.MobileApp.ViewModels.Driver;
+namespace LARGA.MobileApp.ViewModels.Manager;
 
-public class MessageManagerViewModel : INotifyPropertyChanged
+[QueryProperty(nameof(DriverId), "DriverId")]
+[QueryProperty(nameof(DriverName), "DriverName")]
+public class ChatsDetailViewModel : INotifyPropertyChanged
 {
     private readonly IChatService _chatService;
     private string _newMessage = string.Empty;
-
-    // Updated property name
-    private string DriverId => Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser?.Uid ?? "unknown_driver";
-
+    private string _driverId = string.Empty;
+    private string _driverName = string.Empty;
     private IDisposable? _chatListener;
 
     public ObservableCollection<ChatMessage> Messages { get; set; } = new();
+
+    public string DriverId
+    {
+        get => _driverId;
+        set
+        {
+            if (_driverId != value)
+            {
+                _driverId = value;
+                OnPropertyChanged();
+
+                _chatListener?.Dispose(); // Destroy the old listener first
+                StartListening();
+            }
+        }
+    }
+
+    public string DriverName
+    {
+        get => _driverName;
+        set
+        {
+            _driverName = value;
+            OnPropertyChanged();
+        }
+    }
 
     public string NewMessage
     {
@@ -37,21 +63,23 @@ public class MessageManagerViewModel : INotifyPropertyChanged
     }
 
     public string SubmitIcon => string.IsNullOrWhiteSpace(NewMessage) ? "like_icon.png" : "send_icon.png";
-    public ICommand SendMessageCommand { get; }
-    public ICommand CallManagerCommand { get; }
 
-    public MessageManagerViewModel(IChatService chatService)
+    public ICommand SendMessageCommand { get; }
+    public ICommand CallDriverCommand { get; }
+    public ICommand GoBackCommand { get; }
+
+    public ChatsDetailViewModel(IChatService chatService)
     {
         _chatService = chatService;
         SendMessageCommand = new Command(OnSendMessage);
-        StartListening();
-
-        CallManagerCommand = new Command(OnCallManager);
+        CallDriverCommand = new Command(OnCallDriver);
+        GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
     }
 
     private void StartListening()
     {
-        // FIX 1: Replaced _driverId with DriverId
+        if (string.IsNullOrEmpty(DriverId)) return;
+
         _chatListener = _chatService.ListenForMessages(DriverId, messages =>
         {
             MainThread.BeginInvokeOnMainThread(() =>
@@ -72,10 +100,8 @@ public class MessageManagerViewModel : INotifyPropertyChanged
             var likeMessage = new ChatMessage
             {
                 Text = "👍",
-                IsDriver = true
+                IsDriver = false // Sent by manager
             };
-
-            // FIX 2: Replaced _driverId with DriverId
             await _chatService.SendMessageAsync(DriverId, likeMessage);
             return;
         }
@@ -83,20 +109,19 @@ public class MessageManagerViewModel : INotifyPropertyChanged
         var message = new ChatMessage
         {
             Text = NewMessage,
-            IsDriver = true
+            IsDriver = false // Sent by manager
         };
 
         NewMessage = string.Empty;
-
-        // FIX 3: Replaced _driverId with DriverId
         await _chatService.SendMessageAsync(DriverId, message);
     }
 
-    private async void OnCallManager()
+    private async void OnCallDriver()
     {
         try
         {
-            string managerPhoneNumber = "09123456789";
+            // Fetch driver phone number from service based on DriverId
+            string driverPhoneNumber = await _chatService.GetDriverPhoneNumberAsync(DriverId) ?? "00000000000";
 
             var status = await Permissions.CheckStatusAsync<Permissions.Phone>();
             if (status != PermissionStatus.Granted)
@@ -107,13 +132,13 @@ public class MessageManagerViewModel : INotifyPropertyChanged
             if (status == PermissionStatus.Granted)
             {
 #if ANDROID
-                var uri = Android.Net.Uri.Parse($"tel:{managerPhoneNumber}");
+                var uri = Android.Net.Uri.Parse($"tel:{driverPhoneNumber}");
                 var intent = new Android.Content.Intent(Android.Content.Intent.ActionCall, uri);
                 intent.AddFlags(Android.Content.ActivityFlags.NewTask);
                 Android.App.Application.Context.StartActivity(intent);
 #else
             if (Microsoft.Maui.ApplicationModel.Communication.PhoneDialer.Default.IsSupported)
-                Microsoft.Maui.ApplicationModel.Communication.PhoneDialer.Default.Open(managerPhoneNumber);
+                Microsoft.Maui.ApplicationModel.Communication.PhoneDialer.Default.Open(driverPhoneNumber);
 #endif
             }
         }
