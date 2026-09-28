@@ -10,6 +10,7 @@ using Plugin.Firebase.Core.Platforms.Android;
 using Microsoft.Maui.LifecycleEvents;
 using LARGA.MobileApp.ViewModels.Driver;
 using LARGA.MobileApp.ViewModels.Auth;
+using LARGA.MobileApp.ViewModels.Manager;
 using Plugin.Firebase.CloudMessaging;
 using LARGA.MobileApp.Services;
 using LARGA.MobileApp.Views.Shared;
@@ -91,6 +92,8 @@ public static class MauiProgram
         builder.Services.AddTransient<ReportsViewModel>();
         builder.Services.AddTransient<FuelReportViewModel>();
         builder.Services.AddTransient<FuelReportDetailViewModel>();
+        builder.Services.AddTransient<ChatsViewModel>();
+        builder.Services.AddTransient<ChatsDetailViewModel>();
 
         // Register Views 
         builder.Services.AddTransient<LandingPage>();
@@ -130,6 +133,7 @@ public static class MauiProgram
         builder.Services.AddTransient<FuelReportPage>();
         builder.Services.AddTransient<Views.Driver.ScanFuelReceiptPage>();
         builder.Services.AddTransient<FuelReportDetailPage>();
+        builder.Services.AddTransient<ChatsDetailPage>();
 
 
 #if DEBUG

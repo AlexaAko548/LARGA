@@ -1,16 +1,18 @@
-using LARGA.MobileApp.ViewModels.Driver;
 using Microsoft.Maui.Controls;
-using System;
+using LARGA.MobileApp.ViewModels.Manager;
+using System.Threading.Tasks;
+using Microsoft.Maui.ApplicationModel;
 
-namespace LARGA.MobileApp.Views.Driver;
+namespace LARGA.MobileApp.Views.Manager;
 
-public partial class MessageManagerPage : ContentPage
+public partial class ChatsDetailPage : ContentPage
 {
-    public MessageManagerPage(MessageManagerViewModel viewModel)
+    public ChatsDetailPage(ChatsDetailViewModel viewModel)
     {
         InitializeComponent();
         BindingContext = viewModel;
 
+        // Wire up the scroll action from the ViewModel
         viewModel.ScrollToBottom = async () =>
         {
             if (viewModel.Messages.Count > 0)
@@ -25,10 +27,5 @@ public partial class MessageManagerPage : ContentPage
                 });
             }
         };
-    }
-
-    private async void OnBackButtonClicked(object sender, EventArgs e)
-    {
-        await Shell.Current.GoToAsync("..");
     }
 }
