@@ -46,21 +46,33 @@ public class InventoryAuditService
         return parts;
     }
 
-    public async Task<SparePart> AddSparePartAsync(SparePart part)
+    public async Task<SparePart> AddSparePartAsync(SparePart part, string? actorUserId = null)
     {
         part.PartName = part.PartName.Trim();
         part.Unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit.Trim();
         part.StockQuantity = Math.Max(0, part.StockQuantity);
         part.ReorderLevel = Math.Max(0, part.ReorderLevel);
 
-        DocumentReference doc = Db.Collection("spare_parts").Document();
-        part.PartId = doc.Id;
+        DocumentReference partDoc = Db.Collection("spare_parts").Document();
+        DocumentReference auditDoc = Db.Collection("audit_logs").Document();
+        part.PartId = partDoc.Id;
 
-        await doc.SetAsync(part, SetOptions.Overwrite);
+        var audit = new AuditLog
+        {
+            UserId = actorUserId ?? string.Empty,
+            ActionType = "InventoryPartCreated",
+            AuditLogDetails = $"Logged new spare part '{part.PartName}' with {part.StockQuantity} {part.Unit} (reorder level: {part.ReorderLevel}).",
+            Timestamp = DateTime.UtcNow,
+        };
+
+        WriteBatch batch = Db.StartBatch();
+        batch.Set(partDoc, part, SetOptions.Overwrite);
+        batch.Set(auditDoc, audit, SetOptions.Overwrite);
+        await batch.CommitAsync();
         return part;
     }
 
-    public async Task<SparePart?> DeductPartAsync(string partId, int amount = 1)
+    public async Task<SparePart?> DeductPartAsync(string partId, int amount = 1, string? actorUserId = null)
     {
         if (string.IsNullOrWhiteSpace(partId))
         {
@@ -72,6 +84,7 @@ public class InventoryAuditService
         return await Db.RunTransactionAsync(async transaction =>
         {
             DocumentReference doc = Db.Collection("spare_parts").Document(partId);
+            DocumentReference auditDoc = Db.Collection("audit_logs").Document();
             DocumentSnapshot snapshot = await transaction.GetSnapshotAsync(doc);
 
             if (!snapshot.Exists)
@@ -84,6 +97,62 @@ public class InventoryAuditService
 
             int updatedQuantity = Math.Max(0, part.StockQuantity - deduction);
             transaction.Update(doc, "stockQuantity", updatedQuantity);
+
+            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+            var audit = new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "InventoryStockDeducted",
+                AuditLogDetails = $"Deducted {deduction} {unit} from '{part.PartName}'. Stock: {part.StockQuantity} -> {updatedQuantity}.",
+                Timestamp = DateTime.UtcNow,
+            };
+            transaction.Set(auditDoc, audit);
+
+            part.StockQuantity = updatedQuantity;
+            if (string.IsNullOrWhiteSpace(part.Unit))
+            {
+                part.Unit = "pcs";
+            }
+
+            return part;
+        });
+    }
+
+    public async Task<SparePart?> AddPartStockAsync(string partId, int amount = 1, string? actorUserId = null)
+    {
+        if (string.IsNullOrWhiteSpace(partId))
+        {
+            return null;
+        }
+
+        int increment = Math.Max(1, amount);
+
+        return await Db.RunTransactionAsync(async transaction =>
+        {
+            DocumentReference doc = Db.Collection("spare_parts").Document(partId);
+            DocumentReference auditDoc = Db.Collection("audit_logs").Document();
+            DocumentSnapshot snapshot = await transaction.GetSnapshotAsync(doc);
+
+            if (!snapshot.Exists)
+            {
+                return null;
+            }
+
+            SparePart part = snapshot.ConvertTo<SparePart>();
+            part.PartId = snapshot.Id;
+
+            int updatedQuantity = Math.Max(0, part.StockQuantity + increment);
+            transaction.Update(doc, "stockQuantity", updatedQuantity);
+
+            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+            var audit = new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "InventoryStockAdded",
+                AuditLogDetails = $"Added {increment} {unit} to '{part.PartName}'. Stock: {part.StockQuantity} -> {updatedQuantity}.",
+                Timestamp = DateTime.UtcNow,
+            };
+            transaction.Set(auditDoc, audit);
 
             part.StockQuantity = updatedQuantity;
             if (string.IsNullOrWhiteSpace(part.Unit))
