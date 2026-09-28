@@ -126,8 +126,8 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                     .GetDocument(user.Uid)
                     .GetDocumentSnapshotAsync<UserProfileProxy>(); // FIX: Use the mobile proxy
 
-                DateTime? licenseExpiry = userProfileDoc?.Data?.LicenseExpiryDate;
-                EvaluateLicenseAlert(licenseExpiry);
+                DateTimeOffset? licenseExpiryOffset = userProfileDoc?.Data?.LicenseExpiryDate;
+                EvaluateLicenseAlert(licenseExpiryOffset?.UtcDateTime);
 
                 var dynamicTaxiId = userProfileDoc?.Data?.AssignedTaxiId;
 
@@ -136,7 +136,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                     var taxi = await _shiftService.GetTaxiUnitAsync(dynamicTaxiId);
                     if (taxi != null)
                     {
-                        AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber) ? taxi.Model : taxi.PlateNumber.Replace("-", " � ");
+                        AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber) ? taxi.Model : taxi.PlateNumber.Replace("-", " • ");
                         AssignedUnitDetails = $"{taxi.YearManufactured} {taxi.Model}";
                         MaintenanceStatus = taxi.Status;
 
@@ -204,10 +204,11 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                 return;
             }
 
-            int currentDay = Math.Max(1, (int)(DateTime.UtcNow.Date - active.DateLogged.Date).TotalDays + 1);
+            int currentDay = Math.Max(1, (int)(DateTime.UtcNow.Date - active.DateLogged.UtcDateTime.Date).TotalDays + 1);
+
             if (active.EstimatedCompletionDate.HasValue)
             {
-                int totalDays = Math.Max(currentDay, (int)(active.EstimatedCompletionDate.Value.Date - active.DateLogged.Date).TotalDays + 1);
+                int totalDays = Math.Max(currentDay, (int)(active.EstimatedCompletionDate.Value.UtcDateTime.Date - active.DateLogged.UtcDateTime.Date).TotalDays + 1);
                 MaintenanceDayLabel = $"Day {Math.Min(currentDay, totalDays)} of {totalDays}";
             }
             else
@@ -228,7 +229,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
         public string AssignedTaxiId { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("licenseExpiryDate")]
-        public DateTime? LicenseExpiryDate { get; set; }
+        public DateTimeOffset? LicenseExpiryDate { get; set; } // Fixed
     }
 
     // Mobile-specific proxy (Plugin.Firebase attributes) for reading a taxi's active
@@ -239,10 +240,10 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
         public string Status { get; set; } = string.Empty;
 
         [Plugin.Firebase.Firestore.FirestoreProperty("dateLogged")]
-        public DateTime DateLogged { get; set; }
+        public DateTimeOffset DateLogged { get; set; } // Fixed
 
         [Plugin.Firebase.Firestore.FirestoreProperty("estimatedCompletionDate")]
-        public DateTime? EstimatedCompletionDate { get; set; }
+        public DateTimeOffset? EstimatedCompletionDate { get; set; } // Fixed
     }
 
     public void ApplyQueryAttributes(IDictionary<string, object> query)
