@@ -46,7 +46,22 @@ public class FuelVerificationService
         foreach (IGrouping<string, FuelLog> group in logs.GroupBy(l => l.ShiftId ?? string.Empty))
         {
             shiftById.TryGetValue(group.Key, out ShiftLog? shift);
-            string driverName = shift != null && driverNames.TryGetValue(shift.DriverId, out string? name) ? name : "Unknown Driver";
+            // Prefer the shift's driver; a log submitted without a real shift (mobile writes
+            // UNKNOWN_SHIFT) still carries its own driverId, so fall back to that.
+            string? shiftDriverId = shift?.DriverId;
+            string driverName = "Unknown Driver";
+            if (!string.IsNullOrEmpty(shiftDriverId) && driverNames.TryGetValue(shiftDriverId, out string? name))
+            {
+                driverName = name;
+            }
+            else
+            {
+                string? logDriverId = group.Select(l => l.DriverId).FirstOrDefault(id => !string.IsNullOrEmpty(id));
+                if (!string.IsNullOrEmpty(logDriverId) && driverNames.TryGetValue(logDriverId, out string? logName))
+                {
+                    driverName = logName;
+                }
+            }
             string taxiId = shift?.TaxiId ?? "—";
 
             int ordinal = 1;
@@ -112,9 +127,10 @@ public class FuelVerificationService
         }
 
         string driverName = "Unknown Driver";
-        if (shift != null && !string.IsNullOrEmpty(shift.DriverId))
+        string? driverIdForName = !string.IsNullOrEmpty(shift?.DriverId) ? shift!.DriverId : log.DriverId;
+        if (!string.IsNullOrEmpty(driverIdForName))
         {
-            DocumentSnapshot driverSnapshot = await Db.Collection("users").Document(shift.DriverId).GetSnapshotAsync();
+            DocumentSnapshot driverSnapshot = await Db.Collection("users").Document(driverIdForName).GetSnapshotAsync();
             if (driverSnapshot.Exists)
             {
                 driverName = driverSnapshot.ConvertTo<UserProfile>().FullName;
@@ -164,6 +180,10 @@ public class FuelVerificationService
             ORNumber = log.ORNumber,
             ReceiptImageUrl = log.ReceiptImageUrl,
             OdometerPhotoUrl = log.OdometerPhotoUrl,
+            IsCostManuallyEdited = log.IsCostManuallyEdited,
+            IsQuantityManuallyEdited = log.IsQuantityManuallyEdited,
+            IsFuelStationManuallyEdited = log.IsFuelStationManuallyEdited,
+            IsReceiptDateManuallyEdited = log.IsReceiptDateManuallyEdited,
             PreviousOdometerReading = previousReading,
             PreviousOdometerLabel = previousLabel,
             GpsDistanceKm = gpsDistanceKm,
