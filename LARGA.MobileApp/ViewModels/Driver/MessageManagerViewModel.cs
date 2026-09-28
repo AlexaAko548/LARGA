@@ -39,6 +39,7 @@ public class MessageManagerViewModel : INotifyPropertyChanged
     public string SubmitIcon => string.IsNullOrWhiteSpace(NewMessage) ? "like_icon.png" : "send_icon.png";
     public ICommand SendMessageCommand { get; }
     public ICommand CallManagerCommand { get; }
+    public Action? ScrollToBottom { get; set; }
 
     public MessageManagerViewModel(IChatService chatService)
     {
@@ -61,6 +62,8 @@ public class MessageManagerViewModel : INotifyPropertyChanged
                 {
                     Messages.Add(msg);
                 }
+
+                ScrollToBottom?.Invoke();
             });
         });
     }

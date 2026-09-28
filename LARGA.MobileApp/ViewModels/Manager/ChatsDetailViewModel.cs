@@ -67,6 +67,7 @@ public class ChatsDetailViewModel : INotifyPropertyChanged
     public ICommand SendMessageCommand { get; }
     public ICommand CallDriverCommand { get; }
     public ICommand GoBackCommand { get; }
+    public Action? ScrollToBottom { get; set; }
 
     public ChatsDetailViewModel(IChatService chatService)
     {
@@ -89,6 +90,8 @@ public class ChatsDetailViewModel : INotifyPropertyChanged
                 {
                     Messages.Add(msg);
                 }
+
+                ScrollToBottom?.Invoke();
             });
         });
     }
