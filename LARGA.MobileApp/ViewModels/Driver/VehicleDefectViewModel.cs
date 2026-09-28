@@ -1,4 +1,7 @@
+using System;
+using System.IO;
 using System.Windows.Input;
+using Microsoft.Maui.Storage;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using System.Threading.Tasks;
@@ -13,6 +16,7 @@ public class VehicleDefectViewModel : BindableObject
 {
     private readonly IMaintenanceService _maintenanceService;
     private readonly IShiftManagementService _shiftManagementService;
+    private readonly IPhotoStorageService _photoStorage;
 
     private string _checklistItem = string.Empty;
     private string _titleReport = string.Empty;
@@ -75,10 +79,11 @@ public class VehicleDefectViewModel : BindableObject
     public ICommand AttachPhotoCommand { get; }
     public ICommand SubmitReportCommand { get; }
 
-    public VehicleDefectViewModel(IMaintenanceService maintenanceService, IShiftManagementService shiftManagementService)
+    public VehicleDefectViewModel(IMaintenanceService maintenanceService, IShiftManagementService shiftManagementService, IPhotoStorageService photoStorage)
     {
         _maintenanceService = maintenanceService;
         _shiftManagementService = shiftManagementService;
+        _photoStorage = photoStorage;
 
         AttachPhotoCommand = new Command(async () => await AttachPhotoAsync());
 
@@ -98,16 +103,31 @@ public class VehicleDefectViewModel : BindableObject
             var assignedTaxi = await _shiftManagementService.GetCurrentUserAssignedTaxiAsync();
             var taxiId = assignedTaxi?.TaxiId ?? string.Empty;
 
+            // Only set when reported mid-shift (end-shift inspection) - a pre-shift defect is
+            // reported before clock-in, so there's no shift to link it to yet.
+            string? shiftId = null;
+            try { shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId"); } catch { }
+
+            // Previously the local device path was stored, which nobody else can open.
+            string? photoUrl = null;
+            if (!string.IsNullOrWhiteSpace(_photoPath) && File.Exists(_photoPath))
+            {
+                byte[] bytes = await File.ReadAllBytesAsync(_photoPath);
+                photoUrl = await _photoStorage.UploadPhotoAsync(
+                    $"maintenance_logs/{(string.IsNullOrEmpty(driverId) ? "unknown_driver" : driverId)}/{Guid.NewGuid():N}.jpg", bytes);
+            }
+
             var record = new MaintenanceRecord
             {
                 TaxiId = taxiId,
+                ShiftId = string.IsNullOrWhiteSpace(shiftId) ? null : shiftId,
                 ManagerId = null, // Not yet assigned; manager sets this when creating a work order
                 MaintenanceType = MaintenanceType.BreakdownRepair,
                 IssueTitle = TitleReport,
                 IssueDescription = Description,
                 DateLogged = System.DateTime.UtcNow,
                 PriorityLevel = priorityLevel,
-                SupportingPhotoUrl = _photoPath, // NOTE: local device path for now; photo upload to Firebase Storage is a follow-up
+                SupportingPhotoUrl = photoUrl,
                 ReportedByDriverId = driverId,
                 Status = "Reported"
             };

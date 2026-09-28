@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -12,10 +13,13 @@ using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
-public class EndShiftStep2ViewModel : BindableObject
+public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
 {
     private readonly IOcrService _ocrService;
     private readonly IShiftManagementService _shiftService;
+    private readonly IPhotoStorageService _photoStorage;
+    private Dictionary<string, bool> _inspection = new();
+    private bool _isSubmitting;
     private string? _odometerPhotoLocalPath;
     private string? _fuelPhotoLocalPath;
 
@@ -89,10 +93,11 @@ public class EndShiftStep2ViewModel : BindableObject
     public ICommand ConfirmEndShiftCommand { get; }
     public ICommand SelectFuelCommand { get; }
 
-    public EndShiftStep2ViewModel(IOcrService ocrService, IShiftManagementService shiftService)
+    public EndShiftStep2ViewModel(IOcrService ocrService, IShiftManagementService shiftService, IPhotoStorageService photoStorage)
     {
         _ocrService = ocrService;
         _shiftService = shiftService;
+        _photoStorage = photoStorage;
 
         CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Register<EndShiftStep2ViewModel, OdometerScannedData, string>(this, "EndShiftOdometerScanned", (r, data) =>
         {
@@ -110,6 +115,13 @@ public class EndShiftStep2ViewModel : BindableObject
                 return;
             }
 
+            // Same double-tap guard as PreShiftStep2ViewModel.ConfirmStartShiftAsync.
+            if (_isSubmitting)
+            {
+                return;
+            }
+
+            _isSubmitting = true;
             try
             {
                 string digitsOnly = new string(FinalOdometer.Where(char.IsDigit).ToArray());
@@ -123,10 +135,14 @@ public class EndShiftStep2ViewModel : BindableObject
                 if (!string.IsNullOrEmpty(activeShiftId))
                 {
                     await _shiftService.ClockOutAsync(activeShiftId, endMileage, "");
+                    await ShiftChecklistUploader.SubmitAsync(
+                        _shiftService, _photoStorage, activeShiftId, isEndShift: true, _inspection,
+                        IsBelowHalfTankSelected, _fuelPhotoLocalPath, _odometerPhotoLocalPath);
                     SecureStorage.Remove("ActiveShiftDocumentId");
                 }
 
                 Preferences.Remove("IsShiftActive");
+                Preferences.Remove("CurrentShiftId");
 
                 FinalOdometer = string.Empty;
                 FuelPhoto = null;
@@ -144,6 +160,10 @@ public class EndShiftStep2ViewModel : BindableObject
             {
                 await Shell.Current.DisplayAlert("Error", $"Failed to end shift: {ex.Message}", "OK");
             }
+            finally
+            {
+                _isSubmitting = false;
+            }
         });
 
         SelectFuelCommand = new Command<string>((option) =>
@@ -151,6 +171,14 @@ public class EndShiftStep2ViewModel : BindableObject
             if (option == "HalfTank") IsHalfTankSelected = true;
             else if (option == "BelowHalf") IsBelowHalfTankSelected = true;
         });
+    }
+
+    public void ApplyQueryAttributes(IDictionary<string, object> query)
+    {
+        if (query.TryGetValue("inspection", out var value) && value is Dictionary<string, bool> inspection)
+        {
+            _inspection = inspection;
+        }
     }
 
     private async Task AttachFuelPhotoAsync()
@@ -196,7 +224,9 @@ public class EndShiftStep2ViewModel : BindableObject
                 {
                     string localFilePath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_{photo.FileName}");
 
-                    await ProcessAndOrientPhotoAsync(photo.FullPath, localFilePath, maxDimension: 1280, quality: 85);
+                    // Same reasoning as PreShiftStep2ViewModel.ScanOdometerAsync - odometer
+                    // digits need more effective pixels than the 1280px default gives them.
+                    await ProcessAndOrientPhotoAsync(photo.FullPath, localFilePath, maxDimension: 2560, quality: 85);
 
                     string? oldFilePath = _odometerPhotoLocalPath;
                     _odometerPhotoLocalPath = localFilePath;

@@ -20,6 +20,7 @@
 		     its own (MA002) - add it explicitly, pinned to the same version as MobileApp's
 		     MauiVersion-based packages. -->
 		<PackageReference Include="Microsoft.Maui.Essentials" Version="9.0.120" />
+		<PackageReference Include="SkiaSharp" Version="3.119.2" />
 	</ItemGroup>
 
 </Project>

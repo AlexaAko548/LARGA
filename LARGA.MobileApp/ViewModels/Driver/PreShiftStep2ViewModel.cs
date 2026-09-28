@@ -5,6 +5,7 @@ using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -12,11 +13,13 @@ using System.Windows.Input;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
-public class PreShiftStep2ViewModel : BindableObject
+public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
 {
     private bool _areStep1InspectionsComplete = true;
     private readonly IShiftManagementService _shiftService;
     private readonly IOcrService _ocrService;
+    private readonly IPhotoStorageService _photoStorage;
+    private Dictionary<string, bool> _inspection = new();
     private string _assignedTaxiId = string.Empty;
     private string? _odometerPhotoLocalPath;
     private string? _fuelPhotoLocalPath;
@@ -105,10 +108,11 @@ public class PreShiftStep2ViewModel : BindableObject
     public ICommand AttachPhotoCommand { get; }
     public ICommand ConfirmStartShiftCommand { get; }
 
-    public PreShiftStep2ViewModel(IShiftManagementService shiftService, IOcrService ocrService)
+    public PreShiftStep2ViewModel(IShiftManagementService shiftService, IOcrService ocrService, IPhotoStorageService photoStorage)
     {
         _shiftService = shiftService;
         _ocrService = ocrService;
+        _photoStorage = photoStorage;
 
         CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Register<PreShiftStep2ViewModel, OdometerScannedData, string>(this, "PreShiftOdometerScanned", (r, data) =>
         {
@@ -120,6 +124,14 @@ public class PreShiftStep2ViewModel : BindableObject
         ScanOdometerCommand = new Command(async () => await ScanOdometerAsync());
         AttachPhotoCommand = new Command(async () => await AttachPhotoAsync());
         ConfirmStartShiftCommand = new Command(async () => await ConfirmStartShiftAsync());
+    }
+
+    public void ApplyQueryAttributes(IDictionary<string, object> query)
+    {
+        if (query.TryGetValue("inspection", out var value) && value is Dictionary<string, bool> inspection)
+        {
+            _inspection = inspection;
+        }
     }
 
     private async Task LoadAssignedUnitAsync()
@@ -190,7 +202,15 @@ public class PreShiftStep2ViewModel : BindableObject
                 {
                     string localFilePath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_{photo.FileName}");
 
-                    await ProcessAndOrientPhotoAsync(photo, localFilePath, maxDimension: 1280, quality: 85);
+                    // Odometer digits are a small fraction of a full-dashboard shot's frame,
+                    // and thin seven-segment LCD strokes are already a hard case for general
+                    // OCR (see OdometerScanPage's NormalizeOdometerCandidate comment) - a
+                    // 1280px downscale can shrink them to just a handful of pixels each,
+                    // right around where JPEG compression/antialiasing blurs the strokes
+                    // together and detection quietly fails. Odometer-specific max dimension
+                    // bumped well above the other photo captures (fuel receipt, fuel level)
+                    // to give OCR more actual pixels to work with; quality left the same.
+                    await ProcessAndOrientPhotoAsync(photo, localFilePath, maxDimension: 2560, quality: 85);
 
                     string? oldFilePath = _odometerPhotoLocalPath;
                     _odometerPhotoLocalPath = localFilePath;
@@ -216,6 +236,29 @@ public class PreShiftStep2ViewModel : BindableObject
     }
 
     private async Task ConfirmStartShiftAsync()
+    {
+        // Clock-in + photo uploads take a few seconds - without this, a second tap in that
+        // window starts a second shift (and the first run's cleanup deletes the photos the
+        // second run is still trying to upload).
+        if (_isSubmitting)
+        {
+            return;
+        }
+
+        _isSubmitting = true;
+        try
+        {
+            await StartShiftCoreAsync();
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    private bool _isSubmitting;
+
+    private async Task StartShiftCoreAsync()
     {
         if (!CanStartShift)
         {
@@ -246,8 +289,16 @@ public class PreShiftStep2ViewModel : BindableObject
             }
 
             await SecureStorage.SetAsync("ActiveShiftDocumentId", newDocumentId);
+            // Fuel reports read the shift they belong to from here.
+            Preferences.Set("CurrentShiftId", newDocumentId);
             Preferences.Set("IsShiftActive", true);
             Preferences.Set("ShiftStartTime", DateTime.Now.ToString("o"));
+
+            // The shift has started regardless of how this goes - a failed checklist/photo
+            // upload only means the manager won't see this inspection, so it never blocks.
+            await ShiftChecklistUploader.SubmitAsync(
+                _shiftService, _photoStorage, newDocumentId, isEndShift: false, _inspection,
+                IsBelowHalfTankSelected, _fuelPhotoLocalPath, _odometerPhotoLocalPath);
 
             StartingOdometer = string.Empty;
             FuelPhoto = null;

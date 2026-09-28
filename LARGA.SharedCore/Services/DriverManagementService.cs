@@ -51,12 +51,14 @@ public class DriverManagementService
         var entries = drivers.Select(d =>
         {
             ShiftLog? active = activeShifts.FirstOrDefault(s => s.DriverId == d.UserId);
+            bool isOnShift = active is not null && IsEligibleForShift(d.LicenseExpiryDate, now);
             return new DriverRosterEntry
             {
                 DriverId = d.UserId,
                 FullName = d.FullName,
                 LicenseStatus = ComputeLicenseStatus(d.LicenseExpiryDate, now),
-                IsOnShift = active is not null && IsEligibleForShift(d.LicenseExpiryDate, now),
+                IsOnShift = isOnShift,
+                IsOnBreak = isOnShift && active!.IsOnBreak,
                 AssignedTaxiId = active?.TaxiId ?? (string.IsNullOrWhiteSpace(d.AssignedTaxiId) ? null : d.AssignedTaxiId),
             };
         }).ToList();
@@ -240,17 +242,17 @@ public class DriverManagementService
             .OrderByDescending(s => s.ShiftStart)
             .Select(s =>
             {
-                List<HandoverChecklist> shiftChecklists = checklists.Where(c => c.ShiftId == s.ShiftId).ToList();
+                List<HandoverChecklist> shiftChecklists = checklists.Where(c => BelongsTo(c.ShiftId, s)).ToList();
                 int defectCount = shiftChecklists.Sum(c => EvaluateChecklist(c).Items.Count(i => i.Passed == false));
 
                 return new ShiftLogEntry
                 {
-                    ShiftId = s.ShiftId,
+                    ShiftId = s.DocumentId,
                     ShiftStart = s.ShiftStart,
                     DriverId = s.DriverId,
                     DriverName = drivers.FirstOrDefault(d => d.UserId == s.DriverId)?.FullName ?? s.DriverId,
                     TaxiId = s.TaxiId,
-                    Status = s.Status,
+                    Status = s.Status == "Active" && s.IsOnBreak ? "On Break" : s.Status,
                     HasPreShiftChecklist = shiftChecklists.Any(c => c.ChecklistType == ChecklistType.PreShift),
                     HasEndShiftChecklist = shiftChecklists.Any(c => c.ChecklistType == ChecklistType.EndShift),
                     DefectCount = defectCount,
@@ -259,6 +261,18 @@ public class DriverManagementService
             .ToList();
     }
 
+    /// <summary>Other collections reference a shift by its shiftId field, which should equal
+    /// the document ID - but shifts clocked in by older mobile builds got a made-up
+    /// "SHIFT_yyyyMMdd_nnn" value instead, while their fuel logs/checklists point at the
+    /// document ID. Accepting either keeps those older shifts linked up.</summary>
+    private static bool BelongsTo(string? referencedShiftId, ShiftLog shift) =>
+        !string.IsNullOrEmpty(referencedShiftId)
+        && (referencedShiftId == shift.DocumentId || referencedShiftId == shift.ShiftId);
+
+    private static List<string> IdsOf(ShiftLog shift) =>
+        new[] { shift.DocumentId, shift.ShiftId }.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
+
+    /// <param name="shiftId">The shift's Firestore document ID (ShiftLogEntry.ShiftId).</param>
     public async Task<ShiftChecklists?> GetShiftChecklistsAsync(string shiftId)
     {
         DocumentSnapshot shiftDoc = await Db.Collection("shifts").Document(shiftId).GetSnapshotAsync();
@@ -269,7 +283,7 @@ public class DriverManagementService
 
         ShiftLog shift = shiftDoc.ConvertTo<ShiftLog>();
         List<UserProfile> drivers = await GetDriversAsync();
-        List<HandoverChecklist> checklists = await GetWhereEqualAsync<HandoverChecklist>("handover_checklists", "shiftId", shiftId);
+        List<HandoverChecklist> checklists = await GetWhereInAsync<HandoverChecklist>("handover_checklists", "shiftId", IdsOf(shift));
 
         return new ShiftChecklists
         {
@@ -291,8 +305,10 @@ public class DriverManagementService
     {
         List<ShiftLog> taxiShifts = await GetWhereEqualAsync<ShiftLog>("shifts", "taxiId", taxiId);
         List<string> otherShiftIds = taxiShifts
-            .Where(s => s.ShiftId != excludeShiftId && !string.IsNullOrEmpty(s.ShiftId))
-            .Select(s => s.ShiftId)
+            .Where(s => s.DocumentId != excludeShiftId)
+            .OrderByDescending(s => s.ShiftStart)
+            .SelectMany(IdsOf)
+            .Distinct()
             .ToList();
 
         if (otherShiftIds.Count == 0)
@@ -341,8 +357,8 @@ public class DriverManagementService
             .ToList();
     }
 
-    // Firestore stores 5 raw signals (tireCondition, oilLevel, coolantLevel,
-    // interiorCleanliness, exteriorScratches, fuelVerification) - oil+coolant are combined
+    // Firestore stores these raw signals (tireCondition, oilLevel, coolantLevel,
+    // lightsCondition, interiorCleanliness, exteriorScratches, fuelVerification) - oil+coolant are combined
     // into one "under the hood" row here since the mobile checklist presents them as a
     // single inspection step. There's no field anywhere for "starting odometer documented"
     // (that reading lives on FuelLog, not HandoverChecklist), so that row is intentionally
@@ -353,6 +369,17 @@ public class DriverManagementService
         {
             new() { Label = "Tire Condition", Passed = c.TireCondition },
             new() { Label = "Checked under the hood (Oil Level & Coolant/Water OK)", Passed = c.OilLevel && c.CoolantLevel },
+        };
+
+        // Only recorded by the mobile checklist - older/seeded documents don't have it, and
+        // showing those as a failed check would be wrong.
+        if (c.LightsCondition.HasValue)
+        {
+            items.Add(new() { Label = "Lights & Signals", Passed = c.LightsCondition.Value });
+        }
+
+        items.AddRange(new List<ChecklistItemResult>
+        {
             new() { Label = "Interior Cleanliness & Comfort", Passed = c.InteriorCleanliness },
             new() { Label = "Checked exterior Scratches / Dents", Passed = c.ExteriorScratches },
             new()
@@ -361,16 +388,22 @@ public class DriverManagementService
                 Passed = null,
                 ValueText = c.FuelVerification == FuelVerification.BelowHalfTank ? "Below half-tank" : "Half-tank",
             },
-        };
+        });
+
+        // The mobile checklist takes an odometer photo rather than an exterior one, so show
+        // that in the first slot whenever there's no exterior photo. The mobile client writes
+        // "" (not null) for a photo that failed to upload, hence the IsNullOrWhiteSpace checks.
+        bool hasScratchesPhoto = !string.IsNullOrWhiteSpace(c.ScratchesPhotoUrl);
+        string? primaryPhoto = hasScratchesPhoto ? c.ScratchesPhotoUrl : c.OdometerPhotoUrl;
 
         return new ChecklistDetail
         {
             ChecklistType = c.ChecklistType == ChecklistType.EndShift ? "Post-Shift" : "Pre-Shift",
             Timestamp = c.Timestamp,
             Items = items,
-            PrimaryPhotoUrl = c.ScratchesPhotoUrl,
-            PrimaryPhotoLabel = "Exterior / Scratches Photo",
-            SecondaryPhotoUrl = c.FuelDashboardUrl,
+            PrimaryPhotoUrl = string.IsNullOrWhiteSpace(primaryPhoto) ? null : primaryPhoto,
+            PrimaryPhotoLabel = hasScratchesPhoto ? "Exterior / Scratches Photo" : "Odometer Photo",
+            SecondaryPhotoUrl = string.IsNullOrWhiteSpace(c.FuelDashboardUrl) ? null : c.FuelDashboardUrl,
             SecondaryPhotoLabel = "Fuel Dashboard Photo",
         };
     }
@@ -394,7 +427,7 @@ public class DriverManagementService
         // driver is an acceptable, deliberate exception to the fleet-wide windowing used
         // elsewhere (see FleetReportingService's read-cost notes).
         List<ShiftLog> driverShifts = await GetWhereEqualAsync<ShiftLog>("shifts", "driverId", driverId);
-        HashSet<string> shiftIds = driverShifts.Select(s => s.ShiftId).ToHashSet();
+        HashSet<string> shiftIds = driverShifts.SelectMany(IdsOf).ToHashSet();
 
         List<BoundaryPayment> allPayments = await GetAllAsync<BoundaryPayment>("boundary_payments");
         List<MaintenanceRecord> allMaintenance = await GetAllAsync<MaintenanceRecord>("maintenance_logs");

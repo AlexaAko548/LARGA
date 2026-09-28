@@ -18,6 +18,10 @@ public class DriverRosterEntry
     public string FullName { get; set; } = string.Empty;
     public LicenseStatus LicenseStatus { get; set; }
     public bool IsOnShift { get; set; }
+
+    /// <summary>On shift, but the driver has paused it from the mobile app.</summary>
+    public bool IsOnBreak { get; set; }
+
     public string? AssignedTaxiId { get; set; }
 }
 
@@ -80,13 +84,15 @@ public class WeekSchedule
 
 public class ShiftLogEntry
 {
+    /// <summary>The shift's Firestore document ID.</summary>
     public string ShiftId { get; set; } = string.Empty;
     public DateTime? ShiftStart { get; set; }
     public string DriverId { get; set; } = string.Empty;
     public string DriverName { get; set; } = string.Empty;
     public string TaxiId { get; set; } = string.Empty;
 
-    /// <summary>Raw ShiftLog.Status (e.g. Active, Completed, Overdue).</summary>
+    /// <summary>ShiftLog.Status (e.g. Active, Completed, Overdue), except an Active shift the
+    /// driver has paused shows as "On Break".</summary>
     public string Status { get; set; } = string.Empty;
 
     public bool HasPreShiftChecklist { get; set; }

@@ -19,6 +19,7 @@ public class MaintenanceService : IMaintenanceService
             var proxy = new MaintenanceRecordProxy
             {
                 TaxiId = record.TaxiId,
+                ShiftId = record.ShiftId ?? string.Empty,
                 ManagerId = record.ManagerId ?? string.Empty,
                 MaintenanceType = record.MaintenanceType.ToString(),
                 IssueTitle = record.IssueTitle,
@@ -47,6 +48,9 @@ public class MaintenanceService : IMaintenanceService
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
         public string TaxiId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
+        public string ShiftId { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("managerId")]
         public string ManagerId { get; set; }

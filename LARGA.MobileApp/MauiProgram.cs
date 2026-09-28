@@ -64,6 +64,14 @@ public static class MauiProgram
 
 #if ANDROID
         builder.Services.AddSingleton<IOcrService, LARGA.MobileApp.Platforms.Android.Services.AndroidOcrService>();
+#else
+        // ML Kit Text Recognition is Android-only. Without a registration here, every page
+        // that depends on IOcrService (license scan, fuel receipt scan, odometer scan) fails
+        // to resolve via DI - or, for ScanFuelReceiptPage's manual GetService<IOcrService>()
+        // lookup, gets back null and throws - the moment it's opened on Windows/MacCatalyst.
+        // See UnsupportedOcrService's doc comment for why an empty-result stub, not a throw,
+        // is the right fallback.
+        builder.Services.AddSingleton<IOcrService, UnsupportedOcrService>();
 #endif
 
         // Register ViewModels 

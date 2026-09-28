@@ -78,7 +78,10 @@ public class PreShiftStep1ViewModel : BindableObject, IQueryAttributable
                 await Shell.Current.DisplayAlert("Incomplete", "Please complete all 5 inspection items before proceeding.", "OK");
                 return;
             }
-            await Shell.Current.GoToAsync("pre-shift-step2");
+            await Shell.Current.GoToAsync("pre-shift-step2", new Dictionary<string, object>
+            {
+                { "inspection", _items.ToDictionary(kv => kv.Key, kv => kv.Value == true) },
+            });
         });
     }
 

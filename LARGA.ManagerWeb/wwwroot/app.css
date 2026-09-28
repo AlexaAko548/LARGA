@@ -2346,6 +2346,20 @@ color: #5a7a8a;
 font-size: 0.7rem;
 }
 
+.checklist-photo-slot.has-photo {
+padding: 0.5rem;
+border-style: solid;
+}
+
+.checklist-photo-thumb {
+display: block;
+width: 100%;
+height: 120px;
+object-fit: cover;
+border-radius: 6px;
+background: #eaf6fc;
+}
+
 .checklist-items {
 display: flex;
 flex-direction: column;
@@ -2746,6 +2760,74 @@ cursor: pointer;
 border-color: #019bcf;
 background: linear-gradient(180deg, #019bcf, #019bcf);
 color: white;
+}
+
+/* GCash receipt upload + OCR (Record Payment, E-Wallet) */
+.receipt-scan-row {
+display: flex;
+justify-content: flex-end;
+margin-bottom: 0.6rem;
+}
+
+.receipt-scan-btn {
+display: inline-flex;
+align-items: center;
+gap: 0.4rem;
+border: 1px solid #019bcf;
+background: #eaf6fc;
+color: #1d1d1d;
+border-radius: 999px;
+padding: 0.45rem 1rem;
+font-size: 0.85rem;
+cursor: pointer;
+}
+
+.receipt-scan-btn.busy {
+opacity: 0.6;
+cursor: progress;
+}
+
+.receipt-file-input {
+position: absolute;
+width: 1px;
+height: 1px;
+opacity: 0;
+pointer-events: none;
+}
+
+.receipt-preview {
+display: block;
+margin-bottom: 0.6rem;
+}
+
+.receipt-preview img {
+display: block;
+width: 100%;
+max-height: 180px;
+object-fit: contain;
+border-radius: 10px;
+border: 1px solid rgba(1,155,207,0.3);
+background: #f4fafd;
+}
+
+.receipt-details {
+display: flex;
+flex-direction: column;
+gap: 0.5rem;
+}
+
+.receipt-hint {
+font-size: 0.72rem;
+color: #5a7a8a;
+}
+
+.receipt-mismatch {
+font-size: 0.78rem;
+color: #a15c00;
+background: #fff4e0;
+border-radius: 8px;
+padding: 0.5rem 0.7rem;
+margin-top: 0.4rem;
 }
 
 .settlement-status-preview {

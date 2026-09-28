@@ -7,6 +7,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject DriverManagementService DriverManagement
+@implements IDisposable
 
 <PageTitle>Driver & Shift Management</PageTitle>
 
@@ -120,7 +121,7 @@ else if (_isAuthorized)
                                     <td class="driver-cell"><div class="table-avatar">@Initials(d.FullName)</div><span>@d.FullName</span></td>
                                     <td>@ShortId(d.DriverId)</td>
                                     <td><span class="status-pill @LicenseStatusCss(d.LicenseStatus)"><span class="dot"></span> @LicenseStatusLabel(d.LicenseStatus)</span></td>
-                                    <td><span class="status-pill @(d.IsOnShift ? "status-success" : "status-neutral")"><span class="dot"></span> @(d.IsOnShift ? "ON SHIFT" : "OFF DUTY")</span></td>
+                                    <td><span class="status-pill @(d.IsOnBreak ? "status-warning" : d.IsOnShift ? "status-success" : "status-neutral")"><span class="dot"></span> @(d.IsOnBreak ? "ON BREAK" : d.IsOnShift ? "ON SHIFT" : "OFF DUTY")</span></td>
                                     <td>@(d.AssignedTaxiId ?? "—")</td>
                                     <td><button class="profile-btn" type="button" @onclick="() => OpenProfileAsync(d.DriverId)">Profile</button></td>
                                 </tr>
@@ -726,6 +727,42 @@ else if (_isAuthorized)
         await LoadScheduleAsync(DateTime.UtcNow);
 
         StateHasChanged();
+
+        _ = AutoRefreshLoopAsync(_refreshCts.Token);
+    }
+
+    // Drivers clock in/out, go on break and submit checklists from the mobile app while a
+    // manager has this page open - re-read those parts periodically so they show up without
+    // a manual reload. Only the driver-driven data (roster + shift logs) is refreshed; the
+    // schedule planner is manager-edited and already reloads after every change.
+    private static readonly TimeSpan AutoRefreshInterval = TimeSpan.FromSeconds(20);
+    private readonly CancellationTokenSource _refreshCts = new();
+
+    private async Task AutoRefreshLoopAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(AutoRefreshInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                await LoadRosterAsync();
+                if (_shiftLogsLoaded)
+                {
+                    await LoadShiftLogsAsync();
+                }
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Page closed.
+        }
+    }
+
+    public void Dispose()
+    {
+        _refreshCts.Cancel();
+        _refreshCts.Dispose();
     }
 
     private async Task LoadRosterAsync()
@@ -773,8 +810,10 @@ else if (_isAuthorized)
 
             if (_logDateFilter == "Today")
             {
-                from = now.Date;
-                to = now.Date.AddDays(1).AddTicks(-1);
+                // The Philippine calendar day, not the UTC one - same reasoning as
+                // FinancialLedgerService.GetDailySettlementAsync.
+                from = now.ToPhilippineTime().Date - PhilippineTime.Offset;
+                to = from.AddDays(1).AddTicks(-1);
             }
             else if (_logDateFilter == "Custom" && _logCustomFrom.HasValue && _logCustomTo.HasValue)
             {
@@ -1101,6 +1140,7 @@ else if (_isAuthorized)
         "Active" => "status-success",
         "Denied" => "status-danger",
         "Overdue" => "status-warning",
+        "On Break" => "status-warning",
         _ => "status-neutral",
     };
 

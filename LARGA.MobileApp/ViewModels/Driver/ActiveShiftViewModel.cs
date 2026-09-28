@@ -132,6 +132,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
             IsPaused = true;
             _pauseStartTime = DateTime.Now;
             _shiftTimer.Stop();
+            _ = SyncBreakStatusAsync(true);
         });
 
         ResumeShiftCommand = new Command(() =>
@@ -139,6 +140,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
             IsPaused = false;
             _totalBreakTime += (DateTime.Now - _pauseStartTime);
             _shiftTimer.Start();
+            _ = SyncBreakStatusAsync(false);
         });
 
         ClockOutCommand = new Command(() => IsClockOutAlertVisible = true);
@@ -199,6 +201,24 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
             {
                 _shiftTimer.Start();
             }
+        }
+    }
+
+    // Mirrors the on-screen pause into shifts/{id}.isOnBreak so ManagerWeb's roster, shift
+    // logs and dashboard show the driver as On Break rather than Active.
+    private async Task SyncBreakStatusAsync(bool isOnBreak)
+    {
+        try
+        {
+            string? shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
+            if (!string.IsNullOrWhiteSpace(shiftId))
+            {
+                await _shiftService.SetOnBreakAsync(shiftId, isOnBreak);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Break Sync Error: {ex.Message}");
         }
     }
 

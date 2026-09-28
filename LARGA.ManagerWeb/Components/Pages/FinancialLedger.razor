@@ -307,6 +307,44 @@ else if (_isAuthorized)
                     <button type="button" class="payment-method-btn @(_paymentMethod == "EWallet" ? "active" : "")" @onclick='() => _paymentMethod = "EWallet"'>E-WALLET (GCASH)</button>
                 </div>
 
+                @if (_paymentMethod == "EWallet")
+                {
+                    <div class="receipt-scan-row">
+                        <label class="receipt-scan-btn @(_isReadingReceipt ? "busy" : "")" for="gcash-receipt-input">
+                            <span aria-hidden="true">📷</span> @(_isReadingReceipt ? "Reading receipt…" : _receiptPreviewUrl is null ? "Scan receipt" : "Scan another")
+                        </label>
+                        <input id="gcash-receipt-input" class="receipt-file-input" type="file" accept="image/*"
+                               disabled="@_isReadingReceipt" @ref="_receiptInput" @onchange="OnReceiptSelectedAsync" />
+                    </div>
+
+                    @if (_receiptPreviewUrl is not null)
+                    {
+                        <a class="receipt-preview" href="@_receiptPreviewUrl" target="_blank" rel="noopener" title="Open full-size receipt">
+                            <img src="@_receiptPreviewUrl" alt="Uploaded GCash receipt" />
+                        </a>
+                    }
+
+                    <div class="report-section receipt-details">
+                        <label>Receipt Details</label>
+                        <input class="text-input" type="text" placeholder="Amount" @bind="_receiptAmount" />
+                        <input class="text-input" type="text" placeholder="Date" @bind="_receiptDate" />
+                        <input class="text-input" type="text" placeholder="Reference No." @bind="_receiptReference" />
+                        @if (_receiptPreviewUrl is not null && _receiptError is null)
+                        {
+                            <small class="receipt-hint">Read automatically - check each value against the receipt image above, especially the reference number.</small>
+                        }
+                    </div>
+
+                    @if (_receiptError is not null)
+                    {
+                        <div class="report-error">@_receiptError</div>
+                    }
+                    else if (ReceiptAmountMismatch)
+                    {
+                        <div class="receipt-mismatch">Receipt shows ₱ @_receiptAmountValue!.Value.ToString("N2"), but Amount Received is ₱ @_paymentAmountInput.ToString("N2").</div>
+                    }
+                }
+
                 <div class="settlement-status-preview">
                     <span>New status →</span>
                     <span class="status-pill small @StatusCss(PreviewStatus)">@PreviewStatus.ToString().ToUpperInvariant()</span>
@@ -690,6 +728,7 @@ else if (_isAuthorized)
         _paymentAmountInput = Math.Max(0, row.ExpectedTotal - row.AmountPaid);
         _paymentMethod = "Cash";
         _paymentError = null;
+        _ = ResetReceiptAsync();
         _showPaymentModal = true;
     }
 
@@ -697,6 +736,99 @@ else if (_isAuthorized)
     {
         _showPaymentModal = false;
         _paymentRow = null;
+        _ = ResetReceiptAsync();
+    }
+
+    // -- GCash receipt OCR -------------------------------------------------
+    // The driver pays online and sends the manager a screenshot of the GCash receipt; the
+    // manager uploads it here, the browser OCRs it (receipt-ocr.js) and GcashReceiptParser
+    // fills in Amount / Date / Reference No. for the manager to check. The fields stay
+    // editable since OCR can misread.
+
+    private IJSObjectReference? _receiptOcrModule;
+    private ElementReference _receiptInput;
+    private bool _isReadingReceipt;
+    private string? _receiptError;
+    private string? _receiptPreviewUrl;
+    private string _receiptAmount = string.Empty;
+    private string _receiptDate = string.Empty;
+    private string _receiptReference = string.Empty;
+
+    private decimal? _receiptAmountValue =>
+        decimal.TryParse(_receiptAmount.Replace(",", string.Empty).Replace("₱", string.Empty).Trim(),
+            System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out decimal v) ? v : null;
+
+    private bool ReceiptAmountMismatch =>
+        _receiptAmountValue is decimal amount && _paymentAmountInput > 0 && amount != _paymentAmountInput;
+
+    private async Task OnReceiptSelectedAsync(ChangeEventArgs _)
+    {
+        _isReadingReceipt = true;
+        _receiptError = null;
+        StateHasChanged();
+
+        try
+        {
+            _receiptOcrModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/receipt-ocr.js");
+
+            // First scan downloads the OCR engine + language data, so allow well past the
+            // default 60s JS interop timeout on a slow connection.
+            ReceiptOcrResult? ocr = await _receiptOcrModule.InvokeAsync<ReceiptOcrResult?>(
+                "readReceipt", TimeSpan.FromMinutes(3), _receiptInput);
+            if (ocr is null)
+            {
+                return;
+            }
+
+            await ReleasePreviewAsync();
+            _receiptPreviewUrl = ocr.PreviewUrl;
+
+            GcashReceiptParser.Result parsed = GcashReceiptParser.ParseBest(ocr.Texts);
+            _receiptAmount = parsed.Amount?.ToString("N2") ?? string.Empty;
+            _receiptDate = parsed.Date is DateTime d
+                ? (d.TimeOfDay == TimeSpan.Zero ? d.ToString("MMM d, yyyy") : d.ToString("MMM d, yyyy h:mm tt"))
+                : string.Empty;
+            _receiptReference = parsed.ReferenceNumber ?? string.Empty;
+
+            if (parsed.Amount is null && parsed.Date is null && parsed.ReferenceNumber is null)
+            {
+                _receiptError = "Couldn't find an amount, date or reference number on this image - is it a GCash receipt? You can type them in instead.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _receiptError = $"Couldn't read this receipt: {ex.Message}";
+        }
+        finally
+        {
+            _isReadingReceipt = false;
+        }
+    }
+
+    private async Task ResetReceiptAsync()
+    {
+        _receiptError = null;
+        _receiptAmount = string.Empty;
+        _receiptDate = string.Empty;
+        _receiptReference = string.Empty;
+        _isReadingReceipt = false;
+        await ReleasePreviewAsync();
+    }
+
+    private async Task ReleasePreviewAsync()
+    {
+        string? url = _receiptPreviewUrl;
+        _receiptPreviewUrl = null;
+        if (url is not null && _receiptOcrModule is not null)
+        {
+            try { await _receiptOcrModule.InvokeVoidAsync("releasePreview", url); } catch (JSDisconnectedException) { }
+        }
+    }
+
+    private sealed class ReceiptOcrResult
+    {
+        public List<string> Texts { get; set; } = new();
+        public string PreviewUrl { get; set; } = string.Empty;
     }
 
     private async Task ConfirmPaymentAsync()
