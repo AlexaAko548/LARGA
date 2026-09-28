@@ -84,6 +84,13 @@ public class FuelReviewDetail
     public string? ReceiptImageUrl { get; set; }
     public string? OdometerPhotoUrl { get; set; }
 
+    // Read straight from the fuel_logs document (written by the mobile app's OCR scan) - the
+    // web page only displays what was extracted, it never runs OCR itself.
+    public bool IsCostManuallyEdited { get; set; }
+    public bool IsQuantityManuallyEdited { get; set; }
+    public bool IsFuelStationManuallyEdited { get; set; }
+    public bool IsReceiptDateManuallyEdited { get; set; }
+
     public int? PreviousOdometerReading { get; set; }
     public string PreviousOdometerLabel { get; set; } = string.Empty;
 

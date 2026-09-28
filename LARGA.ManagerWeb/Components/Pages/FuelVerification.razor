@@ -145,7 +145,7 @@ else if (_isAuthorized)
         <div class="report-modal review-modal" @onclick:stopPropagation="true">
             <div class="report-header">
                 <div>
-                    <h3>Review Fuel Submission@(_reviewDetail is not null ? $" — {_reviewDetail.TaxiId}" : "")</h3>
+                    <h3>Review Fuel Submission@(_reviewDetail is not null && HasTaxi(_reviewDetail) ? $" — {_reviewDetail.TaxiId}" : "")</h3>
                     @if (_reviewDetail is not null)
                     {
                         <div class="review-header-meta">
@@ -173,7 +173,7 @@ else if (_isAuthorized)
 
                             @if (!string.IsNullOrWhiteSpace(_reviewDetail.ReceiptImageUrl))
                             {
-                                <a class="review-photo-link" href="@_reviewDetail.ReceiptImageUrl" target="_blank" rel="noopener">
+                                <button type="button" class="review-photo-link" @onclick="() => _showReceiptPhoto = true">
                                     <span class="photo-icon">🔍</span>
                                     Click to view receipt photo
                                     @if (!string.IsNullOrWhiteSpace(_reviewDetail.FuelStation) || !string.IsNullOrWhiteSpace(_reviewDetail.ORNumber))
@@ -183,7 +183,7 @@ else if (_isAuthorized)
                                             @(!string.IsNullOrWhiteSpace(_reviewDetail.ORNumber) ? $" · OR# {_reviewDetail.ORNumber}" : "")
                                         </div>
                                     }
-                                </a>
+                                </button>
                             }
                             else
                             {
@@ -193,13 +193,37 @@ else if (_isAuthorized)
                                 </div>
                             }
 
+                            <div class="review-fact ocr-section">
+                                <div class="fact-label">Extracted from Receipt (OCR)</div>
+                                <div class="fact-sub">Read from the driver's scan in Firestore</div>
+                                <div class="ocr-row">
+                                    <span>Fuel Station</span>
+                                    <span>@(string.IsNullOrWhiteSpace(_reviewDetail.FuelStation) ? "—" : _reviewDetail.FuelStation) @OcrTag(_reviewDetail.IsFuelStationManuallyEdited)</span>
+                                </div>
+                                <div class="ocr-row">
+                                    <span>OR Number</span>
+                                    <span>@(string.IsNullOrWhiteSpace(_reviewDetail.ORNumber) ? "—" : _reviewDetail.ORNumber)</span>
+                                </div>
+                                <div class="ocr-row">
+                                    <span>Receipt Date</span>
+                                    <span>@(_reviewDetail.Timestamp.HasValue ? _reviewDetail.Timestamp.Value.ToLocalTime().ToString("MMM d, yyyy h:mm tt") : "—") @OcrTag(_reviewDetail.IsReceiptDateManuallyEdited)</span>
+                                </div>
+                                <div class="ocr-row">
+                                    <span>Total Cost</span>
+                                    <span>₱@_reviewDetail.Cost.ToString("N2") @OcrTag(_reviewDetail.IsCostManuallyEdited)</span>
+                                </div>
+                                <div class="ocr-row">
+                                    <span>Liters</span>
+                                    <span>@_reviewDetail.Liters.ToString("N2") L @OcrTag(_reviewDetail.IsQuantityManuallyEdited)</span>
+                                </div>
+                            </div>
                             <div class="review-fact">
                                 <div class="fact-label">Submitted Fuel Cost</div>
                                 <div class="fact-value">₱@_reviewDetail.Cost.ToString("N2")</div>
                             </div>
                             <div class="review-fact">
                                 <div class="fact-label">Submitted Quantity</div>
-                                <div class="fact-value">@_reviewDetail.Liters.ToString("N0") Liters</div>
+                                <div class="fact-value">@_reviewDetail.Liters.ToString("N2") Liters</div>
                             </div>
                             <div class="review-fact">
                                 <div class="fact-label">Submitted Odometer</div>
@@ -283,6 +307,21 @@ else if (_isAuthorized)
     </div>
 }
 
+@if (_showReceiptPhoto && _reviewDetail is not null && !string.IsNullOrWhiteSpace(_reviewDetail.ReceiptImageUrl))
+{
+    <div class="report-overlay photo-overlay" @onclick="() => _showReceiptPhoto = false">
+        <div class="photo-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Receipt Photo@(HasTaxi(_reviewDetail) ? $" — {_reviewDetail.TaxiId}" : "")</h3>
+                <button type="button" class="close-modal" @onclick="() => _showReceiptPhoto = false">×</button>
+            </div>
+            <div class="photo-modal-body">
+                <img src="@_reviewDetail.ReceiptImageUrl" alt="Fuel receipt" />
+            </div>
+        </div>
+    </div>
+}
+
 @if (_showResolveModal && _resolveEntry is not null)
 {
     <div class="report-overlay" @onclick="CloseResolveModal">
@@ -327,6 +366,7 @@ else if (_isAuthorized)
     private FuelVerificationStatus _activeTab = FuelVerificationStatus.Pending;
 
     private bool _showReviewModal;
+    private bool _showReceiptPhoto;
     private bool _isLoadingReview;
     private FuelReviewDetail? _reviewDetail;
     private string _flagReason = string.Empty;
@@ -402,9 +442,18 @@ else if (_isAuthorized)
         }
     }
 
+    private static bool HasTaxi(FuelReviewDetail detail) =>
+        !string.IsNullOrWhiteSpace(detail.TaxiId) && detail.TaxiId != "—";
+
+    private static MarkupString OcrTag(bool manuallyEdited) =>
+        manuallyEdited
+            ? new MarkupString("<span class=\"ocr-tag ocr-edited\">edited by driver</span>")
+            : new MarkupString("<span class=\"ocr-tag ocr-auto\">auto-read</span>");
+
     private void CloseReviewModal()
     {
         _showReviewModal = false;
+        _showReceiptPhoto = false;
         _reviewDetail = null;
     }
 

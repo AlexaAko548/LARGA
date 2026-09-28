@@ -389,7 +389,6 @@ public class AlertCenterViewModel : BindableObject
         public string? TaxiId { get; set; }
     }
 
-
     private static async Task MarkAlertReadAsync(string alertId)
     {
         try
