@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Windows.Input;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
@@ -5,6 +7,7 @@ using System.Threading.Tasks;
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore.Services;
 using Plugin.Firebase.Auth;
+using Plugin.Firebase.Storage;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -98,6 +101,22 @@ public class VehicleDefectViewModel : BindableObject
             var assignedTaxi = await _shiftManagementService.GetCurrentUserAssignedTaxiAsync();
             var taxiId = assignedTaxi?.TaxiId ?? string.Empty;
 
+            string? supportingPhotoUrl = null;
+            if (!string.IsNullOrWhiteSpace(_photoPath))
+            {
+                try
+                {
+                    var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    supportingPhotoUrl = await UploadPhotoAsync(_photoPath, $"maintenance_logs/{driverId}/{timestamp}/defect.jpg");
+                }
+                catch (Exception uploadEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Defect photo upload error: {uploadEx.Message}");
+                    await Shell.Current.DisplayAlert("Upload Failed", "Unable to upload the photo to cloud storage. Please check your internet connection and try again.", "OK");
+                    return;
+                }
+            }
+
             var record = new MaintenanceRecord
             {
                 TaxiId = taxiId,
@@ -107,7 +126,7 @@ public class VehicleDefectViewModel : BindableObject
                 IssueDescription = Description,
                 DateLogged = System.DateTime.UtcNow,
                 PriorityLevel = priorityLevel,
-                SupportingPhotoUrl = _photoPath, // NOTE: local device path for now; photo upload to Firebase Storage is a follow-up
+                SupportingPhotoUrl = supportingPhotoUrl,
                 ReportedByDriverId = driverId,
                 Status = "Reported"
             };
@@ -143,5 +162,21 @@ public class VehicleDefectViewModel : BindableObject
         {
             await Shell.Current.DisplayAlert("Error", $"Camera failed: {ex.Message}", "OK");
         }
+    }
+
+    // Same pattern as FuelReportViewModel.UploadImageAsync - stores the actual photo in
+    // Firebase Storage and returns a durable download URL, instead of the local device
+    // cache path (which stops resolving once the cache is cleared or the report is viewed
+    // from a different device - the bug LAR-61 was filed against).
+    private static async Task<string> UploadPhotoAsync(string localFilePath, string remotePath)
+    {
+        if (string.IsNullOrWhiteSpace(localFilePath) || !File.Exists(localFilePath))
+        {
+            throw new ArgumentException("File path is invalid or does not exist", nameof(localFilePath));
+        }
+
+        var storageRef = CrossFirebaseStorage.Current.GetRootReference().GetChild(remotePath);
+        await storageRef.PutFile(localFilePath).AwaitAsync();
+        return await storageRef.GetDownloadUrlAsync();
     }
 }

@@ -3003,6 +3003,42 @@ color: #1d1d1d;
 width: min(94vw, 780px);
 }
 
+/* LAR-63: both Fuel Verification popups (review + resolve) can grow taller than the
+viewport once the OCR section/flag textarea are in play - .report-modal's overflow:hidden
+was clipping the bottom (including Verify/Resolve buttons) with no way to reach it. Cap the
+modal height and let just the body scroll, header/actions stay pinned - same pattern the
+photo popup already uses below. */
+.report-modal.review-modal,
+.report-modal.resolve-modal {
+max-height: 90vh;
+display: flex;
+flex-direction: column;
+}
+
+.review-modal .report-body,
+.resolve-modal .report-body {
+overflow-y: auto;
+flex: 1 1 auto;
+min-height: 0;
+}
+
+.review-modal .report-header,
+.review-modal .report-actions,
+.resolve-modal .report-header,
+.resolve-modal .report-actions {
+flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+.report-modal.review-modal {
+width: 94vw;
+}
+
+.review-columns {
+flex-direction: column;
+}
+}
+
 .review-header-meta {
 font-size: 0.8rem;
 color: #4d7385;
