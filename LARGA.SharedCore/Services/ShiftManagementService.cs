@@ -4,6 +4,7 @@ using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace LARGA.SharedCore.Services;
@@ -15,10 +16,34 @@ public interface IShiftManagementService
     Task<bool> UpdateTaxiStatusAsync(string taxiId, string newStatus);
     Task<TaxiUnit> GetTaxiUnitAsync(string taxiId);
     Task<TaxiUnit> GetCurrentUserAssignedTaxiAsync();
+
+    /// <summary>The unit the signed-in driver drives today: a substitute the manager assigned
+    /// for today (while their own unit is under maintenance), else their permanent unit.</summary>
+    Task<string?> GetTodaysTaxiIdAsync(string? permanentTaxiId = null);
     Task<string> ClockInAsync(string taxiId, int startMileage);
-    Task ClockOutAsync(string shiftDocumentId, int endMileage, string managerNote = "");
+    Task<decimal> ClockOutAsync(string shiftDocumentId, int endMileage, string managerNote = "");
+    Task<DriverShiftSummary?> GetMyOpenShiftAsync();
     Task SetOnBreakAsync(string shiftDocumentId, bool isOnBreak);
     Task<bool> SubmitHandoverChecklistAsync(HandoverChecklistSubmission checklist);
+
+    /// <summary>Where units must be returned: system_configs/global's garage fields when set,
+    /// else the ShiftRules defaults.</summary>
+    Task<GarageGeofence> GetGarageGeofenceAsync();
+
+    /// <summary>Debug builds only: applies system_configs/global "testClockPh" to ShiftClock
+    /// so shift rules can be tested at any hour. No-op in release builds.</summary>
+    Task RefreshTestClockAsync();
+}
+
+public record GarageGeofence(double Latitude, double Longitude, double RadiusMeters);
+
+public class DriverShiftSummary
+{
+    public string DocumentId { get; set; } = string.Empty;
+    public string TaxiId { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public DateTime ShiftStartUtc { get; set; }
+    public int EndMileage { get; set; }
 }
 
 /// <summary>
@@ -133,21 +158,95 @@ public class ShiftManagementService : IShiftManagementService
             .GetDocument(user.Uid)
             .GetDocumentSnapshotAsync<UserProfileProxy>();
 
-        if (string.IsNullOrWhiteSpace(profile?.Data?.AssignedTaxiId)) return null;
+        // Pre-shift screens and clock-in all come through here, so a substitute for today
+        // is what the shift gets logged against.
+        string? taxiId = await GetTodaysTaxiIdAsync(profile?.Data?.AssignedTaxiId);
+        if (string.IsNullOrWhiteSpace(taxiId)) return null;
 
-        return await GetTaxiUnitAsync(profile.Data.AssignedTaxiId);
+        return await GetTaxiUnitAsync(taxiId);
     }
 
+    public async Task<string?> GetTodaysTaxiIdAsync(string? permanentTaxiId = null)
+    {
+        var user = CrossFirebaseAuth.Current.CurrentUser;
+        if (user == null) return permanentTaxiId;
+
+        try
+        {
+            // Same "{driverId}_{yyyyMMdd}" document ManagerWeb's Schedule Planner writes, keyed
+            // by the Philippine calendar day.
+            string docId = $"{user.Uid}_{PhilippineTime.Now:yyyyMMdd}";
+            var schedule = await CrossFirebaseFirestore.Current
+                .GetCollection("shift_schedules")
+                .GetDocument(docId)
+                .GetDocumentSnapshotAsync<ShiftScheduleProxy>();
+
+            if (schedule?.Data?.Status == "Substitute" && !string.IsNullOrWhiteSpace(schedule.Data.TaxiId))
+            {
+                return schedule.Data.TaxiId;
+            }
+        }
+        catch (Exception ex)
+        {
+            // No schedule entry (or no read access) just means no substitute today.
+            System.Diagnostics.Debug.WriteLine($"Today's Schedule Error: {ex.Message}");
+        }
+
+        return permanentTaxiId;
+    }
+
+    /// <summary>
+    /// Starts a shift. Enforces the operating-day rules (ShiftRules) before writing anything:
+    /// no clock-in before 6:00 AM, and one open shift per driver (paper REQ-5.5-1). Rule
+    /// violations throw <see cref="InvalidOperationException"/> with a driver-facing message.
+    /// A leftover open shift past its auto-close time (6:00 AM the day after it started) is
+    /// closed here as a missed clock-out - ManagerWeb's background check does the same, this
+    /// just covers the minutes before it runs - and today's starting odometer becomes its end
+    /// odometer, since the unit sat parked in between.
+    /// </summary>
     public async Task<string> ClockInAsync(string taxiId, int startMileage)
     {
         var user = CrossFirebaseAuth.Current.CurrentUser;
         if (user == null) throw new Exception("No authenticated driver found.");
 
+        await RefreshTestClockAsync();
+        DateTime now = ShiftClock.UtcNow;
+        if (!ShiftRules.CanClockIn(now))
+        {
+            throw new InvalidOperationException("Shifts start at 6:00 AM. You can clock in from 6:00 AM onwards.");
+        }
+
+        foreach (DriverShiftSummary previous in await GetMyShiftsAsync(user.Uid))
+        {
+            bool stillOpen = previous.Status == "Active";
+            bool pastAutoClose = now >= ShiftRules.AutoCloseAtUtc(previous.ShiftStartUtc);
+
+            if (stillOpen && !pastAutoClose)
+            {
+                throw new InvalidOperationException(
+                    $"You still have an open shift from {previous.ShiftStartUtc.ToPhilippineTime():MMM d, h:mm tt}. End that shift first.");
+            }
+
+            if ((stillOpen && pastAutoClose) || (previous.Status == AutoClosedStatus && previous.EndMileage <= 0))
+            {
+                var closeUpdate = new Dictionary<object, object>
+                {
+                    { "status", AutoClosedStatus },
+                    { "isOnBreak", false },
+                    { "endMileage", startMileage },
+                };
+                await CrossFirebaseFirestore.Current
+                    .GetCollection("shifts")
+                    .GetDocument(previous.DocumentId)
+                    .UpdateDataAsync(closeUpdate);
+            }
+        }
+
         var shiftProxy = new ShiftLogProxy
         {
             DriverId = user.Uid,
             TaxiId = taxiId,
-            ShiftStart = DateTime.UtcNow,
+            ShiftStart = now,
             StartMileage = startMileage,
             Status = "Active",
             ShiftId = string.Empty,
@@ -228,29 +327,113 @@ public class ShiftManagementService : IShiftManagementService
         }
     }
 
-    public async Task ClockOutAsync(string activeShiftId, int endMileage, string managerNote = "")
+    /// <summary>Ends the shift and records its late-return fee (ShiftRules: the unit is timed on
+    /// return, i.e. now). Returns the fee so the Shift Completed screen can show today's total.</summary>
+    public async Task<decimal> ClockOutAsync(string activeShiftId, int endMileage, string managerNote = "")
     {
         try
         {
-            // CORRECTED: Keys now match the exact expected Firestore schema
-            var updateData = new Dictionary<object, object>
-        {
-            { "shiftEnd", DateTime.UtcNow },
-            { "endMileage", endMileage },
-            { "status", "Completed" },
-            { "managerNote", managerNote }
-        };
+            await RefreshTestClockAsync();
+            DateTime now = ShiftClock.UtcNow;
+            var shiftDoc = CrossFirebaseFirestore.Current.GetCollection("shifts").GetDocument(activeShiftId);
 
-            await CrossFirebaseFirestore.Current
-                .GetCollection("shifts")
-                .GetDocument(activeShiftId)
-                .UpdateDataAsync(updateData);
+            var updateData = new Dictionary<object, object>
+            {
+                { "shiftEnd", now },
+                { "endMileage", endMileage },
+                { "status", "Completed" },
+                { "managerNote", managerNote },
+                { "isOnBreak", false },
+            };
+
+            decimal lateFee = 0m;
+            try
+            {
+                var snapshot = await shiftDoc.GetDocumentSnapshotAsync<ShiftReadProxy>();
+                if (snapshot?.Data != null)
+                {
+                    lateFee = ShiftRules.LateReturnFee(FixPluginDate(snapshot.Data.ShiftStart), now);
+                    updateData["lateFee"] = (double)lateFee;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Without the start time there's no fee to work out; the shift still ends, and
+                // the manager can add a late fee from the ledger if needed.
+                System.Diagnostics.Debug.WriteLine($"Late Fee Error: {ex.Message}");
+            }
+
+            await shiftDoc.UpdateDataAsync(updateData);
+            return lateFee;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Service Error: {ex.Message}");
             throw;
         }
+    }
+
+    public const string AutoClosedStatus = "Auto-Closed";
+
+    /// <summary>The signed-in driver's shift that's still open (status Active), if any - used
+    /// to put the phone back into its active-shift state when it has lost track (reinstall,
+    /// cleared data, different phone), so the driver can end it normally.</summary>
+    public async Task<DriverShiftSummary?> GetMyOpenShiftAsync()
+    {
+        var user = CrossFirebaseAuth.Current.CurrentUser;
+        if (user == null) return null;
+
+        await RefreshTestClockAsync();
+        return (await GetMyShiftsAsync(user.Uid))
+            .Where(s => s.Status == "Active")
+            .OrderByDescending(s => s.ShiftStartUtc)
+            .FirstOrDefault();
+    }
+
+    private static async Task<List<DriverShiftSummary>> GetMyShiftsAsync(string driverId)
+    {
+        // Single equality filter (auto-indexed); status is checked client-side.
+        var query = await CrossFirebaseFirestore.Current
+            .GetCollection("shifts")
+            .WhereEqualsTo("driverId", driverId)
+            .GetDocumentsAsync<ShiftReadProxy>();
+
+        return query.Documents
+            .Where(d => d.Data != null && (d.Data.Status == "Active" || d.Data.Status == AutoClosedStatus))
+            .Select(d => new DriverShiftSummary
+            {
+                DocumentId = d.Reference.Id,
+                TaxiId = d.Data.TaxiId ?? string.Empty,
+                Status = d.Data.Status,
+                ShiftStartUtc = FixPluginDate(d.Data.ShiftStart),
+                EndMileage = d.Data.EndMileage,
+            })
+            .ToList();
+    }
+
+    // Same Plugin.Firebase (Android) date bug and correction as
+    // LARGA.MobileApp.Services.FirestoreDateTimeFix: timestamps come back as FromFileTimeUtc of
+    // the Unix millisecond value, i.e. around the year 1601.
+    private static DateTime FixPluginDate(DateTime value)
+    {
+        if (value.Year > 1700) return DateTime.SpecifyKind(value, DateTimeKind.Utc);
+        long millis = value.Ticks - new DateTime(1601, 1, 1).Ticks;
+        return DateTimeOffset.FromUnixTimeMilliseconds(millis).UtcDateTime;
+    }
+
+    private class ShiftReadProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
+        public string TaxiId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftStart")]
+        public DateTime ShiftStart { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
+        public string Status { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("endMileage")]
+        public int EndMileage { get; set; }
     }
 
     public class TaxiUnitProxy
@@ -275,6 +458,76 @@ public class ShiftManagementService : IShiftManagementService
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("assignedTaxiId")]
         public string AssignedTaxiId { get; set; }
+    }
+
+    public async Task<GarageGeofence> GetGarageGeofenceAsync()
+    {
+        var fallback = new GarageGeofence(ShiftRules.GarageLatitude, ShiftRules.GarageLongitude, ShiftRules.GarageRadiusMeters);
+        try
+        {
+            var config = await CrossFirebaseFirestore.Current
+                .GetCollection("system_configs")
+                .GetDocument("global")
+                .GetDocumentSnapshotAsync<GarageConfigProxy>();
+
+            var data = config?.Data;
+            if (data == null || data.GarageLatitude == 0 || data.GarageLongitude == 0)
+            {
+                return fallback;
+            }
+
+            double radius = data.GarageRadiusMeters > 0 ? data.GarageRadiusMeters : ShiftRules.GarageRadiusMeters;
+            return new GarageGeofence(data.GarageLatitude, data.GarageLongitude, radius);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Garage Config Error: {ex.Message}");
+            return fallback;
+        }
+    }
+
+    public async Task RefreshTestClockAsync()
+    {
+#if DEBUG
+        try
+        {
+            var config = await CrossFirebaseFirestore.Current
+                .GetCollection("system_configs")
+                .GetDocument("global")
+                .GetDocumentSnapshotAsync<GarageConfigProxy>();
+            ShiftClock.SetPretendPhilippineTime(config?.Data?.TestClockPh);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Test Clock Error: {ex.Message}");
+        }
+#else
+        await Task.CompletedTask;
+#endif
+    }
+
+    private class GarageConfigProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("testClockPh")]
+        public string TestClockPh { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("garageLatitude")]
+        public double GarageLatitude { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("garageLongitude")]
+        public double GarageLongitude { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("garageRadiusMeters")]
+        public double GarageRadiusMeters { get; set; }
+    }
+
+    private class ShiftScheduleProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
+        public string TaxiId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
+        public string Status { get; set; }
     }
 
     private class HandoverChecklistProxy

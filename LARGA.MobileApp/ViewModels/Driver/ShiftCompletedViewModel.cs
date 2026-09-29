@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Microsoft.Maui.Controls;
@@ -7,8 +8,32 @@ using Plugin.Firebase.Auth;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
-public class ShiftCompletedViewModel : BindableObject
+public class ShiftCompletedViewModel : BindableObject, IQueryAttributable
 {
+    /// <summary>Late-return fee from clock-out (ShiftRules), passed by End Shift step 2.</summary>
+    public void ApplyQueryAttributes(IDictionary<string, object> query)
+    {
+        if (query.TryGetValue("lateFee", out var value) && value is decimal lateFee && lateFee > 0)
+        {
+            BoundaryAmountDisplay = $"₱ {800 + lateFee:N0}";
+            LateFeeNote = $"Includes ₱{lateFee:N0} late-return fee (unit due back by 10:00 PM).";
+        }
+        else
+        {
+            BoundaryAmountDisplay = "₱ 800";
+            LateFeeNote = string.Empty;
+        }
+    }
+
+    private string _lateFeeNote = string.Empty;
+    public string LateFeeNote
+    {
+        get => _lateFeeNote;
+        set { _lateFeeNote = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasLateFee)); }
+    }
+
+    public bool HasLateFee => !string.IsNullOrEmpty(LateFeeNote);
+
     private string _currentDateDisplay = string.Empty;
     public string CurrentDateDisplay
     {

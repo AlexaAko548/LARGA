@@ -31,7 +31,7 @@ else if (_isAuthorized)
             </div>
 
             <div class="header-actions">
-                <button class="icon-btn" type="button" aria-label="Notifications">◌</button>
+                <NotificationBell />
                 <button class="icon-btn" type="button" aria-label="Messages">✉</button>
                 <div class="manager-pill">
                     <span class="manager-dot"></span>
@@ -325,7 +325,7 @@ else if (_isAuthorized)
 @if (_showResolveModal && _resolveEntry is not null)
 {
     <div class="report-overlay" @onclick="CloseResolveModal">
-        <div class="report-modal" @onclick:stopPropagation="true">
+        <div class="report-modal resolve-modal" @onclick:stopPropagation="true">
             <div class="report-header">
                 <div>
                     <h3>Resolve Flag</h3>

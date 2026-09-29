@@ -106,7 +106,15 @@ public class LedgerTransaction
 
     /// <summary>Cumulative outstanding debt after this transaction, floored at 0 (see FinancialLedgerService for how it's built).</summary>
     public decimal RunningDebt { get; set; }
+
+    /// <summary>The GCash receipt image the payment was recorded with, if any.</summary>
+    public string? ReceiptUrl { get; set; }
+    public string? ReceiptReferenceNo { get; set; }
 }
+
+/// <summary>A GCash receipt attached to an E-Wallet payment: the uploaded image, stored in
+/// Firebase Storage and linked from the boundary_payments document(s) it paid.</summary>
+public record PaymentReceipt(byte[] Image, string ContentType, string? ReferenceNo);
 
 public class DriverLedgerHistory
 {

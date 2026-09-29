@@ -9,7 +9,7 @@ namespace LARGA.SharedCore.Services;
 /// <summary>
 /// Pulls Amount, Date and Reference No. out of the OCR'd text of a GCash payment receipt
 /// (the screenshot a driver sends the manager after paying their boundary online). The OCR
-/// itself runs in the manager's browser (wwwroot/receipt-ocr.js) - this only interprets its
+/// itself runs in the manager's browser (wwwroot/ocr.js) - this only interprets its
 /// text, so it's plain C# and testable without an image.
 ///
 /// GCash receipts look roughly like:
@@ -55,7 +55,7 @@ public static class GcashReceiptParser
     public static Result Parse(string? ocrText) => ParseBest(new[] { ocrText });
 
     /// <summary>
-    /// Combines several OCR passes over the same receipt (receipt-ocr.js reads it twice: once
+    /// Combines several OCR passes over the same receipt (ocr.js reads it twice: once
     /// enlarged + grayscale, once as uploaded). Neither pass is reliably right on every field -
     /// in testing, the enlarged pass read the date and amount correctly but turned a 6 in the
     /// reference into a B, while the original pass got the reference right but read the year

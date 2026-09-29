@@ -2089,6 +2089,22 @@ background: rgba(255, 176, 32, 0.12);
 border-color: rgba(255, 176, 32, 0.4);
 }
 
+/* Driver's own unit is in the shop that day, no substitute yet - needs the manager. */
+.schedule-cell.maintenance {
+color: #8a4b00;
+background: rgba(255, 152, 0, 0.16);
+border-color: rgba(255, 152, 0, 0.55);
+font-weight: 600;
+}
+
+/* Driving a temporary unit while their own is in the shop. */
+.schedule-cell.substitute {
+color: #4a3aa8;
+background: rgba(103, 80, 214, 0.1);
+border-color: rgba(103, 80, 214, 0.4);
+border-style: dashed;
+}
+
 .schedule-cell.ineligible {
 color: #a13939;
 background: repeating-linear-gradient(
@@ -2816,6 +2832,60 @@ flex-direction: column;
 gap: 0.5rem;
 }
 
+/* LTO license scan (Driver & Shifts > Profile > Edit Details) */
+.license-scan-row {
+justify-content: flex-start;
+}
+
+.license-scan-results {
+display: flex;
+flex-direction: column;
+gap: 0.35rem;
+margin: 0.4rem 0 0.9rem;
+padding: 0.7rem 0.8rem;
+border: 1px solid rgba(1,155,207,0.3);
+border-radius: 10px;
+background: rgba(255,255,255,0.5);
+}
+
+.license-scan-field {
+display: flex;
+justify-content: space-between;
+gap: 0.8rem;
+font-size: 0.8rem;
+color: #5a7a8a;
+}
+
+.license-scan-field strong {
+color: #1d1d1d;
+text-align: right;
+}
+
+.unit-note {
+font-size: 0.7rem;
+color: #8a4b00;
+margin-top: 0.15rem;
+}
+
+.password-form {
+display: flex;
+flex-direction: column;
+gap: 0.4rem;
+margin-top: 0.5rem;
+}
+
+.field-error {
+color: #c62828;
+font-size: 0.78rem;
+font-weight: 600;
+}
+
+.field-ok {
+color: #1b7a3a;
+font-size: 0.78rem;
+font-weight: 600;
+}
+
 .receipt-hint {
 font-size: 0.72rem;
 color: #5a7a8a;
@@ -3100,6 +3170,24 @@ color: #1d1d1d;
 
 .report-modal.review-modal {
 width: min(94vw, 780px);
+}
+
+/* LAR-63: both Fuel Verification popups (review + resolve) can grow taller than the
+viewport once the OCR section/flag textarea are in play - .report-modal's overflow:hidden
+was clipping the bottom (including Verify/Resolve buttons) with no way to reach it. Cap the
+modal height and let just the body scroll, header/actions stay pinned - same pattern the
+photo popup already uses below. */
+/* (Their height cap / scrolling body is now the shared .report-modal rule - see
+   "Popups never taller than the screen".) */
+
+@media (max-width: 640px) {
+.report-modal.review-modal {
+width: 94vw;
+}
+
+.review-columns {
+flex-direction: column;
+}
 }
 
 .review-header-meta {
@@ -3917,4 +4005,168 @@ grid-template-columns: repeat(3, 1fr);
     .history-modal .history-body {
         padding: 0.8rem 0.8rem 1rem;
     }
+}
+/* Daily Settlements day picker */
+.settlement-day-nav {
+display: flex;
+align-items: center;
+gap: 0.35rem;
+margin-top: 0.25rem;
+flex-wrap: wrap;
+}
+
+.settlement-day-btn {
+width: 28px;
+height: 28px;
+border: 1px solid #c9d6dc;
+border-radius: 6px;
+background: #fff;
+color: #1d1d1d;
+font-size: 1rem;
+line-height: 1;
+cursor: pointer;
+}
+
+.settlement-day-btn:disabled {
+opacity: 0.4;
+cursor: default;
+}
+
+.settlement-day-input {
+height: 28px;
+border: 1px solid #c9d6dc;
+border-radius: 6px;
+padding: 0 0.4rem;
+font-size: 0.9rem;
+font-weight: 700;
+color: #1d1d1d;
+background: #fff;
+}
+
+.settlement-today-link {
+border: none;
+background: none;
+color: #1f6f8b;
+font-size: 0.8rem;
+font-weight: 700;
+cursor: pointer;
+text-decoration: underline;
+}
+
+/* Record Payment / Settle Debt windows: never taller than the screen (the body scrolls),
+   and wider with the GCash receipt in its own column beside the payment details. */
+.report-modal.payment-modal {
+width: min(94vw, 480px);
+}
+
+.report-modal.payment-modal.with-receipt {
+width: min(94vw, 880px);
+}
+
+.payment-body {
+display: grid;
+grid-template-columns: 1fr;
+gap: 1.2rem;
+}
+
+.payment-modal.with-receipt .payment-body {
+grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+align-items: start;
+}
+
+.payment-main,
+.payment-receipt {
+display: flex;
+flex-direction: column;
+min-width: 0;
+}
+
+.payment-main {
+gap: 1rem;
+}
+
+.payment-main > * {
+margin-top: 0;
+margin-bottom: 0;
+}
+
+.payment-receipt {
+border-left: 1px solid rgba(1,155,207,0.25);
+padding-left: 1.2rem;
+}
+
+.payment-receipt .receipt-scan-row {
+justify-content: flex-start;
+}
+
+.payment-receipt .receipt-preview img {
+max-height: 300px;
+}
+
+@media (max-width: 720px) {
+.payment-modal.with-receipt .payment-body {
+grid-template-columns: 1fr;
+}
+
+.payment-receipt {
+border-left: none;
+padding-left: 0;
+border-top: 1px solid rgba(1,155,207,0.25);
+padding-top: 1rem;
+}
+}
+
+.history-receipt img {
+display: block;
+width: 36px;
+height: 48px;
+object-fit: cover;
+border-radius: 4px;
+border: 1px solid rgba(1,155,207,0.3);
+}
+
+.payment-modal input[readonly] {
+background: #eef3f5;
+color: #1d1d1d;
+cursor: default;
+}
+
+/* ---------------------------------------------------------------------
+   Popups never taller than the screen. Every .report-modal (Dashboard reports, Driver &
+   Shifts, Financial Ledger, Fuel Verification, Garage) is capped at the visible height:
+   the header and the action buttons stay put and only the body scrolls, so Confirm/Save
+   is always reachable without zooming out. Same for the Inventory "Log New Part" card.
+   --------------------------------------------------------------------- */
+.report-overlay {
+padding: 16px;
+}
+
+.report-modal {
+max-height: calc(100vh - 32px);
+max-height: calc(100dvh - 32px);
+display: flex;
+flex-direction: column;
+}
+
+.report-modal > .report-header,
+.report-modal > .report-actions {
+flex-shrink: 0;
+}
+
+.report-modal > .report-body {
+flex: 1 1 auto;
+min-height: 0;
+overflow-y: auto;
+}
+
+.modal-card {
+max-height: calc(100vh - 32px);
+max-height: calc(100dvh - 32px);
+overflow-y: auto;
+}
+
+/* Shift Logs > inspection checklist: Pre- and Post-Shift side by side need the room -
+   wider, so each column's photos and items aren't squeezed into a long narrow strip. */
+.report-modal.checklist-modal {
+width: min(96vw, 1100px);
 }

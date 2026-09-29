@@ -22,19 +22,57 @@ namespace LARGA.SharedCore.Services;
 /// same reason: a missing-credentials failure should surface inside a page's own
 /// try/catch, not crash at DI-construction time.
 /// </summary>
+/// <summary>Admin Cloud Storage client + the Firebase bucket to write into (registered in
+/// ManagerWeb's Program.cs from the same service-account key as Firestore).</summary>
+public record PhotoStorageTarget(Google.Cloud.Storage.V1.StorageClient Client, string Bucket)
+{
+    /// <summary>Stores an image under {folder}/ and returns its download URL - the same URL
+    /// shape the mobile app's uploads get (a firebasestorage.googleapis.com link carrying a
+    /// download token), so it opens straight in a browser tab and in the mobile app alike.</summary>
+    public async Task<string> UploadImageAsync(string folder, byte[] image, string contentType)
+    {
+        string extension = contentType switch
+        {
+            "image/png" => "png",
+            "image/webp" => "webp",
+            _ => "jpg",
+        };
+        string objectName = $"{folder}/{DateTime.UtcNow:yyyyMMddHHmmss}.{extension}";
+        string token = Guid.NewGuid().ToString();
+
+        using var stream = new System.IO.MemoryStream(image);
+        await Client.UploadObjectAsync(new Google.Apis.Storage.v1.Data.Object
+        {
+            Bucket = Bucket,
+            Name = objectName,
+            ContentType = contentType,
+            // The token Firebase's download URLs are checked against.
+            Metadata = new Dictionary<string, string> { ["firebaseStorageDownloadTokens"] = token },
+        }, stream);
+
+        return $"https://firebasestorage.googleapis.com/v0/b/{Bucket}/o/{Uri.EscapeDataString(objectName)}?alt=media&token={token}";
+    }
+}
+
 public class DriverManagementService
 {
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly Lazy<FirebaseAuth> _authLazy;
+    private readonly Lazy<PhotoStorageTarget> _storageLazy;
     private readonly ILogger<DriverManagementService> _logger;
 
     private FirestoreDb Db => _dbLazy.Value;
     private FirebaseAuth Auth => _authLazy.Value;
 
-    public DriverManagementService(Lazy<FirestoreDb> dbLazy, Lazy<FirebaseAuth> authLazy, ILogger<DriverManagementService> logger)
+    public DriverManagementService(
+        Lazy<FirestoreDb> dbLazy,
+        Lazy<FirebaseAuth> authLazy,
+        Lazy<PhotoStorageTarget> storageLazy,
+        ILogger<DriverManagementService> logger)
     {
         _dbLazy = dbLazy;
         _authLazy = authLazy;
+        _storageLazy = storageLazy;
         _logger = logger;
     }
 
@@ -50,7 +88,8 @@ public class DriverManagementService
 
         var entries = drivers.Select(d =>
         {
-            ShiftLog? active = activeShifts.FirstOrDefault(s => s.DriverId == d.UserId);
+            // Most recent, should a driver somehow have more than one open shift.
+            ShiftLog? active = activeShifts.Where(s => s.DriverId == d.UserId).OrderByDescending(s => s.ShiftStart).FirstOrDefault();
             bool isOnShift = active is not null && IsEligibleForShift(d.LicenseExpiryDate, now);
             return new DriverRosterEntry
             {
@@ -59,7 +98,9 @@ public class DriverManagementService
                 LicenseStatus = ComputeLicenseStatus(d.LicenseExpiryDate, now),
                 IsOnShift = isOnShift,
                 IsOnBreak = isOnShift && active!.IsOnBreak,
-                AssignedTaxiId = active?.TaxiId ?? (string.IsNullOrWhiteSpace(d.AssignedTaxiId) ? null : d.AssignedTaxiId),
+                IsLateReturn = isOnShift && active!.ShiftStart is DateTime start && now >= ShiftRules.ReturnDeadlineUtc(start),
+                AssignedTaxiId = string.IsNullOrWhiteSpace(d.AssignedTaxiId) ? null : d.AssignedTaxiId,
+                CurrentShiftTaxiId = isOnShift ? active!.TaxiId : null,
             };
         }).ToList();
 
@@ -105,9 +146,9 @@ public class DriverManagementService
     /// <summary>Every day defaults to "working the driver's permanently assigned unit"
     /// (UserProfile.AssignedTaxiId) - under BLM Taxi's boundary system, one driver has one
     /// unit assigned to them permanently, and works daily unless there's a specific reason
-    /// not to, so working is the norm and a manager should only ever have to touch the one
-    /// exception that matters: a day off. A "shift_schedules" document for a given
-    /// driver/date only exists to record that exception - there is no per-day unit swap.</summary>
+    /// not to. A "shift_schedules" document for a given driver/date only exists to record an
+    /// exception to that: a day off ("DayOff"), or a temporary unit while the driver's own is
+    /// under maintenance ("Substitute").</summary>
     public async Task<WeekSchedule> GetWeekScheduleAsync(DateTime weekStartUtc)
     {
         DateTime weekStart = StartOfWeek(weekStartUtc);
@@ -115,10 +156,11 @@ public class DriverManagementService
 
         List<UserProfile> drivers = await GetDriversAsync();
         List<TaxiUnit> taxis = await GetAllAsync<TaxiUnit>("taxis");
-        List<ShiftSchedule> dayOffs = await GetBetweenAsync<ShiftSchedule>("shift_schedules", "scheduledStartTime", weekStart, weekEnd.AddTicks(-1));
+        List<ShiftSchedule> exceptions = await GetBetweenAsync<ShiftSchedule>("shift_schedules", "scheduledStartTime", weekStart, weekEnd.AddTicks(-1));
+        List<MaintenanceRecord> activeJobs = await GetWhereEqualAsync<MaintenanceRecord>("maintenance_logs", "status", "InProgress");
+        Func<string, DateTime, string?> maintenanceNote = BuildMaintenanceLookup(taxis, activeJobs, PhilippineTime.Now.Date);
 
         var rows = new List<DriverScheduleRow>();
-        var unitsByDay = new int[7];
 
         foreach (UserProfile driver in drivers)
         {
@@ -135,9 +177,24 @@ public class DriverManagementService
             for (int i = 0; i < 7; i++)
             {
                 DateTime day = weekStart.AddDays(i);
-                bool isDayOff = dayOffs.Any(s => s.DriverId == driver.UserId && s.ScheduledStartTime.Date == day.Date && s.Status == "DayOff");
+                ShiftSchedule? exception = exceptions.FirstOrDefault(s => s.DriverId == driver.UserId && s.ScheduledStartTime.Date == day.Date);
+                bool isDayOff = exception?.Status == "DayOff";
                 bool isLicenseIneligible = IsLicenseIneligibleOn(driver.LicenseExpiryDate, day);
-                string? effectiveTaxiId = isDayOff || isLicenseIneligible ? null : defaultTaxiId;
+                string? ownUnitNote = defaultTaxiId is null ? null : maintenanceNote(defaultTaxiId, day);
+
+                // A substitute only applies while the driver's own unit is actually in the shop
+                // - once the Garage finishes the job, the cell falls back to their own unit on
+                // its own, even if the substitute entry is still there. A substitute that has
+                // itself gone into maintenance is ignored too, so the cell asks for a new one.
+                string? substitute = exception?.Status == "Substitute"
+                    && ownUnitNote is not null
+                    && !string.IsNullOrWhiteSpace(exception.TaxiId)
+                    && maintenanceNote(exception.TaxiId, day) is null
+                        ? exception.TaxiId
+                        : null;
+
+                string? effectiveTaxiId = isDayOff || isLicenseIneligible ? null
+                    : substitute ?? (ownUnitNote is null ? defaultTaxiId : null);
 
                 row.Days.Add(new ScheduleDayCell
                 {
@@ -145,24 +202,77 @@ public class DriverManagementService
                     TaxiId = effectiveTaxiId,
                     IsDayOff = isDayOff,
                     IsLicenseIneligible = isLicenseIneligible,
+                    IsOwnUnitUnderMaintenance = ownUnitNote is not null,
+                    SubstituteTaxiId = isDayOff || isLicenseIneligible ? null : substitute,
+                    MaintenanceNote = ownUnitNote,
                 });
-
-                if (effectiveTaxiId is not null)
-                {
-                    unitsByDay[i]++;
-                }
             }
 
             rows.Add(row);
+        }
+
+        var unitsByDay = new List<int>();
+        var freeByDay = new List<List<string>>();
+        for (int i = 0; i < 7; i++)
+        {
+            DateTime day = weekStart.AddDays(i);
+            var inUse = rows.Select(r => r.Days[i].TaxiId).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+            unitsByDay.Add(rows.Count(r => r.Days[i].TaxiId is not null));
+            freeByDay.Add(taxis
+                .Where(t => !string.Equals(t.Status, "Decommissioned", StringComparison.OrdinalIgnoreCase))
+                .Select(t => t.TaxiId)
+                .Where(id => !inUse.Contains(id) && maintenanceNote(id, day) is null)
+                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .ToList());
         }
 
         return new WeekSchedule
         {
             WeekStart = weekStart,
             Rows = rows,
-            UnitsActiveByDay = unitsByDay.ToList(),
+            UnitsActiveByDay = unitsByDay,
             TotalTaxis = taxis.Count,
             TaxiIds = taxis.Select(t => t.TaxiId).OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToList(),
+            FreeTaxiIdsByDay = freeByDay,
+        };
+    }
+
+    /// <summary>(taxiId, day) -> a short reason if that unit is under maintenance on that
+    /// calendar day, else null. Two sources, per the Garage workflow:
+    /// - an In Progress Garage job for the unit, from the day it was reported through its
+    ///   estimated completion date (open-ended if the Garage hasn't set one);
+    /// - the taxi's own status set to "Under Maintenance" - a current state with no dates,
+    ///   so it applies from today onward, not to past days.
+    /// Dates are compared as Philippine calendar days.</summary>
+    private static Func<string, DateTime, string?> BuildMaintenanceLookup(List<TaxiUnit> taxis, List<MaintenanceRecord> activeJobs, DateTime todayPh)
+    {
+        var jobsByTaxi = activeJobs
+            .Where(j => !string.IsNullOrWhiteSpace(j.TaxiId))
+            .GroupBy(j => j.TaxiId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+        var flaggedTaxis = taxis
+            .Where(t => string.Equals(t.Status, "Under Maintenance", StringComparison.OrdinalIgnoreCase))
+            .Select(t => t.TaxiId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return (taxiId, day) =>
+        {
+            DateTime date = day.Date;
+            if (jobsByTaxi.TryGetValue(taxiId, out List<MaintenanceRecord>? jobs))
+            {
+                foreach (MaintenanceRecord job in jobs)
+                {
+                    DateTime start = job.DateLogged.ToPhilippineTime().Date;
+                    DateTime? end = job.EstimatedCompletionDate?.ToPhilippineTime().Date;
+                    if (date >= start && (end is null || date <= end.Value))
+                    {
+                        string title = string.IsNullOrWhiteSpace(job.IssueTitle) ? "Garage job" : job.IssueTitle;
+                        return end is null ? $"{title} - no finish date yet" : $"{title} - until {end:MMM d}";
+                    }
+                }
+            }
+
+            return flaggedTaxis.Contains(taxiId) && date >= todayPh ? "Marked Under Maintenance" : null;
         };
     }
 
@@ -179,10 +289,12 @@ public class DriverManagementService
     /// on a date that falls on/after their license expiry, or within one month before it. Mirrors
     /// IsEligibleForShift's 1-month cutoff, but evaluated per calendar day rather than just "now":
     /// a manager paging the planner forward to a future week sees the same eligibility the driver
-    /// will actually have on that date, not just today's snapshot. A driver with no expiry date
-    /// on file is never restricted by this rule.</summary>
+    /// will actually have on that date, not just today's snapshot. A driver whose license
+    /// hasn't been set yet (no expiry date on file) can't be scheduled on any date either -
+    /// not even by the planner's default of every day on their own unit - until the manager
+    /// records a valid license in their profile.</summary>
     private static bool IsLicenseIneligibleOn(DateTime? licenseExpiry, DateTime date) =>
-        licenseExpiry.HasValue && date.Date >= licenseExpiry.Value.AddMonths(-1).Date;
+        !licenseExpiry.HasValue || date.Date >= licenseExpiry.Value.AddMonths(-1).Date;
 
     /// <summary>Server-side backstop for the same rule the Schedule Planner UI enforces by
     /// disabling the cell - looked up fresh rather than trusting a value the caller might pass
@@ -197,6 +309,10 @@ public class DriverManagementService
         }
 
         UserProfile profile = doc.ConvertTo<UserProfile>();
+        if (profile.LicenseExpiryDate is null)
+        {
+            throw new InvalidOperationException("This driver's license hasn't been set yet - add their license in their profile before scheduling them.");
+        }
         if (IsLicenseIneligibleOn(profile.LicenseExpiryDate, date))
         {
             throw new InvalidOperationException("This driver's license is expired or within one month of expiring on this date - they cannot be scheduled.");
@@ -219,8 +335,41 @@ public class DriverManagementService
         await Db.Collection("shift_schedules").Document(ScheduleDocId(driverId, dateUtc)).SetAsync(schedule, SetOptions.Overwrite);
     }
 
-    /// <summary>Removes the day-off exception for this day, reverting the cell back to its
-    /// default: working, with the driver's permanently assigned unit.</summary>
+    /// <summary>Gives the driver a temporary unit for this one day because their own is under
+    /// maintenance. Checked server-side against a fresh schedule, not just the page's
+    /// dropdown: the driver's unit must really be in the shop that day, and the substitute
+    /// must be free (not under maintenance, not driven by anyone else).</summary>
+    public async Task AssignSubstituteAsync(string driverId, DateTime dateUtc, string taxiId)
+    {
+        await EnsureLicenseEligibleOnAsync(driverId, dateUtc);
+
+        WeekSchedule week = await GetWeekScheduleAsync(dateUtc);
+        int dayIndex = (dateUtc.Date - week.WeekStart.Date).Days;
+        ScheduleDayCell? cell = week.Rows.FirstOrDefault(r => r.DriverId == driverId)?.Days[dayIndex];
+
+        if (cell is null || !cell.IsOwnUnitUnderMaintenance)
+        {
+            throw new InvalidOperationException("This driver's own unit isn't under maintenance on this date - no substitute needed.");
+        }
+
+        bool keepingSameSubstitute = string.Equals(cell.SubstituteTaxiId, taxiId, StringComparison.OrdinalIgnoreCase);
+        if (!keepingSameSubstitute && !week.FreeTaxiIdsByDay[dayIndex].Contains(taxiId, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"{taxiId} isn't free on {dateUtc:MMM d} - it's under maintenance or another driver has it.");
+        }
+
+        var schedule = new ShiftSchedule
+        {
+            DriverId = driverId,
+            TaxiId = taxiId,
+            ScheduledStartTime = DateTime.SpecifyKind(dateUtc.Date, DateTimeKind.Utc),
+            Status = "Substitute",
+        };
+        await Db.Collection("shift_schedules").Document(ScheduleDocId(driverId, dateUtc)).SetAsync(schedule, SetOptions.Overwrite);
+    }
+
+    /// <summary>Removes this day's exception (day off or substitute), reverting the cell
+    /// back to its default: working, with the driver's permanently assigned unit.</summary>
     public async Task ClearScheduleAsync(string driverId, DateTime dateUtc)
     {
         await EnsureLicenseEligibleOnAsync(driverId, dateUtc);
@@ -252,13 +401,28 @@ public class DriverManagementService
                     DriverId = s.DriverId,
                     DriverName = drivers.FirstOrDefault(d => d.UserId == s.DriverId)?.FullName ?? s.DriverId,
                     TaxiId = s.TaxiId,
-                    Status = s.Status == "Active" && s.IsOnBreak ? "On Break" : s.Status,
+                    Status = ShiftLogStatus(s),
                     HasPreShiftChecklist = shiftChecklists.Any(c => c.ChecklistType == ChecklistType.PreShift),
                     HasEndShiftChecklist = shiftChecklists.Any(c => c.ChecklistType == ChecklistType.EndShift),
                     DefectCount = defectCount,
                 };
             })
             .ToList();
+    }
+
+    /// <summary>What Shift Logs shows: the stored status, except an open shift is "Late Return"
+    /// once past its 10:00 PM return time (ShiftRules), or "On Break" while paused.</summary>
+    private static string ShiftLogStatus(ShiftLog s)
+    {
+        if (s.Status != "Active")
+        {
+            return s.Status;
+        }
+        if (s.ShiftStart is DateTime start && DateTime.UtcNow >= ShiftRules.ReturnDeadlineUtc(start))
+        {
+            return "Late Return";
+        }
+        return s.IsOnBreak ? "On Break" : "Active";
     }
 
     /// <summary>Other collections reference a shift by its shiftId field, which should equal
@@ -450,11 +614,16 @@ public class DriverManagementService
         {
             DriverId = profile.UserId,
             FullName = profile.FullName,
+            Email = profile.Email,
             PhoneNumber = profile.PhoneNumber,
             Address = profile.Address,
             DateJoined = profile.DateJoined,
             IsOnShift = activeShift is not null && IsEligibleForShift(profile.LicenseExpiryDate, now),
-            AssignedTaxiId = activeShift?.TaxiId ?? (string.IsNullOrWhiteSpace(profile.AssignedTaxiId) ? null : profile.AssignedTaxiId),
+            // Always the profile's own assignment - the Edit Details form pre-fills from this,
+            // so it must never be the active shift's unit (saving would silently reassign the
+            // driver to whatever they happened to be driving).
+            AssignedTaxiId = string.IsNullOrWhiteSpace(profile.AssignedTaxiId) ? null : profile.AssignedTaxiId,
+            CurrentShiftTaxiId = activeShift?.TaxiId,
             LicenseNumber = profile.LicenseNumber,
             LicenseClassification = profile.LicenseClassification,
             LicenseRestrictionCode = profile.LicenseRestrictionCode,
@@ -476,7 +645,8 @@ public class DriverManagementService
         string? licenseClassification,
         string? licenseRestrictionCode,
         DateTime? licenseExpiryDate,
-        string? assignedTaxiId)
+        string? assignedTaxiId,
+        string? ltoIdPhotoUrl = null)
     {
         var updates = new Dictionary<string, object>
         {
@@ -490,11 +660,25 @@ public class DriverManagementService
 
         if (licenseExpiryDate.HasValue)
         {
-            updates["licenseExpiryDate"] = licenseExpiryDate.Value;
+            // The page's <input type="date"> yields an Unspecified-kind DateTime, which the
+            // Firestore SDK won't serialize - store the calendar date as UTC midnight, the same
+            // way schedule days are represented (IsLicenseIneligibleOn compares .Date values).
+            updates["licenseExpiryDate"] = DateTime.SpecifyKind(licenseExpiryDate.Value.Date, DateTimeKind.Utc);
+        }
+
+        // Only when a new license photo was scanned - otherwise keep whatever is on file.
+        if (!string.IsNullOrWhiteSpace(ltoIdPhotoUrl))
+        {
+            updates["ltoIdPhotoUrl"] = ltoIdPhotoUrl;
         }
 
         await Db.Collection("users").Document(driverId).UpdateAsync(updates);
     }
+
+    /// <summary>Stores a scanned LTO license photo in Firebase Storage and returns its
+    /// download URL (for users/{id}.ltoIdPhotoUrl).</summary>
+    public Task<string> UploadLtoIdPhotoAsync(string driverId, byte[] photo, string contentType) =>
+        _storageLazy.Value.UploadImageAsync($"lto_ids/{driverId}", photo, contentType);
 
     public async Task SetManagerNoteAsync(string driverId, string note)
     {
@@ -505,7 +689,7 @@ public class DriverManagementService
     // Driver account management (manager-provisioned - drivers never self-register)
     // ---------------------------------------------------------------------
 
-    public async Task<CreateDriverResult> CreateDriverAsync(string fullName, string phoneNumber, string? temporaryPassword)
+    public async Task<CreateDriverResult> CreateDriverAsync(string fullName, string phoneNumber, string? temporaryPassword, string? assignedTaxiId = null, string? email = null)
     {
         string password = string.IsNullOrWhiteSpace(temporaryPassword) ? GenerateTemporaryPassword() : temporaryPassword;
         if (password.Length < 6)
@@ -513,22 +697,37 @@ public class DriverManagementService
             return new CreateDriverResult { Ok = false, ErrorMessage = "Temporary password must be at least 6 characters." };
         }
 
-        // Drivers sign in with email+password (same as the mobile app's login screen), but
-        // the "Add New Driver" form intentionally only collects name/phone/password - there
-        // is no self-registration for drivers, so the login email itself doesn't need to
-        // mean anything to them. The manager relays whatever this generates, along with the
-        // password, to the driver directly.
-        string email = GenerateDriverEmail(fullName);
+        // Drivers sign in with email+password (same as the mobile app's login screen). The
+        // driver's own email is preferred - the mobile app's Forgot Password can only reach a
+        // real inbox - but it's optional: with none given, a placeholder is generated and the
+        // manager relays it, with the password, to the driver directly.
+        string loginEmail;
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            loginEmail = GenerateDriverEmail(fullName);
+        }
+        else
+        {
+            loginEmail = email.Trim().ToLowerInvariant();
+            if (!IsValidEmail(loginEmail))
+            {
+                return new CreateDriverResult { Ok = false, ErrorMessage = "Enter a valid email address, e.g. juan.delacruz@gmail.com - or leave it blank to generate one." };
+            }
+        }
 
         UserRecord userRecord;
         try
         {
             userRecord = await Auth.CreateUserAsync(new UserRecordArgs
             {
-                Email = email,
+                Email = loginEmail,
                 Password = password,
                 DisplayName = fullName,
             });
+        }
+        catch (FirebaseAuthException ex) when (ex.AuthErrorCode == AuthErrorCode.EmailAlreadyExists)
+        {
+            return new CreateDriverResult { Ok = false, ErrorMessage = $"{loginEmail} is already used by another account." };
         }
         catch (Exception ex)
         {
@@ -539,8 +738,10 @@ public class DriverManagementService
         var profile = new UserProfile
         {
             FullName = fullName,
-            Email = email,
+            Email = loginEmail,
             PhoneNumber = phoneNumber,
+            // Their permanent unit - the Schedule Planner fills every working day with it.
+            AssignedTaxiId = string.IsNullOrWhiteSpace(assignedTaxiId) ? string.Empty : assignedTaxiId,
             Role = "Driver",
             DateJoined = DateTime.UtcNow,
             MustChangePassword = true,
@@ -571,7 +772,7 @@ public class DriverManagementService
         {
             Ok = true,
             DriverId = userRecord.Uid,
-            GeneratedEmail = email,
+            GeneratedEmail = loginEmail,
             TemporaryPassword = password,
         };
     }
@@ -596,6 +797,69 @@ public class DriverManagementService
             return new ResetPasswordResult { Ok = false, ErrorMessage = ex.Message };
         }
     }
+
+    /// <summary>Changes the email a driver signs in to the mobile app with - both the Firebase
+    /// Auth login and users/{id}.email, kept in step. Drivers are created with a placeholder
+    /// address (see GenerateDriverEmail), which can't receive the mobile app's Forgot Password
+    /// email; switching to the driver's real address makes that flow work. Their password
+    /// doesn't change.</summary>
+    public async Task<ResetPasswordResult> UpdateDriverLoginEmailAsync(string driverId, string newEmail)
+    {
+        string email = (newEmail ?? string.Empty).Trim().ToLowerInvariant();
+        if (!IsValidEmail(email))
+        {
+            return new ResetPasswordResult { Ok = false, ErrorMessage = "Enter a valid email address, e.g. juan.delacruz@gmail.com." };
+        }
+
+        UserRecord current;
+        try
+        {
+            current = await Auth.GetUserAsync(driverId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Couldn't load Auth account for driver {DriverId}", driverId);
+            return new ResetPasswordResult { Ok = false, ErrorMessage = "This driver has no mobile app login account." };
+        }
+
+        if (string.Equals(current.Email, email, StringComparison.OrdinalIgnoreCase))
+        {
+            return new ResetPasswordResult { Ok = true };
+        }
+
+        try
+        {
+            await Auth.UpdateUserAsync(new UserRecordArgs { Uid = driverId, Email = email, EmailVerified = false });
+        }
+        catch (FirebaseAuthException ex) when (ex.AuthErrorCode == AuthErrorCode.EmailAlreadyExists)
+        {
+            return new ResetPasswordResult { Ok = false, ErrorMessage = $"{email} is already used by another account." };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to change login email for driver {DriverId}", driverId);
+            return new ResetPasswordResult { Ok = false, ErrorMessage = ex.Message };
+        }
+
+        try
+        {
+            await Db.Collection("users").Document(driverId).UpdateAsync("email", email);
+        }
+        catch (Exception ex)
+        {
+            // Put the login back so the two never disagree about which email is the driver's.
+            _logger.LogWarning(ex, "Profile email write failed for {DriverId}; reverting Auth email", driverId);
+            try { await Auth.UpdateUserAsync(new UserRecordArgs { Uid = driverId, Email = current.Email }); }
+            catch (Exception revertEx) { _logger.LogWarning(revertEx, "Also failed to revert Auth email for {DriverId}", driverId); }
+            return new ResetPasswordResult { Ok = false, ErrorMessage = "Could not save the new email. Please try again." };
+        }
+
+        return new ResetPasswordResult { Ok = true };
+    }
+
+    // Shape check only (something@domain.tld) - Firebase Auth does the real validation.
+    private static bool IsValidEmail(string email) =>
+        System.Text.RegularExpressions.Regex.IsMatch(email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$");
 
     private static string GenerateDriverEmail(string fullName)
     {

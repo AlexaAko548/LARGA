@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore.Services;
 using Plugin.Firebase.Auth;
+using Plugin.Firebase.Storage;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -16,7 +17,6 @@ public class VehicleDefectViewModel : BindableObject
 {
     private readonly IMaintenanceService _maintenanceService;
     private readonly IShiftManagementService _shiftManagementService;
-    private readonly IPhotoStorageService _photoStorage;
 
     private string _checklistItem = string.Empty;
     private string _titleReport = string.Empty;
@@ -79,11 +79,10 @@ public class VehicleDefectViewModel : BindableObject
     public ICommand AttachPhotoCommand { get; }
     public ICommand SubmitReportCommand { get; }
 
-    public VehicleDefectViewModel(IMaintenanceService maintenanceService, IShiftManagementService shiftManagementService, IPhotoStorageService photoStorage)
+    public VehicleDefectViewModel(IMaintenanceService maintenanceService, IShiftManagementService shiftManagementService)
     {
         _maintenanceService = maintenanceService;
         _shiftManagementService = shiftManagementService;
-        _photoStorage = photoStorage;
 
         AttachPhotoCommand = new Command(async () => await AttachPhotoAsync());
 
@@ -108,13 +107,20 @@ public class VehicleDefectViewModel : BindableObject
             string? shiftId = null;
             try { shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId"); } catch { }
 
-            // Previously the local device path was stored, which nobody else can open.
-            string? photoUrl = null;
-            if (!string.IsNullOrWhiteSpace(_photoPath) && File.Exists(_photoPath))
+            string? supportingPhotoUrl = null;
+            if (!string.IsNullOrWhiteSpace(_photoPath))
             {
-                byte[] bytes = await File.ReadAllBytesAsync(_photoPath);
-                photoUrl = await _photoStorage.UploadPhotoAsync(
-                    $"maintenance_logs/{(string.IsNullOrEmpty(driverId) ? "unknown_driver" : driverId)}/{Guid.NewGuid():N}.jpg", bytes);
+                try
+                {
+                    var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    supportingPhotoUrl = await UploadPhotoAsync(_photoPath, $"maintenance_logs/{driverId}/{timestamp}/defect.jpg");
+                }
+                catch (Exception uploadEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Defect photo upload error: {uploadEx.Message}");
+                    await Shell.Current.DisplayAlert("Upload Failed", "Unable to upload the photo to cloud storage. Please check your internet connection and try again.", "OK");
+                    return;
+                }
             }
 
             var record = new MaintenanceRecord
@@ -127,7 +133,7 @@ public class VehicleDefectViewModel : BindableObject
                 IssueDescription = Description,
                 DateLogged = System.DateTime.UtcNow,
                 PriorityLevel = priorityLevel,
-                SupportingPhotoUrl = photoUrl,
+                SupportingPhotoUrl = supportingPhotoUrl,
                 ReportedByDriverId = driverId,
                 Status = "Reported"
             };
@@ -163,5 +169,21 @@ public class VehicleDefectViewModel : BindableObject
         {
             await Shell.Current.DisplayAlert("Error", $"Camera failed: {ex.Message}", "OK");
         }
+    }
+
+    // Same pattern as FuelReportViewModel.UploadImageAsync - stores the actual photo in
+    // Firebase Storage and returns a durable download URL, instead of the local device
+    // cache path (which stops resolving once the cache is cleared or the report is viewed
+    // from a different device - the bug LAR-61 was filed against).
+    private static async Task<string> UploadPhotoAsync(string localFilePath, string remotePath)
+    {
+        if (string.IsNullOrWhiteSpace(localFilePath) || !File.Exists(localFilePath))
+        {
+            throw new ArgumentException("File path is invalid or does not exist", nameof(localFilePath));
+        }
+
+        var storageRef = CrossFirebaseStorage.Current.GetRootReference().GetChild(remotePath);
+        await storageRef.PutFile(localFilePath).AwaitAsync();
+        return await storageRef.GetDownloadUrlAsync();
     }
 }

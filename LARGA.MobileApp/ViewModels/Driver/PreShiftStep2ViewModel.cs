@@ -281,7 +281,19 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
                 return;
             }
 
-            string newDocumentId = await _shiftService.ClockInAsync(_assignedTaxiId, startMileage);
+            string newDocumentId;
+            try
+            {
+                newDocumentId = await _shiftService.ClockInAsync(_assignedTaxiId, startMileage);
+            }
+            catch (InvalidOperationException rule)
+            {
+                // Operating-day rule (before 6:00 AM, or a shift already open) - the message
+                // is written for the driver.
+                await SafeDisplayAlert("Can't start shift", rule.Message);
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(newDocumentId))
             {
                 await SafeDisplayAlert("Error", "Failed to start shift. Please try again.");
@@ -292,7 +304,7 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
             // Fuel reports read the shift they belong to from here.
             Preferences.Set("CurrentShiftId", newDocumentId);
             Preferences.Set("IsShiftActive", true);
-            Preferences.Set("ShiftStartTime", DateTime.Now.ToString("o"));
+            Preferences.Set("ShiftStartTime", LARGA.SharedCore.ShiftClock.LocalNow.ToString("o"));
 
             // The shift has started regardless of how this goes - a failed checklist/photo
             // upload only means the manager won't see this inspection, so it never blocks.

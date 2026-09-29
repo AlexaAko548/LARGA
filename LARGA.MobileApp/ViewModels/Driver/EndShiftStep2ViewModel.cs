@@ -6,9 +6,11 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Devices.Sensors;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
 using LARGA.MobileApp.Services;
+using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
@@ -131,10 +133,18 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                     return;
                 }
 
+                // The unit has to actually be back: ending the shift is what stops the
+                // late-return clock (ShiftRules.LateReturnFee), so it only counts at the garage.
+                if (!await EnsureAtGarageAsync())
+                {
+                    return;
+                }
+
+                decimal lateFee = 0m;
                 string activeShiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
                 if (!string.IsNullOrEmpty(activeShiftId))
                 {
-                    await _shiftService.ClockOutAsync(activeShiftId, endMileage, "");
+                    lateFee = await _shiftService.ClockOutAsync(activeShiftId, endMileage, "");
                     await ShiftChecklistUploader.SubmitAsync(
                         _shiftService, _photoStorage, activeShiftId, isEndShift: true, _inspection,
                         IsBelowHalfTankSelected, _fuelPhotoLocalPath, _odometerPhotoLocalPath);
@@ -154,7 +164,10 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                 _odometerPhotoLocalPath = null;
                 _fuelPhotoLocalPath = null;
 
-                await Shell.Current.GoToAsync("shift-completed");
+                await Shell.Current.GoToAsync("shift-completed", new Dictionary<string, object>
+                {
+                    { "lateFee", lateFee },
+                });
             }
             catch (Exception ex)
             {
@@ -171,6 +184,73 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
             if (option == "HalfTank") IsHalfTankSelected = true;
             else if (option == "BelowHalf") IsBelowHalfTankSelected = true;
         });
+    }
+
+    /// <summary>
+    /// Blocks ending the shift unless the phone is within the garage geofence. No location
+    /// (permission denied, GPS off, no fix) or a mock/fake location also blocks - otherwise
+    /// turning GPS off would skip the check. Shows the reason; returns true when allowed.
+    /// </summary>
+    private async Task<bool> EnsureAtGarageAsync()
+    {
+        const string title = "Return to the garage";
+
+        var permission = await Permissions.CheckStatusAsync<Permissions.LocationWhenInUse>();
+        if (permission != PermissionStatus.Granted)
+        {
+            permission = await Permissions.RequestAsync<Permissions.LocationWhenInUse>();
+        }
+
+        if (permission != PermissionStatus.Granted)
+        {
+            await Shell.Current.DisplayAlert(title,
+                "LARGA needs your location to confirm the unit is back at the garage. Allow location access for LARGA in your phone's settings, then try again.", "OK");
+            return false;
+        }
+
+        Location? location;
+        try
+        {
+            location = await Geolocation.Default.GetLocationAsync(
+                new GeolocationRequest(GeolocationAccuracy.High, TimeSpan.FromSeconds(15)));
+        }
+        catch (FeatureNotEnabledException)
+        {
+            await Shell.Current.DisplayAlert(title,
+                "Location is turned off. Turn on your phone's location (GPS), then try again.", "OK");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Garage location check failed: {ex.Message}");
+            location = null;
+        }
+
+        if (location == null)
+        {
+            await Shell.Current.DisplayAlert(title,
+                "Couldn't get your location. Make sure GPS is on and you have a clear signal, then try again.", "OK");
+            return false;
+        }
+
+        if (location.IsFromMockProvider)
+        {
+            await Shell.Current.DisplayAlert(title,
+                "A fake/mock location app is active. Turn it off to end your shift.", "OK");
+            return false;
+        }
+
+        GarageGeofence garage = await _shiftService.GetGarageGeofenceAsync();
+        double distance = ShiftRules.DistanceMeters(location.Latitude, location.Longitude, garage.Latitude, garage.Longitude);
+        if (distance > garage.RadiusMeters)
+        {
+            string away = distance >= 1000 ? $"{distance / 1000:0.0} km" : $"{distance:0} m";
+            await Shell.Current.DisplayAlert(title,
+                $"You're {away} from the garage. Bring the unit back to the garage to end your shift.", "OK");
+            return false;
+        }
+
+        return true;
     }
 
     public void ApplyQueryAttributes(IDictionary<string, object> query)

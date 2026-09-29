@@ -1,11 +1,11 @@
-// Reads the text off an uploaded payment-receipt image, entirely in the manager's browser
-// (Tesseract.js) - the photo never leaves the page and there's no cloud OCR API to enable
-// or pay for. Parsing that text into Amount/Date/Reference No. happens server-side in
-// GcashReceiptParser.cs.
+// Reads the text off an uploaded image, entirely in the manager's browser (Tesseract.js) -
+// the image never leaves the page for OCR and there's no cloud OCR API to enable or pay for.
+// Used by the Financial Ledger (GCash receipts -> GcashReceiptParser.cs) and Driver & Shifts
+// (LTO licenses -> LtoLicenseParser.cs); interpreting the text happens server-side in those.
 //
-// Tesseract loads lazily, only the first time a receipt is scanned: the library plus its
-// English language data are a few MB, which there's no reason to make every ledger page
-// visit download.
+// Tesseract loads lazily, only the first time something is scanned: the library plus its
+// English language data are a few MB, which there's no reason to make every page visit
+// download.
 
 const TESSERACT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
 
@@ -31,8 +31,9 @@ function loadTesseract() {
 }
 
 // Enlarged + grayscale copy of the image. Tesseract misreads small text (a receipt's grey
-// date/reference line) far less often once it's scaled up; it still does its own
-// black/white thresholding, which handled grey text better in testing than a fixed cutoff.
+// date/reference line, a license's field values) far less often once it's scaled up; it
+// still does its own black/white thresholding, which handled grey text better in testing
+// than a fixed cutoff.
 async function enlargedGrayscale(file) {
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(3, 2400 / Math.max(bitmap.width, bitmap.height));
@@ -55,10 +56,11 @@ async function enlargedGrayscale(file) {
     return canvas;
 }
 
-// Returns { texts, previewUrl } for the file currently selected in `input`, or null if none.
-// `texts` holds two OCR passes - enlarged/grayscale first, then the image as uploaded - since
-// each gets different fields right; GcashReceiptParser.ParseBest picks per field.
-export async function readReceipt(input) {
+// Returns { texts, previewUrl } for the file currently selected in `input` (an
+// <input type="file">, or the element behind Blazor's <InputFile>), or null if none.
+// `texts` holds two OCR passes - enlarged/grayscale first, then the image as uploaded -
+// since each gets different fields right; the C# parsers pick per field.
+export async function readImage(input) {
     const file = input?.files?.[0];
     if (!file) {
         return null;

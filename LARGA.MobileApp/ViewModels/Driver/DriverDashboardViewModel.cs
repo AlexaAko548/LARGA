@@ -100,11 +100,61 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
         _notificationService = notificationService;
         _shiftService = shiftService;
 
-        ToggleShiftCommand = new Command(async () => await Shell.Current.GoToAsync("pre-shift-step1"));
+        ToggleShiftCommand = new Command(async () =>
+        {
+            // Units go out from 6:00 AM (ShiftRules) - stop here rather than after the whole
+            // pre-shift checklist. ClockInAsync enforces the same rule on submit.
+            await _shiftService.RefreshTestClockAsync();
+            if (!LARGA.SharedCore.ShiftRules.CanClockIn(LARGA.SharedCore.ShiftClock.UtcNow))
+            {
+                await Shell.Current.DisplayAlert("Too early", "Shifts start at 6:00 AM. You can clock in and do your pre-shift checklist from 6:00 AM onwards.", "OK");
+                return;
+            }
+            await Shell.Current.GoToAsync("pre-shift-step1");
+        });
         ActiveShiftCommand = new Command(async () => await Shell.Current.GoToAsync("active-shift"));
         MessageManagerCommand = new Command(async () => await Shell.Current.GoToAsync("message-manager"));
 
         _ = InitializeDashboardDataAsync();
+        _ = SyncOpenShiftAsync();
+    }
+
+    /// <summary>
+    /// The phone remembers the current shift locally (SecureStorage/Preferences), but Firestore
+    /// is the source of truth. Re-align the two so the driver is never stuck:
+    /// - an open shift the phone lost track of (reinstall, cleared data, another phone) is put
+    ///   back, so the dashboard offers Active Shift → Clock Out and the shift can end normally;
+    /// - a shift the phone still thinks is active but that has since ended (e.g. auto-closed
+    ///   at 6:00 AM as a missed clock-out) is cleared, so a new shift can start.
+    /// A network error leaves the local state untouched.
+    /// </summary>
+    public async Task SyncOpenShiftAsync()
+    {
+        try
+        {
+            var open = await _shiftService.GetMyOpenShiftAsync();
+            if (open != null)
+            {
+                await Microsoft.Maui.Storage.SecureStorage.SetAsync("ActiveShiftDocumentId", open.DocumentId);
+                Microsoft.Maui.Storage.Preferences.Set("CurrentShiftId", open.DocumentId);
+                Microsoft.Maui.Storage.Preferences.Set("IsShiftActive", true);
+                Microsoft.Maui.Storage.Preferences.Set("ShiftStartTime", open.ShiftStartUtc.ToLocalTime().ToString("o"));
+            }
+            else if (Microsoft.Maui.Storage.Preferences.Get("IsShiftActive", false))
+            {
+                Microsoft.Maui.Storage.SecureStorage.Remove("ActiveShiftDocumentId");
+                Microsoft.Maui.Storage.Preferences.Remove("CurrentShiftId");
+                Microsoft.Maui.Storage.Preferences.Remove("IsShiftActive");
+                Microsoft.Maui.Storage.Preferences.Remove("ShiftStartTime");
+            }
+
+            bool isActive = open != null;
+            await Microsoft.Maui.ApplicationModel.MainThread.InvokeOnMainThreadAsync(() => IsOffline = !isActive);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Open Shift Sync Error: {ex.Message}");
+        }
     }
 
     private async Task InitializeDashboardDataAsync()
@@ -129,7 +179,9 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                 DateTimeOffset? licenseExpiryOffset = userProfileDoc?.Data?.LicenseExpiryDate;
                 EvaluateLicenseAlert(licenseExpiryOffset?.UtcDateTime);
 
-                var dynamicTaxiId = userProfileDoc?.Data?.AssignedTaxiId;
+                // Today's unit - a substitute the manager assigned while the driver's own unit is
+                // under maintenance, otherwise their permanent one.
+                var dynamicTaxiId = await _shiftService.GetTodaysTaxiIdAsync(userProfileDoc?.Data?.AssignedTaxiId);
 
                 if (!string.IsNullOrWhiteSpace(dynamicTaxiId))
                 {

@@ -121,8 +121,14 @@ else if (_isAuthorized)
                                     <td class="driver-cell"><div class="table-avatar">@Initials(d.FullName)</div><span>@d.FullName</span></td>
                                     <td>@ShortId(d.DriverId)</td>
                                     <td><span class="status-pill @LicenseStatusCss(d.LicenseStatus)"><span class="dot"></span> @LicenseStatusLabel(d.LicenseStatus)</span></td>
-                                    <td><span class="status-pill @(d.IsOnBreak ? "status-warning" : d.IsOnShift ? "status-success" : "status-neutral")"><span class="dot"></span> @(d.IsOnBreak ? "ON BREAK" : d.IsOnShift ? "ON SHIFT" : "OFF DUTY")</span></td>
-                                    <td>@(d.AssignedTaxiId ?? "—")</td>
+                                    <td><span class="status-pill @RosterStatusCss(d)"><span class="dot"></span> @RosterStatusLabel(d)</span></td>
+                                    <td>
+                                        @(d.AssignedTaxiId ?? "—")
+                                        @if (d.IsOnShift && DrivingOtherUnit(d.AssignedTaxiId, d.CurrentShiftTaxiId))
+                                        {
+                                            <div class="unit-note">On shift in @d.CurrentShiftTaxiId</div>
+                                        }
+                                    </td>
                                     <td><button class="profile-btn" type="button" @onclick="() => OpenProfileAsync(d.DriverId)">Profile</button></td>
                                 </tr>
                             }
@@ -183,20 +189,31 @@ else if (_isAuthorized)
                                         @for (int i = 0; i < row.Days.Count; i++)
                                         {
                                             ScheduleDayCell cell = row.Days[i];
-                                            string driverId = row.DriverId;
-                                            bool wasDayOff = cell.IsDayOff;
+                                            DriverScheduleRow cellRow = row;
                                             <td class="schedule-cell-wrap @(IsToday(cell.Date) ? "schedule-today" : "")">
                                                 <button class="schedule-cell @ScheduleCellCss(cell)" type="button"
                                                         disabled="@cell.IsLicenseIneligible"
-                                                        title="@(cell.IsLicenseIneligible ? "License expired or expiring within a month of this date - cannot be scheduled" : null)"
-                                                        @onclick="() => ToggleDayOffAsync(driverId, cell.Date, wasDayOff)">
-                                                    @if (cell.IsLicenseIneligible)
+                                                        title="@ScheduleCellTooltip(cellRow, cell)"
+                                                        @onclick="() => OnScheduleCellClickedAsync(cellRow, cell)">
+                                                    @if (cell.IsLicenseIneligible && cellRow.LicenseStatus == LicenseStatus.NotSet)
+                                                    {
+                                                        <span>🚫 NO LICENSE</span>
+                                                    }
+                                                    else if (cell.IsLicenseIneligible)
                                                     {
                                                         <span>🚫 INELIGIBLE</span>
                                                     }
                                                     else if (cell.IsDayOff)
                                                     {
                                                         <span>✕ DAY OFF</span>
+                                                    }
+                                                    else if (cell.SubstituteTaxiId is not null)
+                                                    {
+                                                        <span>↺ @cell.SubstituteTaxiId</span>
+                                                    }
+                                                    else if (cell.IsOwnUnitUnderMaintenance)
+                                                    {
+                                                        <span>🔧 @cellRow.DefaultTaxiId IN SHOP</span>
                                                     }
                                                     else if (cell.TaxiId is null)
                                                     {
@@ -367,7 +384,7 @@ else if (_isAuthorized)
 @if (_showChecklistModal && _selectedChecklists is not null)
 {
     <div class="report-overlay" @onclick="CloseChecklistModal">
-        <div class="report-modal wide" @onclick:stopPropagation="true">
+        <div class="report-modal wide checklist-modal" @onclick:stopPropagation="true">
             <div class="report-header">
                 <div>
                     <h3>Inspection Checklist — @_selectedChecklists.TaxiId</h3>
@@ -424,6 +441,59 @@ else if (_isAuthorized)
     </div>
 }
 
+@if (_showSubstituteModal && _subRow is not null && _subCell is not null)
+{
+    <div class="report-overlay" @onclick="CloseSubstituteModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Assign Substitute Unit</h3>
+                <button type="button" class="close-modal" @onclick="CloseSubstituteModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="settlement-modal-subject">@_subRow.FullName · @_subCell.Date.ToString("dddd, MMM d")</div>
+
+                <div class="info-banner">
+                    🔧 <strong>@_subRow.DefaultTaxiId</strong> is under maintenance: @_subCell.MaintenanceNote.
+                    A substitute applies to this day only - the driver goes back to @_subRow.DefaultTaxiId once the Garage finishes.
+                </div>
+
+                <div class="report-section">
+                    <label>Substitute Unit</label>
+                    @if (_subChoices.Count == 0)
+                    {
+                        <div class="field-error">No free units on this day - every other unit is under maintenance or already driven by someone.</div>
+                    }
+                    else
+                    {
+                        <select class="text-input" @bind="_subSelected">
+                            @foreach (string taxiId in _subChoices)
+                            {
+                                <option value="@taxiId">@taxiId@(taxiId == _subCell.SubstituteTaxiId ? " (current)" : "")</option>
+                            }
+                        </select>
+                        <small class="receipt-hint">Only units that are free this day are listed.</small>
+                    }
+                </div>
+
+                @if (_subError is not null)
+                {
+                    <div class="report-error">@_subError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" disabled="@_isSavingSub" @onclick="SubstituteDayOffAsync">Mark Day Off</button>
+                @if (_subCell.SubstituteTaxiId is not null)
+                {
+                    <button class="cancel-btn" type="button" disabled="@_isSavingSub" @onclick="RemoveSubstituteAsync">Remove Substitute</button>
+                }
+                <button class="download-btn" type="button" disabled="@(_isSavingSub || _subChoices.Count == 0)" @onclick="AssignSubstituteAsync">
+                    @(_isSavingSub ? "Saving…" : _subCell.SubstituteTaxiId is null ? "Assign" : "Change")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_showAddDriverModal)
 {
     <div class="report-overlay" @onclick="CloseAddDriverModal">
@@ -437,6 +507,7 @@ else if (_isAuthorized)
                 {
                     <div class="info-banner success">
                         <p><strong>@_newDriverName</strong> was registered.</p>
+                        <p>Assigned unit: <strong>@(string.IsNullOrEmpty(_newDriverTaxi) ? "None yet" : _newDriverTaxi)</strong></p>
                         <p>Login email: <code>@_lastCreatedDriver.GeneratedEmail</code></p>
                         <p>Temporary password: <code>@_lastCreatedDriver.TemporaryPassword</code></p>
                         <p>Share these with the driver directly - there is no self-registration, so this is the only place they are shown.</p>
@@ -449,8 +520,23 @@ else if (_isAuthorized)
                         <input class="text-input" @bind="_newDriverName" placeholder="e.g. Mark Santos" />
                     </div>
                     <div class="report-section">
+                        <label>Email</label>
+                        <input class="text-input" type="email" @bind="_newDriverEmail" placeholder="e.g. mark.santos@gmail.com" autocomplete="off" />
+                        
+                    </div>
+                    <div class="report-section">
                         <label>Contact Number</label>
                         <input class="text-input" @bind="_newDriverPhone" placeholder="+63 9XX XXX XXXX" />
+                    </div>
+                    <div class="report-section">
+                        <label>Assigned Unit</label>
+                        <select class="text-input" @bind="_newDriverTaxi">
+                            <option value="">Unassigned (set later)</option>
+                            @foreach (string taxiId in _weekSchedule?.TaxiIds ?? new List<string>())
+                            {
+                                <option value="@taxiId">@TaxiOptionLabel(taxiId)</option>
+                            }
+                        </select>
                     </div>
                     <div class="report-section">
                         <label>Temporary Password</label>
@@ -535,7 +621,11 @@ else if (_isAuthorized)
                     <span class="status-pill small @(_selectedProfile.IsOnShift ? "status-success" : "status-neutral")">@(_selectedProfile.IsOnShift ? "ON SHIFT" : "OFF DUTY")</span>
                     @if (_selectedProfile.AssignedTaxiId is not null)
                     {
-                        <span class="profile-unit">@_selectedProfile.AssignedTaxiId</span>
+                        <span class="profile-unit" title="Assigned unit">@_selectedProfile.AssignedTaxiId</span>
+                    }
+                    @if (_selectedProfile.IsOnShift && DrivingOtherUnit(_selectedProfile.AssignedTaxiId, _selectedProfile.CurrentShiftTaxiId))
+                    {
+                        <div class="unit-note">On shift in @_selectedProfile.CurrentShiftTaxiId</div>
                     }
                 </div>
             </div>
@@ -547,8 +637,10 @@ else if (_isAuthorized)
             @if (_lastResetPassword is { Ok: true })
             {
                 <div class="info-banner success">
-                    <p>New temporary password: <code>@_lastResetPassword.NewPassword</code></p>
-                    <p>Share this with the driver directly.</p>
+                    <p>Password changed. Mobile app login:</p>
+                    <p>Email: <code>@_selectedProfile.Email</code></p>
+                    <p>Password: <code>@_lastResetPassword.NewPassword</code></p>
+                    <p>Share these with the driver directly - the password isn't shown again.</p>
                 </div>
             }
 
@@ -556,6 +648,7 @@ else if (_isAuthorized)
             {
                 <div class="profile-section">
                     <div class="profile-section-label">Contact Information</div>
+                    <div class="profile-field" title="Mobile app login email">✉ @(string.IsNullOrEmpty(_selectedProfile.Email) ? "No login email" : _selectedProfile.Email)</div>
                     <div class="profile-field">📞 @(string.IsNullOrEmpty(_selectedProfile.PhoneNumber) ? "Not set" : _selectedProfile.PhoneNumber)</div>
                     <div class="profile-field">📍 @(string.IsNullOrEmpty(_selectedProfile.Address) ? "Not set" : _selectedProfile.Address)</div>
                 </div>
@@ -570,7 +663,16 @@ else if (_isAuthorized)
                         <span class="status-pill small @LicenseStatusCss(_selectedProfile.LicenseStatus)">@LicenseStatusLabel(_selectedProfile.LicenseStatus)</span>
                     </div>
                     <div class="profile-field">📅 @(_selectedProfile.LicenseExpiryDate is { } exp ? $"Expires {exp:MMM d, yyyy}" : "No expiry date set")</div>
-                    <div class="profile-field">🖼 @(string.IsNullOrEmpty(_selectedProfile.LtoIdPhotoUrl) ? "No LTO ID photo attached (upload not yet available)" : "LTO ID photo attached")</div>
+                    @if (string.IsNullOrEmpty(_selectedProfile.LtoIdPhotoUrl))
+                    {
+                        <div class="profile-field">🖼 No LTO ID photo attached - upload one under Edit Details.</div>
+                    }
+                    else
+                    {
+                        <a class="receipt-preview" href="@_selectedProfile.LtoIdPhotoUrl" target="_blank" rel="noopener" title="Open full-size license photo">
+                            <img src="@_selectedProfile.LtoIdPhotoUrl" alt="LTO driver's license on file" />
+                        </a>
+                    }
                 </div>
 
                 <div class="profile-section">
@@ -597,13 +699,39 @@ else if (_isAuthorized)
                 <div class="profile-section">
                     <div class="profile-section-label">Account Settings</div>
                     <button class="profile-action-btn" type="button" @onclick="StartEditProfile">Edit Details</button>
-                    <button class="profile-action-btn" type="button" disabled="@_isResettingPassword" @onclick="ResetPasswordAsync">@(_isResettingPassword ? "Resetting…" : "Reset Mobile App Password")</button>
+                    @if (!_showPasswordForm)
+                    {
+                        <button class="profile-action-btn" type="button" @onclick="OpenPasswordForm">Change Mobile App Password</button>
+                    }
+                    else
+                    {
+                        @* Two steps on purpose - this used to change the password on a single click. *@
+                        <div class="password-form">
+                            <label>New Password</label>
+                            <input class="text-input" type="text" @bind="_newPasswordInput" @bind:event="oninput"
+                                   placeholder="Leave blank to generate one" autocomplete="off" />
+                            @if (_newPasswordInput.Length is > 0 and < 6)
+                            {
+                                <div class="field-error">At least 6 characters.</div>
+                            }
+                            <small class="receipt-hint">The driver's current password stops working immediately.</small>
+                            <div class="profile-edit-actions">
+                                <button class="cancel-btn" type="button" disabled="@_isResettingPassword" @onclick="() => _showPasswordForm = false">Cancel</button>
+                                <button class="download-btn" type="button" disabled="@(_isResettingPassword || _newPasswordInput.Length is > 0 and < 6)" @onclick="ResetPasswordAsync">
+                                    @(_isResettingPassword ? "Saving…" : "Set Password")
+                                </button>
+                            </div>
+                        </div>
+                    }
                 </div>
             }
             else
             {
                 <div class="profile-section">
                     <div class="profile-section-label">Edit Driver Details</div>
+                    <label>Login Email (mobile app)</label>
+                    <input class="text-input" type="email" @bind="_editEmail" placeholder="driver's personal email" />
+                    <small class="receipt-hint">Use an address the driver can open - the mobile app's Forgot Password sends its reset link here.</small>
                     <label>Phone Number</label>
                     <input class="text-input" @bind="_editPhone" />
                     <label>Address</label>
@@ -615,10 +743,81 @@ else if (_isAuthorized)
                         {
                             @foreach (string taxiId in _weekSchedule.TaxiIds)
                             {
-                                <option value="@taxiId">@taxiId</option>
+                                <option value="@taxiId">@TaxiOptionLabel(taxiId, _selectedProfile?.DriverId)</option>
                             }
                         }
                     </select>
+                </div>
+
+                <div class="profile-section">
+                    <div class="profile-section-label">Scan LTO Driver's License</div>
+                    <div class="receipt-scan-row license-scan-row">
+                        <label class="receipt-scan-btn @(_isReadingLicense ? "busy" : "")" for="lto-license-input">
+                            <span aria-hidden="true">📷</span> @(_isReadingLicense ? "Reading license…" : _licensePreviewUrl is null ? "Upload license photo" : "Upload another")
+                        </label>
+                        <InputFile id="lto-license-input" class="receipt-file-input" accept="image/*"
+                                   disabled="@_isReadingLicense" OnChange="OnLicenseSelectedAsync" @ref="_licenseInput" />
+                    </div>
+
+                    @if (_licenseScanError is not null)
+                    {
+                        <div class="field-error">@_licenseScanError</div>
+                    }
+
+                    @if (_licensePreviewUrl is not null)
+                    {
+                        <a class="receipt-preview" href="@_licensePreviewUrl" target="_blank" rel="noopener" title="Open full-size photo">
+                            <img src="@_licensePreviewUrl" alt="Uploaded driver's license" />
+                        </a>
+                    }
+
+                    @if (_licenseScan is not null && _licenseValidation is not null)
+                    {
+                        <div class="license-scan-results">
+                            <div class="license-scan-field">
+                                <span>Document</span>
+                                <strong>@LicenseDocumentLabel(_licenseScan)</strong>
+                            </div>
+                            @if (_licenseValidation.LicenseError is not null)
+                            {
+                                <div class="field-error">@_licenseValidation.LicenseError</div>
+                            }
+
+                            @if (_licenseScan.IsPhilippineLicense)
+                            {
+                                <div class="license-scan-field"><span>Name on card</span><strong>@(_licenseScan.FullName ?? "—")</strong></div>
+                                <div class="license-scan-field"><span>License No.</span><strong>@(_licenseScan.LicenseNumber ?? "—")</strong></div>
+
+                                <div class="license-scan-field">
+                                    <span>Date of Birth</span>
+                                    <strong>@(_licenseScan.DateOfBirth is DateTime dob ? $"{dob:MMM d, yyyy} (age {_licenseValidation.Age})" : "—")</strong>
+                                </div>
+                                @if (_licenseValidation.DateOfBirthError is not null)
+                                {
+                                    <div class="field-error">@_licenseValidation.DateOfBirthError</div>
+                                }
+
+                                <div class="license-scan-field">
+                                    <span>Expiration Date</span>
+                                    <strong>@(_licenseScan.ExpiryDate is DateTime exp ? exp.ToString("MMM d, yyyy") : "—")</strong>
+                                </div>
+                                @if (_licenseValidation.ExpiryError is not null)
+                                {
+                                    <div class="field-error">@_licenseValidation.ExpiryError</div>
+                                }
+                            }
+
+                            @if (_licenseValidation.IsValid)
+                            {
+                                <div class="field-ok">✓ Valid license - details filled in below. Save Changes to keep them and attach the photo.</div>
+                            }
+                            else
+                            {
+                                <div class="field-error">Not applied - nothing below was changed and the photo won't be saved. Upload a valid license to continue.</div>
+                            }
+                        </div>
+                    }
+
                     <label>License Number</label>
                     <input class="text-input" @bind="_editLicenseNumber" />
                     <label>License Classification</label>
@@ -630,7 +829,7 @@ else if (_isAuthorized)
                 </div>
 
                 <div class="profile-section profile-edit-actions">
-                    <button class="cancel-btn" type="button" @onclick="() => _isEditingProfile = false">Cancel</button>
+                    <button class="cancel-btn" type="button" @onclick="CancelEditProfile">Cancel</button>
                     <button class="download-btn" type="button" disabled="@_isSavingProfile" @onclick="SaveProfileAsync">@(_isSavingProfile ? "Saving…" : "Save Changes")</button>
                 </div>
             }
@@ -668,8 +867,10 @@ else if (_isAuthorized)
 
     private bool _showAddDriverModal;
     private string _newDriverName = string.Empty;
+    private string _newDriverEmail = string.Empty;
     private string _newDriverPhone = string.Empty;
     private string _newDriverPassword = string.Empty;
+    private string _newDriverTaxi = string.Empty;
     private bool _isCreatingDriver;
     private string? _addDriverError;
     private CreateDriverResult? _lastCreatedDriver;
@@ -684,6 +885,7 @@ else if (_isAuthorized)
     private DriverProfileDetail? _selectedProfile;
     private bool _isEditingProfile;
     private string? _profileError;
+    private string _editEmail = string.Empty;
     private string _editPhone = string.Empty;
     private string _editAddress = string.Empty;
     private string _editLicenseNumber = string.Empty;
@@ -733,8 +935,8 @@ else if (_isAuthorized)
 
     // Drivers clock in/out, go on break and submit checklists from the mobile app while a
     // manager has this page open - re-read those parts periodically so they show up without
-    // a manual reload. Only the driver-driven data (roster + shift logs) is refreshed; the
-    // schedule planner is manager-edited and already reloads after every change.
+    // a manual reload. The schedule is included because a driver can renew their license from
+    // the mobile app, which unlocks their planner cells.
     private static readonly TimeSpan AutoRefreshInterval = TimeSpan.FromSeconds(20);
     private readonly CancellationTokenSource _refreshCts = new();
 
@@ -746,6 +948,7 @@ else if (_isAuthorized)
             while (await timer.WaitForNextTickAsync(token))
             {
                 await LoadRosterAsync();
+                await ReloadDisplayedWeekAsync();
                 if (_shiftLogsLoaded)
                 {
                     await LoadShiftLogsAsync();
@@ -757,6 +960,32 @@ else if (_isAuthorized)
         {
             // Page closed.
         }
+    }
+
+    // Late return (past 10:00 PM, unit still out) outranks on-break, which outranks on-shift.
+    private static string RosterStatusLabel(DriverRosterEntry d) =>
+        d.IsLateReturn ? "LATE RETURN" : d.IsOnBreak ? "ON BREAK" : d.IsOnShift ? "ON SHIFT" : "OFF DUTY";
+
+    private static string RosterStatusCss(DriverRosterEntry d) =>
+        d.IsLateReturn ? "status-danger" : d.IsOnBreak ? "status-warning" : d.IsOnShift ? "status-success" : "status-neutral";
+
+    // The current shift's unit differs from the assigned one - a substitute, or a shift that
+    // began before the driver was reassigned.
+    private static bool DrivingOtherUnit(string? assignedTaxiId, string? currentShiftTaxiId) =>
+        !string.IsNullOrEmpty(currentShiftTaxiId)
+        && !string.Equals(assignedTaxiId, currentShiftTaxiId, StringComparison.OrdinalIgnoreCase);
+
+    // Reloads whichever week the planner is currently showing (not always this week).
+    private Task ReloadDisplayedWeekAsync() => LoadScheduleAsync(_weekSchedule?.WeekStart ?? DateTime.UtcNow);
+
+    // "TAXI_002 · Juan Dela Cruz" when another driver already has that unit, so the manager
+    // can see at a glance which units are free. Still selectable - a unit can be shared
+    // (e.g. day/night drivers).
+    private string TaxiOptionLabel(string taxiId, string? exceptDriverId = null)
+    {
+        string? holder = _weekSchedule?.Rows
+            .FirstOrDefault(r => r.DefaultTaxiId == taxiId && r.DriverId != exceptDriverId)?.FullName;
+        return holder is null ? taxiId : $"{taxiId} · {holder}";
     }
 
     public void Dispose()
@@ -868,9 +1097,99 @@ else if (_isAuthorized)
         _showStatusFilterMenu = false;
     }
 
-    /// <summary>One driver, one permanently assigned unit - so a cell only ever has two
-    /// states to toggle between: working (the default) and day off. No per-day unit
-    /// reassignment.</summary>
+    /// <summary>Normally a click toggles working/day off. When the driver's own unit is in
+    /// the shop that day, it opens the substitute window instead - the manager's choice
+    /// there includes marking the day off.</summary>
+    private async Task OnScheduleCellClickedAsync(DriverScheduleRow row, ScheduleDayCell cell)
+    {
+        if (cell.IsOwnUnitUnderMaintenance && !cell.IsDayOff)
+        {
+            OpenSubstituteModal(row, cell);
+            return;
+        }
+
+        await ToggleDayOffAsync(row.DriverId, cell.Date, cell.IsDayOff);
+    }
+
+    private static string? ScheduleCellTooltip(DriverScheduleRow row, ScheduleDayCell cell)
+    {
+        if (cell.IsLicenseIneligible)
+        {
+            return row.LicenseStatus == LicenseStatus.NotSet
+                ? "License not set yet - add the driver's license in their profile to schedule them"
+                : "License expired or expiring within a month of this date - cannot be scheduled";
+        }
+        if (cell.IsOwnUnitUnderMaintenance && !cell.IsDayOff)
+        {
+            return cell.SubstituteTaxiId is not null
+                ? $"{row.DefaultTaxiId} is under maintenance ({cell.MaintenanceNote}) - driving {cell.SubstituteTaxiId} instead. Click to change."
+                : $"{row.DefaultTaxiId} is under maintenance ({cell.MaintenanceNote}). Click to assign a substitute.";
+        }
+        return null;
+    }
+
+    // -- Substitute unit (driver's own unit under maintenance) --------------
+
+    private bool _showSubstituteModal;
+    private DriverScheduleRow? _subRow;
+    private ScheduleDayCell? _subCell;
+    private List<string> _subChoices = new();
+    private string _subSelected = string.Empty;
+    private string? _subError;
+    private bool _isSavingSub;
+
+    private void OpenSubstituteModal(DriverScheduleRow row, ScheduleDayCell cell)
+    {
+        _subRow = row;
+        _subCell = cell;
+        _subError = null;
+
+        // Free units that day, plus the substitute already assigned (it counts as "in use"
+        // by this same driver, so it isn't in the free list).
+        int dayIndex = (cell.Date.Date - _weekSchedule!.WeekStart.Date).Days;
+        _subChoices = _weekSchedule.FreeTaxiIdsByDay[dayIndex].ToList();
+        if (cell.SubstituteTaxiId is not null && !_subChoices.Contains(cell.SubstituteTaxiId))
+        {
+            _subChoices.Insert(0, cell.SubstituteTaxiId);
+        }
+
+        _subSelected = cell.SubstituteTaxiId ?? _subChoices.FirstOrDefault() ?? string.Empty;
+        _showSubstituteModal = true;
+    }
+
+    private void CloseSubstituteModal() => _showSubstituteModal = false;
+
+    private async Task RunSubstituteActionAsync(Func<Task> action)
+    {
+        _isSavingSub = true;
+        _subError = null;
+        try
+        {
+            await action();
+            _showSubstituteModal = false;
+            await ReloadCurrentWeekAsync();
+        }
+        catch (Exception ex)
+        {
+            _subError = ex.Message;
+        }
+        finally
+        {
+            _isSavingSub = false;
+        }
+    }
+
+    private Task AssignSubstituteAsync() => RunSubstituteActionAsync(() =>
+        string.IsNullOrEmpty(_subSelected)
+            ? throw new InvalidOperationException("Pick a unit first.")
+            : DriverManagement.AssignSubstituteAsync(_subRow!.DriverId, _subCell!.Date, _subSelected));
+
+    private Task RemoveSubstituteAsync() => RunSubstituteActionAsync(() =>
+        DriverManagement.ClearScheduleAsync(_subRow!.DriverId, _subCell!.Date));
+
+    private Task SubstituteDayOffAsync() => RunSubstituteActionAsync(() =>
+        DriverManagement.MarkDayOffAsync(_subRow!.DriverId, _subCell!.Date));
+
     private async Task ToggleDayOffAsync(string driverId, DateTime date, bool wasDayOff)
     {
         try
@@ -909,6 +1228,14 @@ else if (_isAuthorized)
         {
             return "off";
         }
+        if (cell.SubstituteTaxiId is not null)
+        {
+            return "substitute";
+        }
+        if (cell.IsOwnUnitUnderMaintenance)
+        {
+            return "maintenance";
+        }
         return cell.TaxiId is null ? "no-unit" : string.Empty;
     }
 
@@ -936,8 +1263,10 @@ else if (_isAuthorized)
     private void OpenAddDriverModal()
     {
         _newDriverName = string.Empty;
+        _newDriverEmail = string.Empty;
         _newDriverPhone = string.Empty;
         _newDriverPassword = string.Empty;
+        _newDriverTaxi = string.Empty;
         _addDriverError = null;
         _lastCreatedDriver = null;
         _showAddDriverModal = true;
@@ -960,7 +1289,9 @@ else if (_isAuthorized)
         {
             CreateDriverResult result = await DriverManagement.CreateDriverAsync(
                 _newDriverName.Trim(), _newDriverPhone.Trim(),
-                string.IsNullOrWhiteSpace(_newDriverPassword) ? null : _newDriverPassword);
+                string.IsNullOrWhiteSpace(_newDriverPassword) ? null : _newDriverPassword,
+                _newDriverTaxi,
+                string.IsNullOrWhiteSpace(_newDriverEmail) ? null : _newDriverEmail);
 
             if (!result.Ok)
             {
@@ -970,6 +1301,7 @@ else if (_isAuthorized)
             {
                 _lastCreatedDriver = result;
                 await LoadRosterAsync();
+                await ReloadDisplayedWeekAsync(); // new row in the planner, filled with their unit
             }
         }
         catch (Exception ex)
@@ -1025,15 +1357,11 @@ else if (_isAuthorized)
             _selectedProfile = await DriverManagement.GetDriverProfileAsync(driverId);
             if (_selectedProfile is not null)
             {
-                _editPhone = _selectedProfile.PhoneNumber;
-                _editAddress = _selectedProfile.Address ?? string.Empty;
-                _editLicenseNumber = _selectedProfile.LicenseNumber;
-                _editLicenseClass = _selectedProfile.LicenseClassification;
-                _editLicenseRestriction = _selectedProfile.LicenseRestrictionCode;
-                _editLicenseExpiry = _selectedProfile.LicenseExpiryDate;
-                _editAssignedTaxi = _selectedProfile.AssignedTaxiId ?? string.Empty;
+                LoadEditFieldsFromProfile();
+                ResetLicenseScan();
                 _isEditingProfile = false;
                 _lastResetPassword = null;
+                _showPasswordForm = false;
                 _profileError = null;
                 _showProfilePanel = true;
             }
@@ -1044,9 +1372,134 @@ else if (_isAuthorized)
         }
     }
 
+    private void LoadEditFieldsFromProfile()
+    {
+        if (_selectedProfile is null)
+        {
+            return;
+        }
+
+        _editEmail = _selectedProfile.Email;
+        _editPhone = _selectedProfile.PhoneNumber;
+        _editAddress = _selectedProfile.Address ?? string.Empty;
+        _editLicenseNumber = _selectedProfile.LicenseNumber;
+        _editLicenseClass = _selectedProfile.LicenseClassification;
+        _editLicenseRestriction = _selectedProfile.LicenseRestrictionCode;
+        _editLicenseExpiry = _selectedProfile.LicenseExpiryDate;
+        _editAssignedTaxi = _selectedProfile.AssignedTaxiId ?? string.Empty;
+    }
+
+    // Discards unsaved edits - including values a license scan filled in - so reopening
+    // Edit Details starts from what's actually on file.
+    private void CancelEditProfile()
+    {
+        ResetLicenseScan();
+        LoadEditFieldsFromProfile();
+        _isEditingProfile = false;
+    }
+
     private void CloseProfilePanel() => _showProfilePanel = false;
 
-    private void StartEditProfile() => _isEditingProfile = true;
+    private void StartEditProfile()
+    {
+        ResetLicenseScan();
+        _isEditingProfile = true;
+    }
+
+    // -- LTO license scan ---------------------------------------------------
+    // The manager uploads a photo of the driver's license; the browser OCRs it (ocr.js) and
+    // LtoLicenseParser checks it's a Philippine LTO license, the holder is 18+, and it isn't
+    // expired/expiring. Only a license passing all three fills in the fields below and gets
+    // its photo attached on Save - anything else shows red text per failed check.
+
+    private const long MaxLicensePhotoBytes = 10 * 1024 * 1024;
+
+    private InputFile? _licenseInput;
+    private IJSObjectReference? _ocrModule;
+    private bool _isReadingLicense;
+    private string? _licenseScanError;
+    private string? _licensePreviewUrl;
+    private LtoLicenseParser.Result? _licenseScan;
+    private LtoLicenseParser.Validation? _licenseValidation;
+
+    // Held until Save Changes, and only when the scanned license was valid.
+    private byte[]? _pendingLicensePhoto;
+    private string _pendingLicensePhotoType = "image/jpeg";
+
+    private async Task OnLicenseSelectedAsync(InputFileChangeEventArgs e)
+    {
+        ResetLicenseScan();
+        _isReadingLicense = true;
+        StateHasChanged();
+
+        try
+        {
+            if (e.File.Size > MaxLicensePhotoBytes)
+            {
+                _licenseScanError = "That photo is over 10 MB - use a smaller one.";
+                return;
+            }
+
+            using var buffer = new MemoryStream();
+            await e.File.OpenReadStream(MaxLicensePhotoBytes).CopyToAsync(buffer);
+            byte[] photo = buffer.ToArray();
+
+            _ocrModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/ocr.js");
+            // First scan downloads the OCR engine, so allow well past the 60s default.
+            OcrImageResult? ocr = await _ocrModule.InvokeAsync<OcrImageResult?>(
+                "readImage", TimeSpan.FromMinutes(3), _licenseInput!.Element);
+            if (ocr is null)
+            {
+                return;
+            }
+
+            _licensePreviewUrl = ocr.PreviewUrl;
+            _licenseScan = LtoLicenseParser.ParseBest(ocr.Texts);
+            _licenseValidation = LtoLicenseParser.Validate(_licenseScan, PhilippineTime.Now);
+
+            if (_licenseValidation.IsValid)
+            {
+                _editLicenseNumber = _licenseScan.LicenseNumber ?? _editLicenseNumber;
+                _editLicenseClass = _licenseScan.Classification ?? _editLicenseClass;
+                _editLicenseExpiry = _licenseScan.ExpiryDate;
+                _pendingLicensePhoto = photo;
+                _pendingLicensePhotoType = string.IsNullOrEmpty(e.File.ContentType) ? "image/jpeg" : e.File.ContentType;
+            }
+        }
+        catch (Exception ex)
+        {
+            _licenseScanError = $"Couldn't read this photo: {ex.Message}";
+        }
+        finally
+        {
+            _isReadingLicense = false;
+        }
+    }
+
+    private void ResetLicenseScan()
+    {
+        if (_licensePreviewUrl is not null && _ocrModule is not null)
+        {
+            _ = _ocrModule.InvokeVoidAsync("releasePreview", _licensePreviewUrl).AsTask();
+        }
+
+        _licensePreviewUrl = null;
+        _licenseScan = null;
+        _licenseValidation = null;
+        _licenseScanError = null;
+        _pendingLicensePhoto = null;
+    }
+
+    private static string LicenseDocumentLabel(LtoLicenseParser.Result scan) =>
+        !scan.IsPhilippineLicense ? "Not recognised"
+        : scan.Classification is null ? "PH LTO Driver's License"
+        : $"PH LTO {scan.Classification} License";
+
+    private sealed class OcrImageResult
+    {
+        public List<string> Texts { get; set; } = new();
+        public string PreviewUrl { get; set; } = string.Empty;
+    }
 
     private async Task SaveProfileAsync()
     {
@@ -1060,16 +1513,37 @@ else if (_isAuthorized)
 
         try
         {
+            // Login email first: it's the step most likely to be refused (bad format, or the
+            // address belongs to another account), and nothing else should be saved if it is.
+            if (!string.Equals(_editEmail.Trim(), _selectedProfile.Email, StringComparison.OrdinalIgnoreCase))
+            {
+                ResetPasswordResult emailResult = await DriverManagement.UpdateDriverLoginEmailAsync(_selectedProfile.DriverId, _editEmail);
+                if (!emailResult.Ok)
+                {
+                    _profileError = emailResult.ErrorMessage;
+                    return;
+                }
+            }
+
+            string? ltoIdPhotoUrl = _pendingLicensePhoto is null
+                ? null
+                : await DriverManagement.UploadLtoIdPhotoAsync(_selectedProfile.DriverId, _pendingLicensePhoto, _pendingLicensePhotoType);
+
             await DriverManagement.UpdateDriverProfileAsync(
                 _selectedProfile.DriverId,
                 _editPhone, _editAddress,
                 _editLicenseNumber, _editLicenseClass, _editLicenseRestriction,
                 _editLicenseExpiry,
-                _editAssignedTaxi);
+                _editAssignedTaxi,
+                ltoIdPhotoUrl);
 
+            ResetLicenseScan();
             _isEditingProfile = false;
             _selectedProfile = await DriverManagement.GetDriverProfileAsync(_selectedProfile.DriverId);
             await LoadRosterAsync();
+            // A renewed license (or a changed unit) changes which planner cells are locked -
+            // reload so they go back to the driver's assigned unit right away.
+            await ReloadDisplayedWeekAsync();
         }
         catch (Exception ex)
         {
@@ -1079,6 +1553,16 @@ else if (_isAuthorized)
         {
             _isSavingProfile = false;
         }
+    }
+
+    private bool _showPasswordForm;
+    private string _newPasswordInput = string.Empty;
+
+    private void OpenPasswordForm()
+    {
+        _newPasswordInput = string.Empty;
+        _lastResetPassword = null;
+        _showPasswordForm = true;
     }
 
     private async Task ResetPasswordAsync()
@@ -1093,10 +1577,17 @@ else if (_isAuthorized)
 
         try
         {
-            _lastResetPassword = await DriverManagement.ResetDriverPasswordAsync(_selectedProfile.DriverId, null);
+            _lastResetPassword = await DriverManagement.ResetDriverPasswordAsync(
+                _selectedProfile.DriverId,
+                string.IsNullOrWhiteSpace(_newPasswordInput) ? null : _newPasswordInput);
             if (!_lastResetPassword.Ok)
             {
                 _profileError = _lastResetPassword.ErrorMessage;
+            }
+            else
+            {
+                _showPasswordForm = false;
+                _newPasswordInput = string.Empty;
             }
         }
         catch (Exception ex)
@@ -1141,6 +1632,8 @@ else if (_isAuthorized)
         "Denied" => "status-danger",
         "Overdue" => "status-warning",
         "On Break" => "status-warning",
+        "Late Return" => "status-danger",
+        "Auto-Closed" => "status-danger",
         _ => "status-neutral",
     };
 

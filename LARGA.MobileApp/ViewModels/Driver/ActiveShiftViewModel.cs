@@ -9,6 +9,7 @@ using Microsoft.Maui.Dispatching;
 using Microsoft.Maui.Storage;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
+using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
 using LARGA.Shared.Models.Entities;
 
@@ -130,7 +131,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         {
             IsPauseAlertVisible = false;
             IsPaused = true;
-            _pauseStartTime = DateTime.Now;
+            _pauseStartTime = ShiftClock.LocalNow;
             _shiftTimer.Stop();
             _ = SyncBreakStatusAsync(true);
         });
@@ -138,7 +139,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         ResumeShiftCommand = new Command(() =>
         {
             IsPaused = false;
-            _totalBreakTime += (DateTime.Now - _pauseStartTime);
+            _totalBreakTime += (ShiftClock.LocalNow - _pauseStartTime);
             _shiftTimer.Start();
             _ = SyncBreakStatusAsync(false);
         });
@@ -165,7 +166,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
 
             if (string.IsNullOrWhiteSpace(savedStartTimeStr) || !DateTime.TryParse(savedStartTimeStr, out var parsedStartTime))
             {
-                _shiftStartTime = DateTime.Now;
+                _shiftStartTime = ShiftClock.LocalNow;
                 Preferences.Set("ShiftStartTime", _shiftStartTime.ToString("o"));
 
                 // Wipe stale timing state for a fresh shift
@@ -178,7 +179,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
             }
 
             ShiftStartTimeDisplay = _shiftStartTime.ToString("hh:mm tt");
-            ShiftEndsAt = _shiftStartTime.AddHours(10).ToString("hh:mm tt");
+            ShiftEndsAt = ReturnDeadlineDisplay();
 
             // Force the timer to restart if it was stopped during a previous clock-out
             if (!_shiftTimer.IsRunning)
@@ -192,10 +193,10 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         {
             System.Diagnostics.Debug.WriteLine($"ApplyQueryAttributes Error: {ex.Message}");
 
-            _shiftStartTime = DateTime.Now;
+            _shiftStartTime = ShiftClock.LocalNow;
             Preferences.Set("ShiftStartTime", _shiftStartTime.ToString("o"));
             ShiftStartTimeDisplay = _shiftStartTime.ToString("hh:mm tt");
-            ShiftEndsAt = _shiftStartTime.AddHours(10).ToString("hh:mm tt");
+            ShiftEndsAt = ReturnDeadlineDisplay();
 
             if (!_shiftTimer.IsRunning)
             {
@@ -235,7 +236,8 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
                     .GetDocument(user.Uid)
                     .GetDocumentSnapshotAsync<ShiftUserProfileProxy>();
 
-                var dynamicTaxiId = userProfileDoc?.Data?.AssignedTaxiId;
+                // Show the unit actually being driven today (a substitute, if one was assigned).
+                var dynamicTaxiId = await _shiftService.GetTodaysTaxiIdAsync(userProfileDoc?.Data?.AssignedTaxiId);
 
                 if (!string.IsNullOrWhiteSpace(dynamicTaxiId))
                 {
@@ -260,18 +262,36 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
 
     private void OnTimerTick(object sender, EventArgs e)
     {
-        _shiftDuration = (DateTime.Now - _shiftStartTime) - _totalBreakTime;
+        _shiftDuration = (ShiftClock.LocalNow - _shiftStartTime) - _totalBreakTime;
         if (_shiftDuration.TotalSeconds < 0) _shiftDuration = TimeSpan.Zero;
 
         DurationDisplay = _shiftDuration.ToString(@"hh\:mm\:ss");
 
-        var newRemaining = TimeSpan.FromHours(10) - _shiftDuration;
-        if (newRemaining.TotalSeconds > 0)
+        // Counts down to the unit's return time (10:00 PM, ShiftRules) rather than a fixed
+        // shift length - the unit is due back at 10 PM however late the driver clocked in.
+        DateTime startUtc = _shiftStartTime.ToUniversalTime();
+        DateTime nowUtc = ShiftClock.UtcNow;
+        TimeSpan untilDeadline = ShiftRules.ReturnDeadlineUtc(startUtc) - nowUtc;
+
+        if (untilDeadline > TimeSpan.Zero)
         {
-            _timeRemaining = newRemaining;
-            TimeRemainingDisplay = $"{_timeRemaining.Hours:D2}h {_timeRemaining.Minutes:D2}m";
+            _timeRemaining = untilDeadline;
+            TimeRemainingDisplay = $"{(int)_timeRemaining.TotalHours:D2}h {_timeRemaining.Minutes:D2}m";
+        }
+        else
+        {
+            TimeSpan late = -untilDeadline;
+            decimal feeIfReturnedNow = ShiftRules.LateReturnFee(startUtc, nowUtc);
+            TimeRemainingDisplay = feeIfReturnedNow > 0
+                ? $"LATE {(int)late.TotalHours}h {late.Minutes:D2}m · ₱{feeIfReturnedNow:N0}"
+                : $"LATE {late.Minutes}m · no fee until 10:30 PM";
         }
     }
+
+    // Unit return time, shown in the phone's local time (the fleet runs on PH time, so for
+    // drivers this reads "10:00 PM").
+    private string ReturnDeadlineDisplay() =>
+        ShiftRules.ReturnDeadlineUtc(_shiftStartTime.ToUniversalTime()).ToLocalTime().ToString("hh:mm tt");
 
     public event PropertyChangedEventHandler PropertyChanged;
     protected void OnPropertyChanged([CallerMemberName] string propertyName = "")

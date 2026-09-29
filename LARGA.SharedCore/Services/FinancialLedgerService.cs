@@ -24,14 +24,30 @@ public class FinancialLedgerService
     private const decimal DefaultBoundaryRate = 800m;
 
     private readonly Lazy<FirestoreDb> _dbLazy;
+    private readonly Lazy<PhotoStorageTarget> _storageLazy;
     private readonly ILogger<FinancialLedgerService> _logger;
 
     private FirestoreDb Db => _dbLazy.Value;
 
-    public FinancialLedgerService(Lazy<FirestoreDb> dbLazy, ILogger<FinancialLedgerService> logger)
+    public FinancialLedgerService(Lazy<FirestoreDb> dbLazy, Lazy<PhotoStorageTarget> storageLazy, ILogger<FinancialLedgerService> logger)
     {
         _dbLazy = dbLazy;
+        _storageLazy = storageLazy;
         _logger = logger;
+    }
+
+    /// <summary>A receipt's link fields for a boundary_payments document, after uploading its
+    /// image (receipts/{driverId}/...). Null when there's no receipt (a cash payment).</summary>
+    private async Task<(string Url, string? ReferenceNo)?> UploadReceiptAsync(string driverId, PaymentReceipt? receipt)
+    {
+        if (receipt is null)
+        {
+            return null;
+        }
+
+        string folder = $"receipts/{(string.IsNullOrWhiteSpace(driverId) ? "unknown" : driverId)}";
+        string url = await _storageLazy.Value.UploadImageAsync(folder, receipt.Image, receipt.ContentType);
+        return (url, string.IsNullOrWhiteSpace(receipt.ReferenceNo) ? null : receipt.ReferenceNo.Trim());
     }
 
     // ---------------------------------------------------------------------
@@ -55,27 +71,21 @@ public class FinancialLedgerService
         List<UserProfile> drivers = await GetDriversAsync();
         decimal defaultRate = await GetDefaultBoundaryRateAsync();
 
-        // Bounded by "shifts today" (a handful of documents for this fleet size), so a
-        // WhereIn lookup stays cheap - Firestore caps WhereIn at 30 values, which is far
-        // more than one day's shift count will ever realistically be.
-        List<string> shiftIds = todaysShifts.Select(s => s.ShiftId).Where(id => !string.IsNullOrEmpty(id)).ToList();
-        List<BoundaryPayment> payments = shiftIds.Count == 0
-            ? new List<BoundaryPayment>()
-            : await GetWhereInAsync<BoundaryPayment>("boundary_payments", "shiftId", shiftIds);
+        // A payment can point at a shift by either of its IDs (see IdsOf), so look both up.
+        List<string> shiftIds = todaysShifts.SelectMany(IdsOf).Distinct().ToList();
+        List<BoundaryPayment> payments = await GetPaymentsForShiftIdsAsync(shiftIds);
 
         var rows = todaysShifts.Select(shift =>
         {
             UserProfile? driver = drivers.FirstOrDefault(d => d.UserId == shift.DriverId);
-            BoundaryPayment? payment = payments.FirstOrDefault(p => p.ShiftId == shift.ShiftId);
+            BoundaryPayment? payment = PaymentFor(shift, payments);
 
-            decimal expected = payment is not null
-                ? payment.ExpectedBoundary + payment.LateFees
-                : defaultRate;
+            decimal expected = (payment?.ExpectedBoundary ?? defaultRate) + LateFeeFor(shift, payment);
             decimal paid = payment?.AmountPaid ?? 0m;
 
             return new SettlementRow
             {
-                ShiftId = shift.ShiftId,
+                ShiftId = shift.DocumentId,
                 DriverId = shift.DriverId,
                 DriverName = driver?.FullName ?? shift.DriverId,
                 TaxiId = shift.TaxiId,
@@ -112,11 +122,14 @@ public class FinancialLedgerService
     }
 
     /// <summary>
-    /// Records a payment against a shift's boundary. Creates the BoundaryPayment document on
-    /// its first payment (deterministic ID, matching the seed data's own {shiftId}_PAY
-    /// convention) or adds to an existing one's AmountPaid on a subsequent partial payment.
+    /// Records a payment against a shift's boundary. Adds to the shift's existing
+    /// boundary_payments document if it has one - found by either of the shift's IDs, so a
+    /// document the mobile app created under the other ID is reused rather than duplicated -
+    /// otherwise creates one ({shiftDocumentId}_PAY, the seed data's convention).
     /// </summary>
-    public async Task<RecordPaymentResult> RecordPaymentAsync(string shiftId, decimal amountReceived, string paymentMethod)
+    /// <param name="shiftId">The shift's document ID (SettlementRow.ShiftId); a shiftId field
+    /// value also works.</param>
+    public async Task<RecordPaymentResult> RecordPaymentAsync(string shiftId, decimal amountReceived, string paymentMethod, PaymentReceipt? receipt = null)
     {
         if (string.IsNullOrWhiteSpace(shiftId))
         {
@@ -132,42 +145,40 @@ public class FinancialLedgerService
             ? PaymentMethod.EWallet
             : PaymentMethod.Cash;
 
-        string docId = $"{shiftId}_PAY";
-        DocumentReference docRef = Db.Collection("boundary_payments").Document(docId);
-
         try
         {
-            DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
+            ShiftLog? shift = await FindShiftAsync(shiftId);
+            var receiptLink = await UploadReceiptAsync(shift?.DriverId ?? string.Empty, receipt);
+            List<string> ids = shift is null ? new List<string> { shiftId } : IdsOf(shift);
+            BoundaryPayment? existing = shift is null
+                ? (await GetPaymentsForShiftIdsAsync(ids)).FirstOrDefault()
+                : PaymentFor(shift, await GetPaymentsForShiftIdsAsync(ids));
+
             decimal expected;
             decimal newAmountPaid;
+            PaymentStatus newStatus;
 
-            if (snapshot.Exists)
+            if (existing is not null)
             {
-                BoundaryPayment existing = snapshot.ConvertTo<BoundaryPayment>();
-                expected = existing.ExpectedBoundary + existing.LateFees;
+                decimal lateFee = LateFeeFor(shift, existing);
+                expected = existing.ExpectedBoundary + lateFee;
                 newAmountPaid = existing.AmountPaid + amountReceived;
+                newStatus = newAmountPaid >= expected ? PaymentStatus.Paid : PaymentStatus.Partial;
+
+                // Only the fields a payment changes - the boundary and anything else on the
+                // document (reference number, receipt photo, fields the mobile app adds) stay as
+                // they are. The late fee is written through so the record carries it too.
+                await Db.Collection("boundary_payments").Document(existing.PaymentId).UpdateAsync(PaymentUpdate(newAmountPaid, method, newStatus, lateFees: lateFee, receipt: receiptLink));
             }
             else
             {
-                expected = await GetDefaultBoundaryRateAsync();
+                decimal lateFee = LateFeeFor(shift, null);
+                expected = await GetDefaultBoundaryRateAsync() + lateFee;
                 newAmountPaid = amountReceived;
+                newStatus = newAmountPaid >= expected ? PaymentStatus.Paid : PaymentStatus.Partial;
+
+                await CreatePaymentAsync(shift?.DocumentId ?? shiftId, expected - lateFee, lateFee, newAmountPaid, method, newStatus, DateTime.UtcNow, receiptLink);
             }
-
-            PaymentStatus newStatus = newAmountPaid >= expected ? PaymentStatus.Paid : PaymentStatus.Partial;
-
-            var payment = new BoundaryPayment
-            {
-                PaymentId = docId,
-                ShiftId = shiftId,
-                ExpectedBoundary = expected,
-                LateFees = 0m,
-                AmountPaid = newAmountPaid,
-                PaymentMethod = method,
-                PaymentStatus = newStatus,
-                Timestamp = DateTime.UtcNow,
-            };
-
-            await docRef.SetAsync(payment, SetOptions.Overwrite);
 
             return new RecordPaymentResult
             {
@@ -236,27 +247,27 @@ public class FinancialLedgerService
     // large enough for this to matter, the fix is a precomputed running balance per driver
     // updated incrementally on each write, not a full re-summing of history on every load.
     //
-    // A debt total only counts shifts that actually have a boundary_payments document
-    // (Unpaid/Partial) - same lazy-creation limitation as Daily Settlements (see that tab's
-    // note): a shift nobody ever attempted to pay, with no document at all, isn't visible to
-    // a query over boundary_payments and so doesn't surface here either.
+    // Debt is worked out per shift (see BuildCharges), the same way Daily Settlements does:
+    // every ended shift owes its boundary + late fee, whether or not a boundary_payments
+    // document exists for it yet - a shift nobody has paid anything on has no document, and
+    // owes the full amount. Paying from either tab writes the same per-shift document, so the
+    // two always agree.
     // ---------------------------------------------------------------------
 
     public async Task<DebtLedgerSnapshot> GetDebtLedgerAsync()
     {
         (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, List<UserProfile> drivers) = await GetFullLedgerDataAsync();
-        Dictionary<string, string> shiftToDriver = BuildShiftToDriverMap(shifts);
+        List<ShiftCharge> charges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync());
 
         List<DebtLedgerRow> rows = drivers.Select(d =>
         {
-            List<BoundaryPayment> driverPayments = payments.Where(p => shiftToDriver.TryGetValue(p.ShiftId, out string? did) && did == d.UserId).ToList();
+            List<ShiftCharge> driverCharges = charges.Where(c => c.DriverId == d.UserId).ToList();
             decimal adjustmentTotal = adjustments.Where(a => a.DriverId == d.UserId).Sum(a => a.Amount);
+            decimal outstandingFromShifts = driverCharges.Sum(c => c.Outstanding);
 
-            decimal outstandingFromPayments = driverPayments
-                .Where(p => p.PaymentStatus != PaymentStatus.Paid)
-                .Sum(p => Math.Max(0, p.ExpectedBoundary + p.LateFees - p.AmountPaid));
-
-            BoundaryPayment? lastPaid = driverPayments
+            BoundaryPayment? lastPaid = driverCharges
+                .Select(c => c.Payment)
+                .OfType<BoundaryPayment>()
                 .Where(p => p.AmountPaid > 0)
                 .OrderByDescending(p => p.Timestamp)
                 .FirstOrDefault();
@@ -266,10 +277,10 @@ public class FinancialLedgerService
                 DriverId = d.UserId,
                 DriverName = d.FullName,
                 TaxiId = string.IsNullOrWhiteSpace(d.AssignedTaxiId) ? null : d.AssignedTaxiId,
-                UnpaidCount = driverPayments.Count(p => p.PaymentStatus != PaymentStatus.Paid),
+                UnpaidCount = driverCharges.Count(c => c.Outstanding > 0),
                 LastPaymentDate = lastPaid?.Timestamp,
                 LastPaymentAmount = lastPaid?.AmountPaid,
-                TotalDebt = Math.Max(0, outstandingFromPayments + adjustmentTotal),
+                TotalDebt = Math.Max(0, outstandingFromShifts + adjustmentTotal),
             };
         })
         .OrderByDescending(r => r.TotalDebt)
@@ -301,18 +312,20 @@ public class FinancialLedgerService
     {
         (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, List<UserProfile> drivers) = await GetFullLedgerDataAsync();
         UserProfile? driver = drivers.FirstOrDefault(d => d.UserId == driverId);
-        Dictionary<string, string> shiftToDriver = BuildShiftToDriverMap(shifts);
+        List<ShiftCharge> charges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync());
 
         var transactions = new List<LedgerTransaction>();
 
-        foreach (BoundaryPayment p in payments.Where(p => shiftToDriver.TryGetValue(p.ShiftId, out string? did) && did == driverId))
+        foreach (ShiftCharge c in charges.Where(c => c.DriverId == driverId))
         {
             transactions.Add(new LedgerTransaction
             {
-                Timestamp = p.Timestamp,
-                TransactionType = "Boundary Payment",
-                Expected = p.ExpectedBoundary + p.LateFees,
-                AmountPaid = p.AmountPaid,
+                Timestamp = c.Payment?.Timestamp ?? c.Date,
+                TransactionType = c.Payment is null ? "Boundary (unpaid)" : "Boundary Payment",
+                Expected = c.Expected,
+                AmountPaid = c.Paid,
+                ReceiptUrl = string.IsNullOrWhiteSpace(c.Payment?.EPayReceiptPhoto) ? null : c.Payment.EPayReceiptPhoto,
+                ReceiptReferenceNo = c.Payment?.ReceiptReferenceNo,
             });
         }
 
@@ -353,7 +366,7 @@ public class FinancialLedgerService
     /// what's actually owed - an overpayment beyond total debt is reported back
     /// (UnallocatedAmount) rather than silently recorded as a negative balance/credit.
     /// </summary>
-    public async Task<SettleDebtResult> SettleDebtAsync(string driverId, decimal amountReceived, string paymentMethod)
+    public async Task<SettleDebtResult> SettleDebtAsync(string driverId, decimal amountReceived, string paymentMethod, PaymentReceipt? receipt = null)
     {
         if (string.IsNullOrWhiteSpace(driverId))
         {
@@ -372,48 +385,40 @@ public class FinancialLedgerService
         try
         {
             (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetFullLedgerDataAsync();
-            Dictionary<string, string> shiftToDriver = BuildShiftToDriverMap(shifts);
 
-            List<BoundaryPayment> outstanding = payments
-                .Where(p => shiftToDriver.TryGetValue(p.ShiftId, out string? did) && did == driverId && p.PaymentStatus != PaymentStatus.Paid)
-                .OrderBy(p => p.Timestamp)
+            // Oldest shift first. A shift with no payment document yet gets one created - the
+            // same {shiftDocumentId}_PAY document Record Payment in Daily Settlements writes.
+            List<ShiftCharge> outstanding = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync())
+                .Where(c => c.DriverId == driverId && c.Outstanding > 0)
+                .OrderBy(c => c.Date)
                 .ToList();
 
             decimal remaining = amountReceived;
             DateTime now = DateTime.UtcNow;
 
-            foreach (BoundaryPayment payment in outstanding)
+            // One receipt can pay off several shifts - each one's payment document links it.
+            var receiptLink = await UploadReceiptAsync(driverId, receipt);
+
+            foreach (ShiftCharge charge in outstanding)
             {
                 if (remaining <= 0)
                 {
                     break;
                 }
 
-                decimal expected = payment.ExpectedBoundary + payment.LateFees;
-                decimal shortfall = Math.Max(0, expected - payment.AmountPaid);
-                if (shortfall <= 0)
+                decimal apply = Math.Min(remaining, charge.Outstanding);
+                decimal newAmountPaid = charge.Paid + apply;
+                PaymentStatus newStatus = newAmountPaid >= charge.Expected ? PaymentStatus.Paid : PaymentStatus.Partial;
+
+                if (charge.Payment is not null)
                 {
-                    continue;
+                    await Db.Collection("boundary_payments").Document(charge.Payment.PaymentId)
+                        .UpdateAsync(PaymentUpdate(newAmountPaid, method, newStatus, now, lateFees: charge.LateFee, receipt: receiptLink));
                 }
-
-                decimal apply = Math.Min(remaining, shortfall);
-                decimal newAmountPaid = payment.AmountPaid + apply;
-                PaymentStatus newStatus = newAmountPaid >= expected ? PaymentStatus.Paid : PaymentStatus.Partial;
-
-                var updated = new BoundaryPayment
+                else
                 {
-                    PaymentId = payment.PaymentId,
-                    ShiftId = payment.ShiftId,
-                    ExpectedBoundary = payment.ExpectedBoundary,
-                    LateFees = payment.LateFees,
-                    AmountPaid = newAmountPaid,
-                    PaymentMethod = method,
-                    PaymentStatus = newStatus,
-                    ReferenceNumber = payment.ReferenceNumber,
-                    EPayReceiptPhoto = payment.EPayReceiptPhoto,
-                    Timestamp = now,
-                };
-                await Db.Collection("boundary_payments").Document(payment.PaymentId).SetAsync(updated, SetOptions.Overwrite);
+                    await CreatePaymentAsync(charge.Shift!.DocumentId, charge.Expected - charge.LateFee, charge.LateFee, newAmountPaid, method, newStatus, now, receiptLink);
+                }
 
                 remaining -= apply;
             }
@@ -449,8 +454,162 @@ public class FinancialLedgerService
         }
     }
 
-    private static Dictionary<string, string> BuildShiftToDriverMap(List<ShiftLog> shifts) =>
-        shifts.Where(s => !string.IsNullOrEmpty(s.ShiftId)).ToDictionary(s => s.ShiftId, s => s.DriverId);
+    /// <summary>A shift's IDs: its document ID and its shiftId field. They should be equal,
+    /// but shifts clocked in by older mobile builds got a made-up "SHIFT_yyyyMMdd_nnn" field
+    /// value - and payments were written against either one (the web ledger used the field,
+    /// the mobile quick ledger the document ID). Matching on both links them all.</summary>
+    private static List<string> IdsOf(ShiftLog shift) =>
+        new[] { shift.DocumentId, shift.ShiftId }.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
+
+    /// <summary>What one shift owes and has paid, for the Master Debt Ledger / Settle Debt.
+    /// Payment is null when nobody has paid anything on the shift yet (no document).</summary>
+    private sealed record ShiftCharge(string DriverId, ShiftLog? Shift, BoundaryPayment? Payment, DateTime Date, decimal Expected, decimal LateFee, decimal Paid)
+    {
+        public decimal Outstanding => Payment?.PaymentStatus == PaymentStatus.Paid ? 0 : Math.Max(0, Expected - Paid);
+    }
+
+    /// <summary>
+    /// Every charge a driver has: one per boundary_payments document whose shift is known,
+    /// plus one per ended shift with no document yet - owing the default boundary + its late
+    /// fee, nothing paid. A shift still Active isn't owed yet (the boundary is paid at the end
+    /// of the day), unless something was already paid on it.
+    /// </summary>
+    private static List<ShiftCharge> BuildCharges(List<ShiftLog> shifts, List<BoundaryPayment> payments, decimal defaultRate)
+    {
+        Dictionary<string, ShiftLog> shiftsById = BuildShiftLookup(shifts);
+        var charges = new List<ShiftCharge>();
+        var paidShiftIds = new HashSet<string>();
+
+        foreach (BoundaryPayment p in payments)
+        {
+            if (!shiftsById.TryGetValue(p.ShiftId, out ShiftLog? shift))
+            {
+                continue;
+            }
+
+            paidShiftIds.Add(shift.DocumentId);
+            decimal lateFee = LateFeeFor(shift, p);
+            charges.Add(new ShiftCharge(shift.DriverId, shift, p, shift.ShiftStart ?? p.Timestamp, p.ExpectedBoundary + lateFee, lateFee, p.AmountPaid));
+        }
+
+        foreach (ShiftLog shift in shifts)
+        {
+            if (paidShiftIds.Contains(shift.DocumentId)
+                || string.IsNullOrWhiteSpace(shift.DriverId)
+                || string.Equals(shift.Status, "Active", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            decimal lateFee = LateFeeFor(shift, null);
+            DateTime date = shift.ShiftStart ?? shift.ShiftEnd ?? DateTime.MinValue;
+            charges.Add(new ShiftCharge(shift.DriverId, shift, null, date, defaultRate + lateFee, lateFee, 0m));
+        }
+
+        return charges;
+    }
+
+    /// <summary>A shift's first payment document ({shiftDocumentId}_PAY, the seed data's convention).</summary>
+    private Task CreatePaymentAsync(string shiftDocumentId, decimal expectedBoundary, decimal lateFee, decimal amountPaid, PaymentMethod method, PaymentStatus status, DateTime timestamp, (string Url, string? ReferenceNo)? receipt = null)
+    {
+        string docId = $"{shiftDocumentId}_PAY";
+        return Db.Collection("boundary_payments").Document(docId).SetAsync(new BoundaryPayment
+        {
+            PaymentId = docId,
+            ShiftId = shiftDocumentId,
+            ExpectedBoundary = expectedBoundary,
+            LateFees = lateFee,
+            AmountPaid = amountPaid,
+            PaymentMethod = method,
+            PaymentStatus = status,
+            Timestamp = timestamp,
+            EPayReceiptPhoto = receipt?.Url,
+            ReceiptReferenceNo = receipt?.ReferenceNo,
+        });
+    }
+
+    /// <summary>The shift's payment document. Normally at most one; if a shift ever ended up
+    /// with two (one under each ID, from before both IDs were matched), the one holding the
+    /// money is the one that counts.</summary>
+    private static BoundaryPayment? PaymentFor(ShiftLog shift, List<BoundaryPayment> payments)
+    {
+        List<string> ids = IdsOf(shift);
+        return payments
+            .Where(p => ids.Contains(p.ShiftId))
+            .OrderByDescending(p => p.AmountPaid)
+            .ThenByDescending(p => p.Timestamp)
+            .FirstOrDefault();
+    }
+
+    private static Dictionary<string, object> PaymentUpdate(decimal amountPaid, PaymentMethod method, PaymentStatus status, DateTime? timestamp = null, decimal? lateFees = null, (string Url, string? ReferenceNo)? receipt = null)
+    {
+        var update = new Dictionary<string, object>
+        {
+            ["amountPaid"] = (double)amountPaid,
+            ["paymentMethod"] = new PaymentMethodConverter().ToFirestore(method),
+            ["paymentStatus"] = new PaymentStatusConverter().ToFirestore(status),
+            ["timestamp"] = timestamp ?? DateTime.UtcNow,
+        };
+        if (lateFees.HasValue)
+        {
+            update["lateFees"] = (double)lateFees.Value;
+        }
+        // The latest receipt paid on this shift; a cash payment leaves an earlier one in place.
+        if (receipt is { } r)
+        {
+            update["ePayReceiptPhoto"] = r.Url;
+            if (r.ReferenceNo is not null)
+            {
+                update["receiptReferenceNo"] = r.ReferenceNo;
+            }
+        }
+        return update;
+    }
+
+    /// <summary>A shift's late-return fee: the one worked out at clock-out (shifts.lateFee,
+    /// ShiftRules) when there is one; otherwise whatever the payment record carries (older
+    /// shifts, seed data, or an amount set by hand).</summary>
+    private static decimal LateFeeFor(ShiftLog? shift, BoundaryPayment? payment) =>
+        shift?.LateFee is double fee ? (decimal)fee : payment?.LateFees ?? 0m;
+
+
+    // Each of a shift's IDs -> the shift (see IdsOf).
+    private static Dictionary<string, ShiftLog> BuildShiftLookup(List<ShiftLog> shifts)
+    {
+        var map = new Dictionary<string, ShiftLog>();
+        foreach (ShiftLog shift in shifts)
+        {
+            foreach (string id in IdsOf(shift))
+            {
+                map.TryAdd(id, shift);
+            }
+        }
+        return map;
+    }
+
+    /// <summary>By document ID first; failing that, by shiftId field value.</summary>
+    private async Task<ShiftLog?> FindShiftAsync(string shiftId)
+    {
+        DocumentSnapshot doc = await Db.Collection("shifts").Document(shiftId).GetSnapshotAsync();
+        if (doc.Exists)
+        {
+            return doc.ConvertTo<ShiftLog>();
+        }
+
+        QuerySnapshot byField = await Db.Collection("shifts").WhereEqualTo("shiftId", shiftId).Limit(1).GetSnapshotAsync();
+        return byField.Documents.Count > 0 ? byField.Documents[0].ConvertTo<ShiftLog>() : null;
+    }
+
+    // Firestore caps WhereIn at 30 values, so larger lists are queried in chunks.
+    private async Task<List<BoundaryPayment>> GetPaymentsForShiftIdsAsync(List<string> shiftIds)
+    {
+        var results = new List<BoundaryPayment>();
+        foreach (string[] chunk in shiftIds.Chunk(30))
+        {
+            results.AddRange(await GetWhereInAsync<BoundaryPayment>("boundary_payments", "shiftId", chunk.ToList()));
+        }
+        return results;
+    }
 
     private async Task<(List<ShiftLog> Shifts, List<BoundaryPayment> Payments, List<DebtAdjustment> Adjustments, List<UserProfile> Drivers)> GetFullLedgerDataAsync()
     {

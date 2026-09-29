@@ -39,4 +39,11 @@ public class ShiftLog
 
     [FirestoreProperty("managerNote")]
     public string ManagerNote { get; set; } = string.Empty;
+
+    /// <summary>Late-return fee (₱) worked out at clock-out from ShiftRules. Null when the
+    /// shift hasn't ended through a normal clock-out (still active, auto-closed, or older
+    /// shifts from before this field existed) - the ledger then falls back to whatever late
+    /// fee is on the payment record.</summary>
+    [FirestoreProperty("lateFee")]
+    public double? LateFee { get; set; }
 }

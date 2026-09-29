@@ -107,6 +107,11 @@ public class BoundaryPayment
     [FirestoreProperty("ePayReceiptPhoto")]
     public string? EPayReceiptPhoto { get; set; }
 
+    /// <summary>The GCash receipt's reference number as printed (13 digits) - text, since it
+    /// doesn't fit referenceNumber's int.</summary>
+    [FirestoreProperty("receiptReferenceNo")]
+    public string? ReceiptReferenceNo { get; set; }
+
     [FirestoreProperty("timestamp")]
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }

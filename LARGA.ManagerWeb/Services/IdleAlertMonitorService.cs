@@ -27,12 +27,14 @@ public class IdleAlertMonitorService : BackgroundService
 
     private readonly FleetReportingService _fleetReporting;
     private readonly AlertService _alertService;
+    private readonly ShiftDeadlineService _shiftDeadlines;
     private readonly ILogger<IdleAlertMonitorService> _logger;
 
-    public IdleAlertMonitorService(FleetReportingService fleetReporting, AlertService alertService, ILogger<IdleAlertMonitorService> logger)
+    public IdleAlertMonitorService(FleetReportingService fleetReporting, AlertService alertService, ShiftDeadlineService shiftDeadlines, ILogger<IdleAlertMonitorService> logger)
     {
         _fleetReporting = fleetReporting;
         _alertService = alertService;
+        _shiftDeadlines = shiftDeadlines;
         _logger = logger;
     }
 
@@ -40,6 +42,17 @@ public class IdleAlertMonitorService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            // End-of-day rules first (10 PM late-return alerts, 6 AM auto-close), so a shift
+            // closed as a missed clock-out isn't then reported as idle on the same tick.
+            try
+            {
+                await _shiftDeadlines.ProcessOpenShiftsAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Shift deadline check failed");
+            }
+
             try
             {
                 List<IdleDriverInfo> idleDrivers = await _fleetReporting.GetIdleDriversAsync();

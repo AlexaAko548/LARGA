@@ -22,7 +22,15 @@ public class DriverRosterEntry
     /// <summary>On shift, but the driver has paused it from the mobile app.</summary>
     public bool IsOnBreak { get; set; }
 
+    /// <summary>On shift and past the unit's 10:00 PM return time (ShiftRules).</summary>
+    public bool IsLateReturn { get; set; }
+
+    /// <summary>The driver's permanent unit (their profile's assignment).</summary>
     public string? AssignedTaxiId { get; set; }
+
+    /// <summary>The unit on their current Active shift, when on shift - can differ from
+    /// AssignedTaxiId (a substitute, or a shift started before a reassignment).</summary>
+    public string? CurrentShiftTaxiId { get; set; }
 }
 
 public class RosterSnapshot
@@ -52,6 +60,19 @@ public class ScheduleDayCell
     /// within one month before it (mirrors the same 1-month cutoff used for "On Shift"
     /// eligibility elsewhere). The cell is locked (no unit, no day-off toggle) when true.</summary>
     public bool IsLicenseIneligible { get; set; }
+
+    /// <summary>The driver's own assigned unit is in the shop on this date (taxi status
+    /// "Under Maintenance", or an In Progress Garage job covering the date). Without a
+    /// substitute, the driver has nothing to drive - TaxiId is null.</summary>
+    public bool IsOwnUnitUnderMaintenance { get; set; }
+
+    /// <summary>A temporary unit the manager assigned for just this date while the driver's
+    /// own unit is under maintenance. When set, TaxiId is this unit.</summary>
+    public string? SubstituteTaxiId { get; set; }
+
+    /// <summary>Why the driver's own unit is out, for the cell's tooltip / substitute window
+    /// (e.g. "Brake repair - until Oct 3").</summary>
+    public string? MaintenanceNote { get; set; }
 }
 
 public class DriverScheduleRow
@@ -80,6 +101,10 @@ public class WeekSchedule
 
     public int TotalTaxis { get; set; }
     public List<string> TaxiIds { get; set; } = new();
+
+    /// <summary>Per day (Monday through Sunday), the units a substitute can be picked from:
+    /// not under maintenance and not driven by anyone else that day.</summary>
+    public List<List<string>> FreeTaxiIdsByDay { get; set; } = new();
 }
 
 public class ShiftLogEntry
@@ -170,11 +195,21 @@ public class DriverProfileDetail
 {
     public string DriverId { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
+
+    /// <summary>The email the driver signs in to the mobile app with.</summary>
+    public string Email { get; set; } = string.Empty;
+
     public string PhoneNumber { get; set; } = string.Empty;
     public string? Address { get; set; }
     public DateTime? DateJoined { get; set; }
     public bool IsOnShift { get; set; }
+
+    /// <summary>The driver's permanent unit (their profile's assignment).</summary>
     public string? AssignedTaxiId { get; set; }
+
+    /// <summary>The unit on their current Active shift, if any.</summary>
+    public string? CurrentShiftTaxiId { get; set; }
+
     public string LicenseNumber { get; set; } = string.Empty;
     public string LicenseClassification { get; set; } = string.Empty;
     public string LicenseRestrictionCode { get; set; } = string.Empty;
