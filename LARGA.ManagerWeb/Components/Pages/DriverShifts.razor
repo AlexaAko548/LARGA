@@ -7,6 +7,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject DriverManagementService DriverManagement
+@inject ClockInApprovalService ClockInApprovals
 @implements IDisposable
 
 <PageTitle>Driver & Shift Management</PageTitle>
@@ -45,6 +46,75 @@ else if (_isAuthorized)
         @if (_rosterError is not null)
         {
             <div class="data-warning-banner">Driver data unavailable: @_rosterError</div>
+        }
+
+        @if (_clockInRequests.Count > 0)
+        {
+            <section class="clockin-approvals">
+                <div class="clockin-approvals-header">
+                    <h2>Clock-in approvals</h2>
+                    <span class="status-pill small status-warning">@_clockInRequests.Count waiting</span>
+                </div>
+                <p class="clockin-approvals-hint">These drivers' pre-shift inspections flagged an issue, so their shift hasn't started. Review the photos and reports, then approve (the shift starts on their phone) or deny (the concern goes to the Garage).</p>
+
+                @foreach (ClockInApprovalItem request in _clockInRequests)
+                {
+                    ClockInApprovalItem item = request;
+                    <article class="clockin-request">
+                        <div class="clockin-request-main">
+                            <div class="clockin-request-title">
+                                <div class="table-avatar">@Initials(item.DriverName)</div>
+                                <div>
+                                    <strong>@item.DriverName</strong> · @item.TaxiId
+                                    <div class="clockin-request-time">Sent @item.CreatedAt.ToPhilippineTime().ToString("h:mm tt") · odometer @item.StartMileage.ToString("N0") km</div>
+                                </div>
+                            </div>
+
+                            <ul class="clockin-request-reasons">
+                                @foreach (string reason in item.FlagReasons)
+                                {
+                                    <li>@reason</li>
+                                }
+                            </ul>
+
+                            @foreach (ClockInDefect defect in item.Defects)
+                            {
+                                <div class="clockin-defect">
+                                    <strong>@defect.Title</strong> <span class="status-pill small status-neutral">@defect.Priority</span>
+                                    @if (!string.IsNullOrWhiteSpace(defect.Description))
+                                    {
+                                        <div>@defect.Description</div>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <div class="clockin-request-photos">
+                            @foreach ((string? url, string label) in new[] { (item.FuelPhotoUrl, "Fuel"), (item.OdometerPhotoUrl, "Odometer") }
+                                .Concat(item.Defects.Select(d => (d.PhotoUrl, d.Title))))
+                            {
+                                @if (url is not null)
+                                {
+                                    <a href="@url" target="_blank" rel="noopener" title="@label">
+                                        <img src="@url" alt="@label" loading="lazy" />
+                                        <span>@label</span>
+                                    </a>
+                                }
+                            }
+                        </div>
+
+                        <div class="clockin-request-actions">
+                            <button class="solid-btn" type="button" disabled="@_isDecidingClockIn" @onclick="() => ApproveClockInAsync(item)">✓ Approve</button>
+                            <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)">✕ Deny</button>
+                        </div>
+                    </article>
+                }
+
+                @if (_clockInError is not null)
+                {
+                    <div class="report-error">@_clockInError</div>
+                }
+            </section>
         }
 
         <section class="stats-grid">
@@ -118,7 +188,14 @@ else if (_isAuthorized)
                             @foreach (DriverRosterEntry d in _roster.Drivers)
                             {
                                 <tr>
-                                    <td class="driver-cell"><div class="table-avatar">@Initials(d.FullName)</div><span>@d.FullName</span></td>
+                                    <td class="driver-cell">
+                                        <div class="table-avatar">@Initials(d.FullName)</div>
+                                        <span>@d.FullName</span>
+                                        @if (d.IsDebtFlagged)
+                                        {
+                                            <span class="status-pill small status-danger" title="Balance unpaid for 3+ days - see the Financial Ledger">⚑ DEBT</span>
+                                        }
+                                    </td>
                                     <td>@ShortId(d.DriverId)</td>
                                     <td><span class="status-pill @LicenseStatusCss(d.LicenseStatus)"><span class="dot"></span> @LicenseStatusLabel(d.LicenseStatus)</span></td>
                                     <td><span class="status-pill @RosterStatusCss(d)"><span class="dot"></span> @RosterStatusLabel(d)</span></td>
@@ -380,6 +457,51 @@ else if (_isAuthorized)
         }
     </main>
 </div>
+
+@if (_denyClockIn is not null)
+{
+    <div class="report-overlay" @onclick="CloseDenyClockIn">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Deny clock-in</h3>
+                <button type="button" class="close-modal" @onclick="CloseDenyClockIn">×</button>
+            </div>
+            <div class="report-body">
+                <div class="settlement-modal-subject">@_denyClockIn.DriverName · @_denyClockIn.TaxiId</div>
+                <div class="report-section">
+                    <label>Note to the driver (required)</label>
+                    <textarea class="text-input textarea" @bind="_denyNote" placeholder="e.g. Front tire is worn - the unit stays in the garage until it's replaced."></textarea>
+                </div>
+                <label class="checkbox-row">
+                    <input type="checkbox" @bind="_denyMarkUnderMaintenance" />
+                    Mark @_denyClockIn.TaxiId as Under Maintenance (the Shift Scheduler then offers a substitute unit)
+                </label>
+                <div class="info-banner">
+                    @if (_denyClockIn.Defects.Count > 0)
+                    {
+                        @:The driver's defect report(s) are already in the Garage queue - they'll be raised to High priority.
+                    }
+                    else if (_denyClockIn.HasFailedItems)
+                    {
+                        @:A High-priority maintenance report will be created in the Garage for the failed inspection items.
+                    }
+                    else
+                    {
+                        @:Only the fuel level was flagged, so nothing is sent to the Garage.
+                    }
+                </div>
+                @if (_clockInError is not null)
+                {
+                    <div class="report-error">@_clockInError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="CloseDenyClockIn">Cancel</button>
+                <button class="download-btn" type="button" disabled="@(_isDecidingClockIn || string.IsNullOrWhiteSpace(_denyNote))" @onclick="ConfirmDenyClockInAsync">@(_isDecidingClockIn ? "Saving…" : "Deny Clock-in")</button>
+            </div>
+        </div>
+    </div>
+}
 
 @if (_showChecklistModal && _selectedChecklists is not null)
 {
@@ -926,6 +1048,7 @@ else if (_isAuthorized)
         }
 
         await LoadRosterAsync();
+        await LoadClockInRequestsAsync();
         await LoadScheduleAsync(DateTime.UtcNow);
 
         StateHasChanged();
@@ -948,6 +1071,7 @@ else if (_isAuthorized)
             while (await timer.WaitForNextTickAsync(token))
             {
                 await LoadRosterAsync();
+                await LoadClockInRequestsAsync();
                 await ReloadDisplayedWeekAsync();
                 if (_shiftLogsLoaded)
                 {
@@ -959,6 +1083,85 @@ else if (_isAuthorized)
         catch (OperationCanceledException)
         {
             // Page closed.
+        }
+    }
+
+    // -- Clock-in approvals (flagged pre-shift inspections, paper Ch. IV) -------------------
+
+    private List<ClockInApprovalItem> _clockInRequests = new();
+    private bool _isDecidingClockIn;
+    private string? _clockInError;
+    private ClockInApprovalItem? _denyClockIn;
+    private string _denyNote = string.Empty;
+    private bool _denyMarkUnderMaintenance;
+
+    private async Task LoadClockInRequestsAsync()
+    {
+        try
+        {
+            _clockInRequests = await ClockInApprovals.GetPendingAsync();
+        }
+        catch (Exception ex)
+        {
+            _clockInError = $"Clock-in requests unavailable: {ex.Message}";
+        }
+    }
+
+    private async Task ApproveClockInAsync(ClockInApprovalItem item)
+    {
+        _isDecidingClockIn = true;
+        _clockInError = null;
+        try
+        {
+            ClockInDecisionResult result = await ClockInApprovals.ApproveAsync(item.RequestId, null);
+            if (!result.Ok)
+            {
+                _clockInError = result.ErrorMessage;
+            }
+            await LoadClockInRequestsAsync();
+        }
+        finally
+        {
+            _isDecidingClockIn = false;
+        }
+    }
+
+    private void OpenDenyClockIn(ClockInApprovalItem item)
+    {
+        _denyClockIn = item;
+        _denyNote = string.Empty;
+        // Default: take the unit off the road when something on it actually failed.
+        _denyMarkUnderMaintenance = item.HasFailedItems || item.Defects.Count > 0;
+        _clockInError = null;
+    }
+
+    private void CloseDenyClockIn() => _denyClockIn = null;
+
+    private async Task ConfirmDenyClockInAsync()
+    {
+        if (_denyClockIn is null)
+        {
+            return;
+        }
+
+        _isDecidingClockIn = true;
+        _clockInError = null;
+        try
+        {
+            ClockInDecisionResult result = await ClockInApprovals.DenyAsync(_denyClockIn.RequestId, _denyNote, _denyMarkUnderMaintenance);
+            if (!result.Ok)
+            {
+                _clockInError = result.ErrorMessage;
+                return;
+            }
+
+            _denyClockIn = null;
+            await LoadClockInRequestsAsync();
+            await ReloadDisplayedWeekAsync(); // an Under Maintenance unit shows up in the planner
+        }
+        finally
+        {
+            _isDecidingClockIn = false;
         }
     }
 

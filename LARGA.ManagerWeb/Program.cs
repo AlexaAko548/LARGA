@@ -128,6 +128,7 @@ builder.Services.AddSingleton<GarageService>();
 builder.Services.AddSingleton<AlertService>();
 builder.Services.AddSingleton<InventoryAuditService>();
 builder.Services.AddSingleton<ShiftDeadlineService>();
+builder.Services.AddSingleton<ClockInApprovalService>();
 builder.Services.AddHostedService<IdleAlertMonitorService>();
 builder.Services.AddSingleton<FuelVerificationService>();
 

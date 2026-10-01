@@ -106,6 +106,10 @@ else if (_isAuthorized)
                     <div class="settlement-figure">
                         <div class="settlement-figure-label">COLLECTED SO FAR</div>
                         <div class="settlement-figure-value">₱ @_snapshot.CollectedSoFar.ToString("N0")</div>
+                        @if (_snapshot.CreditApplied > 0)
+                        {
+                            <div class="settlement-credit-note">+ ₱ @_snapshot.CreditApplied.ToString("N0") covered by credit</div>
+                        }
                     </div>
                     <div class="settlement-figure">
                         <div class="settlement-figure-label">STILL OUTSTANDING</div>
@@ -149,12 +153,16 @@ else if (_isAuthorized)
                                     <td>@(row.ShiftEnd.HasValue ? row.ShiftEnd.Value.ToPhilippineTime().ToString("h:mm tt") : "On road")</td>
                                     <td>₱ @row.ExpectedTotal.ToString("N0")</td>
                                     <td>
-                                        @if (row.AmountPaid > 0)
+                                        @if (row.AmountPaid > 0 || row.CreditApplied > 0)
                                         {
-                                            <span>₱ @row.AmountPaid.ToString("N0")</span>
+                                            <span>@(row.AmountPaid > 0 ? $"₱ {row.AmountPaid:N0}" : "–")</span>
                                             @if (row.Status == SettlementStatus.Cleared)
                                             {
                                                 <span class="settlement-check">✓</span>
+                                            }
+                                            @if (row.CreditApplied > 0)
+                                            {
+                                                <div class="settlement-credit-note" title="Covered by money the driver paid above another shift's boundary">+ ₱ @row.CreditApplied.ToString("N0") credit</div>
                                             }
                                         }
                                         else
@@ -175,7 +183,7 @@ else if (_isAuthorized)
                                     <td>
                                         @if (row.Status != SettlementStatus.Cleared)
                                         {
-                                            <button class="profile-btn" type="button" @onclick="() => OpenPaymentModal(row)">@(row.Status == SettlementStatus.Partial ? "Add Payment" : "Record Payment")</button>
+                                            <button class="profile-btn" type="button" @onclick="() => OpenPaymentModalAsync(row)">@(row.Status == SettlementStatus.Partial ? "Add Payment" : "Record Payment")</button>
                                         }
                                     </td>
                                 </tr>
@@ -253,12 +261,35 @@ else if (_isAuthorized)
                                 @foreach (DebtLedgerRow row in _ledgerSnapshot.Rows)
                                 {
                                     <tr>
-                                        <td class="driver-cell"><div class="table-avatar">@Initials(row.DriverName)</div><span>@row.DriverName</span></td>
+                                        <td class="driver-cell">
+                                            <div class="table-avatar">@Initials(row.DriverName)</div>
+                                            <span>@row.DriverName</span>
+                                            @if (row.IsDebtFlagged)
+                                            {
+                                                <span class="status-pill small status-danger" title="Balance unpaid for @row.DaysUnpaid days - flagged for review">⚑ FLAGGED</span>
+                                            }
+                                        </td>
                                         <td>@(row.TaxiId ?? "–")</td>
-                                        <td>@(row.UnpaidCount > 0 ? row.UnpaidCount.ToString() : "–")</td>
+                                        <td>
+                                            @if (row.UnpaidCount > 0)
+                                            {
+                                                <span>@row.UnpaidCount @(row.UnpaidCount == 1 ? "shift" : "shifts")</span>
+                                                <div class="ledger-unpaid-age @(row.IsDebtFlagged ? "overdue" : "")">oldest @row.DaysUnpaid @(row.DaysUnpaid == 1 ? "day" : "days") ago</div>
+                                            }
+                                            else
+                                            {
+                                                @:–
+                                            }
+                                        </td>
                                         <td>@(row.LastPaymentDate.HasValue ? row.LastPaymentDate.Value.ToPhilippineTime().ToString("MMM d") : "–")</td>
                                         <td>@(row.LastPaymentAmount.HasValue ? $"₱ {row.LastPaymentAmount.Value:N0}" : "–")</td>
-                                        <td>₱ @row.TotalDebt.ToString("N0")</td>
+                                        <td>
+                                            ₱ @row.TotalDebt.ToString("N0")
+                                            @if (row.AdvanceCredit > 0)
+                                            {
+                                                <div class="settlement-credit-note">₱ @row.AdvanceCredit.ToString("N0") advance credit</div>
+                                            }
+                                        </td>
                                         <td class="ledger-actions">
                                             @if (row.TotalDebt > 0)
                                             {
@@ -301,8 +332,24 @@ else if (_isAuthorized)
                 <div class="settlement-modal-subject">@_paymentRow.DriverName · @_paymentRow.TaxiId</div>
 
                 <div class="settlement-modal-figures">
-                    <div class="settlement-modal-figure-row"><span>Boundary</span><strong>₱ @_paymentRow.ExpectedTotal.ToString("N0")</strong></div>
+                    @if (_paymentRow.LateFee > 0 || _paymentRow.FuelPenalty > 0)
+                    {
+                        <div class="settlement-modal-figure-row"><span>Boundary</span><span>₱ @((_paymentRow.ExpectedTotal - _paymentRow.LateFee - _paymentRow.FuelPenalty).ToString("N0"))</span></div>
+                        @if (_paymentRow.LateFee > 0)
+                        {
+                            <div class="settlement-modal-figure-row"><span>+ Late return fee</span><span>₱ @_paymentRow.LateFee.ToString("N0")</span></div>
+                        }
+                        @if (_paymentRow.FuelPenalty > 0)
+                        {
+                            <div class="settlement-modal-figure-row"><span>+ Low fuel penalty (below ½ tank)</span><span>₱ @_paymentRow.FuelPenalty.ToString("N0")</span></div>
+                        }
+                    }
+                    <div class="settlement-modal-figure-row"><span>Total Due</span><strong>₱ @_paymentRow.ExpectedTotal.ToString("N0")</strong></div>
                     <div class="settlement-modal-figure-row"><span>Already Paid</span><strong>₱ @_paymentRow.AmountPaid.ToString("N0")</strong></div>
+                    @if (_paymentRow.CreditApplied > 0)
+                    {
+                        <div class="settlement-modal-figure-row"><span>Covered by credit</span><strong>₱ @_paymentRow.CreditApplied.ToString("N0")</strong></div>
+                    }
                     <div class="settlement-modal-figure-row"><span>Remaining</span><strong>₱ @PaymentRemaining.ToString("N0")</strong></div>
                 </div>
 
@@ -326,6 +373,20 @@ else if (_isAuthorized)
                     }
                 </div>
 
+                @if (PaymentExtra > 0 && _paymentOtherDebt is decimal otherDebt)
+                {
+                    <div class="settlement-allocation">
+                        @if (Math.Min(PaymentExtra, otherDebt) > 0)
+                        {
+                            <div>₱ @Math.Min(PaymentExtra, otherDebt).ToString("N0") → @_paymentRow.DriverName's older unpaid debt</div>
+                        }
+                        @if (PaymentAdvance > 0)
+                        {
+                            <div>₱ @PaymentAdvance.ToString("N0") → advance credit (covers their next boundary)</div>
+                        }
+                    </div>
+                }
+
                 @if (_paymentError is not null)
                 {
                     <div class="report-error">@_paymentError</div>
@@ -339,7 +400,7 @@ else if (_isAuthorized)
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="ClosePaymentModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingPayment || _paymentAmountInput <= 0 || (_paymentMethod == "EWallet" && !IsReceiptReady))" @onclick="ConfirmPaymentAsync">@(_isSavingPayment ? "Saving…" : "Confirm Payment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingPayment || _paymentAmountInput <= 0 || (PaymentExtra > 0 && _paymentOtherDebt is null) || (_paymentMethod == "EWallet" && !IsReceiptReady))" @onclick="ConfirmPaymentAsync">@(_isSavingPayment ? "Saving…" : "Confirm Payment")</button>
             </div>
         </div>
     </div>
@@ -438,7 +499,7 @@ else if (_isAuthorized)
                     <span class="status-pill small @(SettlePreviewRemaining <= 0 ? "status-success" : "status-warning")">@(SettlePreviewRemaining <= 0 ? "CLEARED" : "OUTSTANDING")</span>
                     @if (SettlePreviewOverpaid > 0)
                     {
-                        <span class="settlement-remaining-note">₱ @SettlePreviewOverpaid.ToString("N0") is more than owed - won't be applied</span>
+                        <span class="settlement-remaining-note">₱ @SettlePreviewOverpaid.ToString("N0") → advance credit (covers their next boundary)</span>
                     }
                 </div>
 
@@ -601,7 +662,7 @@ else if (_isAuthorized)
     private DriverLedgerHistory? _history;
     private string _historyDateFilter = "10";
 
-    private decimal PaymentRemaining => _paymentRow is null ? 0 : Math.Max(0, _paymentRow.ExpectedTotal - _paymentRow.AmountPaid);
+    private decimal PaymentRemaining => _paymentRow?.Balance ?? 0;
 
     private SettlementStatus PreviewStatus
     {
@@ -612,7 +673,7 @@ else if (_isAuthorized)
                 return SettlementStatus.Waiting;
             }
 
-            decimal totalPaid = _paymentRow.AmountPaid + Math.Max(0, _paymentAmountInput);
+            decimal totalPaid = _paymentRow.AmountPaid + _paymentRow.CreditApplied + Math.Max(0, _paymentAmountInput);
             if (totalPaid >= _paymentRow.ExpectedTotal)
             {
                 return SettlementStatus.Cleared;
@@ -622,9 +683,17 @@ else if (_isAuthorized)
         }
     }
 
-    private decimal PreviewShortfall => _paymentRow is null
-        ? 0
-        : Math.Max(0, _paymentRow.ExpectedTotal - _paymentRow.AmountPaid - Math.Max(0, _paymentAmountInput));
+    private decimal PreviewShortfall => Math.Max(0, PaymentRemaining - Math.Max(0, _paymentAmountInput));
+
+    // What the driver owes apart from this shift (older unpaid shifts + adjustment debt, net of
+    // overpayment credit) - loaded when Record Payment opens; null while loading. Money above
+    // this shift's balance goes there (paper: carried debt is added onto the day's rent).
+    private decimal? _paymentOtherDebt;
+
+    private decimal PaymentExtra => Math.Max(0, Math.Max(0, _paymentAmountInput) - PaymentRemaining);
+
+    // Above this shift and all older debt: kept as advance credit toward the next boundary.
+    private decimal PaymentAdvance => _paymentOtherDebt is decimal other ? Math.Max(0, PaymentExtra - other) : 0;
 
     private decimal SettlePreviewRemaining => _settleRow is null
         ? 0
@@ -760,14 +829,25 @@ else if (_isAuthorized)
         }
     }
 
-    private void OpenPaymentModal(SettlementRow row)
+    private async Task OpenPaymentModalAsync(SettlementRow row)
     {
         _paymentRow = row;
         _paymentAmountInput = Math.Max(0, row.ExpectedTotal - row.AmountPaid);
         _paymentMethod = "Cash";
         _paymentError = null;
+        _paymentOtherDebt = null;
         _ = ResetReceiptAsync();
         _showPaymentModal = true;
+        StateHasChanged();
+
+        try
+        {
+            _paymentOtherDebt = await Ledger.GetOtherDebtForShiftAsync(row.ShiftId);
+        }
+        catch (Exception ex)
+        {
+            _paymentError = $"Couldn't load this driver's other debt: {ex.Message}";
+        }
     }
 
     private void ClosePaymentModal()
@@ -860,10 +940,6 @@ else if (_isAuthorized)
             <input class="text-input" type="text" placeholder="Amount (read from the receipt)" value="@_receiptAmount" readonly />
             <input class="text-input" type="text" placeholder="Date (read from the receipt)" value="@_receiptDate" readonly />
             <input class="text-input" type="text" placeholder="Reference No. (read from the receipt)" value="@_receiptReference" readonly />
-            @if (_receiptPreviewUrl is not null && _receiptError is null)
-            {
-                <small class="receipt-hint">Read from the receipt and can't be edited - compare them with the image above. If anything is misread, use "Scan another" with a clearer screenshot.</small>
-            }
         </div>
 
         @if (_receiptError is not null)

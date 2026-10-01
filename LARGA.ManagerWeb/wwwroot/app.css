@@ -4170,3 +4170,164 @@ overflow-y: auto;
 .report-modal.checklist-modal {
 width: min(96vw, 1100px);
 }
+
+/* Master Debt Ledger: how long the oldest unpaid shift has been waiting */
+.ledger-unpaid-age {
+font-size: 0.72rem;
+color: #5a7a8a;
+margin-top: 0.1rem;
+}
+
+.ledger-unpaid-age.overdue {
+color: #b3261e;
+font-weight: 700;
+}
+
+.driver-cell .status-pill.small {
+margin-left: 0.4rem;
+}
+
+/* Daily Settlements: part of a balance covered by the driver's overpayment credit */
+.settlement-credit-note {
+font-size: 0.72rem;
+color: #1f7a4d;
+font-weight: 700;
+margin-top: 0.1rem;
+}
+
+/* Record Payment: where money above this shift's balance goes */
+.settlement-allocation {
+display: flex;
+flex-direction: column;
+gap: 0.2rem;
+font-size: 0.78rem;
+color: #1f7a4d;
+font-weight: 700;
+background: rgba(31,122,77,0.08);
+border-radius: 8px;
+padding: 0.5rem 0.7rem;
+}
+
+/* Driver & Shifts: clock-in approvals (flagged pre-shift inspections) */
+.clockin-approvals {
+border: 1px solid rgba(214, 138, 20, 0.45);
+background: rgba(214, 138, 20, 0.08);
+border-radius: 14px;
+padding: 1rem 1.1rem;
+margin-bottom: 1.2rem;
+display: flex;
+flex-direction: column;
+gap: 0.8rem;
+}
+
+.clockin-approvals-header {
+display: flex;
+align-items: center;
+gap: 0.6rem;
+}
+
+.clockin-approvals-header h2 {
+margin: 0;
+font-size: 1.05rem;
+color: #1d1d1d;
+}
+
+.clockin-approvals-hint {
+margin: 0;
+font-size: 0.8rem;
+color: #5a4a2a;
+}
+
+.clockin-request {
+display: grid;
+grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto;
+gap: 1rem;
+align-items: start;
+background: #ffffff;
+border: 1px solid rgba(1,155,207,0.2);
+border-radius: 12px;
+padding: 0.9rem 1rem;
+}
+
+.clockin-request-title {
+display: flex;
+align-items: center;
+gap: 0.6rem;
+font-size: 0.9rem;
+color: #1d1d1d;
+}
+
+.clockin-request-time {
+font-size: 0.75rem;
+color: #5a7a8a;
+}
+
+.clockin-request-reasons {
+margin: 0.6rem 0 0.4rem 1.1rem;
+padding: 0;
+font-size: 0.82rem;
+color: #b3261e;
+font-weight: 700;
+}
+
+.clockin-defect {
+font-size: 0.8rem;
+color: #1d1d1d;
+background: rgba(1,155,207,0.06);
+border-radius: 8px;
+padding: 0.45rem 0.6rem;
+margin-top: 0.4rem;
+}
+
+.clockin-request-photos {
+display: flex;
+flex-wrap: wrap;
+gap: 0.5rem;
+}
+
+.clockin-request-photos a {
+display: flex;
+flex-direction: column;
+align-items: center;
+gap: 0.2rem;
+font-size: 0.7rem;
+color: #5a7a8a;
+text-decoration: none;
+}
+
+.clockin-request-photos img {
+width: 72px;
+height: 72px;
+object-fit: cover;
+border-radius: 8px;
+border: 1px solid rgba(1,155,207,0.3);
+}
+
+.clockin-request-actions {
+display: flex;
+flex-direction: column;
+gap: 0.5rem;
+}
+
+.outline-btn.danger {
+color: #b3261e;
+border-color: rgba(179, 38, 30, 0.5);
+}
+
+.checkbox-row {
+display: flex;
+align-items: flex-start;
+gap: 0.5rem;
+font-size: 0.82rem;
+color: #1d1d1d;
+}
+
+@media (max-width: 900px) {
+.clockin-request {
+grid-template-columns: 1fr;
+}
+
+.clockin-request-actions {
+flex-direction: row;
+}
+}
