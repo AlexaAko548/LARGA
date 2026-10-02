@@ -7,6 +7,10 @@ using Google.Cloud.Firestore.V1;
 using LARGA.ManagerWeb.Components;
 using LARGA.ManagerWeb.Services;
 using LARGA.SharedCore.Services;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Components.Authorization;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -100,6 +104,17 @@ builder.Services.AddSingleton<AlertService>();
 builder.Services.AddSingleton<InventoryAuditService>();
 builder.Services.AddHostedService<IdleAlertMonitorService>();
 builder.Services.AddSingleton<FuelVerificationService>();
+builder.Services.AddScoped<IManagerAuthService, ManagerAuthService>();
+builder.Services
+    .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/login";
+        options.AccessDeniedPath = "/login";
+    });
+builder.Services.AddAuthorization();
+builder.Services.AddAuthorizationCore();
+builder.Services.AddCascadingAuthenticationState();
 
 var app = builder.Build();
 
@@ -112,9 +127,55 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
-
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
+
+app.MapGet("/auth/signin", async (HttpContext context, string uid, string? email, string? returnUrl) =>
+{
+    if (string.IsNullOrWhiteSpace(uid))
+    {
+        return Results.BadRequest("Missing uid.");
+    }
+
+    string target = "/dashboard";
+    if (!string.IsNullOrWhiteSpace(returnUrl) && Uri.IsWellFormedUriString(returnUrl, UriKind.Relative) && returnUrl.StartsWith('/'))
+    {
+        target = returnUrl;
+    }
+
+    List<Claim> claims = new()
+    {
+        new Claim(ClaimTypes.NameIdentifier, uid)
+    };
+
+    if (!string.IsNullOrWhiteSpace(email))
+    {
+        claims.Add(new Claim(ClaimTypes.Email, email));
+        claims.Add(new Claim(ClaimTypes.Name, email));
+    }
+
+    ClaimsIdentity identity = new(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+    ClaimsPrincipal principal = new(identity);
+
+    await context.SignInAsync(
+        CookieAuthenticationDefaults.AuthenticationScheme,
+        principal,
+        new AuthenticationProperties
+        {
+            IsPersistent = true,
+            AllowRefresh = true,
+            ExpiresUtc = DateTimeOffset.UtcNow.AddHours(8)
+        });
+
+    return Results.LocalRedirect(target);
+}).AllowAnonymous();
+
+app.MapGet("/auth/signout", async (HttpContext context) =>
+{
+    await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+    return Results.LocalRedirect("/login");
+}).AllowAnonymous();
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
