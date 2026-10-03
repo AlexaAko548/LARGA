@@ -64,6 +64,25 @@ public static class MauiProgram
 
 #if ANDROID
         builder.Services.AddSingleton<IOcrService, LARGA.MobileApp.Platforms.Android.Services.AndroidOcrService>();
+        builder.Services.AddSingleton<LARGA.MobileApp.Services.EReceiptOcrService>();
+
+#if ANDROID
+        // Removes the platform underline from Quick Ledger entries only (see LedgerEntry).
+        Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("LedgerEntryNoUnderline", (handler, view) =>
+        {
+            if (view is LARGA.MobileApp.Controls.LedgerEntry)
+            {
+                handler.PlatformView.Background = null;
+            }
+        });
+        Microsoft.Maui.Handlers.PickerHandler.Mapper.AppendToMapping("LedgerPickerNoUnderline", (handler, view) =>
+        {
+            if (view is LARGA.MobileApp.Controls.LedgerPicker)
+            {
+                handler.PlatformView.Background = null;
+            }
+        });
+#endif
 #endif
 
         // Register ViewModels 
@@ -116,7 +135,11 @@ public static class MauiProgram
         builder.Services.AddTransient<DriverManagementPage>();
         builder.Services.AddTransient<ManagerDriverProfilePage>();
         builder.Services.AddTransient<ManagerChatsPage>();
+        builder.Services.AddSingleton<LARGA.MobileApp.Services.QuickLedgerService>();
+        builder.Services.AddTransient<LARGA.MobileApp.ViewModels.Manager.RecordPaymentViewModel>();
+        builder.Services.AddTransient<LARGA.MobileApp.ViewModels.Manager.ManagerLedgerViewModel>();
         builder.Services.AddTransient<ManagerLedgerPage>();
+        builder.Services.AddTransient<LARGA.MobileApp.Views.Manager.ScanEReceiptPage>();
         builder.Services.AddTransient<FleetRegistryPage>();
         builder.Services.AddTransient<ChangePasswordPage>();
         builder.Services.AddTransient<UpdateContactNumberPage>();
