@@ -3,11 +3,10 @@
 @using Microsoft.AspNetCore.Authorization
 @attribute [AllowAnonymous]
 @using System.Text.Json
-@using FirebaseAdmin.Auth
 @using LARGA.ManagerWeb.Services
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
-@inject Lazy<FirebaseAuth> FirebaseAdminAuth
+@inject ManagerSignInService SignInService
 
 <PageTitle>Login - web</PageTitle>
 
@@ -102,11 +101,20 @@
 
             if (result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True)
             {
-                var auth = FirebaseAdminAuth.Value;
-                var userRecord = await auth.GetUserByEmailAsync(_model.Email);
+                // The browser-side role check is only for UX; the server re-verifies the ID token and
+                // the Manager role before issuing a one-time ticket for the cookie endpoint.
+                string? idToken = result.TryGetProperty("idToken", out var tokenProp) && tokenProp.ValueKind == JsonValueKind.String
+                    ? tokenProp.GetString()
+                    : null;
 
-                var signInUrl = $"/auth/signin?uid={Uri.EscapeDataString(userRecord.Uid)}&email={Uri.EscapeDataString(_model.Email)}&returnUrl={Uri.EscapeDataString(GetSafeReturnUrl())}";
+                var (ticket, error) = await SignInService.CreateTicketAsync(idToken);
+                if (ticket is null)
+                {
+                    _errorMessage = error;
+                    return;
+                }
 
+                var signInUrl = $"/auth/signin?ticket={ticket}&returnUrl={Uri.EscapeDataString(GetSafeReturnUrl())}";
                 Navigation.NavigateTo(signInUrl, forceLoad: true, replace: true);
                 return;
             }
@@ -165,7 +173,9 @@
 
         if (!string.IsNullOrWhiteSpace(candidate)
             && Uri.IsWellFormedUriString(candidate, UriKind.Relative)
-            && candidate.StartsWith('/'))
+            && candidate.StartsWith('/')
+            && !candidate.StartsWith("//")
+            && !candidate.StartsWith("/\\"))
         {
             return candidate;
         }

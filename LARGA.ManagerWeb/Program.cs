@@ -9,6 +9,7 @@ using LARGA.ManagerWeb.Services;
 using LARGA.SharedCore.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
 using System.Security.Claims;
 
@@ -105,6 +106,7 @@ builder.Services.AddSingleton<InventoryAuditService>();
 builder.Services.AddHostedService<IdleAlertMonitorService>();
 builder.Services.AddSingleton<FuelVerificationService>();
 builder.Services.AddScoped<IManagerAuthService, ManagerAuthService>();
+builder.Services.AddSingleton<ManagerSignInService>();
 builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -112,8 +114,16 @@ builder.Services
         options.LoginPath = "/login";
         options.AccessDeniedPath = "/login";
     });
-builder.Services.AddAuthorization();
-builder.Services.AddAuthorizationCore();
+// [Authorize] requires the Manager role claim, which only ManagerSignInService issues after
+// verifying the Firebase ID token + users/{uid}.role. This also invalidates any cookie minted by
+// the old unauthenticated /auth/signin?uid=... endpoint (those have no role claim).
+builder.Services.AddAuthorization(options =>
+{
+    options.DefaultPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .RequireRole(ManagerSignInService.ManagerRole)
+        .Build();
+});
 builder.Services.AddCascadingAuthenticationState();
 
 var app = builder.Build();
@@ -131,32 +141,24 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
 
-app.MapGet("/auth/signin", async (HttpContext context, string uid, string? email, string? returnUrl) =>
+// Only accepts a single-use ticket from ManagerSignInService (issued after the Firebase ID token and
+// Manager role were verified server-side). Never trust a uid/email passed in the URL.
+app.MapGet("/auth/signin", async (HttpContext context, ManagerSignInService signIn, string? ticket, string? returnUrl) =>
 {
-    if (string.IsNullOrWhiteSpace(uid))
+    ClaimsPrincipal? principal = signIn.RedeemTicket(ticket);
+    if (principal is null)
     {
-        return Results.BadRequest("Missing uid.");
+        return Results.LocalRedirect("/login");
     }
 
     string target = "/dashboard";
-    if (!string.IsNullOrWhiteSpace(returnUrl) && Uri.IsWellFormedUriString(returnUrl, UriKind.Relative) && returnUrl.StartsWith('/'))
+    // "//host" and "/\host" are protocol-relative (open redirect); LocalRedirect would throw on them.
+    if (!string.IsNullOrWhiteSpace(returnUrl) && returnUrl.StartsWith('/')
+        && !returnUrl.StartsWith("//") && !returnUrl.StartsWith("/\\")
+        && Uri.IsWellFormedUriString(returnUrl, UriKind.Relative))
     {
         target = returnUrl;
     }
-
-    List<Claim> claims = new()
-    {
-        new Claim(ClaimTypes.NameIdentifier, uid)
-    };
-
-    if (!string.IsNullOrWhiteSpace(email))
-    {
-        claims.Add(new Claim(ClaimTypes.Email, email));
-        claims.Add(new Claim(ClaimTypes.Name, email));
-    }
-
-    ClaimsIdentity identity = new(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-    ClaimsPrincipal principal = new(identity);
 
     await context.SignInAsync(
         CookieAuthenticationDefaults.AuthenticationScheme,
