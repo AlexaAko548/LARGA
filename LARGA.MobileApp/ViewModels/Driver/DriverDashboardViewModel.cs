@@ -1,3 +1,4 @@
+using Microsoft.Maui.Storage;
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore.Services;
 using Microsoft.Maui.Controls;
@@ -102,6 +103,14 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
 
         ToggleShiftCommand = new Command(async () =>
         {
+            // A clock-in already waiting for the manager's evaluation - go back to it rather
+            // than starting another inspection.
+            if (!string.IsNullOrEmpty(Preferences.Get(ClockInPendingViewModel.PendingRequestKey, string.Empty)))
+            {
+                await Shell.Current.GoToAsync("clockin-pending");
+                return;
+            }
+
             // Units go out from 6:00 AM (ShiftRules) - stop here rather than after the whole
             // pre-shift checklist. ClockInAsync enforces the same rule on submit.
             await _shiftService.RefreshTestClockAsync();

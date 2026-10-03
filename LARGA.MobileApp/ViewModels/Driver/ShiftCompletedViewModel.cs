@@ -10,19 +10,25 @@ namespace LARGA.MobileApp.ViewModels.Driver;
 
 public class ShiftCompletedViewModel : BindableObject, IQueryAttributable
 {
-    /// <summary>Late-return fee from clock-out (ShiftRules), passed by End Shift step 2.</summary>
+    /// <summary>Late-return fee and low-fuel penalty from clock-out (ShiftRules), passed by
+    /// End Shift step 2.</summary>
     public void ApplyQueryAttributes(IDictionary<string, object> query)
     {
-        if (query.TryGetValue("lateFee", out var value) && value is decimal lateFee && lateFee > 0)
+        decimal lateFee = query.TryGetValue("lateFee", out var late) && late is decimal l ? l : 0m;
+        decimal fuelPenalty = query.TryGetValue("fuelPenalty", out var fuel) && fuel is decimal f ? f : 0m;
+
+        BoundaryAmountDisplay = $"₱ {800 + lateFee + fuelPenalty:N0}";
+
+        var notes = new List<string>();
+        if (lateFee > 0)
         {
-            BoundaryAmountDisplay = $"₱ {800 + lateFee:N0}";
-            LateFeeNote = $"Includes ₱{lateFee:N0} late-return fee (unit due back by 10:00 PM).";
+            notes.Add($"₱{lateFee:N0} late-return fee (unit due back by 10:00 PM)");
         }
-        else
+        if (fuelPenalty > 0)
         {
-            BoundaryAmountDisplay = "₱ 800";
-            LateFeeNote = string.Empty;
+            notes.Add($"₱{fuelPenalty:N0} penalty for returning below half-tank");
         }
+        LateFeeNote = notes.Count == 0 ? string.Empty : "Includes " + string.Join(" and ", notes) + ".";
     }
 
     private string _lateFeeNote = string.Empty;

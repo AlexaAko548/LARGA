@@ -99,6 +99,7 @@ public class DriverManagementService
                 IsOnShift = isOnShift,
                 IsOnBreak = isOnShift && active!.IsOnBreak,
                 IsLateReturn = isOnShift && active!.ShiftStart is DateTime start && now >= ShiftRules.ReturnDeadlineUtc(start),
+                IsDebtFlagged = d.DebtFlaggedSince is not null,
                 AssignedTaxiId = string.IsNullOrWhiteSpace(d.AssignedTaxiId) ? null : d.AssignedTaxiId,
                 CurrentShiftTaxiId = isOnShift ? active!.TaxiId : null,
             };

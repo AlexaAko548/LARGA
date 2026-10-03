@@ -146,7 +146,7 @@ public class VehicleDefectViewModel : BindableObject
                 return;
             }
 
-            await Shell.Current.GoToAsync($"..?defectSubmitted=true");
+            await Shell.Current.GoToAsync($"..?defectSubmitted=true&reportId={recordId}");
         });
     }
 

@@ -140,11 +140,11 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                     return;
                 }
 
-                decimal lateFee = 0m;
+                var charges = new ShiftEndCharges(0m, 0m);
                 string activeShiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
                 if (!string.IsNullOrEmpty(activeShiftId))
                 {
-                    lateFee = await _shiftService.ClockOutAsync(activeShiftId, endMileage, "");
+                    charges = await _shiftService.ClockOutAsync(activeShiftId, endMileage, IsBelowHalfTankSelected, "");
                     await ShiftChecklistUploader.SubmitAsync(
                         _shiftService, _photoStorage, activeShiftId, isEndShift: true, _inspection,
                         IsBelowHalfTankSelected, _fuelPhotoLocalPath, _odometerPhotoLocalPath);
@@ -166,7 +166,8 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
 
                 await Shell.Current.GoToAsync("shift-completed", new Dictionary<string, object>
                 {
-                    { "lateFee", lateFee },
+                    { "lateFee", charges.LateFee },
+                    { "fuelPenalty", charges.FuelPenalty },
                 });
             }
             catch (Exception ex)

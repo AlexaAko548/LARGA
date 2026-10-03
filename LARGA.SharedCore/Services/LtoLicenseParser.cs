@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace LARGA.SharedCore.Services;
@@ -47,11 +48,12 @@ public static class LtoLicenseParser
     public class Validation
     {
         public string? LicenseError { get; set; }
+        public string? NameError { get; set; }
         public string? DateOfBirthError { get; set; }
         public string? ExpiryError { get; set; }
         public int? Age { get; set; }
 
-        public bool IsValid => LicenseError is null && DateOfBirthError is null && ExpiryError is null;
+        public bool IsValid => LicenseError is null && NameError is null && DateOfBirthError is null && ExpiryError is null;
     }
 
     // Text only a PH LTO license carries. OCR garbles some of it (e.g. "Repusuc OF THE
@@ -224,10 +226,74 @@ public static class LtoLicenseParser
         return name.Success && name.Value.Length >= 4 ? name.Value.Trim() : null;
     }
 
-    /// <summary>The app's rules, in one place: Philippine license, holder 18+, and not
+    /// <summary>
+    /// Whether the name on a license belongs to the registered driver: their first name and
+    /// last name (first and last word of the registered name) must each appear on the card.
+    /// Middle names/initials are ignored on both sides, as is word order (the card prints
+    /// "LAST, FIRST MIDDLE"). Not exact: a word counts when it's within a small edit distance,
+    /// since OCR misreads single letters (e.g. "BAUTlSTA").
+    /// </summary>
+    public static bool NameMatches(string? registeredName, string? licenseName)
+    {
+        List<string> registered = NameWords(registeredName);
+        List<string> onCard = NameWords(licenseName);
+        if (registered.Count == 0 || onCard.Count == 0)
+        {
+            return false;
+        }
+
+        string first = registered[0];
+        string last = registered[^1];
+        return onCard.Any(w => IsCloseMatch(first, w)) && onCard.Any(w => IsCloseMatch(last, w));
+    }
+
+    // Upper-case words without accents/punctuation; single letters (initials) dropped.
+    private static List<string> NameWords(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return new List<string>();
+        }
+
+        string plain = new string(name.Normalize(NormalizationForm.FormD)
+            .Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+            .ToArray()).ToUpperInvariant();
+        return Regex.Split(plain, @"[^A-Z]+").Where(w => w.Length >= 2).ToList();
+    }
+
+    private static bool IsCloseMatch(string a, string b)
+    {
+        if (a == b)
+        {
+            return true;
+        }
+
+        int allowed = Math.Max(1, Math.Min(a.Length, b.Length) / 4);
+        return Math.Abs(a.Length - b.Length) <= allowed && EditDistance(a, b) <= allowed;
+    }
+
+    private static int EditDistance(string a, string b)
+    {
+        int[] previous = Enumerable.Range(0, b.Length + 1).ToArray();
+        int[] current = new int[b.Length + 1];
+        for (int i = 1; i <= a.Length; i++)
+        {
+            current[0] = i;
+            for (int j = 1; j <= b.Length; j++)
+            {
+                int cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                current[j] = Math.Min(Math.Min(current[j - 1] + 1, previous[j] + 1), previous[j - 1] + cost);
+            }
+            (previous, current) = (current, previous);
+        }
+        return previous[b.Length];
+    }
+
+    /// <summary>The app's rules, in one place: Philippine license, the driver's own (first and
+    /// last name match <paramref name="registeredName"/>, when given), holder 18+, and not
     /// expired or expiring. "Expiring" uses the same 3-month window as the roster's
     /// License Status (DriverManagementService.ComputeLicenseStatus).</summary>
-    public static Validation Validate(Result r, DateTime today)
+    public static Validation Validate(Result r, DateTime today, string? registeredName = null)
     {
         today = today.Date;
         var v = new Validation();
@@ -242,6 +308,18 @@ public static class LtoLicenseParser
         if (r.LicenseNumber is null)
         {
             v.LicenseError = "Couldn't read the license number - retake the photo, or type it in below.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(registeredName))
+        {
+            if (r.FullName is null)
+            {
+                v.NameError = "Couldn't read the name on the license - retake the photo.";
+            }
+            else if (!NameMatches(registeredName, r.FullName))
+            {
+                v.NameError = $"The name on this license ({r.FullName}) doesn't match this driver ({registeredName}) - their first and last name must be on it.";
+            }
         }
 
         if (r.DateOfBirthIsPlaceholder)

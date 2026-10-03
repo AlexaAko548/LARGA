@@ -133,14 +133,28 @@ public class ScanDriverLicenseViewModel : BindableObject
                 return;
             }
 
+            // Same rule as ManagerWeb's license scan: the driver's first and last name must be
+            // on the card (LtoLicenseParser.NameMatches).
             var registeredName = await GetRegisteredNameAsync();
-            if (!DriverLicenseTextParser.NamesLikelyMatch(registeredName, _parsed.FullName))
+            if (!string.IsNullOrWhiteSpace(registeredName))
             {
-                await Shell.Current.DisplayAlert(
-                    "Name doesn't match",
-                    $"This license appears to belong to \"{_parsed.FullName}\", but this account is registered as \"{registeredName}\". Please scan the license that belongs to this driver.",
-                    "OK");
-                return;
+                if (string.IsNullOrWhiteSpace(_parsed.FullName))
+                {
+                    await Shell.Current.DisplayAlert(
+                        "Couldn't read the name",
+                        "We couldn't read the name on this license. Retake the photo so the name is clearly visible.",
+                        "OK");
+                    return;
+                }
+
+                if (!LARGA.SharedCore.Services.LtoLicenseParser.NameMatches(registeredName, _parsed.FullName))
+                {
+                    await Shell.Current.DisplayAlert(
+                        "Name doesn't match",
+                        $"This license appears to belong to \"{_parsed.FullName}\", but this account is registered as \"{registeredName}\". The driver's first and last name must be on the license.",
+                        "OK");
+                    return;
+                }
             }
 
             NameDisplay = _parsed.FullName ?? string.Empty;

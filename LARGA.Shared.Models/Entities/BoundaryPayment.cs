@@ -92,6 +92,9 @@ public class BoundaryPayment
     [FirestoreProperty("lateFees", ConverterType = typeof(DecimalConverter))]
     public decimal LateFees { get; set; }
 
+    [FirestoreProperty("fuelPenalty", ConverterType = typeof(DecimalConverter))]
+    public decimal FuelPenalty { get; set; }
+
     [FirestoreProperty("amountPaid", ConverterType = typeof(DecimalConverter))]
     public decimal AmountPaid { get; set; }
 

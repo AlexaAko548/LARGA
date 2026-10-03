@@ -21,7 +21,7 @@ public interface IShiftManagementService
     /// for today (while their own unit is under maintenance), else their permanent unit.</summary>
     Task<string?> GetTodaysTaxiIdAsync(string? permanentTaxiId = null);
     Task<string> ClockInAsync(string taxiId, int startMileage);
-    Task<decimal> ClockOutAsync(string shiftDocumentId, int endMileage, string managerNote = "");
+    Task<ShiftEndCharges> ClockOutAsync(string shiftDocumentId, int endMileage, bool fuelBelowHalf, string managerNote = "");
     Task<DriverShiftSummary?> GetMyOpenShiftAsync();
     Task SetOnBreakAsync(string shiftDocumentId, bool isOnBreak);
     Task<bool> SubmitHandoverChecklistAsync(HandoverChecklistSubmission checklist);
@@ -30,12 +30,57 @@ public interface IShiftManagementService
     /// else the ShiftRules defaults.</summary>
     Task<GarageGeofence> GetGarageGeofenceAsync();
 
+    /// <summary>Sends a flagged pre-shift inspection to the manager (clockin_requests, status
+    /// Pending) instead of clocking in. Returns the request's document ID.</summary>
+    Task<string> SubmitClockInRequestAsync(ClockInRequestSubmission request);
+
+    /// <summary>The request's current state, or null if it can't be read.</summary>
+    Task<ClockInRequestStatus?> GetClockInRequestAsync(string requestId);
+
+    /// <summary>Driver withdraws a still-pending request.</summary>
+    Task CancelClockInRequestAsync(string requestId);
+
+    /// <summary>After an approved request's shift has started: links it and marks the request used.</summary>
+    Task MarkClockInRequestUsedAsync(string requestId, string shiftId);
+
     /// <summary>Debug builds only: applies system_configs/global "testClockPh" to ShiftClock
     /// so shift rules can be tested at any hour. No-op in release builds.</summary>
     Task RefreshTestClockAsync();
 }
 
 public record GarageGeofence(double Latitude, double Longitude, double RadiusMeters);
+
+/// <summary>A flagged pre-shift inspection, sent for the manager's evaluation
+/// (clockin_requests - see LARGA.Shared.Models.Entities.ClockInRequest).</summary>
+public class ClockInRequestSubmission
+{
+    public string TaxiId { get; set; } = string.Empty;
+    public int StartMileage { get; set; }
+    public IReadOnlyDictionary<string, bool> Inspection { get; set; } = new Dictionary<string, bool>();
+    public bool IsBelowHalfTank { get; set; }
+    public string? FuelDashboardUrl { get; set; }
+    public string? OdometerPhotoUrl { get; set; }
+    public IReadOnlyList<string> DefectReportIds { get; set; } = Array.Empty<string>();
+    public string FlagReasons { get; set; } = string.Empty;
+}
+
+/// <summary>What the waiting screen needs from a clock-in request.</summary>
+public class ClockInRequestStatus
+{
+    public string Status { get; set; } = string.Empty;
+    public string TaxiId { get; set; } = string.Empty;
+    public int StartMileage { get; set; }
+    public string FlagReasons { get; set; } = string.Empty;
+    public string? ManagerNote { get; set; }
+    public string? ShiftId { get; set; }
+    public HandoverChecklistSubmission Checklist { get; set; } = new();
+}
+
+/// <summary>What clock-out added on top of the boundary (ShiftRules).</summary>
+public record ShiftEndCharges(decimal LateFee, decimal FuelPenalty)
+{
+    public decimal Total => LateFee + FuelPenalty;
+}
 
 public class DriverShiftSummary
 {
@@ -328,8 +373,9 @@ public class ShiftManagementService : IShiftManagementService
     }
 
     /// <summary>Ends the shift and records its late-return fee (ShiftRules: the unit is timed on
-    /// return, i.e. now). Returns the fee so the Shift Completed screen can show today's total.</summary>
-    public async Task<decimal> ClockOutAsync(string activeShiftId, int endMileage, string managerNote = "")
+    /// return, i.e. now) and its low-fuel penalty (below half-tank at return). Returns both so
+    /// the Shift Completed screen can show today's total.</summary>
+    public async Task<ShiftEndCharges> ClockOutAsync(string activeShiftId, int endMileage, bool fuelBelowHalf, string managerNote = "")
     {
         try
         {
@@ -345,6 +391,9 @@ public class ShiftManagementService : IShiftManagementService
                 { "managerNote", managerNote },
                 { "isOnBreak", false },
             };
+
+            decimal fuelPenalty = fuelBelowHalf ? ShiftRules.LowFuelPenalty : 0m;
+            updateData["fuelPenalty"] = (double)fuelPenalty;
 
             decimal lateFee = 0m;
             try
@@ -364,7 +413,7 @@ public class ShiftManagementService : IShiftManagementService
             }
 
             await shiftDoc.UpdateDataAsync(updateData);
-            return lateFee;
+            return new ShiftEndCharges(lateFee, fuelPenalty);
         }
         catch (Exception ex)
         {
@@ -484,6 +533,104 @@ public class ShiftManagementService : IShiftManagementService
             System.Diagnostics.Debug.WriteLine($"Garage Config Error: {ex.Message}");
             return fallback;
         }
+    }
+
+    public async Task<string> SubmitClockInRequestAsync(ClockInRequestSubmission request)
+    {
+        var user = CrossFirebaseAuth.Current.CurrentUser;
+        if (user == null) throw new Exception("No authenticated driver found.");
+
+        bool Passed(string item) => request.Inspection.TryGetValue(item, out bool ok) && ok;
+        var proxy = new ClockInRequestProxy
+        {
+            DriverId = user.Uid,
+            TaxiId = request.TaxiId,
+            Status = "Pending",
+            FlagReasons = request.FlagReasons,
+            TireCondition = Passed("Tires"),
+            UnderTheHood = Passed("Hood"),
+            LightsCondition = Passed("Lights"),
+            InteriorCleanliness = Passed("Interior"),
+            ExteriorCondition = Passed("Exterior"),
+            IsBelowHalfTank = request.IsBelowHalfTank,
+            StartMileage = request.StartMileage,
+            FuelDashboardUrl = request.FuelDashboardUrl ?? string.Empty,
+            OdometerPhotoUrl = request.OdometerPhotoUrl ?? string.Empty,
+            DefectReportIds = string.Join(",", request.DefectReportIds),
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        var doc = await CrossFirebaseFirestore.Current.GetCollection("clockin_requests").AddDocumentAsync(proxy);
+        return doc.Id;
+    }
+
+    public async Task<ClockInRequestStatus?> GetClockInRequestAsync(string requestId)
+    {
+        try
+        {
+            var snapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("clockin_requests")
+                .GetDocument(requestId)
+                .GetDocumentSnapshotAsync<ClockInRequestProxy>();
+            var data = snapshot?.Data;
+            if (data == null) return null;
+
+            return new ClockInRequestStatus
+            {
+                Status = data.Status ?? string.Empty,
+                TaxiId = data.TaxiId ?? string.Empty,
+                StartMileage = data.StartMileage,
+                FlagReasons = data.FlagReasons ?? string.Empty,
+                ManagerNote = data.ManagerNote,
+                ShiftId = data.ShiftId,
+                Checklist = new HandoverChecklistSubmission
+                {
+                    IsEndShift = false,
+                    TireCondition = data.TireCondition,
+                    UnderTheHood = data.UnderTheHood,
+                    LightsCondition = data.LightsCondition,
+                    InteriorCleanliness = data.InteriorCleanliness,
+                    ExteriorCondition = data.ExteriorCondition,
+                    IsBelowHalfTank = data.IsBelowHalfTank,
+                    FuelDashboardUrl = string.IsNullOrEmpty(data.FuelDashboardUrl) ? null : data.FuelDashboardUrl,
+                    OdometerPhotoUrl = string.IsNullOrEmpty(data.OdometerPhotoUrl) ? null : data.OdometerPhotoUrl,
+                },
+            };
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Clock-in Request Read Error: {ex.Message}");
+            return null;
+        }
+    }
+
+    public Task CancelClockInRequestAsync(string requestId) =>
+        CrossFirebaseFirestore.Current.GetCollection("clockin_requests").GetDocument(requestId)
+            .UpdateDataAsync(new Dictionary<object, object> { { "status", "Cancelled" } });
+
+    public Task MarkClockInRequestUsedAsync(string requestId, string shiftId) =>
+        CrossFirebaseFirestore.Current.GetCollection("clockin_requests").GetDocument(requestId)
+            .UpdateDataAsync(new Dictionary<object, object> { { "status", "ClockedIn" }, { "shiftId", shiftId } });
+
+    private class ClockInRequestProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")] public string DriverId { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")] public string TaxiId { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")] public string Status { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("flagReasons")] public string FlagReasons { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("tireCondition")] public bool TireCondition { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("underTheHood")] public bool UnderTheHood { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("lightsCondition")] public bool LightsCondition { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("interiorCleanliness")] public bool InteriorCleanliness { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("exteriorCondition")] public bool ExteriorCondition { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("isBelowHalfTank")] public bool IsBelowHalfTank { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("startMileage")] public int StartMileage { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("fuelDashboardUrl")] public string FuelDashboardUrl { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("odometerPhotoUrl")] public string OdometerPhotoUrl { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("defectReportIds")] public string DefectReportIds { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("createdAt")] public DateTime CreatedAt { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("managerNote")] public string ManagerNote { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")] public string ShiftId { get; set; }
     }
 
     public async Task RefreshTestClockAsync()

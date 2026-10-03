@@ -84,6 +84,7 @@ public static class MauiProgram
         builder.Services.AddTransient<MessageManagerViewModel>();
         builder.Services.AddTransient<PreShiftStep1ViewModel>();
         builder.Services.AddTransient<PreShiftStep2ViewModel>();
+        builder.Services.AddTransient<ClockInPendingViewModel>();
         builder.Services.AddTransient<ShiftCompletedViewModel>();
         builder.Services.AddSingleton<ActiveShiftViewModel>();
         builder.Services.AddTransient<LedgerViewModel>();

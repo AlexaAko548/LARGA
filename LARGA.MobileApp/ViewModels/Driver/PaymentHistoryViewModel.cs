@@ -1,3 +1,4 @@
+using LARGA.MobileApp.Services;
 using Microsoft.Maui.Controls;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
@@ -30,74 +31,23 @@ public class PaymentHistoryViewModel : BindableObject
         try
         {
             FullPaymentHistory.Clear();
-            var tempPayments = new List<PaymentRecord>();
 
-            // 1. Fetch driver's shifts
-            var shiftsSnapshot = await CrossFirebaseFirestore.Current
-                .GetCollection("shifts")
-                .WhereEqualsTo("driverId", user.Uid)
-                .GetDocumentsAsync<Dictionary<string, object>>();
-
-            // 2. Fetch payments linked to those shifts
-            foreach (var shift in shiftsSnapshot.Documents)
-            {
-                object shiftIdObj = shift.Data.ContainsKey("ShiftId") ? shift.Data["ShiftId"] :
-                                    shift.Data.ContainsKey("shiftId") ? shift.Data["shiftId"] : null;
-
-                string shiftId = shiftIdObj?.ToString();
-
-                if (!string.IsNullOrEmpty(shiftId))
+            // Same records as the Ledger screen (DriverDebtCalculator reads them through typed
+            // proxies - Plugin.Firebase returns Dictionary<string, object> reads empty).
+            var ledger = await DriverDebtCalculator.LoadAsync(user.Uid);
+            var payments = ledger.Shifts
+                .Where(s => s.HasPayment)
+                .Select(s => new PaymentRecord
                 {
-                    var paymentsSnapshot = await CrossFirebaseFirestore.Current
-                        .GetCollection("boundary_payments")
-                        .WhereEqualsTo("shiftId", shiftId) // Using camelCase based on groupmate's WhereIn query
-                        .GetDocumentsAsync<Dictionary<string, object>>();
+                    DateStr = s.PaymentTimestampUtc is DateTime paidAt ? paidAt.ToLocalTime().ToString("M/dd") : "N/A",
+                    Amount = $"{s.Paid:N2}",
+                    // Exact match: "Unpaid" also contains "Paid".
+                    Status = s.PaymentStatus == "Paid" ? "(Full)" : s.PaymentStatus == "Partial" ? "(Partial)" : "UNPAID",
+                    RawDate = s.PaymentTimestampUtc ?? DateTime.MinValue,
+                })
+                .OrderByDescending(p => p.RawDate);
 
-                    foreach (var paymentDoc in paymentsSnapshot.Documents)
-                    {
-                        if (paymentDoc.Data != null)
-                        {
-                            // Extract Status (Enum: 0=Waiting, 1=Partial, 2=Paid)
-                            string statusText = "UNPAID";
-                            object statusObj = paymentDoc.Data.ContainsKey("PaymentStatus") ? paymentDoc.Data["PaymentStatus"] :
-                                               paymentDoc.Data.ContainsKey("paymentStatus") ? paymentDoc.Data["paymentStatus"] : null;
-
-                            string statusStr = statusObj?.ToString() ?? "";
-                            if (statusStr == "1" || statusStr.Contains("Partial")) statusText = "(Partial)";
-                            else if (statusStr == "2" || statusStr.Contains("Paid")) statusText = "(Full)";
-
-                            // Extract Timestamp
-                            string dateStr = "N/A";
-                            object timeObj = paymentDoc.Data.ContainsKey("Timestamp") ? paymentDoc.Data["Timestamp"] :
-                                             paymentDoc.Data.ContainsKey("timestamp") ? paymentDoc.Data["timestamp"] : null;
-
-                            if (timeObj is DateTime dt)
-                            {
-                                dateStr = dt.ToLocalTime().ToString("M/dd");
-                            }
-
-                            // Extract AmountPaid
-                            object amountObj = paymentDoc.Data.ContainsKey("AmountPaid") ? paymentDoc.Data["AmountPaid"] :
-                                               paymentDoc.Data.ContainsKey("amountPaid") ? paymentDoc.Data["amountPaid"] : null;
-
-                            decimal amount = amountObj != null ? Convert.ToDecimal(amountObj) : 0.00m;
-
-                            tempPayments.Add(new PaymentRecord
-                            {
-                                DateStr = dateStr,
-                                Amount = $"{amount:N2}",
-                                Status = statusText,
-                                RawDate = timeObj is DateTime rawDt ? rawDt : DateTime.MinValue
-                            });
-                        }
-                    }
-                }
-            }
-
-            // Sort newest payments first
-            var sortedPayments = tempPayments.OrderByDescending(p => p.RawDate).ToList();
-
-            foreach (var payment in sortedPayments)
+            foreach (var payment in payments)
             {
                 FullPaymentHistory.Add(payment);
             }

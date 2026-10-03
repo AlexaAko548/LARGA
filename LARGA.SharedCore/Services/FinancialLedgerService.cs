@@ -67,21 +67,48 @@ public class FinancialLedgerService
         DateTime dayStart = phDate - PhilippineTime.Offset;
         DateTime dayEnd = dayStart.AddDays(1).AddTicks(-1);
 
-        List<ShiftLog> todaysShifts = await GetBetweenAsync<ShiftLog>("shifts", "shiftStart", dayStart, dayEnd);
-        List<UserProfile> drivers = await GetDriversAsync();
+        // The full history is needed, not just this day's shifts: overpayment credit from any
+        // day pays off a driver's oldest unpaid shifts first (OwedAfterCredit), and this view
+        // has to agree with the Master Debt Ledger about which shifts that covers.
+        (List<ShiftLog> allShifts, List<BoundaryPayment> payments, _, List<UserProfile> drivers) = await GetFullLedgerDataAsync();
         decimal defaultRate = await GetDefaultBoundaryRateAsync();
+        List<ShiftLog> todaysShifts = allShifts
+            .Where(s => s.ShiftStart is DateTime start && start >= dayStart && start <= dayEnd)
+            .ToList();
 
-        // A payment can point at a shift by either of its IDs (see IdsOf), so look both up.
-        List<string> shiftIds = todaysShifts.SelectMany(IdsOf).Distinct().ToList();
-        List<BoundaryPayment> payments = await GetPaymentsForShiftIdsAsync(shiftIds);
+        // Per shift: what it still owes after credit (shifts not listed owe nothing).
+        List<ShiftCharge> charges = BuildCharges(allShifts, payments, defaultRate);
+        var owedAfterCredit = new Dictionary<string, decimal>();
+        foreach (IGrouping<string, ShiftCharge> driverCharges in charges.GroupBy(c => c.DriverId))
+        {
+            foreach ((ShiftCharge charge, decimal owed) in OwedAfterCredit(driverCharges))
+            {
+                owedAfterCredit[charge.Shift!.DocumentId] = owed;
+            }
+        }
+        Dictionary<string, ShiftCharge> chargeByShift = charges
+            .Where(c => c.Shift is not null)
+            .ToDictionary(c => c.Shift!.DocumentId);
 
         var rows = todaysShifts.Select(shift =>
         {
             UserProfile? driver = drivers.FirstOrDefault(d => d.UserId == shift.DriverId);
             BoundaryPayment? payment = PaymentFor(shift, payments);
 
-            decimal expected = (payment?.ExpectedBoundary ?? defaultRate) + LateFeeFor(shift, payment);
+            ExtraCharges extras = ExtrasFor(shift, payment);
+            decimal expected = (payment?.ExpectedBoundary ?? defaultRate) + extras.Total;
             decimal paid = payment?.AmountPaid ?? 0m;
+
+            // The part of this shift's balance the driver's overpayment credit covers.
+            decimal credit = chargeByShift.TryGetValue(shift.DocumentId, out ShiftCharge? charge) && charge.Outstanding > 0
+                ? charge.Outstanding - owedAfterCredit.GetValueOrDefault(shift.DocumentId)
+                : 0m;
+
+            SettlementStatus status = ComputeStatus(payment?.PaymentStatus, paid, expected);
+            if (status != SettlementStatus.Cleared && credit > 0)
+            {
+                status = paid + credit >= expected ? SettlementStatus.Cleared : SettlementStatus.Partial;
+            }
 
             return new SettlementRow
             {
@@ -91,8 +118,11 @@ public class FinancialLedgerService
                 TaxiId = shift.TaxiId,
                 ShiftEnd = shift.ShiftEnd,
                 ExpectedTotal = expected,
+                LateFee = extras.LateFee,
+                FuelPenalty = extras.FuelPenalty,
                 AmountPaid = paid,
-                Status = ComputeStatus(payment?.PaymentStatus, paid, expected),
+                CreditApplied = credit,
+                Status = status,
             };
         })
         .OrderBy(r => r.Status == SettlementStatus.Cleared ? 1 : 0)
@@ -104,6 +134,7 @@ public class FinancialLedgerService
             Date = phDate, // the PH calendar date this covers - dayStart/dayEnd are UTC query bounds, not for display
             ExpectedCollection = rows.Sum(r => r.ExpectedTotal),
             CollectedSoFar = rows.Sum(r => r.AmountPaid),
+            CreditApplied = rows.Sum(r => r.CreditApplied),
             ClearedCount = rows.Count(r => r.Status == SettlementStatus.Cleared),
             PartialCount = rows.Count(r => r.Status == SettlementStatus.Partial),
             WaitingCount = rows.Count(r => r.Status == SettlementStatus.Waiting),
@@ -122,10 +153,15 @@ public class FinancialLedgerService
     }
 
     /// <summary>
-    /// Records a payment against a shift's boundary. Adds to the shift's existing
-    /// boundary_payments document if it has one - found by either of the shift's IDs, so a
-    /// document the mobile app created under the other ID is reused rather than duplicated -
-    /// otherwise creates one ({shiftDocumentId}_PAY, the seed data's convention).
+    /// Records a payment handed over for a shift. Per the paper (Ch. IV), what a driver owes on
+    /// a day is that day's rent plus any debt carried from previous shifts - so the payment
+    /// goes to this shift's balance first, and anything above it pays off the driver's older
+    /// unpaid shifts, oldest first, then their manual-adjustment debt (same allocation as
+    /// Settle Debt). A payment larger than everything the driver owes is refused outright
+    /// rather than stored as an overpayment.
+    ///
+    /// This shift's boundary_payments document is reused if it has one - found by either of the
+    /// shift's IDs - otherwise created ({shiftDocumentId}_PAY, the seed data's convention).
     /// </summary>
     /// <param name="shiftId">The shift's document ID (SettlementRow.ShiftId); a shiftId field
     /// value also works.</param>
@@ -148,43 +184,38 @@ public class FinancialLedgerService
         try
         {
             ShiftLog? shift = await FindShiftAsync(shiftId);
-            var receiptLink = await UploadReceiptAsync(shift?.DriverId ?? string.Empty, receipt);
-            List<string> ids = shift is null ? new List<string> { shiftId } : IdsOf(shift);
-            BoundaryPayment? existing = shift is null
-                ? (await GetPaymentsForShiftIdsAsync(ids)).FirstOrDefault()
-                : PaymentFor(shift, await GetPaymentsForShiftIdsAsync(ids));
-
-            decimal expected;
-            decimal newAmountPaid;
-            PaymentStatus newStatus;
-
-            if (existing is not null)
+            if (shift is null)
             {
-                decimal lateFee = LateFeeFor(shift, existing);
-                expected = existing.ExpectedBoundary + lateFee;
-                newAmountPaid = existing.AmountPaid + amountReceived;
-                newStatus = newAmountPaid >= expected ? PaymentStatus.Paid : PaymentStatus.Partial;
-
-                // Only the fields a payment changes - the boundary and anything else on the
-                // document (reference number, receipt photo, fields the mobile app adds) stay as
-                // they are. The late fee is written through so the record carries it too.
-                await Db.Collection("boundary_payments").Document(existing.PaymentId).UpdateAsync(PaymentUpdate(newAmountPaid, method, newStatus, lateFees: lateFee, receipt: receiptLink));
-            }
-            else
-            {
-                decimal lateFee = LateFeeFor(shift, null);
-                expected = await GetDefaultBoundaryRateAsync() + lateFee;
-                newAmountPaid = amountReceived;
-                newStatus = newAmountPaid >= expected ? PaymentStatus.Paid : PaymentStatus.Partial;
-
-                await CreatePaymentAsync(shift?.DocumentId ?? shiftId, expected - lateFee, lateFee, newAmountPaid, method, newStatus, DateTime.UtcNow, receiptLink);
+                return new RecordPaymentResult { Ok = false, ErrorMessage = "This shift no longer exists." };
             }
 
+            (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetFullLedgerDataAsync();
+            decimal defaultRate = await GetDefaultBoundaryRateAsync();
+            List<ShiftCharge> driverCharges = BuildCharges(shifts, payments, defaultRate).Where(c => c.DriverId == shift.DriverId).ToList();
+
+            // This shift's charge. A still-Active shift nobody has paid on isn't a charge yet
+            // (see BuildCharges), but the driver can still pay ahead for it.
+            ShiftCharge thisCharge = driverCharges.FirstOrDefault(c => c.Shift?.DocumentId == shift.DocumentId)
+                ?? NewCharge(shift, null, defaultRate);
+            List<DebtAdjustment> driverAdjustments = adjustments.Where(a => a.DriverId == shift.DriverId).ToList();
+
+            // Booked onto actual unpaid records - this shift first, then the oldest others, then
+            // adjustment debt - so every peso received sits on a document (credit keeps covering
+            // whatever those records still show unpaid). Anything above all of it stays on this
+            // shift's record as advance credit toward the driver's next boundary.
+            DateTime now = DateTime.UtcNow;
+            var receiptLink = await UploadReceiptAsync(shift.DriverId, receipt);
+            PaymentBooking booking = await BookPaymentAsync(shift.DriverId, thisCharge, driverCharges.Where(c => c != thisCharge),
+                driverAdjustments, amountReceived, advanceTarget: thisCharge, method, now, receiptLink);
+
+            decimal thisPaid = thisCharge.Paid + booking.ToFirst + booking.Advance;
             return new RecordPaymentResult
             {
                 Ok = true,
-                NewStatus = newStatus == PaymentStatus.Paid ? SettlementStatus.Cleared : SettlementStatus.Partial,
-                RemainingAfterPayment = Math.Max(0, expected - newAmountPaid),
+                NewStatus = thisPaid >= thisCharge.Expected ? SettlementStatus.Cleared : thisPaid > 0 ? SettlementStatus.Partial : SettlementStatus.Waiting,
+                RemainingAfterPayment = Math.Max(0, thisCharge.Expected - thisPaid),
+                AppliedToOlderDebt = booking.ToOthers + booking.ToAdjustments,
+                AdvanceCredit = booking.Advance,
             };
         }
         catch (Exception ex)
@@ -192,6 +223,30 @@ public class FinancialLedgerService
             _logger.LogWarning(ex, "Failed to record payment for shift {ShiftId}", shiftId);
             return new RecordPaymentResult { Ok = false, ErrorMessage = "Could not save this payment. Please try again." };
         }
+    }
+
+    /// <summary>What the driver of this shift owes apart from what this shift still owes (after
+    /// credit): the Master Debt Ledger total minus this row's balance. Record Payment uses it to
+    /// preview where money above this shift's balance goes (older debt, then advance credit).</summary>
+    public async Task<decimal> GetOtherDebtForShiftAsync(string shiftId)
+    {
+        ShiftLog? shift = await FindShiftAsync(shiftId);
+        if (shift is null)
+        {
+            return 0m;
+        }
+
+        (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetFullLedgerDataAsync();
+        decimal defaultRate = await GetDefaultBoundaryRateAsync();
+        List<ShiftCharge> driverCharges = BuildCharges(shifts, payments, defaultRate)
+            .Where(c => c.DriverId == shift.DriverId)
+            .ToList();
+        ShiftCharge thisCharge = driverCharges.FirstOrDefault(c => c.Shift?.DocumentId == shift.DocumentId)
+            ?? NewCharge(shift, null, defaultRate);
+        List<ShiftCharge> withThis = driverCharges.Contains(thisCharge) ? driverCharges : driverCharges.Append(thisCharge).ToList();
+
+        decimal thisOwed = OwedAfterCredit(withThis).Where(o => o.Charge == thisCharge).Sum(o => o.Owed);
+        return Math.Max(0, TotalOwed(withThis, adjustments.Where(a => a.DriverId == shift.DriverId)) - thisOwed);
     }
 
     // ---------------------------------------------------------------------
@@ -263,7 +318,9 @@ public class FinancialLedgerService
         {
             List<ShiftCharge> driverCharges = charges.Where(c => c.DriverId == d.UserId).ToList();
             decimal adjustmentTotal = adjustments.Where(a => a.DriverId == d.UserId).Sum(a => a.Amount);
-            decimal outstandingFromShifts = driverCharges.Sum(c => c.Outstanding);
+            List<(ShiftCharge Charge, decimal Owed)> owed = OwedAfterCredit(driverCharges);
+
+            int daysUnpaid = DaysUnpaidFor(driverCharges, DateTime.UtcNow);
 
             BoundaryPayment? lastPaid = driverCharges
                 .Select(c => c.Payment)
@@ -277,10 +334,13 @@ public class FinancialLedgerService
                 DriverId = d.UserId,
                 DriverName = d.FullName,
                 TaxiId = string.IsNullOrWhiteSpace(d.AssignedTaxiId) ? null : d.AssignedTaxiId,
-                UnpaidCount = driverCharges.Count(c => c.Outstanding > 0),
+                UnpaidCount = owed.Count,
                 LastPaymentDate = lastPaid?.Timestamp,
                 LastPaymentAmount = lastPaid?.AmountPaid,
-                TotalDebt = Math.Max(0, outstandingFromShifts + adjustmentTotal),
+                TotalDebt = Math.Max(0, NetShiftBalance(driverCharges) + adjustmentTotal),
+                AdvanceCredit = Math.Max(0, -(NetShiftBalance(driverCharges) + adjustmentTotal)),
+                DaysUnpaid = daysUnpaid,
+                IsDebtFlagged = daysUnpaid >= ShiftRules.DebtFlagDays,
             };
         })
         .OrderByDescending(r => r.TotalDebt)
@@ -321,7 +381,8 @@ public class FinancialLedgerService
             transactions.Add(new LedgerTransaction
             {
                 Timestamp = c.Payment?.Timestamp ?? c.Date,
-                TransactionType = c.Payment is null ? "Boundary (unpaid)" : "Boundary Payment",
+                TransactionType = c.Payment is null ? "Boundary (unpaid)" : c.Overpaid > 0 ? "Boundary Payment (+ credit)" : "Boundary Payment",
+                DebtChange = c.Outstanding - c.Overpaid,
                 Expected = c.Expected,
                 AmountPaid = c.Paid,
                 ReceiptUrl = string.IsNullOrWhiteSpace(c.Payment?.EPayReceiptPhoto) ? null : c.Payment.EPayReceiptPhoto,
@@ -339,32 +400,32 @@ public class FinancialLedgerService
             });
         }
 
+        // Replayed in order: a shift adds what it still owes, an overpaid shift subtracts its
+        // excess (credit), an adjustment adds/subtracts its amount. Credit isn't lost when it
+        // arrives before a debt, so the running total isn't floored until it's displayed - the
+        // final figure then matches the Master Debt Ledger's TotalDebt.
         List<LedgerTransaction> chronological = transactions.OrderBy(t => t.Timestamp).ToList();
         decimal running = 0;
         foreach (LedgerTransaction tx in chronological)
         {
-            running += tx.Expected.HasValue
-                ? Math.Max(0, tx.Expected.Value - (tx.AmountPaid ?? 0))
-                : tx.AdjustmentAmount ?? 0;
-            running = Math.Max(0, running);
-            tx.RunningDebt = running;
+            running += tx.DebtChange ?? tx.AdjustmentAmount ?? 0;
+            tx.RunningDebt = Math.Max(0, running);
         }
 
         return new DriverLedgerHistory
         {
             DriverId = driverId,
             DriverName = driver?.FullName ?? driverId,
-            CurrentOutstandingDebt = chronological.Count > 0 ? chronological[^1].RunningDebt : 0,
+            CurrentOutstandingDebt = Math.Max(0, running),
             Transactions = chronological.OrderByDescending(t => t.Timestamp).ToList(),
         };
     }
 
     /// <summary>
-    /// Applies a lump-sum payment against a driver's total debt: oldest outstanding
-    /// boundary_payment first (standard oldest-debt-first allocation), then any leftover
-    /// against their net manual-adjustment debt via an automatic offsetting credit. Caps at
-    /// what's actually owed - an overpayment beyond total debt is reported back
-    /// (UnallocatedAmount) rather than silently recorded as a negative balance/credit.
+    /// Applies a lump-sum payment against a driver's total debt: oldest outstanding shift
+    /// first (standard oldest-debt-first allocation), then their net manual-adjustment debt via
+    /// an automatic offsetting credit. Anything above what's owed is kept as advance credit on
+    /// their latest shift, covering their next boundary.
     /// </summary>
     public async Task<SettleDebtResult> SettleDebtAsync(string driverId, decimal amountReceived, string paymentMethod, PaymentReceipt? receipt = null)
     {
@@ -378,64 +439,30 @@ public class FinancialLedgerService
             return new SettleDebtResult { Ok = false, ErrorMessage = "Amount received must be greater than zero." };
         }
 
-        PaymentMethod method = string.Equals(paymentMethod, "EWallet", StringComparison.OrdinalIgnoreCase)
-            ? PaymentMethod.EWallet
-            : PaymentMethod.Cash;
-
         try
         {
             (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetFullLedgerDataAsync();
-
-            // Oldest shift first. A shift with no payment document yet gets one created - the
-            // same {shiftDocumentId}_PAY document Record Payment in Daily Settlements writes.
-            List<ShiftCharge> outstanding = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync())
-                .Where(c => c.DriverId == driverId && c.Outstanding > 0)
-                .OrderBy(c => c.Date)
+            List<ShiftCharge> driverCharges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync())
+                .Where(c => c.DriverId == driverId)
                 .ToList();
 
-            decimal remaining = amountReceived;
-            DateTime now = DateTime.UtcNow;
+            List<DebtAdjustment> driverAdjustments = adjustments.Where(a => a.DriverId == driverId).ToList();
 
-            // One receipt can pay off several shifts - each one's payment document links it.
+            // Anything above what's owed stays on the driver's latest shift as advance credit.
+            ShiftCharge? latest = driverCharges.OrderByDescending(c => c.Date).FirstOrDefault();
+            if (latest is null && amountReceived > TotalOwed(driverCharges, driverAdjustments))
+            {
+                return new SettleDebtResult { Ok = false, ErrorMessage = "This driver has no shifts yet to hold an advance payment - record only what they owe." };
+            }
+
+            // Booked onto the oldest unpaid records first, then adjustment debt. A shift with no
+            // payment document yet gets one created - the same {shiftDocumentId}_PAY document
+            // Record Payment writes. One receipt can pay off several shifts - each one's payment
+            // document links it.
             var receiptLink = await UploadReceiptAsync(driverId, receipt);
-
-            foreach (ShiftCharge charge in outstanding)
-            {
-                if (remaining <= 0)
-                {
-                    break;
-                }
-
-                decimal apply = Math.Min(remaining, charge.Outstanding);
-                decimal newAmountPaid = charge.Paid + apply;
-                PaymentStatus newStatus = newAmountPaid >= charge.Expected ? PaymentStatus.Paid : PaymentStatus.Partial;
-
-                if (charge.Payment is not null)
-                {
-                    await Db.Collection("boundary_payments").Document(charge.Payment.PaymentId)
-                        .UpdateAsync(PaymentUpdate(newAmountPaid, method, newStatus, now, lateFees: charge.LateFee, receipt: receiptLink));
-                }
-                else
-                {
-                    await CreatePaymentAsync(charge.Shift!.DocumentId, charge.Expected - charge.LateFee, charge.LateFee, newAmountPaid, method, newStatus, now, receiptLink);
-                }
-
-                remaining -= apply;
-            }
-
-            decimal adjustmentDebt = Math.Max(0, adjustments.Where(a => a.DriverId == driverId).Sum(a => a.Amount));
-            if (remaining > 0 && adjustmentDebt > 0)
-            {
-                decimal creditApplied = Math.Min(remaining, adjustmentDebt);
-                await Db.Collection("debt_adjustments").AddAsync(new DebtAdjustment
-                {
-                    DriverId = driverId,
-                    Amount = -creditApplied,
-                    Reason = "Automatic credit from a lump-sum debt settlement.",
-                    Timestamp = now,
-                });
-                remaining -= creditApplied;
-            }
+            PaymentBooking booking = await BookPaymentAsync(driverId, null, driverCharges, driverAdjustments, amountReceived,
+                advanceTarget: latest, PaymentMethodOf(paymentMethod), DateTime.UtcNow, receiptLink);
+            decimal remaining = booking.Advance;
 
             DebtLedgerSnapshot refreshed = await GetDebtLedgerAsync();
             decimal newTotal = refreshed.Rows.FirstOrDefault(r => r.DriverId == driverId)?.TotalDebt ?? 0;
@@ -444,7 +471,7 @@ public class FinancialLedgerService
             {
                 Ok = true,
                 RemainingDebt = newTotal,
-                UnallocatedAmount = Math.Max(0, remaining),
+                AdvanceCredit = remaining,
             };
         }
         catch (Exception ex)
@@ -461,11 +488,235 @@ public class FinancialLedgerService
     private static List<string> IdsOf(ShiftLog shift) =>
         new[] { shift.DocumentId, shift.ShiftId }.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
 
+    private static PaymentMethod PaymentMethodOf(string paymentMethod) =>
+        string.Equals(paymentMethod, "EWallet", StringComparison.OrdinalIgnoreCase) ? PaymentMethod.EWallet : PaymentMethod.Cash;
+
+    /// <summary>Adds <paramref name="apply"/> to a shift's payment document (creating it if the
+    /// shift has none yet).</summary>
+    private async Task ApplyToChargeAsync(ShiftCharge charge, decimal apply, PaymentMethod method, DateTime now, (string Url, string? ReferenceNo)? receiptLink)
+    {
+        decimal newAmountPaid = charge.Paid + apply;
+        PaymentStatus newStatus = newAmountPaid >= charge.Expected ? PaymentStatus.Paid : PaymentStatus.Partial;
+
+        if (charge.Payment is not null)
+        {
+            // Only the fields a payment changes; the charges are written through so the record
+            // carries the same late fee / fuel penalty as the shift.
+            await Db.Collection("boundary_payments").Document(charge.Payment.PaymentId)
+                .UpdateAsync(PaymentUpdate(newAmountPaid, method, newStatus, now, extras: charge.Extras, receipt: receiptLink));
+        }
+        else
+        {
+            await CreatePaymentAsync(charge.Shift!.DocumentId, charge.Expected - charge.Extras.Total, charge.Extras, newAmountPaid, method, newStatus, now, receiptLink);
+        }
+    }
+
+    /// <summary>How a payment was booked (see BookPaymentAsync).</summary>
+    private readonly record struct PaymentBooking(decimal ToFirst, decimal ToOthers, decimal ToAdjustments, decimal Advance);
+
+    /// <summary>
+    /// Books a payment onto the driver's records, each written once: <paramref name="first"/>'s
+    /// unpaid balance (Record Payment's own shift), then <paramref name="others"/>' unpaid
+    /// balances oldest first, then net adjustment debt (as an offsetting credit adjustment).
+    /// Whatever is left is advance credit, added to <paramref name="advanceTarget"/>'s record -
+    /// paid above its total, which the ledger then applies to the driver's next unpaid boundary.
+    /// </summary>
+    private async Task<PaymentBooking> BookPaymentAsync(string driverId, ShiftCharge? first, IEnumerable<ShiftCharge> others,
+        IEnumerable<DebtAdjustment> driverAdjustments, decimal amount, ShiftCharge? advanceTarget,
+        PaymentMethod method, DateTime now, (string Url, string? ReferenceNo)? receiptLink)
+    {
+        var applies = new Dictionary<ShiftCharge, decimal>();
+        decimal remaining = amount;
+
+        decimal toFirst = first is null ? 0 : Math.Min(remaining, first.Outstanding);
+        if (toFirst > 0)
+        {
+            applies[first!] = toFirst;
+            remaining -= toFirst;
+        }
+
+        decimal toOthers = 0;
+        foreach ((ShiftCharge charge, decimal owed) in UnpaidOldestFirst(others))
+        {
+            if (remaining <= 0)
+            {
+                break;
+            }
+
+            decimal apply = Math.Min(remaining, owed);
+            applies[charge] = apply;
+            toOthers += apply;
+            remaining -= apply;
+        }
+
+        decimal toAdjustments = Math.Min(remaining, Math.Max(0, driverAdjustments.Sum(a => a.Amount)));
+        remaining -= toAdjustments;
+
+        decimal advance = advanceTarget is null ? 0 : remaining;
+        if (advance > 0)
+        {
+            applies[advanceTarget!] = applies.GetValueOrDefault(advanceTarget!) + advance;
+        }
+
+        foreach ((ShiftCharge charge, decimal apply) in applies)
+        {
+            await ApplyToChargeAsync(charge, apply, method, now, receiptLink);
+        }
+
+        if (toAdjustments > 0)
+        {
+            await Db.Collection("debt_adjustments").AddAsync(new DebtAdjustment
+            {
+                DriverId = driverId,
+                Amount = -toAdjustments,
+                Reason = "Automatic credit from a debt payment.",
+                Timestamp = now,
+            });
+        }
+
+        return new PaymentBooking(toFirst, toOthers, toAdjustments, advance);
+    }
+
+    /// <summary>
+    /// The driver's shifts that still owe something, oldest first, with how much each still
+    /// owes once overpayment credit is used up. Money paid above a shift's total (possible on
+    /// records made before Record Payment passed extra on to older debt) isn't lost - it's
+    /// credit that pays off the oldest unpaid shifts first.
+    /// </summary>
+    private static List<(ShiftCharge Charge, decimal Owed)> OwedAfterCredit(IEnumerable<ShiftCharge> driverCharges)
+    {
+        List<ShiftCharge> charges = driverCharges.ToList();
+        decimal credit = charges.Sum(c => c.Overpaid);
+        var owed = new List<(ShiftCharge, decimal)>();
+
+        foreach (ShiftCharge charge in charges.Where(c => c.Outstanding > 0).OrderBy(c => c.Date))
+        {
+            decimal useCredit = Math.Min(credit, charge.Outstanding);
+            credit -= useCredit;
+            if (charge.Outstanding - useCredit > 0)
+            {
+                owed.Add((charge, charge.Outstanding - useCredit));
+            }
+        }
+
+        return owed;
+    }
+
+    /// <summary>Each shift's unpaid balance as its record shows it (before credit), oldest
+    /// first - where new money is booked.</summary>
+    private static List<(ShiftCharge Charge, decimal Owed)> UnpaidOldestFirst(IEnumerable<ShiftCharge> driverCharges) =>
+        driverCharges.Where(c => c.Outstanding > 0).OrderBy(c => c.Date).Select(c => (c, c.Outstanding)).ToList();
+
+    /// <summary>Everything the driver owes - the Master Debt Ledger's TotalDebt: shift balances
+    /// minus overpayment credit, plus net manual adjustments.</summary>
+    private static decimal TotalOwed(IEnumerable<ShiftCharge> driverCharges, IEnumerable<DebtAdjustment> driverAdjustments) =>
+        Math.Max(0, NetShiftBalance(driverCharges) + driverAdjustments.Sum(a => a.Amount));
+
+    /// <summary>What the driver's shifts owe in total, minus overpayment credit (negative when
+    /// the credit is bigger - it then offsets adjustment debt).</summary>
+    private static decimal NetShiftBalance(IEnumerable<ShiftCharge> driverCharges)
+    {
+        List<ShiftCharge> charges = driverCharges.ToList();
+        return charges.Sum(c => c.Outstanding) - charges.Sum(c => c.Overpaid);
+    }
+
+    /// <summary>Days the driver's oldest still-unpaid shift has gone unpaid (ShiftRules.DaysUnpaid);
+    /// 0 when every shift is paid. Manual adjustments don't count - the paper's rule is about
+    /// unpaid boundary.</summary>
+    private static int DaysUnpaidFor(IEnumerable<ShiftCharge> driverCharges, DateTime nowUtc)
+    {
+        ShiftCharge? oldest = OldestOwed(driverCharges);
+        return oldest is null ? 0 : ShiftRules.DaysUnpaid(oldest.Date, nowUtc);
+    }
+
+    // The oldest shift still owing something after overpayment credit.
+    private static ShiftCharge? OldestOwed(IEnumerable<ShiftCharge> driverCharges) =>
+        OwedAfterCredit(driverCharges).Select(o => o.Charge).FirstOrDefault(c => c.Date != DateTime.MinValue);
+
+    // ---------------------------------------------------------------------
+    // Unpaid-debt flag (paper Ch. IV: 3+ consecutive days unpaid -> flag + notify manager)
+    // ---------------------------------------------------------------------
+
+    public const string UnpaidDebtAlertType = "UnpaidDebt";
+
+    /// <summary>
+    /// Run periodically by ManagerWeb's background monitor. A driver whose oldest unpaid shift
+    /// is ShiftRules.DebtFlagDays or more days old gets users/{id}.debtFlaggedSince set and one
+    /// manager alert (per unpaid episode - keyed on that oldest shift, so paying it off and
+    /// falling behind again later raises a new one). Once nothing is that overdue any more, the
+    /// flag is cleared. Only writes when the flag actually changes.
+    /// </summary>
+    public async Task ProcessDebtFlagsAsync()
+    {
+        (List<ShiftLog> shifts, List<BoundaryPayment> payments, _, List<UserProfile> drivers) = await GetFullLedgerDataAsync();
+        List<ShiftCharge> charges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync());
+        DateTime now = DateTime.UtcNow;
+
+        foreach (UserProfile driver in drivers)
+        {
+            try
+            {
+                List<ShiftCharge> driverCharges = charges.Where(c => c.DriverId == driver.UserId).ToList();
+                int daysUnpaid = DaysUnpaidFor(driverCharges, now);
+                bool overdue = daysUnpaid >= ShiftRules.DebtFlagDays;
+                DocumentReference userRef = Db.Collection("users").Document(driver.UserId);
+
+                if (!overdue)
+                {
+                    if (driver.DebtFlaggedSince is not null)
+                    {
+                        await userRef.UpdateAsync("debtFlaggedSince", FieldValue.Delete);
+                    }
+                    continue;
+                }
+
+                if (driver.DebtFlaggedSince is null)
+                {
+                    await userRef.UpdateAsync("debtFlaggedSince", now);
+                }
+
+                ShiftCharge oldest = OldestOwed(driverCharges)!;
+                decimal owed = OwedAfterCredit(driverCharges).Sum(o => o.Owed);
+                DocumentReference alertRef = Db.Collection("system_alerts").Document($"{oldest.Shift?.DocumentId ?? driver.UserId}_DEBT");
+                if (!(await alertRef.GetSnapshotAsync()).Exists)
+                {
+                    await alertRef.SetAsync(new SystemAlert
+                    {
+                        Type = UnpaidDebtAlertType,
+                        DriverId = driver.UserId,
+                        DriverName = driver.FullName,
+                        TaxiId = oldest.Shift?.TaxiId ?? string.Empty,
+                        UnitLabel = oldest.Shift?.TaxiId ?? string.Empty,
+                        ShiftId = oldest.Shift?.DocumentId ?? string.Empty,
+                        Message = $"{driver.FullName} hasn't settled their balance for {daysUnpaid} days (since {oldest.Date.ToPhilippineTime():MMM d}) - ₱{owed:N0} unpaid boundary. Their account is flagged for review.",
+                        Timestamp = now,
+                        IsRead = false,
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to update the debt flag for driver {DriverId}", driver.UserId);
+            }
+        }
+    }
+
     /// <summary>What one shift owes and has paid, for the Master Debt Ledger / Settle Debt.
     /// Payment is null when nobody has paid anything on the shift yet (no document).</summary>
-    private sealed record ShiftCharge(string DriverId, ShiftLog? Shift, BoundaryPayment? Payment, DateTime Date, decimal Expected, decimal LateFee, decimal Paid)
+    private sealed record ShiftCharge(string DriverId, ShiftLog? Shift, BoundaryPayment? Payment, DateTime Date, decimal Expected, ExtraCharges Extras, decimal Paid)
     {
         public decimal Outstanding => Payment?.PaymentStatus == PaymentStatus.Paid ? 0 : Math.Max(0, Expected - Paid);
+
+        /// <summary>Paid above the shift's total - credit toward the driver's other debt.</summary>
+        public decimal Overpaid => Math.Max(0, Paid - Expected);
+    }
+
+    private static ShiftCharge NewCharge(ShiftLog shift, BoundaryPayment? payment, decimal defaultRate)
+    {
+        ExtraCharges extras = ExtrasFor(shift, payment);
+        return payment is null
+            ? new ShiftCharge(shift.DriverId, shift, null, shift.ShiftStart ?? shift.ShiftEnd ?? DateTime.MinValue, defaultRate + extras.Total, extras, 0m)
+            : new ShiftCharge(shift.DriverId, shift, payment, shift.ShiftStart ?? payment.Timestamp, payment.ExpectedBoundary + extras.Total, extras, payment.AmountPaid);
     }
 
     /// <summary>
@@ -487,9 +738,19 @@ public class FinancialLedgerService
                 continue;
             }
 
-            paidShiftIds.Add(shift.DocumentId);
-            decimal lateFee = LateFeeFor(shift, p);
-            charges.Add(new ShiftCharge(shift.DriverId, shift, p, shift.ShiftStart ?? p.Timestamp, p.ExpectedBoundary + lateFee, lateFee, p.AmountPaid));
+            // A shift with two payment documents (one per ID, from before both IDs were matched)
+            // counts once - the one holding the money, same as PaymentFor.
+            if (!paidShiftIds.Add(shift.DocumentId))
+            {
+                int existing = charges.FindIndex(c => c.Shift?.DocumentId == shift.DocumentId);
+                if (existing >= 0 && charges[existing].Paid < p.AmountPaid)
+                {
+                    charges[existing] = NewCharge(shift, p, defaultRate);
+                }
+                continue;
+            }
+
+            charges.Add(NewCharge(shift, p, defaultRate));
         }
 
         foreach (ShiftLog shift in shifts)
@@ -501,16 +762,14 @@ public class FinancialLedgerService
                 continue;
             }
 
-            decimal lateFee = LateFeeFor(shift, null);
-            DateTime date = shift.ShiftStart ?? shift.ShiftEnd ?? DateTime.MinValue;
-            charges.Add(new ShiftCharge(shift.DriverId, shift, null, date, defaultRate + lateFee, lateFee, 0m));
+            charges.Add(NewCharge(shift, null, defaultRate));
         }
 
         return charges;
     }
 
     /// <summary>A shift's first payment document ({shiftDocumentId}_PAY, the seed data's convention).</summary>
-    private Task CreatePaymentAsync(string shiftDocumentId, decimal expectedBoundary, decimal lateFee, decimal amountPaid, PaymentMethod method, PaymentStatus status, DateTime timestamp, (string Url, string? ReferenceNo)? receipt = null)
+    private Task CreatePaymentAsync(string shiftDocumentId, decimal expectedBoundary, ExtraCharges extras, decimal amountPaid, PaymentMethod method, PaymentStatus status, DateTime timestamp, (string Url, string? ReferenceNo)? receipt = null)
     {
         string docId = $"{shiftDocumentId}_PAY";
         return Db.Collection("boundary_payments").Document(docId).SetAsync(new BoundaryPayment
@@ -518,7 +777,8 @@ public class FinancialLedgerService
             PaymentId = docId,
             ShiftId = shiftDocumentId,
             ExpectedBoundary = expectedBoundary,
-            LateFees = lateFee,
+            LateFees = extras.LateFee,
+            FuelPenalty = extras.FuelPenalty,
             AmountPaid = amountPaid,
             PaymentMethod = method,
             PaymentStatus = status,
@@ -541,7 +801,7 @@ public class FinancialLedgerService
             .FirstOrDefault();
     }
 
-    private static Dictionary<string, object> PaymentUpdate(decimal amountPaid, PaymentMethod method, PaymentStatus status, DateTime? timestamp = null, decimal? lateFees = null, (string Url, string? ReferenceNo)? receipt = null)
+    private static Dictionary<string, object> PaymentUpdate(decimal amountPaid, PaymentMethod method, PaymentStatus status, DateTime? timestamp = null, ExtraCharges? extras = null, (string Url, string? ReferenceNo)? receipt = null)
     {
         var update = new Dictionary<string, object>
         {
@@ -550,9 +810,11 @@ public class FinancialLedgerService
             ["paymentStatus"] = new PaymentStatusConverter().ToFirestore(status),
             ["timestamp"] = timestamp ?? DateTime.UtcNow,
         };
-        if (lateFees.HasValue)
+        // Written through so the payment record carries the same charges the shift does.
+        if (extras is { } e)
         {
-            update["lateFees"] = (double)lateFees.Value;
+            update["lateFees"] = (double)e.LateFee;
+            update["fuelPenalty"] = (double)e.FuelPenalty;
         }
         // The latest receipt paid on this shift; a cash payment leaves an earlier one in place.
         if (receipt is { } r)
@@ -566,11 +828,18 @@ public class FinancialLedgerService
         return update;
     }
 
-    /// <summary>A shift's late-return fee: the one worked out at clock-out (shifts.lateFee,
-    /// ShiftRules) when there is one; otherwise whatever the payment record carries (older
-    /// shifts, seed data, or an amount set by hand).</summary>
-    private static decimal LateFeeFor(ShiftLog? shift, BoundaryPayment? payment) =>
-        shift?.LateFee is double fee ? (decimal)fee : payment?.LateFees ?? 0m;
+    /// <summary>What a shift owes on top of the boundary (ShiftRules), set at clock-out.</summary>
+    private readonly record struct ExtraCharges(decimal LateFee, decimal FuelPenalty)
+    {
+        public decimal Total => LateFee + FuelPenalty;
+    }
+
+    /// <summary>A shift's extra charges: the ones worked out at clock-out (shifts.lateFee /
+    /// shifts.fuelPenalty) when the shift has them; otherwise whatever the payment record
+    /// carries (older shifts, seed data, or an amount set by hand).</summary>
+    private static ExtraCharges ExtrasFor(ShiftLog? shift, BoundaryPayment? payment) => new(
+        shift?.LateFee is double late ? (decimal)late : payment?.LateFees ?? 0m,
+        shift?.FuelPenalty is double fuel ? (decimal)fuel : payment?.FuelPenalty ?? 0m);
 
 
     // Each of a shift's IDs -> the shift (see IdsOf).

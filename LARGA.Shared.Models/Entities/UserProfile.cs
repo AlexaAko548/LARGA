@@ -61,6 +61,11 @@ public class UserProfile
 
     // Free-text note a manager leaves for a driver. Written here; nothing in
     // LARGA.MobileApp displays it yet - that's a separate, future mobile-side build.
+    /// <summary>Set by ManagerWeb's background check when the driver's balance has gone
+    /// unpaid for ShiftRules.DebtFlagDays or more; cleared (null) once it's settled.</summary>
+    [FirestoreProperty("debtFlaggedSince")]
+    public DateTime? DebtFlaggedSince { get; set; }
+
     [FirestoreProperty("managerNote")]
     public string? ManagerNote { get; set; }
 

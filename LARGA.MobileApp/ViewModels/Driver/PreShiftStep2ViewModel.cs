@@ -20,6 +20,7 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
     private readonly IOcrService _ocrService;
     private readonly IPhotoStorageService _photoStorage;
     private Dictionary<string, bool> _inspection = new();
+    private List<string> _defectReportIds = new();
     private string _assignedTaxiId = string.Empty;
     private string? _odometerPhotoLocalPath;
     private string? _fuelPhotoLocalPath;
@@ -131,6 +132,10 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
         if (query.TryGetValue("inspection", out var value) && value is Dictionary<string, bool> inspection)
         {
             _inspection = inspection;
+        }
+        if (query.TryGetValue("defectReportIds", out var ids) && ids is List<string> reportIds)
+        {
+            _defectReportIds = reportIds;
         }
     }
 
@@ -258,6 +263,85 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
 
     private bool _isSubmitting;
 
+    private static readonly Dictionary<string, string> InspectionLabels = new()
+    {
+        { "Tires", "Tire condition" },
+        { "Hood", "Under the hood" },
+        { "Lights", "Lights & electronics" },
+        { "Interior", "Interior & comfort" },
+        { "Exterior", "Exterior scratches / dents" },
+    };
+
+    private List<string> FlagReasons()
+    {
+        var reasons = _inspection.Where(kv => !kv.Value)
+            .Select(kv => $"{(InspectionLabels.TryGetValue(kv.Key, out var label) ? label : kv.Key)} failed")
+            .ToList();
+        if (IsBelowHalfTankSelected)
+        {
+            reasons.Add("Fuel below half-tank");
+        }
+        if (_defectReportIds.Count > 0)
+        {
+            reasons.Add($"{_defectReportIds.Count} defect report(s) filed");
+        }
+        return reasons;
+    }
+
+    /// <summary>Uploads the inspection photos and sends the clock-in to the manager (see
+    /// ClockInPendingViewModel for the wait). Nothing is clocked in yet.</summary>
+    private async Task SubmitForApprovalAsync(int startMileage, List<string> flagReasons)
+    {
+        try
+        {
+            string driverId = Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser?.Uid ?? "unknown_driver";
+            string prefix = $"handover_checklists/{driverId}/request_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}/pre";
+            string? fuelUrl = await UploadIfPresentAsync(_fuelPhotoLocalPath, $"{prefix}_fuel.jpg");
+            string? odometerUrl = await UploadIfPresentAsync(_odometerPhotoLocalPath, $"{prefix}_odometer.jpg");
+
+            string requestId = await _shiftService.SubmitClockInRequestAsync(new ClockInRequestSubmission
+            {
+                TaxiId = _assignedTaxiId,
+                StartMileage = startMileage,
+                Inspection = _inspection,
+                IsBelowHalfTank = IsBelowHalfTankSelected,
+                FuelDashboardUrl = fuelUrl,
+                OdometerPhotoUrl = odometerUrl,
+                DefectReportIds = _defectReportIds,
+                FlagReasons = string.Join("; ", flagReasons),
+            });
+
+            // The wait survives leaving the app: the dashboard sends the driver back here.
+            Preferences.Set(ClockInPendingViewModel.PendingRequestKey, requestId);
+
+            StartingOdometer = string.Empty;
+            FuelPhoto = null;
+            IsHalfTankSelected = false;
+            IsBelowHalfTankSelected = false;
+            TryDeleteCachedFile(_odometerPhotoLocalPath);
+            TryDeleteCachedFile(_fuelPhotoLocalPath);
+            _odometerPhotoLocalPath = null;
+            _fuelPhotoLocalPath = null;
+
+            await Shell.Current.GoToAsync("clockin-pending");
+        }
+        catch (Exception ex)
+        {
+            await SafeDisplayAlert("Error", $"Couldn't send your inspection to the manager: {ex.Message}");
+        }
+    }
+
+    private async Task<string?> UploadIfPresentAsync(string? localPath, string storagePath)
+    {
+        if (string.IsNullOrWhiteSpace(localPath) || !File.Exists(localPath))
+        {
+            return null;
+        }
+
+        byte[] bytes = await File.ReadAllBytesAsync(localPath);
+        return await _photoStorage.UploadPhotoAsync(storagePath, bytes);
+    }
+
     private async Task StartShiftCoreAsync()
     {
         if (!CanStartShift)
@@ -278,6 +362,15 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
             if (string.IsNullOrWhiteSpace(digitsOnly) || !int.TryParse(digitsOnly, out int startMileage) || startMileage <= 0)
             {
                 await SafeDisplayAlert("Invalid odometer reading", "Please rescan or enter a valid starting odometer reading before starting the shift.");
+                return;
+            }
+
+            // Paper Ch. IV: a flagged inspection (failed item / reported defect, or fuel below the
+            // required half-tank) isn't clocked in automatically - it's sent to the manager.
+            List<string> flagReasons = FlagReasons();
+            if (flagReasons.Count > 0)
+            {
+                await SubmitForApprovalAsync(startMileage, flagReasons);
                 return;
             }
 

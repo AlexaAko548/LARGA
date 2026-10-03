@@ -46,4 +46,9 @@ public class ShiftLog
     /// fee is on the payment record.</summary>
     [FirestoreProperty("lateFee")]
     public double? LateFee { get; set; }
+
+    /// <summary>Low-fuel penalty set at clock-out when the driver reports below half-tank
+    /// (ShiftRules.LowFuelPenalty); 0 when the tank was at least half, null on older shifts.</summary>
+    [FirestoreProperty("fuelPenalty")]
+    public double? FuelPenalty { get; set; }
 }

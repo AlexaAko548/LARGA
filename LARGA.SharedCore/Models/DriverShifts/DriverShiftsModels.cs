@@ -25,6 +25,9 @@ public class DriverRosterEntry
     /// <summary>On shift and past the unit's 10:00 PM return time (ShiftRules).</summary>
     public bool IsLateReturn { get; set; }
 
+    /// <summary>Balance unpaid for ShiftRules.DebtFlagDays+ days (users.debtFlaggedSince).</summary>
+    public bool IsDebtFlagged { get; set; }
+
     /// <summary>The driver's permanent unit (their profile's assignment).</summary>
     public string? AssignedTaxiId { get; set; }
 
@@ -236,4 +239,38 @@ public class ResetPasswordResult
     public bool Ok { get; set; }
     public string? ErrorMessage { get; set; }
     public string? NewPassword { get; set; }
+}
+
+/// <summary>A flagged pre-shift inspection waiting for the manager (clockin_requests).</summary>
+public class ClockInApprovalItem
+{
+    public string RequestId { get; set; } = string.Empty;
+    public string DriverId { get; set; } = string.Empty;
+    public string DriverName { get; set; } = string.Empty;
+    public string TaxiId { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public List<string> FlagReasons { get; set; } = new();
+
+    /// <summary>A checklist item failed (vs. only low fuel) - denying then escalates to maintenance.</summary>
+    public bool HasFailedItems { get; set; }
+
+    public bool IsBelowHalfTank { get; set; }
+    public int StartMileage { get; set; }
+    public string? FuelPhotoUrl { get; set; }
+    public string? OdometerPhotoUrl { get; set; }
+    public List<ClockInDefect> Defects { get; set; } = new();
+}
+
+public class ClockInDefect
+{
+    public string Title { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string Priority { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
+}
+
+public class ClockInDecisionResult
+{
+    public bool Ok { get; set; }
+    public string? ErrorMessage { get; set; }
 }

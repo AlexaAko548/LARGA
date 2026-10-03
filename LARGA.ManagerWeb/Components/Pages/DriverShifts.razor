@@ -908,6 +908,10 @@ else if (_isAuthorized)
                             @if (_licenseScan.IsPhilippineLicense)
                             {
                                 <div class="license-scan-field"><span>Name on card</span><strong>@(_licenseScan.FullName ?? "—")</strong></div>
+                                @if (_licenseValidation.NameError is not null)
+                                {
+                                    <div class="field-error">@_licenseValidation.NameError</div>
+                                }
                                 <div class="license-scan-field"><span>License No.</span><strong>@(_licenseScan.LicenseNumber ?? "—")</strong></div>
 
                                 <div class="license-scan-field">
@@ -1658,7 +1662,7 @@ else if (_isAuthorized)
 
             _licensePreviewUrl = ocr.PreviewUrl;
             _licenseScan = LtoLicenseParser.ParseBest(ocr.Texts);
-            _licenseValidation = LtoLicenseParser.Validate(_licenseScan, PhilippineTime.Now);
+            _licenseValidation = LtoLicenseParser.Validate(_licenseScan, PhilippineTime.Now, _selectedProfile?.FullName);
 
             if (_licenseValidation.IsValid)
             {

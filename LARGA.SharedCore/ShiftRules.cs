@@ -25,6 +25,10 @@ public static class ShiftRules
 
     public const decimal LateFeePerHour = 100m;
 
+    /// <summary>Returning the unit with the fuel below half-tank (paper Fig. 10: end-of-shift
+    /// fuel check). Charged on the shift being ended, on top of the boundary.</summary>
+    public const decimal LowFuelPenalty = 50m;
+
     /// <summary>A shift still open at the next operating day's opening (6:00 AM the day after it
     /// started) can't be a legitimate late return any more - it's a missed clock-out.</summary>
     public static DateTime AutoCloseAtUtc(DateTime shiftStartUtc) =>
@@ -53,6 +57,20 @@ public static class ShiftRules
 
         return LateFeePerHour * (int)Math.Ceiling(minutesLate / 60.0);
     }
+
+    /// <summary>Paper Ch. IV (end of shift): a driver who "has not settled their outstanding
+    /// balance for three (3) or more consecutive days" gets their account flagged and the
+    /// manager notified.</summary>
+    public const int DebtFlagDays = 3;
+
+    /// <summary>Whole Philippine calendar days a balance from a shift that started at
+    /// <paramref name="oldestUnpaidShiftStartUtc"/> has gone unpaid - a Monday shortfall is
+    /// 3 days unpaid on Thursday.</summary>
+    public static int DaysUnpaid(DateTime oldestUnpaidShiftStartUtc, DateTime nowUtc) =>
+        Math.Max(0, (nowUtc.ToPhilippineTime().Date - oldestUnpaidShiftStartUtc.ToPhilippineTime().Date).Days);
+
+    public static bool IsDebtOverdue(DateTime oldestUnpaidShiftStartUtc, DateTime nowUtc) =>
+        DaysUnpaid(oldestUnpaidShiftStartUtc, nowUtc) >= DebtFlagDays;
 
     /// <summary>The garage / drop-off site where units must be returned (BLM Taxi). The
     /// system_configs/global fields garageLatitude/garageLongitude/garageRadiusMeters
