@@ -12,6 +12,15 @@ public class EmergencyAlert
     [FirestoreProperty("shiftId")]
     public string ShiftId { get; set; } = string.Empty;
 
+    [FirestoreProperty("driverId")]
+    public string DriverId { get; set; } = string.Empty;
+
+    [FirestoreProperty("driverName")]
+    public string DriverName { get; set; } = string.Empty;
+
+    [FirestoreProperty("taxiUnit")]
+    public string TaxiUnit { get; set; } = string.Empty;
+
     [FirestoreProperty("latitude")]
     public double Latitude { get; set; }
 

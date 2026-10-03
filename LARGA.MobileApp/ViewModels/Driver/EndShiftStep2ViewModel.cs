@@ -16,6 +16,7 @@ public class EndShiftStep2ViewModel : BindableObject
 {
     private readonly IOcrService _ocrService;
     private readonly IShiftManagementService _shiftService;
+    private readonly IGpsTelemetryService _telemetryService;
     private string? _odometerPhotoLocalPath;
     private string? _fuelPhotoLocalPath;
 
@@ -89,10 +90,11 @@ public class EndShiftStep2ViewModel : BindableObject
     public ICommand ConfirmEndShiftCommand { get; }
     public ICommand SelectFuelCommand { get; }
 
-    public EndShiftStep2ViewModel(IOcrService ocrService, IShiftManagementService shiftService)
+    public EndShiftStep2ViewModel(IOcrService ocrService, IShiftManagementService shiftService, IGpsTelemetryService telemetryService)
     {
         _ocrService = ocrService;
         _shiftService = shiftService;
+        _telemetryService = telemetryService;
 
         CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Register<EndShiftStep2ViewModel, OdometerScannedData, string>(this, "EndShiftOdometerScanned", (r, data) =>
         {
@@ -124,6 +126,10 @@ public class EndShiftStep2ViewModel : BindableObject
                 {
                     await _shiftService.ClockOutAsync(activeShiftId, endMileage, "");
                     SecureStorage.Remove("ActiveShiftDocumentId");
+
+                    // LAR-77 Contextual Auto-Cutoff Protocol: telemetry severs strictly on a
+                    // successful clock-out.
+                    _telemetryService.Stop();
                 }
 
                 Preferences.Remove("IsShiftActive");

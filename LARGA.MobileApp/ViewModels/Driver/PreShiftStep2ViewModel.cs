@@ -17,6 +17,7 @@ public class PreShiftStep2ViewModel : BindableObject
     private bool _areStep1InspectionsComplete = true;
     private readonly IShiftManagementService _shiftService;
     private readonly IOcrService _ocrService;
+    private readonly IGpsTelemetryService _telemetryService;
     private string _assignedTaxiId = string.Empty;
     private string? _odometerPhotoLocalPath;
     private string? _fuelPhotoLocalPath;
@@ -105,10 +106,11 @@ public class PreShiftStep2ViewModel : BindableObject
     public ICommand AttachPhotoCommand { get; }
     public ICommand ConfirmStartShiftCommand { get; }
 
-    public PreShiftStep2ViewModel(IShiftManagementService shiftService, IOcrService ocrService)
+    public PreShiftStep2ViewModel(IShiftManagementService shiftService, IOcrService ocrService, IGpsTelemetryService telemetryService)
     {
         _shiftService = shiftService;
         _ocrService = ocrService;
+        _telemetryService = telemetryService;
 
         CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Register<PreShiftStep2ViewModel, OdometerScannedData, string>(this, "PreShiftOdometerScanned", (r, data) =>
         {
@@ -248,6 +250,10 @@ public class PreShiftStep2ViewModel : BindableObject
             await SecureStorage.SetAsync("ActiveShiftDocumentId", newDocumentId);
             Preferences.Set("IsShiftActive", true);
             Preferences.Set("ShiftStartTime", DateTime.Now.ToString("o"));
+
+            // LAR-77 Contextual Auto-Cutoff Protocol: telemetry starts strictly on a
+            // successful clock-in, never before.
+            _telemetryService.Start(newDocumentId);
 
             StartingOdometer = string.Empty;
             FuelPhoto = null;

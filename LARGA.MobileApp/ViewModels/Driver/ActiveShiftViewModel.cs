@@ -4,7 +4,9 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Devices.Sensors;
 using Microsoft.Maui.Dispatching;
 using Microsoft.Maui.Storage;
 using Plugin.Firebase.Auth;
@@ -150,8 +152,104 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
             await Shell.Current.GoToAsync("end-shift-step1");
         });
 
-        SendSosCommand = new Command(() => IsSosAlertVisible = true);
+        SendSosCommand = new Command(async () => await SendSosAsync());
         DismissSosCommand = new Command(() => IsSosAlertVisible = false);
+    }
+
+    private bool _isSendingSos;
+
+    private async Task SendSosAsync()
+    {
+        if (_isSendingSos) return;
+        _isSendingSos = true;
+
+        try
+        {
+            string shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
+            if (string.IsNullOrWhiteSpace(shiftId))
+            {
+                await Shell.Current.DisplayAlert("SOS Failed", "No active shift found. Please clock in first.", "OK");
+                return;
+            }
+
+            var user = CrossFirebaseAuth.Current.CurrentUser;
+            string driverId = user?.Uid ?? string.Empty;
+            string driverName = string.IsNullOrWhiteSpace(user?.DisplayName) ? "Unknown Driver" : user.DisplayName;
+
+            PermissionStatus status = await Permissions.CheckStatusAsync<Permissions.LocationWhenInUse>();
+            if (status != PermissionStatus.Granted)
+            {
+                status = await Permissions.RequestAsync<Permissions.LocationWhenInUse>();
+            }
+
+            Location? location = null;
+            if (status == PermissionStatus.Granted)
+            {
+                location = await Geolocation.Default.GetLocationAsync(
+                    new GeolocationRequest(GeolocationAccuracy.Best, TimeSpan.FromSeconds(15)));
+                location ??= await Geolocation.Default.GetLastKnownLocationAsync();
+            }
+
+            if (location == null)
+            {
+                await Shell.Current.DisplayAlert("SOS Failed", "Unable to get your location. Please enable location services and try again.", "OK");
+                return;
+            }
+
+            var alert = new EmergencySosProxy
+            {
+                ShiftId = shiftId,
+                DriverId = driverId,
+                DriverName = driverName,
+                TaxiUnit = TaxiUnit,
+                Latitude = location.Latitude,
+                Longitude = location.Longitude,
+                IsResolved = false,
+                Timestamp = DateTime.UtcNow,
+            };
+
+            await CrossFirebaseFirestore.Current
+                .GetCollection("emergency_alerts")
+                .AddDocumentAsync(alert);
+
+            IsSosAlertVisible = true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"SOS send failed: {ex.Message}");
+            await Shell.Current.DisplayAlert("SOS Failed", "Could not send your SOS alert. Please try again.", "OK");
+        }
+        finally
+        {
+            _isSendingSos = false;
+        }
+    }
+
+    private class EmergencySosProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
+        public string ShiftId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
+        public string DriverId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverName")]
+        public string DriverName { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiUnit")]
+        public string TaxiUnit { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("latitude")]
+        public double Latitude { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("longitude")]
+        public double Longitude { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("isResolved")]
+        public bool IsResolved { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
+        public DateTime Timestamp { get; set; }
     }
 
     // This method fires every single time the user routes to the Active Shift screen
