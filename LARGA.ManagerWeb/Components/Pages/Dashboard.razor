@@ -1,25 +1,16 @@
 @page "/dashboard"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 @using System.Text.Json
 @using LARGA.SharedCore
 @using LARGA.SharedCore.Models.Dashboard
 @using LARGA.SharedCore.Services
 @rendermode InteractiveServer
 @inject IJSRuntime JS
-@inject NavigationManager Navigation
 @inject FleetReportingService FleetReporting
 
 <PageTitle>Executive Dashboard</PageTitle>
 
-@if (_isCheckingAccess)
-{
-    <div class="auth-page">
-        <div class="auth-card">
-            <h2>Checking access...</h2>
-        </div>
-    </div>
-}
-else if (_isAuthorized)
-{
 <div class="dashboard-shell">
     <DashboardSidebar ActiveItem="Dashboard" />
 
@@ -32,12 +23,7 @@ else if (_isAuthorized)
 
             <div class="header-actions">
                 <NotificationBell />
-                <button class="icon-btn" type="button" aria-label="Messages">✉</button>
-                <div class="manager-pill">
-                    <span class="manager-dot"></span>
-                    <span>Manager</span>
-                    <span class="caret">▾</span>
-                </div>
+                <ManagerProfileMenu />
             </div>
         </header>
 
@@ -254,14 +240,9 @@ else if (_isAuthorized)
     </div>
 }
 
-}
-
 @code {
     private const string CsvFormat = "CSV File";
 
-    private bool _isCheckingAccess = true;
-    private bool _isAuthorized;
-    private IJSObjectReference? _firebaseModule;
     private IJSObjectReference? _fileDownloadModule;
     private bool _showReportModal;
     private string _selectedReportType = "Financial Summary";
@@ -291,25 +272,8 @@ else if (_isAuthorized)
         "CSV File"
     };
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnInitializedAsync()
     {
-        if (!firstRender)
-        {
-            return;
-        }
-
-        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
-        var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
-        _isAuthorized = result.TryGetProperty("ok", out var okProp)
-            && okProp.ValueKind == JsonValueKind.True;
-        _isCheckingAccess = false;
-
-        if (!_isAuthorized)
-        {
-            Navigation.NavigateTo("/login", forceLoad: false);
-            return;
-        }
-
         try
         {
             _snapshot = await FleetReporting.GetDashboardSnapshotAsync();

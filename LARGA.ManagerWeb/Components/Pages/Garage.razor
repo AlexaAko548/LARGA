@@ -1,4 +1,6 @@
 @page "/garage"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 @using System.Text.Json
 @using LARGA.SharedCore
 @using LARGA.SharedCore.Models.Garage
@@ -33,12 +35,7 @@ else if (_isAuthorized)
 
             <div class="header-actions">
                 <NotificationBell />
-                <button class="icon-btn" type="button" aria-label="Messages">✉</button>
-                <div class="manager-pill">
-                    <span class="manager-dot"></span>
-                    <span>Manager</span>
-                    <span class="caret">▾</span>
-                </div>
+                <ManagerProfileMenu />
             </div>
         </header>
 

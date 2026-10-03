@@ -10,7 +10,12 @@ namespace LARGA.SharedCore.Services;
 
 public interface IChatService
 {
-    Task<bool> SendMessageAsync(string driverId, ChatMessage message);
+    /// <summary>
+    /// Writes the message and creates/updates the parent chats/{driverId} doc in one batch.
+    /// Pass <paramref name="driverName"/> when already known; otherwise it is looked up from users.
+    /// </summary>
+    Task<bool> SendMessageAsync(string driverId, ChatMessage message, string? driverName = null);
+    Task<IReadOnlyList<ChatDriver>> GetDriversAsync();
     IDisposable ListenForMessages(string driverId, Action<IList<ChatMessage>> onMessagesUpdated);
     Task<string> GetDriverPhoneNumberAsync(string driverId);
     IDisposable ListenForChatSessions(Action<IEnumerable<ChatSession>> onSessionsUpdated);
@@ -19,57 +24,47 @@ public interface IChatService
 
 public class ChatService : IChatService
 {
-    public async Task<bool> SendMessageAsync(string driverId, ChatMessage message)
+    public async Task<bool> SendMessageAsync(string driverId, ChatMessage message, string? driverName = null)
     {
+        // A signed-out driver resolves to "unknown_driver" - never create a chat for that.
+        if (string.IsNullOrWhiteSpace(driverId) || driverId == "unknown_driver")
+        {
+            System.Diagnostics.Debug.WriteLine("SendMessageAsync skipped: no valid driverId.");
+            return false;
+        }
+
         try
         {
-            // 1. Save the actual message to the subcollection (This is succeeding)
-            var proxyMessage = new ChatMessageProxy
+            // 1. Resolve the driver's name (manager already knows it; driver side looks it up)
+            string realDriverName = string.IsNullOrWhiteSpace(driverName)
+                ? await GetDriverNameAsync(driverId)
+                : driverName;
+
+            var now = DateTime.UtcNow;
+            var db = CrossFirebaseFirestore.Current;
+
+            // 2. Lazy creation: the message and the parent chats/{driverId} doc are written in one
+            //    atomic batch. Merge creates the parent on the first message and only updates these
+            //    four fields afterwards, so no "does the chat exist yet?" read is needed.
+            var messageRef = db.GetCollection($"chats/{driverId}/messages").CreateDocument();
+            var chatRef = db.GetCollection("chats").GetDocument(driverId);
+
+            var batch = db.CreateBatch();
+            batch.SetData(messageRef, new ChatMessageProxy
             {
                 Text = message.Text,
                 IsDriver = message.IsDriver,
-                Timestamp = DateTime.UtcNow
-            };
-
-            await CrossFirebaseFirestore.Current
-                .GetCollection($"chats/{driverId}/messages")
-                .AddDocumentAsync(proxyMessage);
-
-            // 2. Fetch the driver's real name from the users collection using their ID
-            // 2. Fetch the driver's real name from the users collection using their ID
-            string realDriverName = "Unknown Driver";
-            try
-            {
-                var userDoc = await CrossFirebaseFirestore.Current
-                    .GetCollection("users")
-                    .GetDocument(driverId)
-                    .GetDocumentSnapshotAsync<DriverProfileProxy>();
-
-                if (userDoc != null && userDoc.Data != null && !string.IsNullOrWhiteSpace(userDoc.Data.FullName))
-                {
-                    realDriverName = userDoc.Data.FullName;
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Driver profile fetch error: {ex.Message}");
-            }
-
-            // 3. Build the parent session document with the real name
-            var session = new ChatSessionProxy
+                Timestamp = now
+            });
+            batch.SetData(chatRef, new ChatSessionProxy
             {
                 DriverName = realDriverName,
                 LastMessage = message.Text,
-                IsUnread = message.IsDriver,
-                Timestamp = DateTime.UtcNow
-            };
+                IsUnread = message.IsDriver, // unread for the manager when the driver sends
+                Timestamp = now
+            }, SetOptions.Merge());
 
-            // 4. Create or overwrite the parent document
-            await CrossFirebaseFirestore.Current
-                .GetCollection("chats")
-                .GetDocument(driverId)
-                .SetDataAsync(session);
-
+            await batch.CommitAsync();
             return true;
         }
         catch (Exception ex)
@@ -77,6 +72,54 @@ public class ChatService : IChatService
             // Prints the exact Firebase rejection reason to the Visual Studio Output window
             System.Diagnostics.Debug.WriteLine($"CRITICAL DATABASE ERROR: {ex.Message}");
             return false;
+        }
+    }
+
+    private static async Task<string> GetDriverNameAsync(string driverId)
+    {
+        try
+        {
+            var userDoc = await CrossFirebaseFirestore.Current
+                .GetCollection("users")
+                .GetDocument(driverId)
+                .GetDocumentSnapshotAsync<DriverProfileProxy>();
+
+            if (!string.IsNullOrWhiteSpace(userDoc?.Data?.FullName))
+            {
+                return userDoc.Data.FullName;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Driver profile fetch error: {ex.Message}");
+        }
+
+        return "Unknown Driver";
+    }
+
+    public async Task<IReadOnlyList<ChatDriver>> GetDriversAsync()
+    {
+        try
+        {
+            var snapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("users")
+                .WhereEqualsTo("role", "Driver")
+                .GetDocumentsAsync<DriverProfileProxy>();
+
+            var drivers = new List<ChatDriver>();
+            foreach (var doc in snapshot.Documents)
+            {
+                if (doc.Data == null) continue;
+                drivers.Add(new ChatDriver(
+                    doc.Reference.Id,
+                    string.IsNullOrWhiteSpace(doc.Data.FullName) ? "(Unnamed driver)" : doc.Data.FullName));
+            }
+            return drivers;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Chat driver list error: {ex.Message}");
+            return Array.Empty<ChatDriver>();
         }
     }
 
@@ -147,6 +190,7 @@ public class ChatService : IChatService
                     {
                         sessions.Add(new ChatSession
                         {
+                            HasConversation = true,
                             DriverId = doc.Reference.Id,
                             DriverName = doc.Data.DriverName ?? "Unknown Driver",
                             LastMessage = doc.Data.LastMessage ?? string.Empty,
@@ -164,6 +208,8 @@ public class ChatService : IChatService
             });
     }
 
+    // Deliberately UpdateData (fails on a missing doc) rather than a merge-set: opening an empty
+    // chat must not create chats/{driverId} - only the first message does.
     public async Task MarkMessagesAsReadAsync(string driverId)
     {
         try

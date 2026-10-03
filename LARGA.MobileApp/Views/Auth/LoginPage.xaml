@@ -48,9 +48,11 @@
 
         <!-- Bottom White Area -->
         <VerticalStackLayout Grid.Row="1" Padding="30,20,30,40" Spacing="15">
-            <Label Text="{Binding ErrorMessage}" TextColor="Red" HorizontalOptions="Center" />
+            <Label Text="{Binding ErrorMessage}" TextColor="Red" HorizontalOptions="Center" HorizontalTextAlignment="Center" LineBreakMode="WordWrap" />
 
-            <Button Text="Login" BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="50" Style="{StaticResource LargaButtonStyle}" FontSize="18" Command="{Binding LoginCommand}" WidthRequest="250" HorizontalOptions="Center"/>
+            <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" Color="#0099CC" HorizontalOptions="Center" />
+
+            <Button Text="Login" BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="50" Style="{StaticResource LargaButtonStyle}" FontSize="18" Command="{Binding LoginCommand}" IsEnabled="{Binding IsNotBusy}" WidthRequest="250" HorizontalOptions="Center"/>
 
             <!-- Forgot Password (Moved below Login button and Centered) -->
             <Label Text="Forgot password?" 
