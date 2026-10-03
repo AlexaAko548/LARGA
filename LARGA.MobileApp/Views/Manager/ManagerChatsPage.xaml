@@ -16,6 +16,9 @@
         <!-- Chat List -->
         <!-- FIX 1: Removed native Selection properties and set SelectionMode to None -->
         <CollectionView Grid.Row="1" ItemsSource="{Binding ChatSessions}" SelectionMode="None">
+            <CollectionView.EmptyView>
+                <Label Text="No drivers registered yet." TextColor="Gray" FontSize="14" HorizontalOptions="Center" VerticalOptions="Center" />
+            </CollectionView.EmptyView>
             <CollectionView.ItemTemplate>
                 <DataTemplate>
                     <Grid ColumnDefinitions="Auto, *, Auto" Padding="20,15" BackgroundColor="Transparent">

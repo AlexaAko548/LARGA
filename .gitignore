@@ -608,3 +608,5 @@ obj/
 *.iml
 
 .context/
+
+CLAUDE.md
