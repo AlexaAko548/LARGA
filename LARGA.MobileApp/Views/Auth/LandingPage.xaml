@@ -5,27 +5,41 @@
              x:Class="LARGA.MobileApp.Views.Auth.LandingPage"
              x:DataType="vm:LandingViewModel"
              Shell.NavBarIsVisible="False"
+             Shell.FlyoutBehavior="Disabled"
              BackgroundColor="White">
 
-    <Grid RowDefinitions="*, Auto">
+    <Grid RowDefinitions="40*, 25*">
+
         <!-- Top Blue Area -->
         <Border Grid.Row="0"
                 BackgroundColor="{StaticResource LargaLightBlue}"
                 StrokeShape="RoundRectangle 0,0,50,50"
-                StrokeThickness="0">
-            <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center">
+                StrokeThickness="0"
+                VerticalOptions="Fill">
+
+            <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="0">
                 <Image Source="larga_logo.webp" WidthRequest="300" Aspect="AspectFit" />
+                <Label Text="LARGA" 
+                       Style="{StaticResource LogoTitleStyle}" 
+                       HorizontalOptions="Center" 
+                       TextColor="#1E1E1E" 
+                       Margin="0,-20,0,0" />
             </VerticalStackLayout>
+
         </Border>
 
         <!-- Bottom White Area -->
-        <VerticalStackLayout Grid.Row="1" Padding="30,20,30,40" Spacing="15">
+        <VerticalStackLayout Grid.Row="1" Padding="30,0,30,0" Spacing="5" VerticalOptions="Center">
+
             <Button Text="Driver" 
-                    BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="50" FontAttributes="Bold"
-                    Command="{Binding SelectRoleCommand}" CommandParameter="Driver"/>
+                    Style="{StaticResource LargaButtonStyle}"
+                    Command="{Binding SelectRoleCommand}" FontSize="18" CommandParameter="Driver"/>
+
             <Button Text="Manager" 
-                    BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="50" FontAttributes="Bold"
-                    Command="{Binding SelectRoleCommand}" CommandParameter="Manager"/>
+                    Style="{StaticResource LargaButtonStyle}"
+                    Command="{Binding SelectRoleCommand}" FontSize="18" CommandParameter="Manager"/>
+
         </VerticalStackLayout>
+
     </Grid>
 </ContentPage>

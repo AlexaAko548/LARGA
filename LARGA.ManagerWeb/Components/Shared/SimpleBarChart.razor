@@ -1,0 +1,43 @@
+@using LARGA.SharedCore.Models.Dashboard
+
+@if (Data is null || Data.Count == 0 || Data.All(d => d.Value <= 0))
+{
+    <div class="chart-empty">@EmptyMessage</div>
+}
+else
+{
+    decimal max = Data.Max(d => d.Value);
+
+    <div class="bar-chart">
+        @foreach (ChartPoint point in Data)
+        {
+            double heightPercent = max <= 0 ? 0 : (double)(point.Value / max) * 100;
+
+            <div class="bar-chart-column">
+                <div class="bar-chart-value">@ValuePrefix@point.Value.ToString(ValueFormat)</div>
+                <div class="bar-chart-track">
+                    <div class="bar-chart-fill" style="height: @heightPercent.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)%"></div>
+                </div>
+                <div class="bar-chart-label">@point.Label</div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>The categories to plot - one bar per point, scaled against the largest value.</summary>
+    [Parameter]
+    public List<ChartPoint>? Data { get; set; }
+
+    /// <summary>Prepended to each bar's value label, e.g. "₱".</summary>
+    [Parameter]
+    public string ValuePrefix { get; set; } = string.Empty;
+
+    /// <summary>.NET numeric format string for each bar's value label.</summary>
+    [Parameter]
+    public string ValueFormat { get; set; } = "#,##0";
+
+    /// <summary>Shown instead of the chart when there's no data (or every value is zero).</summary>
+    [Parameter]
+    public string EmptyMessage { get; set; } = "No data available";
+}

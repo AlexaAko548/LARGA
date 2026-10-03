@@ -1,0 +1,205 @@
+@page "/audit-logs"
+@using System.Text.Json
+@using System.Text
+@using LARGA.SharedCore
+@using LARGA.SharedCore.Services
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject InventoryAuditService InventoryAudit
+
+@if (_isCheckingAccess)
+{
+    <div class="auth-page">
+        <div class="auth-card">
+            <h2>Checking access...</h2>
+        </div>
+    </div>
+}
+else if (_isAuthorized)
+{
+<div class="dashboard-shell">
+    <DashboardSidebar ActiveItem="AuditLogs" />
+
+    <main class="dashboard-main">
+<div class="audit-page-wrapper">
+    <header class="dashboard-header">
+        <div class="header-title-wrap">
+            <h1>AUDIT LOGS</h1>
+            <div class="header-date">Full activity trail</div>
+        </div>
+
+        <div class="header-actions">
+            <NotificationBell />
+            <button class="icon-btn" type="button" aria-label="Messages">✉</button>
+            <div class="manager-pill">
+                <span class="manager-dot"></span>
+                <span>Manager</span>
+                <span class="caret">▾</span>
+            </div>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_loadError))
+    {
+        <div class="data-warning-banner">Audit log data unavailable: @_loadError</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_exportError))
+    {
+        <div class="report-error">@_exportError</div>
+    }
+
+    <!-- Search & Meta Bar -->
+    <div class="toolbar">
+        <div class="search-box">
+            <input type="text" class="input-search" placeholder="Search logs..." @bind="searchQuery" @bind:event="oninput" />
+        </div>
+        <div class="toolbar-right">
+            <span class="entry-counter font-mono">@FilteredLogs.Count() entries</span>
+            <button class="btn-export" type="button" disabled="@_isExporting" @onclick="ExportLogsAsync">
+                <span class="export-icon">⭳</span> @(_isExporting ? "Exporting..." : "Export")
+            </button>
+        </div>
+    </div>
+
+    <!-- Audit Logs Container -->
+    <div class="table-container audit-container">
+        <table class="audit-table">
+            <thead>
+                <tr>
+                    <th class="col-date font-mono">DATE &amp; TIME</th>
+                    <th class="col-actor font-mono">USER / ACTOR</th>
+                    <th class="col-action font-mono">ACTION</th>
+                    <th class="col-target font-mono">TARGET</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_logs.Count == 0)
+                {
+                    <tr>
+                        <td colspan="4" class="table-empty">No audit logs found.</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var log in FilteredLogs)
+                    {
+                        <tr>
+                            <td class="col-date font-mono text-muted">@log.Timestamp.ToPhilippineTime().ToString("MMM d, h:mm tt")</td>
+                            <td class="col-actor">
+                                <div class="actor-info">
+                                    <span class="actor-icon-bubble">@log.Icon</span>
+                                    <span class="actor-name">@log.Actor</span>
+                                </div>
+                            </td>
+                            <td class="col-action action-text">@log.Action</td>
+                            <td class="col-target font-mono text-muted">@log.Target</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+    </main>
+</div>
+}
+
+@code {
+    private bool _isCheckingAccess = true;
+    private bool _isAuthorized;
+    private IJSObjectReference? _firebaseModule;
+    private IJSObjectReference? _fileDownloadModule;
+    private string? _loadError;
+    private string? _exportError;
+    private bool _isExporting;
+
+    private string searchQuery = string.Empty;
+    private List<InventoryAuditService.AuditLogListItem> _logs = new();
+
+    private IEnumerable<InventoryAuditService.AuditLogListItem> FilteredLogs =>
+        string.IsNullOrWhiteSpace(searchQuery)
+            ? _logs
+            : _logs.Where(l => l.Actor.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                            || l.Action.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                            || l.Target.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+        JsonElement result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
+        _isAuthorized = result.TryGetProperty("ok", out JsonElement okProp) && okProp.ValueKind == JsonValueKind.True;
+        _isCheckingAccess = false;
+
+        if (!_isAuthorized)
+        {
+            Navigation.NavigateTo("/login", forceLoad: false);
+            return;
+        }
+
+        try
+        {
+            _logs = await InventoryAudit.GetAuditLogsAsync();
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task ExportLogsAsync()
+    {
+        if (_isExporting)
+        {
+            return;
+        }
+
+        _exportError = null;
+        _isExporting = true;
+
+        try
+        {
+            List<InventoryAuditService.AuditLogListItem> rows = FilteredLogs.ToList();
+
+            var csv = new StringBuilder();
+            csv.AppendLine("Timestamp,Actor,Action,Target");
+
+            foreach (InventoryAuditService.AuditLogListItem row in rows)
+            {
+                string localTime = row.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm:ss");
+                csv
+                    .Append(Csv(localTime)).Append(',')
+                    .Append(Csv(row.Actor)).Append(',')
+                    .Append(Csv(row.Action)).Append(',')
+                    .Append(Csv(row.Target))
+                    .AppendLine();
+            }
+
+            string fileName = $"audit_logs_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+
+            _fileDownloadModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/file-download.js");
+            await _fileDownloadModule.InvokeVoidAsync("downloadFile", fileName, csv.ToString(), "text/csv");
+        }
+        catch (Exception ex)
+        {
+            _exportError = $"Couldn't export audit logs: {ex.Message}";
+        }
+        finally
+        {
+            _isExporting = false;
+        }
+    }
+
+    private static string Csv(string? value)
+    {
+        string safe = value ?? string.Empty;
+        return "\"" + safe.Replace("\"", "\"\"") + "\"";
+    }
+}

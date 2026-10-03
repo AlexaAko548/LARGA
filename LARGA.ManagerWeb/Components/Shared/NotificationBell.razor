@@ -1,0 +1,126 @@
+@* Notification bell shown in every dashboard-style page header (replaces the old placeholder
+   "Notifications" icon-btn). Loads recent system_alerts on init, polls every 60s while
+   mounted, and lets a manager open the dropdown / mark an alert read. *@
+@implements IAsyncDisposable
+@using LARGA.SharedCore.Models.Alerts
+@using LARGA.SharedCore.Services
+@inject AlertService AlertService
+
+<div class="notification-bell-wrap">
+    <button class="icon-btn notification-bell-btn" type="button" aria-label="Notifications" @onclick="ToggleOpen">
+        🔔
+        @if (UnreadCount > 0)
+        {
+            <span class="notification-badge">@(UnreadCount > 9 ? "9+" : UnreadCount.ToString())</span>
+        }
+    </button>
+
+    @if (_isOpen)
+    {
+        <div class="notification-dropdown">
+            <div class="notification-dropdown-header">
+                <span>Notifications</span>
+                @if (UnreadCount > 0)
+                {
+                    <span class="notification-unread-count">@UnreadCount unread</span>
+                }
+            </div>
+
+            @if (_alerts.Count == 0)
+            {
+                <div class="notification-empty">No notifications yet.</div>
+            }
+            else
+            {
+                @foreach (AlertNotice alert in _alerts)
+                {
+                    <button type="button" class="notification-item @(alert.IsRead ? "" : "unread")" @onclick="() => OnAlertClickAsync(alert)">
+                        <span class="notification-item-dot"></span>
+                        <span class="notification-item-body">
+                            <span class="notification-item-message">@alert.Message</span>
+                            <span class="notification-item-time">@RelativeTime(alert.Timestamp)</span>
+                        </span>
+                    </button>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<AlertNotice> _alerts = new();
+    private bool _isOpen;
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource? _timerCts;
+
+    private int UnreadCount => _alerts.Count(a => !a.IsRead);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+
+        _timerCts = new CancellationTokenSource();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(60));
+        _ = PollLoopAsync(_timerCts.Token);
+    }
+
+    private async Task PollLoopAsync(CancellationToken token)
+    {
+        try
+        {
+            while (_timer is not null && await _timer.WaitForNextTickAsync(token))
+            {
+                await RefreshAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the component is disposed.
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            _alerts = await AlertService.GetRecentAlertsAsync();
+        }
+        catch
+        {
+            // Same "don't blow up the page header over a Firestore hiccup" stance as the
+            // rest of ManagerWeb's dashboard-adjacent reads - just leave the last-known list.
+        }
+    }
+
+    private void ToggleOpen()
+    {
+        _isOpen = !_isOpen;
+    }
+
+    private async Task OnAlertClickAsync(AlertNotice alert)
+    {
+        if (!alert.IsRead)
+        {
+            alert.IsRead = true;
+            await AlertService.MarkReadAsync(alert.AlertId);
+        }
+    }
+
+    private static string RelativeTime(DateTime timestampUtc)
+    {
+        TimeSpan elapsed = DateTime.UtcNow - timestampUtc;
+        if (elapsed < TimeSpan.FromMinutes(1)) return "just now";
+        if (elapsed < TimeSpan.FromHours(1)) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed < TimeSpan.FromDays(1)) return $"{(int)elapsed.TotalHours}h ago";
+        return $"{(int)elapsed.TotalDays}d ago";
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _timerCts?.Cancel();
+        _timer?.Dispose();
+        _timerCts?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:cv="clr-namespace:Camera.MAUI;assembly=Camera.MAUI"
+             x:Class="LARGA.MobileApp.Views.Driver.ScanFuelReceiptPage"
+             NavigationPage.HasNavigationBar="False"
+             BackgroundColor="Black">
+
+    <Grid RowDefinitions="Auto, *, Auto">
+
+        <!-- Header -->
+        <Grid Grid.Row="0" BackgroundColor="{StaticResource LargaLightBlue}" Padding="15,20">
+            <Label Text="CAPTURE FUEL RECEIPT" FontSize="14" FontAttributes="Bold" HorizontalOptions="Center" TextColor="Black"/>
+        </Grid>
+
+        <Grid Grid.Row="1" Padding="16">
+            <Border BackgroundColor="#101010" Stroke="#2A2A2A" StrokeThickness="1" StrokeShape="RoundRectangle 12" Padding="8">
+                <Grid>
+                    <cv:CameraView x:Name="ReceiptCamera"
+                                   HorizontalOptions="FillAndExpand"
+                                   VerticalOptions="FillAndExpand"
+                                   CamerasLoaded="Camera_CamerasLoaded" />
+                    <Image x:Name="CapturedReceiptPreview" IsVisible="False" Aspect="AspectFit" />
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Bottom Validation Panel -->
+        <Border Grid.Row="2" BackgroundColor="White" StrokeThickness="0" Padding="20" Margin="0,-20,0,0">
+            <Border.StrokeShape>
+                <RoundRectangle CornerRadius="20,20,0,0" />
+            </Border.StrokeShape>
+            
+            <VerticalStackLayout Spacing="15">
+
+                <Grid ColumnDefinitions="*,*">
+                    <Label Grid.Column="0" Text="Amount" TextColor="Gray"/>
+                    <Label Grid.Column="1" x:Name="LblAmount" Text="--" HorizontalOptions="End" FontAttributes="Bold" TextColor="Black"/>
+                </Grid>
+                <BoxView HeightRequest="1" Color="LightGray"/>
+
+                <Grid ColumnDefinitions="*,*">
+                    <Label Grid.Column="0" Text="Quantity" TextColor="Gray"/>
+                    <Label Grid.Column="1" x:Name="LblQuantity" Text="--" HorizontalOptions="End" FontAttributes="Bold" TextColor="Black"/>
+                </Grid>
+                <BoxView HeightRequest="1" Color="LightGray"/>
+
+                <Grid ColumnDefinitions="*,*">
+                    <Label Grid.Column="0" Text="Gasoline Name" TextColor="Gray"/>
+                    <Label Grid.Column="1" x:Name="LblVendor" Text="--" HorizontalOptions="End" FontAttributes="Bold" TextColor="Black"/>
+                </Grid>
+                <BoxView HeightRequest="1" Color="LightGray"/>
+
+                <Grid ColumnDefinitions="*,*">
+                    <Label Grid.Column="0" Text="Date" TextColor="Gray"/>
+                    <Label Grid.Column="1" x:Name="LblDate" Text="--" HorizontalOptions="End" FontAttributes="Bold" TextColor="Black"/>
+                </Grid>
+
+                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="15" Margin="0,15,0,0">
+                    <Button Grid.Column="0" Text="Cancel" Clicked="OnCancelClicked" BackgroundColor="Transparent" TextColor="Gray" BorderColor="Gray" BorderWidth="1" CornerRadius="25"/>
+                    <Button Grid.Column="1" x:Name="BtnRetake" Text="Retake" Clicked="OnRetakeClicked" IsVisible="False" BackgroundColor="Transparent" TextColor="Gray" BorderColor="Gray" BorderWidth="1" CornerRadius="25"/>
+                    <Button Grid.Column="2" x:Name="BtnCapture" Text="Capture" Clicked="OnCaptureClicked" BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="White" CornerRadius="25"/>
+                </Grid>
+            </VerticalStackLayout>
+        </Border>
+    </Grid>
+</ContentPage>

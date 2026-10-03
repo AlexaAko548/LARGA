@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
+             x:Class="LARGA.MobileApp.Views.Driver.DebtDetailPage"
+             x:DataType="vm:DebtDetailViewModel"
+             NavigationPage.HasNavigationBar="False"
+             BackgroundColor="{StaticResource LargaWhite}">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20,-5" Spacing="12">
+
+            <Label Text="My Ledger" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaDarkText}" Margin="0,0,0,10"/>
+
+            <!-- Debt List Card -->
+            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="DEBT BALANCE DETAILS" FontSize="14" TextColor="{StaticResource LargaDarkText}" CharacterSpacing="1"/>
+                    <BoxView HeightRequest="1" Color="#80BBD0" Margin="0,5,0,10"/>
+
+                    <VerticalStackLayout BindableLayout.ItemsSource="{Binding DebtHistory}" Spacing="15">
+                        <BindableLayout.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DebtRecord">
+                                <VerticalStackLayout Spacing="15">
+                                    <Label Text="{Binding DisplayText}" FontSize="14" TextColor="{StaticResource LargaDarkText}" FontFamily="DMMonoRegular"/>
+                                    <BoxView HeightRequest="1" Color="#80BBD0"/>
+                                </VerticalStackLayout>
+                            </DataTemplate>
+                        </BindableLayout.ItemTemplate>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

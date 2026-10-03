@@ -1,10 +1,101 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
              x:Class="LARGA.MobileApp.Views.Driver.ReportsPage"
-             BackgroundColor="{StaticResource LargaWhite}"
-             Title="Reports">
-    <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center">
-        <Label Text="Reports Placeholder" FontSize="20" TextColor="{StaticResource LargaDarkText}" />
-    </VerticalStackLayout>
+             x:DataType="vm:ReportsViewModel"
+             BackgroundColor="{StaticResource LargaWhite}">
+
+    <ScrollView>
+    <VerticalStackLayout Padding="20" Spacing="15">
+        <Label Text="{Binding CurrentDate}" TextColor="{StaticResource LargaDarkText}" FontSize="14" Margin="0,10,0,0"/>
+        <Label Text="Submit Report" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaDarkText}" />
+
+        <!-- Tabs -->
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="0">
+                <Border Grid.Column="0" StrokeThickness="0" Padding="10">
+                    <Border.Triggers>
+                    <DataTrigger TargetType="Border" Binding="{Binding IsFuelTabSelected}" Value="True">
+                        <Setter Property="BackgroundColor" Value="{StaticResource LargaLightBlue}" />
+                    </DataTrigger>
+                    <DataTrigger TargetType="Border" Binding="{Binding IsFuelTabSelected}" Value="False">
+                        <Setter Property="BackgroundColor" Value="Transparent" />
+                    </DataTrigger>
+                </Border.Triggers>
+                <Button Text="FUEL SUBMISSION" Command="{Binding SelectFuelTabCommand}"
+                        BackgroundColor="Transparent" TextColor="{StaticResource LargaDarkText}" FontSize="12" />
+            </Border>
+            <Border Grid.Column="1" StrokeThickness="0" Padding="10">
+                <Border.Triggers>
+                    <DataTrigger TargetType="Border" Binding="{Binding IsVehicleDefectTabSelected}" Value="True">
+                        <Setter Property="BackgroundColor" Value="{StaticResource LargaLightBlue}" />
+                    </DataTrigger>
+                    <DataTrigger TargetType="Border" Binding="{Binding IsVehicleDefectTabSelected}" Value="False">
+                        <Setter Property="BackgroundColor" Value="Transparent" />
+                    </DataTrigger>
+                </Border.Triggers>
+                <Button Text="VEHICLE DEFECT" Command="{Binding SelectVehicleDefectTabCommand}"
+                        BackgroundColor="Transparent" TextColor="{StaticResource LargaDarkText}" FontAttributes="Bold" FontSize="12" />
+            </Border>
+        </Grid>
+
+        <!-- Vehicle Defect Tab Content -->
+        <VerticalStackLayout Spacing="12" IsVisible="{Binding IsVehicleDefectTabSelected}">
+            <Border BackgroundColor="Transparent" StrokeThickness="1" Stroke="{StaticResource LargaPrimaryBlue}" StrokeShape="RoundRectangle 20" Padding="0" HeightRequest="46">
+                <Button Text="+ Add Vehicle Report" Command="{Binding AddVehicleReportCommand}"
+                        BackgroundColor="Transparent" TextColor="{StaticResource LargaPrimaryBlue}" FontSize="14" FontAttributes="Bold" />
+            </Border>
+
+            <Label Text="PAST VEHICLE REPORTS" FontSize="12" TextColor="Gray" Margin="0,10,0,0" />
+
+            <VerticalStackLayout BindableLayout.ItemsSource="{Binding DefectReports}" Spacing="8">
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DefectReportItem">
+                        <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                <Label Grid.Column="0" Text="{Binding DisplayText}" FontSize="14" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center" />
+                                <Label Grid.Column="1" Text="&gt;" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center" />
+                            </Grid>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.ViewReportDetailsCommand}"
+                                                       CommandParameter="{Binding .}" />
+                            </Border.GestureRecognizers>
+                        </Border>
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
+            </VerticalStackLayout>
+        </VerticalStackLayout>
+
+            <!-- Fuel Submission Tab Content -->
+            <VerticalStackLayout Spacing="12" IsVisible="{Binding IsFuelTabSelected}">
+                <Border BackgroundColor="Transparent" StrokeThickness="1" Stroke="{StaticResource LargaPrimaryBlue}" StrokeShape="RoundRectangle 20" Padding="0" HeightRequest="46">
+                    <Button Text="+ Add Fuel Report" Command="{Binding AddFuelReportCommand}"
+                BackgroundColor="Transparent" TextColor="{StaticResource LargaPrimaryBlue}" FontSize="14" FontAttributes="Bold" />
+                </Border>
+
+                <Label Text="PAST FUEL REPORTS" FontSize="12" TextColor="Gray" Margin="0,10,0,0" />
+
+                <VerticalStackLayout BindableLayout.ItemsSource="{Binding FuelReports}" Spacing="8">
+                    <BindableLayout.ItemTemplate>
+                        <DataTemplate x:DataType="vm:FuelReportItem">
+                            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+
+                                <!-- ADD THIS GESTURE RECOGNIZER -->
+                                <Border.GestureRecognizers>
+                                    <TapGestureRecognizer 
+                                        Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.ViewFuelReportDetailsCommand}"
+                                        CommandParameter="{Binding .}" />
+                                </Border.GestureRecognizers>
+
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                    <Label Grid.Column="0" Text="{Binding DisplayText}" FontSize="14" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center" />
+                                    <Label Grid.Column="1" Text="&gt;" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </BindableLayout.ItemTemplate>
+                </VerticalStackLayout>
+            </VerticalStackLayout>
+        </VerticalStackLayout>
+    </ScrollView>
 </ContentPage>

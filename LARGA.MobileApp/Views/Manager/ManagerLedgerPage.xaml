@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Manager"
+             xmlns:lc="clr-namespace:LARGA.MobileApp.Controls"
+             x:Class="LARGA.MobileApp.Views.Manager.ManagerLedgerPage"
+             x:Name="Root"
+             x:DataType="vm:ManagerLedgerViewModel"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="{StaticResource LargaWhite}">
+
+    <ContentPage.Resources>
+        <ResourceDictionary>
+            <toolkit:InvertedBoolConverter x:Key="InverseBool" />
+        </ResourceDictionary>
+    </ContentPage.Resources>
+
+    <Grid>
+        <!-- MAIN PAGE -->
+        <ScrollView>
+            <VerticalStackLayout Padding="20,10,20,30" Spacing="14">
+
+                <!-- Header -->
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
+                        <Label Text="Quick Ledger" Style="{StaticResource Ledger.Title}" />
+                        <Label Text="{Binding PendingCountText}" Style="{StaticResource Ledger.Subtitle}" />
+                    </VerticalStackLayout>
+
+                    <Border Grid.Column="1" Style="{StaticResource Ledger.Pill}">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding OpenOtherPaymentCommand}" />
+                        </Border.GestureRecognizers>
+                        <Label Text="+ Other Payment" Style="{StaticResource Ledger.PillText}" />
+                    </Border>
+                </Grid>
+
+                <Border IsVisible="{Binding HasError}" Style="{StaticResource Ledger.Row}" BackgroundColor="{StaticResource LargaDangerBg}">
+                    <Label Text="{Binding ErrorMessage}" Style="{StaticResource Ledger.Error}" />
+                </Border>
+
+                <Label Text="{Binding WarningText}" Style="{StaticResource Ledger.Error}" TextColor="{StaticResource LargaWarning}"
+                       IsVisible="{Binding HasWarning}" />
+
+                <!-- PENDING: one card per shift that still owes today's boundary -->
+                <Label Text="PENDING" Style="{StaticResource Ledger.SectionLabel}" />
+
+                <VerticalStackLayout BindableLayout.ItemsSource="{Binding PendingBoundaries}" Spacing="12">
+                    <BindableLayout.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PendingBoundaryItem">
+                            <Border Style="{StaticResource Ledger.Card}">
+                                <Border.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.OpenPendingCommand}"
+                                                          CommandParameter="{Binding .}" />
+                                </Border.GestureRecognizers>
+                                <VerticalStackLayout Spacing="8">
+                                    <HorizontalStackLayout Spacing="8">
+                                        <Label Text="&#xe853;" Style="{StaticResource Ledger.Icon}" />
+                                        <Label Text="{Binding DriverName}" Style="{StaticResource Ledger.CardTitle}" VerticalOptions="Center" />
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Spacing="6">
+                                        <Label Text="&#xe531;" FontFamily="MaterialIcons" FontSize="13" TextColor="{StaticResource LargaMutedText}" VerticalOptions="Center" />
+                                        <Label Text="{Binding PlateText}" Style="{StaticResource Ledger.Detail}" VerticalOptions="Center" />
+                                    </HorizontalStackLayout>
+
+                                    <Border Style="{StaticResource Ledger.InnerCard}" Margin="0,4,0,0">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <VerticalStackLayout Spacing="0">
+                                                <Label Text="Balance due" Style="{StaticResource Ledger.Caption}" />
+                                                <Label Text="{Binding BalanceText}" Style="{StaticResource Ledger.Value}" />
+                                                <Label Text="{Binding ProgressText}" Style="{StaticResource Ledger.Detail}" />
+                                            </VerticalStackLayout>
+                                            <Label Grid.Column="1" Text="&#xe8e5;" Style="{StaticResource Ledger.Icon}" />
+                                        </Grid>
+                                    </Border>
+                                </VerticalStackLayout>
+                            </Border>
+                        </DataTemplate>
+                    </BindableLayout.ItemTemplate>
+                </VerticalStackLayout>
+
+                <Label Text="No boundaries left to collect today." Style="{StaticResource Ledger.Subtitle}"
+                       IsVisible="{Binding HasPending, Converter={StaticResource InverseBool}}" />
+
+                <!-- PAYMENT DONE TODAY -->
+                <Label Text="PAYMENT DONE TODAY" Style="{StaticResource Ledger.SectionLabel}" Margin="0,10,0,0" />
+
+                <VerticalStackLayout BindableLayout.ItemsSource="{Binding PaymentsDoneToday}" Spacing="10">
+                    <BindableLayout.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PaymentDoneItem">
+                            <Border Style="{StaticResource Ledger.Row}">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                    <Label Grid.Column="0" Text="&#xe86c;" Style="{StaticResource Ledger.Icon}" />
+                                    <VerticalStackLayout Grid.Column="1" Spacing="2">
+                                        <Label Text="{Binding DriverName}" Style="{StaticResource Ledger.ListName}" />
+                                        <Label Text="{Binding DetailText}" Style="{StaticResource Ledger.Detail}" />
+                                    </VerticalStackLayout>
+                                    <Label Grid.Column="2" Text="{Binding StatusText}" Style="{StaticResource Ledger.Status}" VerticalOptions="Center" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </BindableLayout.ItemTemplate>
+                </VerticalStackLayout>
+
+                <Label Text="No payments received yet today." Style="{StaticResource Ledger.Subtitle}"
+                       IsVisible="{Binding HasPaymentsDoneToday, Converter={StaticResource InverseBool}}" />
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <!-- RECORD PAYMENT / RECORD OTHER PAYMENT OVERLAY -->
+        <Grid BackgroundColor="#99000000" IsVisible="{Binding RecordPayment.IsOpen}" Padding="14">
+            <ScrollView VerticalOptions="Fill">
+            <Border Style="{StaticResource Ledger.Sheet}" VerticalOptions="Center" Margin="14">
+                    <VerticalStackLayout Spacing="12">
+
+                        <!-- Title row -->
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <VerticalStackLayout Grid.Column="0" Spacing="2">
+                                <Label Text="{Binding RecordPayment.Title}" Style="{StaticResource Ledger.Heading}" />
+                                <Label Style="{StaticResource Ledger.Detail}">
+                                    <Label.Text>
+                                        <MultiBinding StringFormat="{}{0} · {1}">
+                                            <Binding Path="RecordPayment.DriverName" />
+                                            <Binding Path="RecordPayment.PlateText" />
+                                        </MultiBinding>
+                                    </Label.Text>
+                                </Label>
+                            </VerticalStackLayout>
+
+                            <Border Grid.Column="1" Style="{StaticResource Ledger.CloseBadge}">
+                                <Border.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding RecordPayment.CloseCommand}" />
+                                </Border.GestureRecognizers>
+                                <Label Text="&#xe5cd;" Style="{StaticResource Ledger.Icon}" HorizontalOptions="Center" />
+                            </Border>
+                        </Grid>
+
+                        <!-- Other payment: pick the driver and category -->
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8" IsVisible="{Binding RecordPayment.IsOtherMode}">
+                            <Border Grid.Column="0" Style="{StaticResource Ledger.Field}" Padding="6,0">
+                                <lc:LedgerPicker Style="{StaticResource Ledger.Picker}" Title="Select Driver"
+                                                 ItemsSource="{Binding RecordPayment.DriverOptions}"
+                                                 SelectedIndex="{Binding RecordPayment.SelectedDriverIndex, Mode=TwoWay}" />
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource Ledger.Field}" Padding="6,0">
+                                <lc:LedgerPicker Style="{StaticResource Ledger.Picker}" Title="Category"
+                                                 ItemsSource="{Binding RecordPayment.CategoryOptions}"
+                                                 SelectedIndex="{Binding RecordPayment.SelectedCategoryIndex, Mode=TwoWay}" />
+                            </Border>
+                        </Grid>
+
+                        <!-- Expected amount -->
+                        <Label Text="Expected Amount" Style="{StaticResource Ledger.Caption}" />
+                        <Border Style="{StaticResource Ledger.Field}">
+                            <Label Text="{Binding RecordPayment.ExpectedText}" Style="{StaticResource Ledger.Value}" />
+                        </Border>
+
+                        <!-- Amount received -->
+                        <Label Text="Amount Received (PHP)" Style="{StaticResource Ledger.Caption}" />
+                        <Border Style="{StaticResource Ledger.Field}">
+                            <lc:LedgerEntry Style="{StaticResource Ledger.Entry}"
+                                            Text="{Binding RecordPayment.AmountReceivedText, Mode=TwoWay}"
+                                            IsReadOnly="{Binding RecordPayment.IsEWallet}"
+                                            Keyboard="Numeric" Placeholder="0.00" />
+                        </Border>
+
+                        <!-- Notes: what this payment is about (Other Payment only), kept on the records for audit -->
+                        <VerticalStackLayout Spacing="6" IsVisible="{Binding RecordPayment.IsOtherMode}">
+                            <Label Text="Notes (optional)" Style="{StaticResource Ledger.Caption}" />
+                            <Border Style="{StaticResource Ledger.Field}">
+                                <Editor Text="{Binding RecordPayment.NotesText, Mode=TwoWay}"
+                                        Placeholder="What is this payment for?"
+                                        AutoSize="TextChanges" MinimumHeightRequest="60"
+                                        FontFamily="InterRegular" FontSize="14"
+                                        TextColor="{StaticResource LargaDarkText}"
+                                        PlaceholderColor="{StaticResource LargaMutedText}"
+                                        BackgroundColor="Transparent" />
+                            </Border>
+                        </VerticalStackLayout>
+
+                        <!-- Payment method -->
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                            <Button Grid.Column="0" Text="CASH" Style="{StaticResource Ledger.Button}"
+                                    Command="{Binding RecordPayment.CashCommand}"
+                                    BackgroundColor="{Binding RecordPayment.CashBackground}"
+                                    TextColor="{Binding RecordPayment.CashTextColor}" />
+                            <Button Grid.Column="1" Text="E-WALLET (GCASH)" Style="{StaticResource Ledger.Button}"
+                                    Command="{Binding RecordPayment.EWalletCommand}"
+                                    BackgroundColor="{Binding RecordPayment.EWalletBackground}"
+                                    TextColor="{Binding RecordPayment.EWalletTextColor}" />
+                        </Grid>
+
+                        <!-- E-wallet only: scan the receipt and show the read-only details -->
+                        <Button Text="SCAN RECEIPT" Style="{StaticResource Ledger.OutlineButton}" HorizontalOptions="End" WidthRequest="170"
+                                Command="{Binding RecordPayment.ScanCommand}"
+                                IsVisible="{Binding RecordPayment.IsEWallet}" />
+
+                        <VerticalStackLayout Spacing="8" IsVisible="{Binding RecordPayment.IsEWallet}">
+                            <Label Text="Receipt Details" Style="{StaticResource Ledger.Caption}" />
+
+                            <Border Style="{StaticResource Ledger.Field}">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <Label Text="Date" Style="{StaticResource Ledger.Caption}" VerticalOptions="Center" />
+                                    <Label Grid.Column="1" Text="{Binding RecordPayment.ReceiptDateText}" Style="{StaticResource Ledger.FieldValue}" />
+                                </Grid>
+                            </Border>
+                            <Border Style="{StaticResource Ledger.Field}">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <Label Text="Reference No." Style="{StaticResource Ledger.Caption}" VerticalOptions="Center" />
+                                    <Label Grid.Column="1" Text="{Binding RecordPayment.ReferenceText}" Style="{StaticResource Ledger.FieldValue}" LineBreakMode="TailTruncation" />
+                                </Grid>
+                            </Border>
+                        </VerticalStackLayout>
+
+                        <Label Text="{Binding RecordPayment.ErrorText}" Style="{StaticResource Ledger.Error}" />
+
+                        <Button Text="CONFIRM PAYMENT" Style="{StaticResource Ledger.PrimaryButton}"
+                                Command="{Binding RecordPayment.ConfirmCommand}"
+                                IsEnabled="{Binding RecordPayment.IsBusy, Converter={StaticResource InverseBool}}" />
+                    </VerticalStackLayout>
+            </Border>
+        </ScrollView>
+        </Grid>
+    </Grid>
+</ContentPage>

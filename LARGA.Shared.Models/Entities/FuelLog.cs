@@ -54,19 +54,28 @@ public class FuelLog
     [FirestoreProperty("shiftId")]
     public string ShiftId { get; set; } = string.Empty;
 
-    [FirestoreProperty("litersRefueled")]
+    [FirestoreProperty("fuelStation")]
+    public string? FuelStation { get; set; }
+
+    [FirestoreProperty("litersRefueled", ConverterType = typeof(DecimalConverter))]
     public decimal LitersRefueled { get; set; }
 
-    [FirestoreProperty("fuelCost")]
+    [FirestoreProperty("fuelCost", ConverterType = typeof(DecimalConverter))]
     public decimal FuelCost { get; set; }
+
+    [FirestoreProperty("orNumber")] 
+    public string? ORNumber { get; set; }
 
     [FirestoreProperty("receiptImageUrl")]
     public string? ReceiptImageUrl { get; set; }
 
+    [FirestoreProperty("receiptTimestamp")]
+    public DateTime? ReceiptTimestamp { get; set; }
+
     [FirestoreProperty("verificationStatus", ConverterType = typeof(FuelVerificationStatusConverter))]
     public FuelVerificationStatus VerificationStatus { get; set; } = FuelVerificationStatus.Pending;
 
-    [FirestoreProperty("fuelLogDetails")]
+    [FirestoreProperty("fuelLogDetails")] 
     public string? FuelLogDetails { get; set; }
 
     [FirestoreProperty("odometerReading")]
@@ -74,4 +83,22 @@ public class FuelLog
 
     [FirestoreProperty("odometerPhotoUrl")]
     public string? OdometerPhotoUrl { get; set; }
+
+    [FirestoreProperty("driverId")] // new property to store the driver ID
+    public string DriverId { get; set; } = string.Empty;
+
+    [FirestoreProperty("isCostManuallyEdited")]
+    public bool IsCostManuallyEdited { get; set; }
+
+    [FirestoreProperty("isQuantityManuallyEdited")]
+    public bool IsQuantityManuallyEdited { get; set; }
+
+    [FirestoreProperty("isFuelStationManuallyEdited")]
+    public bool IsFuelStationManuallyEdited { get; set; }
+
+    [FirestoreProperty("isReceiptDateManuallyEdited")]
+    public bool IsReceiptDateManuallyEdited { get; set; }
+
+    [FirestoreProperty("isAnyFieldManuallyEdited")]
+    public bool IsAnyFieldManuallyEdited { get; set; }
 }
