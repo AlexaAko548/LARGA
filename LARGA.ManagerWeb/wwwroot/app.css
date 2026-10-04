@@ -4331,3 +4331,666 @@ grid-template-columns: 1fr;
 flex-direction: row;
 }
 }
+
+/* ---------------------------------------------------------------------
+   SOS Dispatch (LAR-82)
+   --------------------------------------------------------------------- */
+.sos-summary {
+display: flex;
+align-items: center;
+gap: 1rem;
+border-radius: 14px;
+padding: 1rem 1.2rem;
+margin-bottom: 1.2rem;
+background: rgba(31,122,77,0.08);
+border: 1px solid rgba(31,122,77,0.25);
+}
+
+.sos-summary.has-active {
+background: rgba(211,47,47,0.08);
+border-color: rgba(211,47,47,0.45);
+}
+
+.sos-summary-count {
+font-size: 2.2rem;
+font-weight: 800;
+color: #1f7a4d;
+min-width: 2.5rem;
+text-align: center;
+}
+
+.sos-summary.has-active .sos-summary-count {
+color: #d32f2f;
+}
+
+.sos-summary-title {
+font-weight: 700;
+color: #1d1d1d;
+}
+
+.sos-summary-sub {
+font-size: 0.82rem;
+color: #5a7a8a;
+}
+
+.sos-list {
+display: flex;
+flex-direction: column;
+gap: 1rem;
+margin-bottom: 1.5rem;
+}
+
+.sos-card {
+background: #ffffff;
+border: 1px solid rgba(211,47,47,0.35);
+border-left: 6px solid #d32f2f;
+border-radius: 12px;
+padding: 0.9rem 1.1rem;
+display: flex;
+flex-direction: column;
+gap: 0.8rem;
+}
+
+.sos-card.hostile { border-left-color: #8e1b1b; }
+.sos-card.crash { border-left-color: #e65100; }
+
+.sos-card-head {
+display: flex;
+justify-content: space-between;
+align-items: center;
+gap: 0.6rem;
+flex-wrap: wrap;
+}
+
+.sos-trigger {
+font-weight: 800;
+letter-spacing: 0.04em;
+color: #d32f2f;
+}
+
+.sos-card.hostile .sos-trigger { color: #8e1b1b; }
+.sos-card.crash .sos-trigger { color: #e65100; }
+
+.sos-time {
+font-size: 0.8rem;
+color: #5a7a8a;
+}
+
+.sos-card-body {
+display: grid;
+grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+gap: 1rem;
+}
+
+.sos-driver {
+display: flex;
+gap: 0.7rem;
+align-items: flex-start;
+}
+
+.sos-driver-name {
+font-weight: 700;
+color: #1d1d1d;
+}
+
+.sos-driver-meta {
+font-size: 0.82rem;
+color: #5a7a8a;
+}
+
+.sos-location-label {
+font-size: 0.7rem;
+font-weight: 700;
+letter-spacing: 0.06em;
+color: #5a7a8a;
+}
+
+.sos-coords {
+font-family: var(--font-mono);
+font-size: 1.05rem;
+font-weight: 700;
+color: #1d1d1d;
+margin: 0.2rem 0 0.4rem;
+}
+
+.sos-coords.unavailable {
+font-family: inherit;
+font-size: 0.85rem;
+font-weight: 600;
+color: #b3261e;
+}
+
+.sos-actions {
+display: flex;
+flex-wrap: wrap;
+align-items: center;
+gap: 0.6rem;
+border-top: 1px solid rgba(1,155,207,0.15);
+padding-top: 0.7rem;
+}
+
+.sos-actions a {
+text-decoration: none;
+}
+
+.sos-call {
+background: #d32f2f;
+border-color: #d32f2f;
+}
+
+.sos-no-phone {
+font-size: 0.8rem;
+color: #b3261e;
+}
+
+.sos-toggle {
+display: inline-flex;
+align-items: center;
+gap: 0.4rem;
+margin-left: auto;
+font-size: 0.85rem;
+font-weight: 700;
+color: #1d1d1d;
+cursor: pointer;
+}
+
+.sos-toggle input {
+width: 1.1rem;
+height: 1.1rem;
+cursor: pointer;
+}
+
+.sos-resolved h2 {
+font-size: 1rem;
+color: #1d1d1d;
+margin: 0 0 0.6rem;
+}
+
+.sos-resolved .sos-toggle {
+margin-left: 0;
+}
+
+@media (max-width: 720px) {
+.sos-card-body {
+grid-template-columns: 1fr;
+}
+}
+
+/* ---------------------------------------------------------------------
+   Executive Dashboard - fleet utilization & collection trend (LAR-84)
+   --------------------------------------------------------------------- */
+.utilization-panel {
+background: rgba(1,155,207,0.35);
+border: 1px solid rgba(1,155,207,0.42);
+border-radius: 14px;
+padding: 0.9rem 1rem 1rem;
+}
+
+.utilization-head {
+display: flex;
+justify-content: space-between;
+align-items: baseline;
+margin-bottom: 0.7rem;
+}
+
+.utilization-title {
+font-weight: 800;
+color: #1d1d1d;
+}
+
+.utilization-sub {
+font-size: 0.75rem;
+color: #5a7a8a;
+}
+
+.utilization-grid {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+gap: 0.7rem;
+}
+
+.kpi-tile {
+background: rgba(255,255,255,0.45);
+border: 1px solid rgba(1,155,207,0.25);
+border-radius: 12px;
+padding: 0.7rem 0.8rem;
+display: flex;
+flex-direction: column;
+gap: 0.15rem;
+min-width: 0;
+}
+
+.kpi-value {
+font-size: 1.45rem;
+font-weight: 800;
+letter-spacing: -0.04em;
+color: #1d1d1d;
+}
+
+.kpi-label {
+font-size: 0.75rem;
+font-weight: 700;
+color: #1d1d1d;
+}
+
+.kpi-detail {
+font-size: 0.7rem;
+color: #5a7a8a;
+}
+
+.kpi-meter {
+margin-top: 0.35rem;
+height: 6px;
+border-radius: 999px;
+background: rgba(1,155,207,0.18);
+overflow: hidden;
+}
+
+.kpi-meter span {
+display: block;
+height: 100%;
+border-radius: 999px;
+background: #019bcf;
+}
+
+.chart-legend {
+display: inline-flex;
+align-items: center;
+gap: 0.35rem;
+font-size: 0.68rem !important;
+text-transform: none !important;
+color: #5a7a8a;
+}
+
+.chart-legend i {
+display: inline-block;
+width: 0.65rem;
+height: 0.65rem;
+border-radius: 3px;
+margin-left: 0.3rem;
+}
+
+.legend-collected { background: #019bcf; }
+.legend-outstanding { background: #d9534f; }
+
+.collection-track {
+flex-direction: column;
+justify-content: flex-end;
+align-items: stretch;
+}
+
+.collection-track .collection-collected {
+min-height: 0;
+border-radius: 0;
+}
+
+.collection-outstanding {
+width: 100%;
+background: #d9534f;
+border-radius: 6px 6px 0 0;
+}
+
+/* ---------------------------------------------------------------------
+   Spare Parts Inventory - per-part usage history (LAR-84)
+   --------------------------------------------------------------------- */
+.inventory-table tbody tr.part-row {
+cursor: pointer;
+}
+
+.part-expander {
+display: inline-block;
+width: 1rem;
+color: #019bcf;
+font-weight: 800;
+}
+
+.inventory-table tbody tr.part-history-row > td {
+background: rgba(1,155,207,0.06);
+padding: 0.8rem 1rem 1rem;
+}
+
+.part-history {
+display: flex;
+flex-direction: column;
+gap: 0.7rem;
+}
+
+.part-history-stats {
+display: flex;
+flex-wrap: wrap;
+gap: 0.6rem;
+}
+
+.part-history-stat {
+background: #ffffff;
+border: 1px solid rgba(1,155,207,0.25);
+border-radius: 10px;
+padding: 0.45rem 0.75rem;
+min-width: 130px;
+}
+
+.part-history-stat span {
+display: block;
+font-size: 0.68rem;
+letter-spacing: 0.04em;
+color: #5a7a8a;
+text-transform: uppercase;
+}
+
+.part-history-stat strong {
+font-size: 1rem;
+color: #1d1d1d;
+}
+
+.part-history-table-wrap {
+max-height: 320px;
+overflow: auto;
+border: 1px solid rgba(1,155,207,0.2);
+border-radius: 10px;
+background: #ffffff;
+}
+
+.part-history-table {
+width: 100%;
+border-collapse: collapse;
+font-size: 0.8rem;
+}
+
+.part-history-table th {
+position: sticky;
+top: 0;
+background: #eef8fc;
+text-align: left;
+font-size: 0.68rem;
+letter-spacing: 0.05em;
+color: #5a7a8a;
+padding: 0.45rem 0.6rem;
+}
+
+.part-history-table td {
+padding: 0.45rem 0.6rem;
+border-top: 1px solid rgba(1,155,207,0.12);
+color: #1d1d1d;
+}
+
+.part-history-table .num {
+text-align: right;
+font-family: var(--font-mono);
+white-space: nowrap;
+}
+
+.part-history-empty {
+font-size: 0.8rem;
+color: #5a7a8a;
+}
+
+.part-history-note {
+font-size: 0.72rem;
+color: #5a7a8a;
+}
+
+/* ---------------------------------------------------------------------
+   Messages drawer (header Messages button / SOS Dispatch Message)
+   --------------------------------------------------------------------- */
+.messages-btn {
+position: relative;
+display: inline-grid;
+place-items: center;
+padding: 0;
+}
+
+.messages-btn svg {
+width: 1.15rem;
+height: 1.15rem;
+}
+
+.sos-message {
+background: #019bcf;
+border-color: #019bcf;
+}
+
+.chat-drawer-backdrop {
+position: fixed;
+inset: 0;
+background: rgba(0,0,0,0.25);
+z-index: 900;
+}
+
+.chat-drawer {
+position: fixed;
+top: 0;
+right: 0;
+bottom: 0;
+width: min(420px, 100vw);
+background: #ffffff;
+box-shadow: -8px 0 28px rgba(0,0,0,0.18);
+z-index: 901;
+display: flex;
+flex-direction: column;
+text-align: left;
+}
+
+.chat-drawer-head {
+display: flex;
+align-items: center;
+gap: 0.65rem;
+padding: 0.85rem 1rem;
+border-bottom: 1px solid rgba(1,155,207,0.2);
+}
+
+.chat-drawer-title {
+flex: 1;
+font-size: 1.1rem;
+font-weight: 800;
+color: #1d1d1d;
+}
+
+.chat-back-btn {
+width: 2rem;
+height: 2rem;
+border: none;
+border-radius: 8px;
+background: transparent;
+color: #017aa3;
+font-size: 1.25rem;
+font-weight: 700;
+cursor: pointer;
+flex-shrink: 0;
+}
+
+.chat-back-btn:hover {
+background: rgba(1,155,207,0.12);
+}
+
+.chat-drawer-who {
+flex: 1;
+min-width: 0;
+}
+
+.chat-drawer-name {
+font-weight: 700;
+color: #1d1d1d;
+white-space: nowrap;
+overflow: hidden;
+text-overflow: ellipsis;
+}
+
+.chat-drawer-sub {
+font-size: 0.78rem;
+color: #5a7a8a;
+}
+
+.chat-drawer-empty {
+margin: auto;
+padding: 1rem;
+text-align: center;
+font-size: 0.82rem;
+color: #5a7a8a;
+max-width: 300px;
+}
+
+.chat-drawer-empty.error {
+color: #b3261e;
+}
+
+.chat-session-list {
+flex: 1;
+overflow-y: auto;
+display: flex;
+flex-direction: column;
+}
+
+.chat-session {
+display: flex;
+align-items: center;
+gap: 0.7rem;
+width: 100%;
+padding: 0.75rem 1rem;
+border: none;
+border-bottom: 1px solid rgba(1,155,207,0.12);
+background: #ffffff;
+text-align: left;
+cursor: pointer;
+font: inherit;
+}
+
+.chat-session:hover {
+background: rgba(1,155,207,0.07);
+}
+
+.chat-session-body {
+flex: 1;
+min-width: 0;
+display: flex;
+flex-direction: column;
+gap: 0.15rem;
+}
+
+.chat-session-top {
+display: flex;
+justify-content: space-between;
+gap: 0.5rem;
+}
+
+.chat-session-name {
+font-weight: 600;
+color: #1d1d1d;
+white-space: nowrap;
+overflow: hidden;
+text-overflow: ellipsis;
+}
+
+.chat-session-time {
+font-size: 0.72rem;
+color: #5a7a8a;
+white-space: nowrap;
+}
+
+.chat-session-preview {
+font-size: 0.8rem;
+color: #5a7a8a;
+white-space: nowrap;
+overflow: hidden;
+text-overflow: ellipsis;
+}
+
+.chat-session.unread .chat-session-name,
+.chat-session.unread .chat-session-preview {
+font-weight: 800;
+color: #1d1d1d;
+}
+
+.chat-session.unread .chat-session-time {
+color: #017aa3;
+font-weight: 700;
+}
+
+.chat-session-dot {
+width: 0.6rem;
+height: 0.6rem;
+border-radius: 50%;
+background: #019bcf;
+flex-shrink: 0;
+}
+
+.chat-messages {
+flex: 1;
+overflow-y: auto;
+display: flex;
+flex-direction: column-reverse;
+gap: 0.5rem;
+padding: 0.9rem 1rem;
+background: #f4fafd;
+}
+
+.chat-bubble {
+max-width: 80%;
+padding: 0.5rem 0.75rem;
+border-radius: 14px;
+font-size: 0.88rem;
+line-height: 1.35;
+overflow-wrap: anywhere;
+}
+
+.chat-bubble.from-driver {
+align-self: flex-start;
+background: #ffffff;
+border: 1px solid rgba(1,155,207,0.25);
+border-bottom-left-radius: 4px;
+color: #1d1d1d;
+}
+
+.chat-bubble.from-manager {
+align-self: flex-end;
+background: #019bcf;
+color: #ffffff;
+border-bottom-right-radius: 4px;
+}
+
+.chat-bubble-time {
+font-size: 0.66rem;
+opacity: 0.7;
+margin-top: 0.2rem;
+}
+
+.chat-quick {
+display: flex;
+flex-wrap: wrap;
+gap: 0.35rem;
+padding: 0.6rem 1rem 0;
+}
+
+.chat-quick-reply {
+border: 1px solid rgba(1,155,207,0.4);
+background: #ffffff;
+color: #017aa3;
+border-radius: 999px;
+padding: 0.25rem 0.65rem;
+font-size: 0.75rem;
+cursor: pointer;
+}
+
+.chat-quick-reply:hover:not(:disabled) {
+background: rgba(1,155,207,0.1);
+}
+
+.chat-send-error {
+margin: 0.5rem 1rem 0;
+font-size: 0.78rem;
+color: #b3261e;
+}
+
+.chat-compose {
+display: flex;
+gap: 0.5rem;
+padding: 0.7rem 1rem 1rem;
+}
+
+.chat-compose input {
+flex: 1;
+min-width: 0;
+border: 1px solid rgba(1,155,207,0.35);
+border-radius: 10px;
+padding: 0.55rem 0.7rem;
+font-size: 0.9rem;
+}

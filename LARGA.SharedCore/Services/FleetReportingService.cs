@@ -90,9 +90,52 @@ public class FleetReportingService
             FuelVerification = BuildFuelVerification(recentFuelLogs),
             FleetMileageByTaxi = BuildFleetMileageByTaxi(recentShifts),
             MaintenanceExpenses = BuildMaintenanceExpenses(maintenance),
+            Utilization = BuildUtilization(taxis, activeShifts, recentShifts, now),
         };
 
         return snapshot;
+    }
+
+    // ---------------------------------------------------------------------
+    // Fleet utilization KPIs (LAR-84)
+    // ---------------------------------------------------------------------
+
+    private static FleetUtilization BuildUtilization(List<TaxiUnit> taxis, List<ShiftLog> activeShifts, List<ShiftLog> recentShifts, DateTime now)
+    {
+        List<TaxiUnit> operable = taxis
+            .Where(t => !string.Equals(t.Status, "Decommissioned", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(t => t.TaxiId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        HashSet<string> operableIds = operable.Select(t => t.TaxiId).ToHashSet();
+
+        // The last 7 Philippine calendar days, today included.
+        DateTime windowStart = now.ToPhilippineTime().Date.AddDays(1 - FleetUtilization.WindowDays) - PhilippineTime.Offset;
+        List<ShiftLog> windowShifts = recentShifts
+            .Where(s => s.ShiftStart is DateTime start && start >= windowStart && start <= now && operableIds.Contains(s.TaxiId))
+            .ToList();
+
+        Dictionary<string, int> daysByUnit = windowShifts
+            .GroupBy(s => s.TaxiId)
+            .ToDictionary(g => g.Key, g => g.Select(s => s.ShiftStart!.Value.ToPhilippineTime().Date).Distinct().Count());
+
+        List<ShiftLog> completed = windowShifts
+            .Where(s => s.ShiftEnd is DateTime end && end > s.ShiftStart!.Value)
+            .ToList();
+        List<ShiftLog> withMileage = completed.Where(s => ShiftKm(s) > 0).ToList();
+
+        return new FleetUtilization
+        {
+            OperableUnits = operable.Count,
+            UnitsOnRoadNow = activeShifts.Where(s => operableIds.Contains(s.TaxiId)).Select(s => s.TaxiId).Distinct().Count(),
+            UnitsUnderMaintenance = operable.Count(t => string.Equals(t.Status, "Under Maintenance", StringComparison.OrdinalIgnoreCase)),
+            UnitDaysWorked = daysByUnit.Values.Sum(),
+            ShiftsCompleted = completed.Count,
+            AverageShiftHours = completed.Count == 0 ? 0 : completed.Average(s => (s.ShiftEnd!.Value - s.ShiftStart!.Value).TotalHours),
+            AverageKmPerShift = withMileage.Count == 0 ? 0 : withMileage.Average(s => (double)ShiftKm(s)),
+            DaysWorkedByUnit = operable
+                .Select(t => new ChartPoint { Label = FormatUnitLabel(t.TaxiId), Value = daysByUnit.GetValueOrDefault(t.TaxiId) })
+                .ToList(),
+        };
     }
 
     // ---------------------------------------------------------------------
@@ -144,8 +187,14 @@ public class FleetReportingService
         };
     }
 
-    private static decimal SumMileage(IEnumerable<ShiftLog> shifts) =>
-        shifts.Sum(s => s.EndMileage > s.StartMileage ? s.EndMileage - s.StartMileage : 0);
+    // A taxi can't cover more than this in one shift - a larger gap means a mistyped or
+    // missing odometer reading (e.g. a start of 0), so that shift's distance is left out.
+    private const int MaxPlausibleShiftKm = 1000;
+
+    private static int ShiftKm(ShiftLog s) =>
+        s.EndMileage > s.StartMileage && s.EndMileage - s.StartMileage <= MaxPlausibleShiftKm ? s.EndMileage - s.StartMileage : 0;
+
+    private static decimal SumMileage(IEnumerable<ShiftLog> shifts) => shifts.Sum(ShiftKm);
 
     private static StatCard BuildOpenIncidents(List<MaintenanceRecord> maintenance, List<EmergencyAlert> alerts, DateTime now)
     {

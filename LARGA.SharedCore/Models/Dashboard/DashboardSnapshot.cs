@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace LARGA.SharedCore.Models.Dashboard;
@@ -28,6 +29,48 @@ public class DashboardSnapshot
 
     /// <summary>Maintenance TotalCost grouped by MaintenanceType.</summary>
     public List<ChartPoint> MaintenanceExpenses { get; set; } = new();
+
+    public FleetUtilization Utilization { get; set; } = new();
+}
+
+/// <summary>
+/// Fleet utilization KPIs (LAR-84). "Operable" units are every taxi except decommissioned
+/// ones; a unit "worked" a day when a shift on it started that Philippine calendar day.
+/// </summary>
+public class FleetUtilization
+{
+    public const int WindowDays = 7;
+
+    public int OperableUnits { get; set; }
+    public int UnitsOnRoadNow { get; set; }
+    public int UnitsUnderMaintenance { get; set; }
+
+    /// <summary>Unit-days with at least one shift in the last 7 days.</summary>
+    public int UnitDaysWorked { get; set; }
+
+    public int ShiftsCompleted { get; set; }
+    public double AverageShiftHours { get; set; }
+    public double AverageKmPerShift { get; set; }
+
+    /// <summary>Days each unit was on the road in the last 7 days.</summary>
+    public List<ChartPoint> DaysWorkedByUnit { get; set; } = new();
+
+    public double OnRoadPercent => OperableUnits == 0 ? 0 : 100.0 * UnitsOnRoadNow / OperableUnits;
+    public double UtilizationPercent => OperableUnits == 0 ? 0 : 100.0 * UnitDaysWorked / (OperableUnits * WindowDays);
+    public double AvailabilityPercent => OperableUnits == 0 ? 0 : 100.0 * (OperableUnits - UnitsUnderMaintenance) / OperableUnits;
+}
+
+/// <summary>One day of the Executive Dashboard's boundary collection chart - the same
+/// totals Daily Settlements shows for that day.</summary>
+public class CollectionDay
+{
+    public DateTime Date { get; set; }
+    public decimal Expected { get; set; }
+
+    /// <summary>Cash/GCash received plus overpayment credit applied.</summary>
+    public decimal Collected { get; set; }
+    public decimal Outstanding { get; set; }
+    public int Shifts { get; set; }
 }
 
 /// <summary>A single stat-card value with a trend badge (e.g. "+12%" or "-1").</summary>

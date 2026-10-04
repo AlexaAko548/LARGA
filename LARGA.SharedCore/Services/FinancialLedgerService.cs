@@ -64,17 +64,41 @@ public class FinancialLedgerService
         // query itself still runs in UTC (Firestore timestamps are UTC), only the boundary
         // instants are computed differently.
         DateTime phDate = dateUtc.ToPhilippineTime().Date;
-        DateTime dayStart = phDate - PhilippineTime.Offset;
-        DateTime dayEnd = dayStart.AddDays(1).AddTicks(-1);
 
         // The full history is needed, not just this day's shifts: overpayment credit from any
         // day pays off a driver's oldest unpaid shifts first (OwedAfterCredit), and this view
         // has to agree with the Master Debt Ledger about which shifts that covers.
+        SettlementContext context = await LoadSettlementContextAsync();
+        return BuildDailySettlement(phDate, context);
+    }
+
+    /// <summary>
+    /// The Daily Settlements totals for each of the last <paramref name="days"/> Philippine
+    /// calendar days (oldest first, ending today) - the Executive Dashboard's boundary
+    /// collection chart. Same figures as opening each day in Daily Settlements.
+    /// </summary>
+    public async Task<List<DailySettlementSnapshot>> GetCollectionTrendAsync(int days = 7)
+    {
+        SettlementContext context = await LoadSettlementContextAsync();
+        DateTime today = ShiftClock.UtcNow.ToPhilippineTime().Date;
+        return Enumerable.Range(0, Math.Max(1, days))
+            .Select(i => BuildDailySettlement(today.AddDays(i - days + 1), context))
+            .ToList();
+    }
+
+    /// <summary>Everything a day's settlement is computed from, loaded once.</summary>
+    private sealed record SettlementContext(
+        List<ShiftLog> Shifts,
+        List<BoundaryPayment> Payments,
+        List<UserProfile> Drivers,
+        decimal DefaultRate,
+        Dictionary<string, ShiftCharge> ChargeByShift,
+        Dictionary<string, decimal> OwedAfterCredit);
+
+    private async Task<SettlementContext> LoadSettlementContextAsync()
+    {
         (List<ShiftLog> allShifts, List<BoundaryPayment> payments, _, List<UserProfile> drivers) = await GetFullLedgerDataAsync();
         decimal defaultRate = await GetDefaultBoundaryRateAsync();
-        List<ShiftLog> todaysShifts = allShifts
-            .Where(s => s.ShiftStart is DateTime start && start >= dayStart && start <= dayEnd)
-            .ToList();
 
         // Per shift: what it still owes after credit (shifts not listed owe nothing).
         List<ShiftCharge> charges = BuildCharges(allShifts, payments, defaultRate);
@@ -89,6 +113,20 @@ public class FinancialLedgerService
         Dictionary<string, ShiftCharge> chargeByShift = charges
             .Where(c => c.Shift is not null)
             .ToDictionary(c => c.Shift!.DocumentId);
+
+        return new SettlementContext(allShifts, payments, drivers, defaultRate, chargeByShift, owedAfterCredit);
+    }
+
+    private static DailySettlementSnapshot BuildDailySettlement(DateTime phDate, SettlementContext context)
+    {
+        DateTime dayStart = phDate - PhilippineTime.Offset;
+        DateTime dayEnd = dayStart.AddDays(1).AddTicks(-1);
+
+        (List<ShiftLog> allShifts, List<BoundaryPayment> payments, List<UserProfile> drivers, decimal defaultRate,
+            Dictionary<string, ShiftCharge> chargeByShift, Dictionary<string, decimal> owedAfterCredit) = context;
+        List<ShiftLog> todaysShifts = allShifts
+            .Where(s => s.ShiftStart is DateTime start && start >= dayStart && start <= dayEnd)
+            .ToList();
 
         var rows = todaysShifts.Select(shift =>
         {

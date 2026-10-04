@@ -111,9 +111,11 @@ service cloud.firestore {
       allow write: if isDriver();
     }
 
+    // Driver SOS (Active Shift screen) - a driver can only raise one as themselves.
+    // Resolved from ManagerWeb's SOS Dispatch (Admin SDK) or the manager's Alert Center.
     match /emergency_alerts/{alertId} {
       allow read: if isManager();
-      allow create: if isDriver();
+      allow create: if isDriver() && request.resource.data.driverId == request.auth.uid;
       allow update: if isManager();
     }
 
