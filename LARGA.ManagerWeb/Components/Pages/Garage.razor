@@ -10,6 +10,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject GarageService GarageService
+@inject InventoryAuditService InventoryAudit
 
 <PageTitle>Maintenance Scheduler</PageTitle>
 
@@ -114,6 +115,7 @@ else if (_isAuthorized)
                                 <span class="day-badge">Day @w.DayNumber</span>
                             </div>
                             <div class="report-card-actions">
+                                <button class="outline-btn" type="button" disabled="@_isBusy" @onclick="() => OpenPartsModalAsync(w)">+ Log Parts</button>
                                 <button class="solid-btn" type="button" disabled="@_isBusy" @onclick="() => MarkResolvedAsync(w.MaintenanceId)">Mark as Resolved</button>
                             </div>
                         </article>
@@ -279,6 +281,64 @@ else if (_isAuthorized)
     </div>
 }
 
+@if (_showPartsModal && _partsWorkOrder is not null)
+{
+    <div class="report-overlay" @onclick="CloseLogPartsModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Log Parts Used</h3>
+                <button type="button" class="close-modal" @onclick="CloseLogPartsModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="ticket-chip-row">
+                    <span class="ticket-chip">@_partsWorkOrder.UnitLabel</span>
+                    <span class="ticket-chip">@_partsWorkOrder.IssueTitle</span>
+                </div>
+
+                @if (_availableParts is null)
+                {
+                    <div class="table-empty">Loading spare parts...</div>
+                }
+                else if (_availableParts.Count == 0)
+                {
+                    <div class="table-empty">No spare parts in inventory yet. Add them on the Inventory page first.</div>
+                }
+                else
+                {
+                    <div class="report-section">
+                        <label>Parts used</label>
+                        @foreach (PartUsageRow row in _partRows)
+                        {
+                            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+                                <select class="text-input" style="flex:1" @bind="row.PartId">
+                                    <option value="">Select a part</option>
+                                    @foreach (SparePart part in _availableParts)
+                                    {
+                                        <option value="@part.PartId">@part.PartName (@part.StockQuantity @part.Unit left)</option>
+                                    }
+                                </select>
+                                <input class="text-input" style="width:90px" type="number" min="1" @bind="row.Quantity" />
+                                <button class="cancel-btn" type="button" @onclick="() => RemovePartRow(row)">Remove</button>
+                            </div>
+                        }
+                        <button class="outline-btn" type="button" @onclick="AddPartRow">+ Add another part</button>
+                    </div>
+                    <div class="info-banner">Stock is deducted when you confirm. A part that drops to its minimum triggers a low-stock alert.</div>
+                }
+
+                @if (_partsError is not null)
+                {
+                    <div class="report-error">@_partsError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="CloseLogPartsModal">Cancel</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingParts || _availableParts is null || _availableParts.Count == 0)" @onclick="ConfirmLogPartsAsync">@(_isSavingParts ? "Saving…" : "Confirm & Deduct")</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_showHistoryModal)
 {
     <div class="report-overlay" @onclick="CloseHistoryModal">
@@ -375,6 +435,20 @@ else if (_isAuthorized)
     private bool _showHistoryModal;
     private List<HistoryEntry>? _history;
 
+    private string _managerUserId = string.Empty;
+    private bool _showPartsModal;
+    private WorkOrderEntry? _partsWorkOrder;
+    private List<SparePart>? _availableParts;
+    private List<PartUsageRow> _partRows = new();
+    private bool _isSavingParts;
+    private string? _partsError;
+
+    private class PartUsageRow
+    {
+        public string PartId { get; set; } = string.Empty;
+        public int Quantity { get; set; } = 1;
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
@@ -385,6 +459,10 @@ else if (_isAuthorized)
         _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
         var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
         _isAuthorized = result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True;
+        if (_isAuthorized && result.TryGetProperty("uid", out var uidProp) && uidProp.ValueKind == JsonValueKind.String)
+        {
+            _managerUserId = uidProp.GetString() ?? string.Empty;
+        }
         _isCheckingAccess = false;
 
         if (!_isAuthorized)
@@ -506,6 +584,107 @@ else if (_isAuthorized)
         finally
         {
             _isBusy = false;
+        }
+    }
+
+    private async Task OpenPartsModalAsync(WorkOrderEntry workOrder)
+    {
+        _partsWorkOrder = workOrder;
+        _partRows = new List<PartUsageRow> { new() };
+        _partsError = null;
+        _availableParts = null;
+        _showPartsModal = true;
+
+        try
+        {
+            _availableParts = await InventoryAudit.GetSparePartsAsync();
+        }
+        catch (Exception ex)
+        {
+            _partsError = $"Spare parts unavailable: {ex.Message}";
+            _availableParts = new List<SparePart>();
+        }
+    }
+
+    private void CloseLogPartsModal()
+    {
+        _showPartsModal = false;
+        _partsWorkOrder = null;
+        _availableParts = null;
+        _partRows = new List<PartUsageRow>();
+        _partsError = null;
+    }
+
+    private void AddPartRow() => _partRows.Add(new PartUsageRow());
+
+    private void RemovePartRow(PartUsageRow row)
+    {
+        _partRows.Remove(row);
+        if (_partRows.Count == 0)
+        {
+            _partRows.Add(new PartUsageRow());
+        }
+    }
+
+    private async Task ConfirmLogPartsAsync()
+    {
+        if (_partsWorkOrder is null || _availableParts is null)
+        {
+            return;
+        }
+
+        _partsError = null;
+
+        // Add up quantities per part first, so a part listed on two rows is checked against stock once.
+        var totals = new Dictionary<string, int>();
+        foreach (PartUsageRow row in _partRows)
+        {
+            if (string.IsNullOrWhiteSpace(row.PartId))
+            {
+                _partsError = "Pick a part for every row, or remove the empty ones.";
+                return;
+            }
+            if (row.Quantity <= 0)
+            {
+                _partsError = "Each quantity must be more than zero.";
+                return;
+            }
+            totals[row.PartId] = totals.GetValueOrDefault(row.PartId) + row.Quantity;
+        }
+
+        // The service clamps stock at zero rather than refusing, so block over-use here.
+        var usage = new List<(string PartId, int Quantity)>();
+        foreach ((string partId, int quantity) in totals)
+        {
+            SparePart? part = _availableParts.FirstOrDefault(p => p.PartId == partId);
+            if (part is null)
+            {
+                _partsError = "One of the selected parts no longer exists. Reopen this form and try again.";
+                return;
+            }
+            if (quantity > part.StockQuantity)
+            {
+                _partsError = $"Only {part.StockQuantity} {part.Unit} of {part.PartName} left in stock.";
+                return;
+            }
+            usage.Add((partId, quantity));
+        }
+
+        _isSavingParts = true;
+        try
+        {
+            GarageActionResult result = await GarageService.LogPartsUsedAsync(_partsWorkOrder.MaintenanceId, usage, _managerUserId);
+            if (!result.Ok)
+            {
+                _partsError = result.ErrorMessage ?? "Could not log these parts.";
+                return;
+            }
+
+            CloseLogPartsModal();
+        }
+        finally
+        {
+            _isSavingParts = false;
         }
     }
 
