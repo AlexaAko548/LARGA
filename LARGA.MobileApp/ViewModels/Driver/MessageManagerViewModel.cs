@@ -37,6 +37,21 @@ public class MessageManagerViewModel : INotifyPropertyChanged
     }
 
     public string SubmitIcon => string.IsNullOrWhiteSpace(NewMessage) ? "like_icon.png" : "send_icon.png";
+
+    // False until the first snapshot arrives, so the empty-state text doesn't flash before messages load.
+    private bool _hasLoadedMessages;
+    public bool HasLoadedMessages
+    {
+        get => _hasLoadedMessages;
+        private set
+        {
+            if (_hasLoadedMessages != value)
+            {
+                _hasLoadedMessages = value;
+                OnPropertyChanged();
+            }
+        }
+    }
     public ICommand SendMessageCommand { get; }
     public ICommand CallManagerCommand { get; }
     public Action? ScrollToBottom { get; set; }
@@ -63,6 +78,7 @@ public class MessageManagerViewModel : INotifyPropertyChanged
                     Messages.Add(msg);
                 }
 
+                HasLoadedMessages = true;
                 ScrollToBottom?.Invoke();
             });
         });

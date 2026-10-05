@@ -102,7 +102,9 @@ public class DefectReportDetailViewModel : BindableObject
 
             if (!string.IsNullOrWhiteSpace(doc.Data.SupportingPhotoUrl))
             {
-                Photo = ImageSource.FromFile(doc.Data.SupportingPhotoUrl);
+                // SupportingPhotoUrl is a remote Firebase Storage URL, not a local file path -
+                // FromFile can't load http(s) URLs (same fix as FuelReportDetailViewModel).
+                Photo = ImageSource.FromUri(new Uri(doc.Data.SupportingPhotoUrl));
             }
         }
         catch (Exception ex)
