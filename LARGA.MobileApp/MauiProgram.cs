@@ -61,6 +61,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<INotificationService, NotificationService>();
         builder.Services.AddSingleton<IMaintenanceService, MaintenanceService>();
         builder.Services.AddSingleton<IFuelService, FuelService>();
+        builder.Services.AddSingleton<IGpsTelemetryService, GpsTelemetryService>();
 
 #if ANDROID
         builder.Services.AddSingleton<IOcrService, LARGA.MobileApp.Platforms.Android.Services.AndroidOcrService>();
