@@ -45,6 +45,24 @@ public class ChatsDetailViewModel : INotifyPropertyChanged
         {
             _driverName = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(EmptyStateText));
+        }
+    }
+
+    public string EmptyStateText => $"Send your first message to {DriverName}...";
+
+    // False until the first snapshot arrives, so the empty-state text doesn't flash before messages load.
+    private bool _hasLoadedMessages;
+    public bool HasLoadedMessages
+    {
+        get => _hasLoadedMessages;
+        private set
+        {
+            if (_hasLoadedMessages != value)
+            {
+                _hasLoadedMessages = value;
+                OnPropertyChanged();
+            }
         }
     }
 
@@ -91,6 +109,7 @@ public class ChatsDetailViewModel : INotifyPropertyChanged
                     Messages.Add(msg);
                 }
 
+                HasLoadedMessages = true;
                 ScrollToBottom?.Invoke();
             });
         });
@@ -105,7 +124,7 @@ public class ChatsDetailViewModel : INotifyPropertyChanged
                 Text = "👍",
                 IsDriver = false // Sent by manager
             };
-            await _chatService.SendMessageAsync(DriverId, likeMessage);
+            await _chatService.SendMessageAsync(DriverId, likeMessage, DriverName);
             return;
         }
 
@@ -116,7 +135,7 @@ public class ChatsDetailViewModel : INotifyPropertyChanged
         };
 
         NewMessage = string.Empty;
-        await _chatService.SendMessageAsync(DriverId, message);
+        await _chatService.SendMessageAsync(DriverId, message, DriverName);
     }
 
     private async void OnCallDriver()

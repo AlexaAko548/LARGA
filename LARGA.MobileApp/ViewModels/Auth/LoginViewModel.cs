@@ -18,6 +18,7 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
     private string _password = string.Empty;
     private string _errorMessage = string.Empty;
     private bool _rememberMe;
+    private bool _isBusy;
     private string _expectedRole = "Driver"; // Fallback default
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -31,6 +32,17 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
         get => _rememberMe;
         set => SetProperty(ref _rememberMe, value);
     }
+
+    public bool IsBusy
+    {
+        get => _isBusy;
+        set
+        {
+            SetProperty(ref _isBusy, value);
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsNotBusy)));
+        }
+    }
+    public bool IsNotBusy => !_isBusy;
 
     public ICommand LoginCommand { get; }
     public ICommand ForgotPasswordCommand { get; }
@@ -74,58 +86,95 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
 
     private async Task OnLoginAsync()
     {
+        if (IsBusy) return; // ignore repeat taps while a sign-in is in flight
+
         if (string.IsNullOrWhiteSpace(Email) || string.IsNullOrWhiteSpace(Password))
         {
-            ErrorMessage = "Please enter both email and password.";
+            ShowError("Please enter both email and password.");
             return;
         }
 
+        IsBusy = true;
+        ShowError(string.Empty);
         try
         {
-            ErrorMessage = string.Empty;
+            // Throws AuthFailedException with a user-facing message on any failure.
             var userId = await _authService.LoginAsync(Email, Password);
 
-            if (!string.IsNullOrEmpty(userId))
+            string role;
+            try
             {
-                // Save or clear credentials using the prefixed keys
-                if (RememberMe)
-                {
-                    Preferences.Set($"{_expectedRole}_RememberMe", true);
-                    Preferences.Set($"{_expectedRole}_SavedEmail", Email);
-                    await SecureStorage.SetAsync($"{_expectedRole}_SavedPassword", Password);
-                }
-                else
-                {
-                    Preferences.Remove($"{_expectedRole}_RememberMe");
-                    Preferences.Remove($"{_expectedRole}_SavedEmail");
-                    SecureStorage.Remove($"{_expectedRole}_SavedPassword");
-                }
-
-                var role = await _authService.GetUserRoleAsync(userId);
-
-                if (role?.Equals("Driver", StringComparison.OrdinalIgnoreCase) == true)
-                {
-                    MainThread.BeginInvokeOnMainThread(async () => await Shell.Current.GoToAsync("//driver-dashboard"));
-                }
-                else if (role?.Equals("Manager", StringComparison.OrdinalIgnoreCase) == true)
-                {
-                    MainThread.BeginInvokeOnMainThread(async () => await Shell.Current.GoToAsync("//manager-dashboard"));
-                }
-                else
-                {
-                    ErrorMessage = "Unrecognized user role.";
-                }
+                role = await _authService.GetUserRoleAsync(userId);
             }
-            else
+            catch (Exception ex)
             {
-                ErrorMessage = "Invalid credentials.";
+                System.Diagnostics.Debug.WriteLine($"Role lookup failed: {ex}");
+                await SignOutQuietlyAsync();
+                ShowError($"Signed in, but could not load your profile: {ex.Message}");
+                return;
             }
+
+            string? route = role.Equals("Driver", StringComparison.OrdinalIgnoreCase) ? "//driver-dashboard"
+                : role.Equals("Manager", StringComparison.OrdinalIgnoreCase) ? "//manager-dashboard"
+                : null;
+
+            if (route is null)
+            {
+                // Don't leave a half-signed-in session behind; LandingPage would silently ignore it.
+                await SignOutQuietlyAsync();
+                ShowError(string.IsNullOrEmpty(role)
+                    ? "Your account has no role assigned (users/{uid}.role). Please contact your manager."
+                    : $"Unrecognized user role \"{role}\".");
+                return;
+            }
+
+            // Only persist credentials once the login fully succeeded.
+            await SaveOrClearCredentialsAsync();
+
+            // Awaited (not fire-and-forget) so navigation/page-construction failures land in the catch below.
+            await MainThread.InvokeOnMainThreadAsync(() => Shell.Current.GoToAsync(route));
+        }
+        catch (AuthFailedException ex)
+        {
+            ShowError(ex.Message);
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Login failed: {ex.Message}";
+            System.Diagnostics.Debug.WriteLine($"Login flow error: {ex}");
+            ShowError($"Login failed ({ex.GetType().Name}): {ex.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
         }
     }
+
+    private async Task SaveOrClearCredentialsAsync()
+    {
+        // Save or clear credentials using the prefixed keys
+        if (RememberMe)
+        {
+            Preferences.Set($"{_expectedRole}_RememberMe", true);
+            Preferences.Set($"{_expectedRole}_SavedEmail", Email);
+            await SecureStorage.SetAsync($"{_expectedRole}_SavedPassword", Password);
+        }
+        else
+        {
+            Preferences.Remove($"{_expectedRole}_RememberMe");
+            Preferences.Remove($"{_expectedRole}_SavedEmail");
+            SecureStorage.Remove($"{_expectedRole}_SavedPassword");
+        }
+    }
+
+    private async Task SignOutQuietlyAsync()
+    {
+        try { await _authService.SignOutAsync(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Sign-out after failed login failed: {ex}"); }
+    }
+
+    // Bound properties must change on the UI thread or Android may drop/reject the update.
+    private void ShowError(string message) =>
+        MainThread.BeginInvokeOnMainThread(() => ErrorMessage = message);
 
     protected void SetProperty<T>(ref T backingStore, T value, [CallerMemberName] string propertyName = "")
     {

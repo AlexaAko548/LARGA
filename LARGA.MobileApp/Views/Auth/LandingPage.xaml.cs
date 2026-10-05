@@ -28,7 +28,17 @@ public partial class LandingPage : ContentPage
         if (currentUser != null)
         {
             // 2. Fetch their role to know which dashboard to load
-            var role = await _authService.GetUserRoleAsync(currentUser.Uid);
+            string role;
+            try
+            {
+                role = await _authService.GetUserRoleAsync(currentUser.Uid);
+            }
+            catch (Exception ex)
+            {
+                // Offline/permission errors: stay on Landing so the user can log in manually.
+                System.Diagnostics.Debug.WriteLine($"Auto-login role lookup failed: {ex}");
+                return;
+            }
 
             // 3. Auto-route them, bypassing the login screens completely
             if (role?.Equals("Driver", StringComparison.OrdinalIgnoreCase) == true)

@@ -1,4 +1,6 @@
 @page "/register"
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
 @using System.ComponentModel.DataAnnotations
 @rendermode InteractiveServer
 @inject NavigationManager Navigation
