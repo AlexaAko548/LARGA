@@ -74,7 +74,13 @@ public class InventoryAuditService
         return part;
     }
 
-    public async Task<SparePart?> DeductPartAsync(string partId, int amount = 1, string? actorUserId = null)
+    /// <summary>
+    /// Takes stock out (it was used) and records the usage in maintenance_parts_used - the
+    /// part's usage history - at the part's current unit price, linked to the maintenance
+    /// ticket it went into when one is given.
+    /// </summary>
+    public async Task<SparePart?> DeductPartAsync(string partId, int amount = 1, string? actorUserId = null,
+        string? maintenanceId = null, string? note = null)
     {
         if (string.IsNullOrWhiteSpace(partId))
         {
@@ -83,10 +89,18 @@ public class InventoryAuditService
 
         int deduction = Math.Max(1, amount);
 
+        MaintenanceRecord? ticket = null;
+        if (!string.IsNullOrWhiteSpace(maintenanceId))
+        {
+            DocumentSnapshot ticketDoc = await Db.Collection("maintenance_logs").Document(maintenanceId).GetSnapshotAsync();
+            ticket = ticketDoc.Exists ? ticketDoc.ConvertTo<MaintenanceRecord>() : null;
+        }
+
         SparePart? updated = await Db.RunTransactionAsync(async transaction =>
         {
             DocumentReference doc = Db.Collection("spare_parts").Document(partId);
             DocumentReference auditDoc = Db.Collection("audit_logs").Document();
+            DocumentReference usageDoc = Db.Collection("maintenance_parts_used").Document();
             DocumentSnapshot snapshot = await transaction.GetSnapshotAsync(doc);
 
             if (!snapshot.Exists)
@@ -97,15 +111,33 @@ public class InventoryAuditService
             SparePart part = snapshot.ConvertTo<SparePart>();
             part.PartId = snapshot.Id;
 
+            // Only what was actually in stock counts as used.
+            int used = Math.Min(deduction, Math.Max(0, part.StockQuantity));
             int updatedQuantity = Math.Max(0, part.StockQuantity - deduction);
             transaction.Update(doc, "stockQuantity", updatedQuantity);
 
+            if (used > 0)
+            {
+                transaction.Set(usageDoc, new MaintenancePartsUsed
+                {
+                    MaintenanceId = ticket?.MaintenanceId ?? string.Empty,
+                    PartId = part.PartId,
+                    QuantityUsed = used,
+                    UsedAt = DateTime.UtcNow,
+                    UnitCost = (double)part.UnitPrice,
+                    TaxiId = string.IsNullOrWhiteSpace(ticket?.TaxiId) ? null : ticket.TaxiId,
+                    RecordedBy = string.IsNullOrWhiteSpace(actorUserId) ? null : actorUserId,
+                    Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim(),
+                });
+            }
+
             string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+            string usedFor = ticket is null ? string.Empty : $" for {ticket.TaxiId} - {ticket.IssueTitle}";
             var audit = new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "InventoryStockDeducted",
-                AuditLogDetails = $"Deducted {deduction} {unit} from '{part.PartName}'. Stock: {part.StockQuantity} -> {updatedQuantity}.",
+                AuditLogDetails = $"Deducted {deduction} {unit} from '{part.PartName}'{usedFor}. Stock: {part.StockQuantity} -> {updatedQuantity}.",
                 Timestamp = DateTime.UtcNow,
             };
             transaction.Set(auditDoc, audit);
@@ -128,7 +160,9 @@ public class InventoryAuditService
         return updated;
     }
 
-    public async Task<SparePart?> AddPartStockAsync(string partId, int amount = 1, string? actorUserId = null)
+    /// <summary>Restocks a part. <paramref name="unitPrice"/>, when given, becomes the part's
+    /// unit price from now on (past usage keeps the price it was recorded at).</summary>
+    public async Task<SparePart?> AddPartStockAsync(string partId, int amount = 1, string? actorUserId = null, decimal? unitPrice = null)
     {
         if (string.IsNullOrWhiteSpace(partId))
         {
@@ -152,14 +186,22 @@ public class InventoryAuditService
             part.PartId = snapshot.Id;
 
             int updatedQuantity = Math.Max(0, part.StockQuantity + increment);
-            transaction.Update(doc, "stockQuantity", updatedQuantity);
+            var updates = new Dictionary<string, object> { ["stockQuantity"] = updatedQuantity };
+            string priceNote = string.Empty;
+            if (unitPrice is decimal price && price >= 0 && price != part.UnitPrice)
+            {
+                updates["unitPrice"] = (double)price;
+                priceNote = $" Unit price: ₱{part.UnitPrice:0.00} -> ₱{price:0.00}.";
+                part.UnitPrice = price;
+            }
+            transaction.Update(doc, updates);
 
             string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
             var audit = new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "InventoryStockAdded",
-                AuditLogDetails = $"Added {increment} {unit} to '{part.PartName}'. Stock: {part.StockQuantity} -> {updatedQuantity}.",
+                AuditLogDetails = $"Added {increment} {unit} to '{part.PartName}'. Stock: {part.StockQuantity} -> {updatedQuantity}.{priceNote}",
                 Timestamp = DateTime.UtcNow,
             };
             transaction.Set(auditDoc, audit);
@@ -173,6 +215,84 @@ public class InventoryAuditService
             return part;
         });
     }
+
+    /// <summary>
+    /// One part's usage history (LAR-84): every maintenance_parts_used row for it, newest
+    /// first, with the unit and maintenance ticket it went into. Rows written before usage
+    /// carried a date/unit cost (seed data) take them from the maintenance record and the
+    /// part's current price, and are marked IsCostEstimated.
+    /// </summary>
+    public async Task<PartUsageHistory> GetPartUsageHistoryAsync(SparePart part)
+    {
+        QuerySnapshot snapshot = await Db.Collection("maintenance_parts_used")
+            .WhereEqualTo("partId", part.PartId)
+            .GetSnapshotAsync();
+        List<MaintenancePartsUsed> usages = ConvertDocuments<MaintenancePartsUsed>(snapshot, "maintenance_parts_used");
+
+        var tickets = new Dictionary<string, MaintenanceRecord>();
+        foreach (string id in usages.Select(u => u.MaintenanceId).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct())
+        {
+            DocumentSnapshot doc = await Db.Collection("maintenance_logs").Document(id).GetSnapshotAsync();
+            if (doc.Exists)
+            {
+                try
+                {
+                    tickets[id] = doc.ConvertTo<MaintenanceRecord>();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Skipping maintenance_logs/{Id} in part history", id);
+                }
+            }
+        }
+
+        List<PartUsageEntry> entries = usages.Select(u =>
+        {
+            MaintenanceRecord? ticket = tickets.GetValueOrDefault(u.MaintenanceId);
+            decimal unitCost = u.UnitCost is double cost ? (decimal)cost : part.UnitPrice;
+            return new PartUsageEntry
+            {
+                UsedAt = u.UsedAt ?? ticket?.DateResolved ?? ticket?.DateLogged,
+                Quantity = u.QuantityUsed,
+                UnitCost = unitCost,
+                IsCostEstimated = u.UnitCost is null,
+                TaxiId = !string.IsNullOrWhiteSpace(u.TaxiId) ? u.TaxiId : ticket?.TaxiId,
+                TicketTitle = ticket?.IssueTitle,
+                TicketType = ticket is null ? null : MaintenanceTypeLabel(ticket.MaintenanceType),
+                Note = u.Note,
+            };
+        })
+        .OrderByDescending(e => e.UsedAt ?? DateTime.MinValue)
+        .ToList();
+
+        return new PartUsageHistory { Entries = entries };
+    }
+
+    /// <summary>Maintenance tickets a deducted part can be booked against - the open ones
+    /// first, then the most recently logged.</summary>
+    public async Task<List<MaintenanceTicketOption>> GetTicketOptionsAsync(int limit = 40)
+    {
+        QuerySnapshot snapshot = await Db.Collection("maintenance_logs").GetSnapshotAsync();
+        return ConvertDocuments<MaintenanceRecord>(snapshot, "maintenance_logs")
+            .Where(m => !string.Equals(m.Status, "Dismissed", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(m => m.DateResolved is null ? 0 : 1)
+            .ThenByDescending(m => m.DateLogged)
+            .Take(limit)
+            .Select(m => new MaintenanceTicketOption
+            {
+                MaintenanceId = m.MaintenanceId,
+                Label = $"{m.TaxiId} · {(string.IsNullOrWhiteSpace(m.IssueTitle) ? MaintenanceTypeLabel(m.MaintenanceType) : m.IssueTitle)}"
+                    + $" · {m.DateLogged.ToPhilippineTime():MMM d}{(m.DateResolved is null ? " (open)" : "")}",
+            })
+            .ToList();
+    }
+
+    private static string MaintenanceTypeLabel(MaintenanceType type) => type switch
+    {
+        MaintenanceType.BreakdownRepair => "Breakdown repair",
+        MaintenanceType.AccidentCorrection => "Accident correction",
+        _ => "Routine checkup",
+    };
 
     public async Task<List<AuditLogListItem>> GetAuditLogsAsync(int limit = DefaultAuditLogLimit)
     {
@@ -309,6 +429,10 @@ public class InventoryAuditService
                 {
                     part.PartId = doc.Id;
                 }
+                if (item is MaintenanceRecord record && string.IsNullOrWhiteSpace(record.MaintenanceId))
+                {
+                    record.MaintenanceId = doc.Id;
+                }
                 results.Add(item);
             }
             catch (Exception ex)
@@ -319,6 +443,37 @@ public class InventoryAuditService
         }
 
         return results;
+    }
+
+    public class PartUsageEntry
+    {
+        public DateTime? UsedAt { get; set; }
+        public int Quantity { get; set; }
+        public decimal UnitCost { get; set; }
+        public decimal LineCost => Quantity * UnitCost;
+
+        /// <summary>The row predates recorded unit costs - priced at the part's current unit price.</summary>
+        public bool IsCostEstimated { get; set; }
+
+        public string? TaxiId { get; set; }
+        public string? TicketTitle { get; set; }
+        public string? TicketType { get; set; }
+        public string? Note { get; set; }
+    }
+
+    public class PartUsageHistory
+    {
+        public List<PartUsageEntry> Entries { get; set; } = new();
+        public int TotalQuantity => Entries.Sum(e => e.Quantity);
+        public decimal TotalCost => Entries.Sum(e => e.LineCost);
+        public decimal AverageUnitCost => TotalQuantity == 0 ? 0 : TotalCost / TotalQuantity;
+        public DateTime? LastUsed => Entries.Max(e => e.UsedAt);
+    }
+
+    public class MaintenanceTicketOption
+    {
+        public string MaintenanceId { get; set; } = string.Empty;
+        public string Label { get; set; } = string.Empty;
     }
 
     public class AuditLogListItem

@@ -1,6 +1,7 @@
 using Microsoft.Maui.Controls;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
+using LARGA.MobileApp.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -26,49 +27,42 @@ public class DebtDetailViewModel : BindableObject
         try
         {
             DebtHistory.Clear();
-            var tempDebts = new List<DebtRecord>();
 
-            // Querying using camelCase "driverId" as it is standard, 
-            // but you may need to change to "DriverId" if the query returns empty.
-            var snapshot = await CrossFirebaseFirestore.Current
-                .GetCollection("debt_adjustments")
-                .WhereEqualsTo("driverId", user.Uid)
-                .GetDocumentsAsync<Dictionary<string, object>>();
+            // What makes up the balance on the Ledger screen: each shift that still owes
+            // something, and each manual adjustment (see DriverDebtCalculator).
+            var ledger = await DriverDebtCalculator.LoadAsync(user.Uid);
 
-            foreach (var doc in snapshot.Documents)
-            {
-                if (doc.Data != null)
+            var records = ledger.Shifts
+                .Where(s => s.Outstanding > 0)
+                .Select(s => new DebtRecord
                 {
-                    // Safely extract Timestamp
-                    string dateStr = "N/A";
-                    object timeObj = doc.Data.ContainsKey("Timestamp") ? doc.Data["Timestamp"] :
-                                     doc.Data.ContainsKey("timestamp") ? doc.Data["timestamp"] : null;
+                    DateStr = s.ShiftStartUtc == DateTime.MinValue ? "N/A" : s.ShiftStartUtc.ToLocalTime().ToString("M/dd"),
+                    Amount = $"{s.Outstanding:N2}",
+                    Label = string.IsNullOrEmpty(s.TaxiId) ? "unpaid boundary" : $"unpaid boundary, {s.TaxiId}",
+                    RawDate = s.ShiftStartUtc,
+                })
+                .Concat(ledger.Adjustments.Select(a => new DebtRecord
+                {
+                    DateStr = a.TimestampUtc == DateTime.MinValue ? "N/A" : a.TimestampUtc.ToLocalTime().ToString("M/dd"),
+                    Amount = $"{a.Amount:N2}",
+                    Label = a.Amount >= 0 ? "penalty" : "credit",
+                    RawDate = a.TimestampUtc,
+                }))
+                .OrderByDescending(d => d.RawDate)
+                .ToList();
 
-                    if (timeObj is DateTime dt)
-                    {
-                        dateStr = dt.ToLocalTime().ToString("M/dd");
-                    }
-
-                    // Safely extract Amount
-                    object amountObj = doc.Data.ContainsKey("Amount") ? doc.Data["Amount"] :
-                                       doc.Data.ContainsKey("amount") ? doc.Data["amount"] : null;
-
-                    decimal amount = amountObj != null ? Convert.ToDecimal(amountObj) : 0.00m;
-
-                    tempDebts.Add(new DebtRecord
-                    {
-                        DateStr = dateStr,
-                        Amount = $"{amount:N2}",
-                        // Store actual DateTime for sorting purposes
-                        RawDate = timeObj is DateTime rawDt ? rawDt : DateTime.MinValue
-                    });
-                }
+            if (ledger.Credit > 0)
+            {
+                records.Insert(0, new DebtRecord
+                {
+                    DateStr = "Credit",
+                    Amount = $"-{ledger.Credit:N2}",
+                    Label = "paid above a shift's boundary, applied to the oldest",
+                    RawDate = DateTime.MaxValue,
+                });
             }
 
-            // Sort newest debts first
-            var sortedDebts = tempDebts.OrderByDescending(d => d.RawDate).ToList();
-
-            foreach (var debt in sortedDebts)
+            foreach (var debt in records)
             {
                 DebtHistory.Add(debt);
             }
@@ -86,6 +80,7 @@ public class DebtRecord
 {
     public string DateStr { get; set; }
     public string Amount { get; set; }
+    public string Label { get; set; } = string.Empty;
     public DateTime RawDate { get; set; } // Used for sorting, not displayed
-    public string DisplayText => $"{DateStr} - ₱ {Amount}";
+    public string DisplayText => string.IsNullOrEmpty(Label) ? $"{DateStr} - ₱ {Amount}" : $"{DateStr} - ₱ {Amount} ({Label})";
 }

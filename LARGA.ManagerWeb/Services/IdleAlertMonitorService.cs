@@ -25,14 +25,27 @@ public class IdleAlertMonitorService : BackgroundService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(3);
 
+    // The unpaid-debt check re-sums every driver's full shift/payment history, and a flag
+    // measured in days doesn't need minute precision - so it runs every 30 minutes, not every tick.
+    private static readonly TimeSpan DebtCheckInterval = TimeSpan.FromMinutes(30);
+    private DateTime _lastDebtCheckUtc = DateTime.MinValue;
+
     private readonly FleetReportingService _fleetReporting;
     private readonly AlertService _alertService;
+    private readonly ShiftDeadlineService _shiftDeadlines;
+    private readonly FinancialLedgerService _ledger;
+    private readonly ClockInApprovalService _clockInApprovals;
+    private readonly SosDispatchService _sosDispatch;
     private readonly ILogger<IdleAlertMonitorService> _logger;
 
-    public IdleAlertMonitorService(FleetReportingService fleetReporting, AlertService alertService, ILogger<IdleAlertMonitorService> logger)
+    public IdleAlertMonitorService(FleetReportingService fleetReporting, AlertService alertService, ShiftDeadlineService shiftDeadlines, FinancialLedgerService ledger, ClockInApprovalService clockInApprovals, SosDispatchService sosDispatch, ILogger<IdleAlertMonitorService> logger)
     {
         _fleetReporting = fleetReporting;
         _alertService = alertService;
+        _shiftDeadlines = shiftDeadlines;
+        _ledger = ledger;
+        _clockInApprovals = clockInApprovals;
+        _sosDispatch = sosDispatch;
         _logger = logger;
     }
 
@@ -40,6 +53,50 @@ public class IdleAlertMonitorService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            // End-of-day rules first (10 PM late-return alerts, 6 AM auto-close), so a shift
+            // closed as a missed clock-out isn't then reported as idle on the same tick.
+            try
+            {
+                await _shiftDeadlines.ProcessOpenShiftsAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Shift deadline check failed");
+            }
+
+            // Driver SOS -> a bell alert each (the SOS Dispatch page itself refreshes every 10 s).
+            try
+            {
+                await _sosDispatch.RaiseBellAlertsAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SOS alert check failed");
+            }
+
+            // Flagged pre-shift inspections waiting for approval -> a bell alert each.
+            try
+            {
+                await _clockInApprovals.RaisePendingAlertsAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Clock-in approval alert check failed");
+            }
+
+            if (DateTime.UtcNow - _lastDebtCheckUtc >= DebtCheckInterval)
+            {
+                try
+                {
+                    await _ledger.ProcessDebtFlagsAsync();
+                    _lastDebtCheckUtc = DateTime.UtcNow;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Unpaid debt check failed");
+                }
+            }
+
             try
             {
                 List<IdleDriverInfo> idleDrivers = await _fleetReporting.GetIdleDriversAsync();

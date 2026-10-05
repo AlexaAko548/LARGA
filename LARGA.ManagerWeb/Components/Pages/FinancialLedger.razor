@@ -7,6 +7,8 @@
 @using LARGA.SharedCore.Models.FinancialLedger
 @using LARGA.SharedCore.Services
 @rendermode InteractiveServer
+@using System.Security.Claims
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject FinancialLedgerService Ledger
@@ -15,15 +17,15 @@
 
 <PageTitle>Financial Ledger &amp; Debts</PageTitle>
 
-@if (_isCheckingAccess)
+@if (_isLoading)
 {
     <div class="auth-page">
         <div class="auth-card">
-            <h2>Checking access...</h2>
+            <h2>Loading...</h2>
         </div>
     </div>
 }
-else if (_isAuthorized)
+else
 {
 <div class="dashboard-shell">
     <DashboardSidebar ActiveItem="FinancialLedger" />
@@ -37,6 +39,7 @@ else if (_isAuthorized)
 
             <div class="header-actions">
                 <NotificationBell />
+                <MessagesButton />
                 <ManagerProfileMenu />
             </div>
         </header>
@@ -52,7 +55,7 @@ else if (_isAuthorized)
 
         <section class="tab-bar">
             <div class="tab-group">
-                <button class="tab-btn @(_activeTab == "daily" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("daily")'>▦ Daily Settlements (Today)</button>
+                <button class="tab-btn @(_activeTab == "daily" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("daily")'>▦ Daily Settlements</button>
                 <button class="tab-btn @(_activeTab == "master" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("master")'>▥ Master Debt Ledger</button>
             </div>
             <div class="tab-actions">
@@ -70,15 +73,23 @@ else if (_isAuthorized)
         {
         @if (_snapshot is null)
         {
-            <div class="table-empty">Loading today's settlements...</div>
+            <div class="table-empty">Loading settlements...</div>
         }
         else
         {
             <section class="settlement-summary">
                 <div class="settlement-summary-header">
                     <div>
-                        <div class="settlement-summary-title">TODAY'S SUMMARY</div>
-                        <div class="settlement-summary-date">@_snapshot.Date.ToString("MMM d, yyyy")</div>
+                        <div class="settlement-summary-title">@(IsSettlementToday ? "TODAY'S SUMMARY" : "DAY SUMMARY")</div>
+                        <div class="settlement-day-nav">
+                            <button type="button" class="settlement-day-btn" title="Previous day" disabled="@_isLoadingSettlement" @onclick="() => ShiftSettlementDayAsync(-1)">‹</button>
+                            <input type="date" class="settlement-day-input" value="@_settlementDay.ToString("yyyy-MM-dd")" max="@PhilippineTime.Now.ToString("yyyy-MM-dd")" @onchange="OnSettlementDayPickedAsync" />
+                            <button type="button" class="settlement-day-btn" title="Next day" disabled="@(_isLoadingSettlement || IsSettlementToday)" @onclick="() => ShiftSettlementDayAsync(1)">›</button>
+                            @if (!IsSettlementToday)
+                            {
+                                <button type="button" class="settlement-today-link" @onclick="() => ShiftSettlementDayAsync(0)">Today</button>
+                            }
+                        </div>
                     </div>
                     <div class="settlement-pills">
                         <span class="status-pill status-success"><span class="dot"></span> @_snapshot.ClearedCount Cleared</span>
@@ -95,6 +106,10 @@ else if (_isAuthorized)
                     <div class="settlement-figure">
                         <div class="settlement-figure-label">COLLECTED SO FAR</div>
                         <div class="settlement-figure-value">₱ @_snapshot.CollectedSoFar.ToString("N0")</div>
+                        @if (_snapshot.CreditApplied > 0)
+                        {
+                            <div class="settlement-credit-note">+ ₱ @_snapshot.CreditApplied.ToString("N0") covered by credit</div>
+                        }
                     </div>
                     <div class="settlement-figure">
                         <div class="settlement-figure-label">STILL OUTSTANDING</div>
@@ -138,12 +153,16 @@ else if (_isAuthorized)
                                     <td>@(row.ShiftEnd.HasValue ? row.ShiftEnd.Value.ToPhilippineTime().ToString("h:mm tt") : "On road")</td>
                                     <td>₱ @row.ExpectedTotal.ToString("N0")</td>
                                     <td>
-                                        @if (row.AmountPaid > 0)
+                                        @if (row.AmountPaid > 0 || row.CreditApplied > 0)
                                         {
-                                            <span>₱ @row.AmountPaid.ToString("N0")</span>
+                                            <span>@(row.AmountPaid > 0 ? $"₱ {row.AmountPaid:N0}" : "–")</span>
                                             @if (row.Status == SettlementStatus.Cleared)
                                             {
                                                 <span class="settlement-check">✓</span>
+                                            }
+                                            @if (row.CreditApplied > 0)
+                                            {
+                                                <div class="settlement-credit-note" title="Covered by money the driver paid above another shift's boundary">+ ₱ @row.CreditApplied.ToString("N0") credit</div>
                                             }
                                         }
                                         else
@@ -164,7 +183,7 @@ else if (_isAuthorized)
                                     <td>
                                         @if (row.Status != SettlementStatus.Cleared)
                                         {
-                                            <button class="profile-btn" type="button" @onclick="() => OpenPaymentModal(row)">@(row.Status == SettlementStatus.Partial ? "Add Payment" : "Record Payment")</button>
+                                            <button class="profile-btn" type="button" @onclick="() => OpenPaymentModalAsync(row)">@(row.Status == SettlementStatus.Partial ? "Add Payment" : "Record Payment")</button>
                                         }
                                     </td>
                                 </tr>
@@ -242,12 +261,35 @@ else if (_isAuthorized)
                                 @foreach (DebtLedgerRow row in _ledgerSnapshot.Rows)
                                 {
                                     <tr>
-                                        <td class="driver-cell"><div class="table-avatar">@Initials(row.DriverName)</div><span>@row.DriverName</span></td>
+                                        <td class="driver-cell">
+                                            <div class="table-avatar">@Initials(row.DriverName)</div>
+                                            <span>@row.DriverName</span>
+                                            @if (row.IsDebtFlagged)
+                                            {
+                                                <span class="status-pill small status-danger" title="Balance unpaid for @row.DaysUnpaid days - flagged for review">⚑ FLAGGED</span>
+                                            }
+                                        </td>
                                         <td>@(row.TaxiId ?? "–")</td>
-                                        <td>@(row.UnpaidCount > 0 ? row.UnpaidCount.ToString() : "–")</td>
+                                        <td>
+                                            @if (row.UnpaidCount > 0)
+                                            {
+                                                <span>@row.UnpaidCount @(row.UnpaidCount == 1 ? "shift" : "shifts")</span>
+                                                <div class="ledger-unpaid-age @(row.IsDebtFlagged ? "overdue" : "")">oldest @row.DaysUnpaid @(row.DaysUnpaid == 1 ? "day" : "days") ago</div>
+                                            }
+                                            else
+                                            {
+                                                @:–
+                                            }
+                                        </td>
                                         <td>@(row.LastPaymentDate.HasValue ? row.LastPaymentDate.Value.ToPhilippineTime().ToString("MMM d") : "–")</td>
                                         <td>@(row.LastPaymentAmount.HasValue ? $"₱ {row.LastPaymentAmount.Value:N0}" : "–")</td>
-                                        <td>₱ @row.TotalDebt.ToString("N0")</td>
+                                        <td>
+                                            ₱ @row.TotalDebt.ToString("N0")
+                                            @if (row.AdvanceCredit > 0)
+                                            {
+                                                <div class="settlement-credit-note">₱ @row.AdvanceCredit.ToString("N0") advance credit</div>
+                                            }
+                                        </td>
                                         <td class="ledger-actions">
                                             @if (row.TotalDebt > 0)
                                             {
@@ -280,28 +322,47 @@ else if (_isAuthorized)
 @if (_showPaymentModal && _paymentRow is not null)
 {
     <div class="report-overlay" @onclick="ClosePaymentModal">
-        <div class="report-modal" @onclick:stopPropagation="true">
+        <div class="report-modal payment-modal @(_paymentMethod == "EWallet" ? "with-receipt" : "")" @onclick:stopPropagation="true">
             <div class="report-header">
                 <h3>Record Payment</h3>
                 <button type="button" class="close-modal" @onclick="ClosePaymentModal">×</button>
             </div>
-            <div class="report-body">
+            <div class="report-body payment-body">
+                <div class="payment-main">
                 <div class="settlement-modal-subject">@_paymentRow.DriverName · @_paymentRow.TaxiId</div>
 
                 <div class="settlement-modal-figures">
-                    <div class="settlement-modal-figure-row"><span>Boundary</span><strong>₱ @_paymentRow.ExpectedTotal.ToString("N0")</strong></div>
+                    @if (_paymentRow.LateFee > 0 || _paymentRow.FuelPenalty > 0)
+                    {
+                        <div class="settlement-modal-figure-row"><span>Boundary</span><span>₱ @((_paymentRow.ExpectedTotal - _paymentRow.LateFee - _paymentRow.FuelPenalty).ToString("N0"))</span></div>
+                        @if (_paymentRow.LateFee > 0)
+                        {
+                            <div class="settlement-modal-figure-row"><span>+ Late return fee</span><span>₱ @_paymentRow.LateFee.ToString("N0")</span></div>
+                        }
+                        @if (_paymentRow.FuelPenalty > 0)
+                        {
+                            <div class="settlement-modal-figure-row"><span>+ Low fuel penalty (below ½ tank)</span><span>₱ @_paymentRow.FuelPenalty.ToString("N0")</span></div>
+                        }
+                    }
+                    <div class="settlement-modal-figure-row"><span>Total Due</span><strong>₱ @_paymentRow.ExpectedTotal.ToString("N0")</strong></div>
                     <div class="settlement-modal-figure-row"><span>Already Paid</span><strong>₱ @_paymentRow.AmountPaid.ToString("N0")</strong></div>
+                    @if (_paymentRow.CreditApplied > 0)
+                    {
+                        <div class="settlement-modal-figure-row"><span>Covered by credit</span><strong>₱ @_paymentRow.CreditApplied.ToString("N0")</strong></div>
+                    }
                     <div class="settlement-modal-figure-row"><span>Remaining</span><strong>₱ @PaymentRemaining.ToString("N0")</strong></div>
                 </div>
 
                 <div class="report-section">
                     <label>Amount Received (PHP)</label>
-                    <input class="text-input" type="number" min="0" step="1" @bind="_paymentAmountInput" @bind:event="oninput" />
+                    <input class="text-input @(PaymentAmountError is not null && _paymentAmountInput != 0 ? "invalid" : "")" type="number" min="0" max="@MaxPayment" step="0.01" @bind="_paymentAmountInput" @bind:event="oninput"
+                           readonly="@(_paymentMethod == "EWallet")" placeholder="@(_paymentMethod == "EWallet" ? "Filled in from the receipt" : "")" />
+                    <FieldError Show="_paymentAmountInput != 0" Message="@PaymentAmountError" />
                 </div>
 
                 <div class="payment-method-toggle">
-                    <button type="button" class="payment-method-btn @(_paymentMethod == "Cash" ? "active" : "")" @onclick='() => _paymentMethod = "Cash"'>CASH</button>
-                    <button type="button" class="payment-method-btn @(_paymentMethod == "EWallet" ? "active" : "")" @onclick='() => _paymentMethod = "EWallet"'>E-WALLET (GCASH)</button>
+                    <button type="button" class="payment-method-btn @(_paymentMethod == "Cash" ? "active" : "")" @onclick='() => SetPaymentMethod("Cash")'>CASH</button>
+                    <button type="button" class="payment-method-btn @(_paymentMethod == "EWallet" ? "active" : "")" @onclick='() => SetPaymentMethod("EWallet")'>E-WALLET (GCASH)</button>
                 </div>
 
                 <div class="settlement-status-preview">
@@ -313,14 +374,34 @@ else if (_isAuthorized)
                     }
                 </div>
 
+                @if (PaymentExtra > 0 && _paymentOtherDebt is decimal otherDebt)
+                {
+                    <div class="settlement-allocation">
+                        @if (Math.Min(PaymentExtra, otherDebt) > 0)
+                        {
+                            <div>₱ @Math.Min(PaymentExtra, otherDebt).ToString("N0") → @_paymentRow.DriverName's older unpaid debt</div>
+                        }
+                        @if (PaymentAdvance > 0)
+                        {
+                            <div>₱ @PaymentAdvance.ToString("N0") → advance credit (covers their next boundary)</div>
+                        }
+                    </div>
+                }
+
                 @if (_paymentError is not null)
                 {
                     <div class="report-error">@_paymentError</div>
                 }
+                </div>
+
+                @if (_paymentMethod == "EWallet")
+                {
+                    <div class="payment-receipt">@ReceiptScanSection</div>
+                }
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="ClosePaymentModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingPayment || _paymentAmountInput <= 0)" @onclick="ConfirmPaymentAsync">@(_isSavingPayment ? "Saving…" : "Confirm Payment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingPayment || PaymentAmountError is not null || (PaymentExtra > 0 && _paymentOtherDebt is null) || (_paymentMethod == "EWallet" && !IsReceiptReady))" @onclick="ConfirmPaymentAsync">@(_isSavingPayment ? "Saving…" : "Confirm Payment")</button>
             </div>
         </div>
     </div>
@@ -351,7 +432,8 @@ else if (_isAuthorized)
 
                 <div class="report-section">
                     <label>Amount (PHP)</label>
-                    <input class="text-input" type="number" min="0" step="1" placeholder="e.g. 200" @bind="_adjustmentAmountInput" @bind:event="oninput" />
+                    <input class="text-input @(AdjustmentAmountError is not null && _adjustmentAmountInput != 0 ? "invalid" : "")" type="number" min="0" max="@MaxAdjustment" step="0.01" placeholder="e.g. 200" @bind="_adjustmentAmountInput" @bind:event="oninput" />
+                    <FieldError Show="_adjustmentAmountInput != 0" Message="@AdjustmentAmountError" />
                 </div>
 
                 <div class="report-section">
@@ -364,7 +446,9 @@ else if (_isAuthorized)
 
                 <div class="report-section">
                     <label>Note</label>
-                    <textarea class="text-input textarea" @bind="_adjustmentReason" placeholder="Reason for adjustment"></textarea>
+                    <textarea class="text-input textarea" maxlength="300" @bind="_adjustmentReason" @bind:event="oninput" placeholder="Reason for adjustment (required)"></textarea>
+                    <FieldError Show="_adjustmentReason.Length > 0" Message="@AdjustmentReasonError" />
+                    <small class="receipt-hint">@_adjustmentReason.Length / 300</small>
                 </div>
 
                 <div class="info-banner">Adjustments don't touch today's boundary payments - they're a separate correction that feeds the Master Debt Ledger balance.</div>
@@ -376,7 +460,7 @@ else if (_isAuthorized)
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseAdjustmentModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingAdjustment || string.IsNullOrEmpty(_adjustmentDriverId) || _adjustmentAmountInput <= 0)" @onclick="ConfirmAdjustmentAsync">@(_isSavingAdjustment ? "Saving…" : "Save Adjustment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingAdjustment || string.IsNullOrEmpty(_adjustmentDriverId) || AdjustmentAmountError is not null || AdjustmentReasonError is not null)" @onclick="ConfirmAdjustmentAsync">@(_isSavingAdjustment ? "Saving…" : "Save Adjustment")</button>
             </div>
         </div>
     </div>
@@ -385,12 +469,13 @@ else if (_isAuthorized)
 @if (_showSettleModal && _settleRow is not null)
 {
     <div class="report-overlay" @onclick="CloseSettleModal">
-        <div class="report-modal" @onclick:stopPropagation="true">
+        <div class="report-modal payment-modal @(_settleMethod == "EWallet" ? "with-receipt" : "")" @onclick:stopPropagation="true">
             <div class="report-header">
                 <h3>Settle Outstanding Debt</h3>
                 <button type="button" class="close-modal" @onclick="CloseSettleModal">×</button>
             </div>
-            <div class="report-body">
+            <div class="report-body payment-body">
+                <div class="payment-main">
                 <div class="settlement-modal-subject">@_settleRow.DriverName · @(_settleRow.TaxiId ?? "No unit assigned")</div>
 
                 <div class="settlement-modal-figures">
@@ -399,13 +484,16 @@ else if (_isAuthorized)
 
                 <div class="report-section">
                     <label>Amount Received (PHP)</label>
-                    <input class="text-input" type="number" min="0" step="1" @bind="_settleAmountInput" @bind:event="oninput" />
+                    <input class="text-input @(SettleAmountError is not null && _settleAmountInput != 0 ? "invalid" : "")" type="number" min="0" max="@MaxPayment" step="0.01" @bind="_settleAmountInput" @bind:event="oninput"
+                           readonly="@(_settleMethod == "EWallet")" placeholder="@(_settleMethod == "EWallet" ? "Filled in from the receipt" : "")" />
+                    <FieldError Show="_settleAmountInput != 0" Message="@SettleAmountError" />
                 </div>
 
                 <div class="payment-method-toggle">
-                    <button type="button" class="payment-method-btn @(_settleMethod == "Cash" ? "active" : "")" @onclick='() => _settleMethod = "Cash"'>CASH</button>
-                    <button type="button" class="payment-method-btn @(_settleMethod == "EWallet" ? "active" : "")" @onclick='() => _settleMethod = "EWallet"'>E-WALLET (GCASH)</button>
+                    <button type="button" class="payment-method-btn @(_settleMethod == "Cash" ? "active" : "")" @onclick='() => SetSettleMethod("Cash")'>CASH</button>
+                    <button type="button" class="payment-method-btn @(_settleMethod == "EWallet" ? "active" : "")" @onclick='() => SetSettleMethod("EWallet")'>E-WALLET (GCASH)</button>
                 </div>
+
 
                 <div class="settlement-modal-figures">
                     <div class="settlement-modal-figure-row"><span>New Remaining Balance</span><strong>₱ @SettlePreviewRemaining.ToString("N0")</strong></div>
@@ -416,7 +504,7 @@ else if (_isAuthorized)
                     <span class="status-pill small @(SettlePreviewRemaining <= 0 ? "status-success" : "status-warning")">@(SettlePreviewRemaining <= 0 ? "CLEARED" : "OUTSTANDING")</span>
                     @if (SettlePreviewOverpaid > 0)
                     {
-                        <span class="settlement-remaining-note">₱ @SettlePreviewOverpaid.ToString("N0") is more than owed - won't be applied</span>
+                        <span class="settlement-remaining-note">₱ @SettlePreviewOverpaid.ToString("N0") → advance credit (covers their next boundary)</span>
                     }
                 </div>
 
@@ -424,10 +512,16 @@ else if (_isAuthorized)
                 {
                     <div class="report-error">@_settleError</div>
                 }
+                </div>
+
+                @if (_settleMethod == "EWallet")
+                {
+                    <div class="payment-receipt">@ReceiptScanSection</div>
+                }
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseSettleModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingSettle || _settleAmountInput <= 0)" @onclick="ConfirmSettleAsync">@(_isSavingSettle ? "Saving…" : "Confirm Payment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingSettle || SettleAmountError is not null || (_settleMethod == "EWallet" && !IsReceiptReady))" @onclick="ConfirmSettleAsync">@(_isSavingSettle ? "Saving…" : "Confirm Payment")</button>
             </div>
         </div>
     </div>
@@ -473,12 +567,13 @@ else if (_isAuthorized)
                                     <th>Expected</th>
                                     <th>Amount Paid</th>
                                     <th>Running Debt</th>
+                                    <th>Receipt</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @if (FilteredHistoryTransactions.Count == 0)
                                 {
-                                    <tr><td colspan="5" class="table-empty">No transactions in this range.</td></tr>
+                                    <tr><td colspan="6" class="table-empty">No transactions in this range.</td></tr>
                                 }
                                 else
                                 {
@@ -486,7 +581,17 @@ else if (_isAuthorized)
                                     {
                                         <tr>
                                             <td>@tx.Timestamp.ToPhilippineTime().ToString("MMM d, yyyy")</td>
-                                            <td>@tx.TransactionType</td>
+                                            <td>
+                                                <div class="history-type @HistoryTypeCss(tx)">@tx.TransactionType</div>
+                                                @if (tx.Subtitle is not null)
+                                                {
+                                                    <div class="history-sub">@tx.Subtitle</div>
+                                                }
+                                                @foreach (string line in tx.Details)
+                                                {
+                                                    <div class="history-allocation">@line</div>
+                                                }
+                                            </td>
                                             <td>@(tx.Expected.HasValue ? $"₱ {tx.Expected.Value:N0}" : "–")</td>
                                             <td>
                                                 @if (tx.AmountPaid.HasValue)
@@ -503,6 +608,18 @@ else if (_isAuthorized)
                                                 }
                                             </td>
                                             <td>₱ @tx.RunningDebt.ToString("N0")</td>
+                                            <td>
+                                                @if (tx.ReceiptUrl is not null)
+                                                {
+                                                    <a class="history-receipt" href="@tx.ReceiptUrl" target="_blank" rel="noopener" title="@(tx.ReceiptReferenceNo is null ? "Open GCash receipt" : $"Ref. No. {tx.ReceiptReferenceNo}")">
+                                                        <img src="@tx.ReceiptUrl" alt="GCash receipt" loading="lazy" />
+                                                    </a>
+                                                }
+                                                else
+                                                {
+                                                    @:–
+                                                }
+                                            </td>
                                         </tr>
                                     }
                                 }
@@ -516,9 +633,9 @@ else if (_isAuthorized)
 }
 
 @code {
-    private bool _isCheckingAccess = true;
-    private bool _isAuthorized;
-    private IJSObjectReference? _firebaseModule;
+    // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
+    private bool _isLoading = true;
+    private string _managerUserId = string.Empty;
     private IJSObjectReference? _fileDownloadModule;
 
     private string _activeTab = "daily";
@@ -537,6 +654,15 @@ else if (_isAuthorized)
     private bool _showPaymentModal;
     private SettlementRow? _paymentRow;
     private decimal _paymentAmountInput;
+
+    // Amount checks (InputValidator) - one handover is never more than this, so a bigger number
+    // is a typo (an extra zero) rather than a real payment.
+    private const decimal MaxPayment = 100_000m;
+    private const decimal MaxAdjustment = 50_000m;
+    private string? PaymentAmountError => InputValidator.ValidateAmount(_paymentAmountInput, "the amount received", MaxPayment);
+    private string? SettleAmountError => InputValidator.ValidateAmount(_settleAmountInput, "the amount received", MaxPayment);
+    private string? AdjustmentAmountError => InputValidator.ValidateAmount(_adjustmentAmountInput, "the amount", MaxAdjustment);
+    private string? AdjustmentReasonError => InputValidator.ValidateText(_adjustmentReason, "a reason", 300, required: true, minLength: 5);
     private string _paymentMethod = "Cash";
     private bool _isSavingPayment;
     private string? _paymentError;
@@ -560,7 +686,7 @@ else if (_isAuthorized)
     private DriverLedgerHistory? _history;
     private string _historyDateFilter = "10";
 
-    private decimal PaymentRemaining => _paymentRow is null ? 0 : Math.Max(0, _paymentRow.ExpectedTotal - _paymentRow.AmountPaid);
+    private decimal PaymentRemaining => _paymentRow?.Balance ?? 0;
 
     private SettlementStatus PreviewStatus
     {
@@ -571,7 +697,7 @@ else if (_isAuthorized)
                 return SettlementStatus.Waiting;
             }
 
-            decimal totalPaid = _paymentRow.AmountPaid + Math.Max(0, _paymentAmountInput);
+            decimal totalPaid = _paymentRow.AmountPaid + _paymentRow.CreditApplied + Math.Max(0, _paymentAmountInput);
             if (totalPaid >= _paymentRow.ExpectedTotal)
             {
                 return SettlementStatus.Cleared;
@@ -581,9 +707,17 @@ else if (_isAuthorized)
         }
     }
 
-    private decimal PreviewShortfall => _paymentRow is null
-        ? 0
-        : Math.Max(0, _paymentRow.ExpectedTotal - _paymentRow.AmountPaid - Math.Max(0, _paymentAmountInput));
+    private decimal PreviewShortfall => Math.Max(0, PaymentRemaining - Math.Max(0, _paymentAmountInput));
+
+    // What the driver owes apart from this shift (older unpaid shifts + adjustment debt, net of
+    // overpayment credit) - loaded when Record Payment opens; null while loading. Money above
+    // this shift's balance goes there (paper: carried debt is added onto the day's rent).
+    private decimal? _paymentOtherDebt;
+
+    private decimal PaymentExtra => Math.Max(0, Math.Max(0, _paymentAmountInput) - PaymentRemaining);
+
+    // Above this shift and all older debt: kept as advance credit toward the next boundary.
+    private decimal PaymentAdvance => _paymentOtherDebt is decimal other ? Math.Max(0, PaymentExtra - other) : 0;
 
     private decimal SettlePreviewRemaining => _settleRow is null
         ? 0
@@ -620,16 +754,9 @@ else if (_isAuthorized)
             return;
         }
 
-        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
-        var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
-        _isAuthorized = result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True;
-        _isCheckingAccess = false;
-
-        if (!_isAuthorized)
-        {
-            Navigation.NavigateTo("/login", forceLoad: false);
-            return;
-        }
+        // Audit entries are attributed to the signed-in manager, from the server session.
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _managerUserId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
 
         await LoadSettlementAsync();
 
@@ -643,28 +770,67 @@ else if (_isAuthorized)
             // second warning banner for a page whose primary data already loaded fine.
         }
 
+        _isLoading = false;
         StateHasChanged();
     }
 
+    // The Philippine calendar day Daily Settlements shows - today by default. Shifts are filed
+    // under the day they started, so a shift that ran past midnight is on the previous day.
+    private DateTime _settlementDay = PhilippineTime.Now.Date;
+    private bool _isLoadingSettlement;
+    private bool IsSettlementToday => _settlementDay >= PhilippineTime.Now.Date;
+
     private async Task LoadSettlementAsync()
     {
+        _isLoadingSettlement = true;
         try
         {
-            _snapshot = await Ledger.GetDailySettlementAsync(DateTime.UtcNow);
+            // Noon PH time on that day, as UTC - GetDailySettlementAsync works out the PH day from it.
+            DateTime dayUtc = DateTime.SpecifyKind(_settlementDay.AddHours(12) - PhilippineTime.Offset, DateTimeKind.Utc);
+            _snapshot = await Ledger.GetDailySettlementAsync(dayUtc);
             _settlementError = null;
         }
         catch (Exception ex)
         {
             _settlementError = ex.Message;
         }
+        finally
+        {
+            _isLoadingSettlement = false;
+        }
     }
 
+    /// <summary>-1 / +1 = previous / next day; 0 = back to today.</summary>
+    private async Task ShiftSettlementDayAsync(int days)
+    {
+        DateTime today = PhilippineTime.Now.Date;
+        DateTime target = days == 0 ? today : _settlementDay.AddDays(days);
+        _settlementDay = target > today ? today : target;
+        await LoadSettlementAsync();
+    }
+
+    private async Task OnSettlementDayPickedAsync(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime picked))
+        {
+            DateTime today = PhilippineTime.Now.Date;
+            _settlementDay = picked.Date > today ? today : picked.Date;
+            await LoadSettlementAsync();
+        }
+    }
+
+    // Both tabs read the same boundary_payments documents, so switching tabs always reloads -
+    // a payment recorded in one shows up in the other.
     private async Task SelectTabAsync(string tab)
     {
         _activeTab = tab;
-        if (tab == "master" && _ledgerSnapshot is null)
+        if (tab == "master")
         {
             await LoadLedgerAsync();
+        }
+        else
+        {
+            await LoadSettlementAsync();
         }
     }
 
@@ -681,24 +847,238 @@ else if (_isAuthorized)
         }
     }
 
-    private void OpenPaymentModal(SettlementRow row)
+    private async Task OpenPaymentModalAsync(SettlementRow row)
     {
         _paymentRow = row;
         _paymentAmountInput = Math.Max(0, row.ExpectedTotal - row.AmountPaid);
         _paymentMethod = "Cash";
         _paymentError = null;
+        _paymentOtherDebt = null;
+        _ = ResetReceiptAsync();
         _showPaymentModal = true;
+        StateHasChanged();
+
+        try
+        {
+            _paymentOtherDebt = await Ledger.GetOtherDebtForShiftAsync(row.ShiftId);
+        }
+        catch (Exception ex)
+        {
+            _paymentError = $"Couldn't load this driver's other debt: {ex.Message}";
+        }
     }
 
     private void ClosePaymentModal()
     {
         _showPaymentModal = false;
         _paymentRow = null;
+        _ = ResetReceiptAsync();
+    }
+
+    // -- GCash receipt OCR -------------------------------------------------
+    // The driver pays online and sends the manager a screenshot of the GCash receipt; the
+    // manager uploads it here, the browser OCRs it (ocr.js) and GcashReceiptParser
+    // fills in Amount / Date / Reference No. for the manager to check. The fields stay
+    // editable since OCR can misread.
+
+    private const long MaxReceiptBytes = 10 * 1024 * 1024;
+
+    private IJSObjectReference? _receiptOcrModule;
+    private InputFile? _receiptInput;
+
+    // The scanned receipt image, uploaded with the payment on Confirm (see PaymentReceipt).
+    private byte[]? _pendingReceiptImage;
+    private string _pendingReceiptType = "image/jpeg";
+
+    /// <summary>A GCash payment can only be confirmed with a scanned receipt whose amount was
+    /// read and matches Amount Received.</summary>
+    private bool IsReceiptReady =>
+        _pendingReceiptImage is not null && _receiptAmountValue is > 0 && !ReceiptAmountMismatch && !_isReadingReceipt;
+
+    private PaymentReceipt? PendingReceipt() =>
+        _pendingReceiptImage is null ? null : new PaymentReceipt(_pendingReceiptImage, _pendingReceiptType, _receiptReference);
+
+    // Switching to GCash takes the amount from the scanned receipt (none yet = 0); switching
+    // back to cash leaves it editable.
+    private void SetPaymentMethod(string method)
+    {
+        _paymentMethod = method;
+        if (method == "EWallet")
+        {
+            _paymentAmountInput = _receiptAmountValue ?? 0;
+        }
+    }
+
+    private void SetSettleMethod(string method)
+    {
+        _settleMethod = method;
+        if (method == "EWallet")
+        {
+            _settleAmountInput = _receiptAmountValue ?? 0;
+        }
+    }
+    private bool _isReadingReceipt;
+    private string? _receiptError;
+    private string? _receiptPreviewUrl;
+    private string _receiptAmount = string.Empty;
+    private string _receiptDate = string.Empty;
+    private string _receiptReference = string.Empty;
+
+    private decimal? _receiptAmountValue =>
+        decimal.TryParse(_receiptAmount.Replace(",", string.Empty).Replace("₱", string.Empty).Trim(),
+            System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out decimal v) ? v : null;
+
+    // Only one payment window is open at a time, so they share the scanner and its state;
+    // this is the Amount Received of whichever one is open.
+    private decimal ReceiptCompareAmount => _showSettleModal ? _settleAmountInput : _paymentAmountInput;
+
+    private bool ReceiptAmountMismatch =>
+        _receiptAmountValue is decimal amount && ReceiptCompareAmount > 0 && amount != ReceiptCompareAmount;
+
+    /// <summary>Receipt upload + OCR'd Amount / Date / Reference No. - shown in both Record
+    /// Payment (Daily Settlements) and Settle Debt (Master Debt Ledger) when E-Wallet is picked.</summary>
+    private RenderFragment ReceiptScanSection => @<text>
+        <div class="receipt-scan-row">
+            <label class="receipt-scan-btn @(_isReadingReceipt ? "busy" : "")" for="gcash-receipt-input">
+                <span aria-hidden="true">📷</span> @(_isReadingReceipt ? "Reading receipt…" : _receiptPreviewUrl is null ? "Scan receipt" : "Scan another")
+            </label>
+            <InputFile id="gcash-receipt-input" class="receipt-file-input" accept="image/*"
+                       disabled="@_isReadingReceipt" OnChange="OnReceiptSelectedAsync" @ref="_receiptInput" />
+        </div>
+
+        @if (_receiptPreviewUrl is not null)
+        {
+            <a class="receipt-preview" href="@_receiptPreviewUrl" target="_blank" rel="noopener" title="Open full-size receipt">
+                <img src="@_receiptPreviewUrl" alt="Uploaded GCash receipt" />
+            </a>
+        }
+
+        <div class="report-section receipt-details">
+            <label>Receipt Details</label>
+            <input class="text-input" type="text" placeholder="Amount (read from the receipt)" value="@_receiptAmount" readonly />
+            <input class="text-input" type="text" placeholder="Date (read from the receipt)" value="@_receiptDate" readonly />
+            <input class="text-input" type="text" placeholder="Reference No. (read from the receipt)" value="@_receiptReference" readonly />
+        </div>
+
+        @if (_receiptError is not null)
+        {
+            <div class="report-error">@_receiptError</div>
+        }
+        else if (ReceiptAmountMismatch)
+        {
+            <div class="receipt-mismatch">Receipt shows ₱ @_receiptAmountValue!.Value.ToString("N2"), but Amount Received is ₱ @ReceiptCompareAmount.ToString("N2") - they must match to confirm.</div>
+        }
+        else if (_pendingReceiptImage is null && !_isReadingReceipt)
+        {
+            <small class="receipt-hint">Scan the driver's GCash receipt - the amount received is taken from it.</small>
+        }
+        else if (_pendingReceiptImage is not null && _receiptAmountValue is null && !_isReadingReceipt)
+        {
+            <div class="receipt-mismatch">No amount could be read from this receipt - scan a clearer image.</div>
+        }
+    </text>;
+
+    private async Task OnReceiptSelectedAsync(InputFileChangeEventArgs e)
+    {
+        _isReadingReceipt = true;
+        _receiptError = null;
+        _pendingReceiptImage = null;
+        _receiptAmount = string.Empty;
+        _receiptDate = string.Empty;
+        _receiptReference = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            if (e.File.Size > MaxReceiptBytes)
+            {
+                _receiptError = "That image is over 10 MB - use a smaller screenshot.";
+                return;
+            }
+
+            using var buffer = new MemoryStream();
+            await e.File.OpenReadStream(MaxReceiptBytes).CopyToAsync(buffer);
+            _pendingReceiptImage = buffer.ToArray();
+            _pendingReceiptType = string.IsNullOrEmpty(e.File.ContentType) ? "image/jpeg" : e.File.ContentType;
+
+            _receiptOcrModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/ocr.js");
+
+            // First scan downloads the OCR engine + language data, so allow well past the
+            // default 60s JS interop timeout on a slow connection.
+            ReceiptOcrResult? ocr = await _receiptOcrModule.InvokeAsync<ReceiptOcrResult?>(
+                "readImage", TimeSpan.FromMinutes(3), _receiptInput!.Element);
+            if (ocr is null)
+            {
+                return;
+            }
+
+            await ReleasePreviewAsync();
+            _receiptPreviewUrl = ocr.PreviewUrl;
+
+            GcashReceiptParser.Result parsed = GcashReceiptParser.ParseBest(ocr.Texts);
+            _receiptAmount = parsed.Amount?.ToString("N2") ?? string.Empty;
+            _receiptDate = parsed.Date is DateTime d
+                ? (d.TimeOfDay == TimeSpan.Zero ? d.ToString("MMM d, yyyy") : d.ToString("MMM d, yyyy h:mm tt"))
+                : string.Empty;
+            _receiptReference = parsed.ReferenceNumber ?? string.Empty;
+
+            // The receipt is the payment, so its amount is what was received - fill it in
+            // (still editable) for whichever window is open.
+            decimal receiptAmount = parsed.Amount is decimal a && a > 0 ? a : 0;
+            if (_showSettleModal)
+            {
+                _settleAmountInput = receiptAmount;
+            }
+            else
+            {
+                _paymentAmountInput = receiptAmount;
+            }
+
+            if (parsed.Amount is null && parsed.Date is null && parsed.ReferenceNumber is null)
+            {
+                _receiptError = "Couldn't find an amount, date or reference number on this image - is it a GCash receipt? Try a clearer screenshot.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _receiptError = $"Couldn't read this receipt: {ex.Message}";
+        }
+        finally
+        {
+            _isReadingReceipt = false;
+        }
+    }
+
+    private async Task ResetReceiptAsync()
+    {
+        _pendingReceiptImage = null;
+        _receiptError = null;
+        _receiptAmount = string.Empty;
+        _receiptDate = string.Empty;
+        _receiptReference = string.Empty;
+        _isReadingReceipt = false;
+        await ReleasePreviewAsync();
+    }
+
+    private async Task ReleasePreviewAsync()
+    {
+        string? url = _receiptPreviewUrl;
+        _receiptPreviewUrl = null;
+        if (url is not null && _receiptOcrModule is not null)
+        {
+            try { await _receiptOcrModule.InvokeVoidAsync("releasePreview", url); } catch (JSDisconnectedException) { }
+        }
+    }
+
+    private sealed class ReceiptOcrResult
+    {
+        public List<string> Texts { get; set; } = new();
+        public string PreviewUrl { get; set; } = string.Empty;
     }
 
     private async Task ConfirmPaymentAsync()
     {
-        if (_paymentRow is null || _paymentAmountInput <= 0)
+        if (_paymentRow is null || PaymentAmountError is not null)
         {
             return;
         }
@@ -707,7 +1087,8 @@ else if (_isAuthorized)
         _paymentError = null;
         try
         {
-            RecordPaymentResult result = await Ledger.RecordPaymentAsync(_paymentRow.ShiftId, _paymentAmountInput, _paymentMethod);
+            RecordPaymentResult result = await Ledger.RecordPaymentAsync(_paymentRow.ShiftId, _paymentAmountInput, _paymentMethod,
+                _paymentMethod == "EWallet" ? PendingReceipt() : null, actorUserId: _managerUserId);
             if (!result.Ok)
             {
                 _paymentError = result.ErrorMessage ?? "Could not save this payment.";
@@ -716,6 +1097,7 @@ else if (_isAuthorized)
 
             _showPaymentModal = false;
             _paymentRow = null;
+            _ = ResetReceiptAsync();
             await LoadSettlementAsync();
         }
         finally
@@ -738,7 +1120,7 @@ else if (_isAuthorized)
 
     private async Task ConfirmAdjustmentAsync()
     {
-        if (string.IsNullOrEmpty(_adjustmentDriverId) || _adjustmentAmountInput <= 0)
+        if (string.IsNullOrEmpty(_adjustmentDriverId) || AdjustmentAmountError is not null || AdjustmentReasonError is not null)
         {
             return;
         }
@@ -748,7 +1130,7 @@ else if (_isAuthorized)
         try
         {
             decimal signedAmount = _adjustmentDirection == "Credit" ? -_adjustmentAmountInput : _adjustmentAmountInput;
-            AdjustmentResult result = await Ledger.AddAdjustmentAsync(_adjustmentDriverId, signedAmount, _adjustmentReason);
+            AdjustmentResult result = await Ledger.AddAdjustmentAsync(_adjustmentDriverId, signedAmount, _adjustmentReason, actorUserId: _managerUserId);
             if (!result.Ok)
             {
                 _adjustmentError = result.ErrorMessage ?? "Could not save this adjustment.";
@@ -778,6 +1160,7 @@ else if (_isAuthorized)
         _settleAmountInput = 0;
         _settleMethod = "Cash";
         _settleError = null;
+        _ = ResetReceiptAsync();
         _showSettleModal = true;
     }
 
@@ -785,11 +1168,12 @@ else if (_isAuthorized)
     {
         _showSettleModal = false;
         _settleRow = null;
+        _ = ResetReceiptAsync();
     }
 
     private async Task ConfirmSettleAsync()
     {
-        if (_settleRow is null || _settleAmountInput <= 0)
+        if (_settleRow is null || SettleAmountError is not null)
         {
             return;
         }
@@ -798,7 +1182,8 @@ else if (_isAuthorized)
         _settleError = null;
         try
         {
-            SettleDebtResult result = await Ledger.SettleDebtAsync(_settleRow.DriverId, _settleAmountInput, _settleMethod);
+            SettleDebtResult result = await Ledger.SettleDebtAsync(_settleRow.DriverId, _settleAmountInput, _settleMethod,
+                _settleMethod == "EWallet" ? PendingReceipt() : null, actorUserId: _managerUserId);
             if (!result.Ok)
             {
                 _settleError = result.ErrorMessage ?? "Could not save this settlement.";
@@ -807,7 +1192,11 @@ else if (_isAuthorized)
 
             _showSettleModal = false;
             _settleRow = null;
+            _ = ResetReceiptAsync();
+            // Settling pays off the driver's oldest shifts' boundary_payments - the same
+            // documents Daily Settlements shows - so refresh both.
             await LoadLedgerAsync();
+            await LoadSettlementAsync();
         }
         finally
         {
@@ -839,6 +1228,14 @@ else if (_isAuthorized)
         _history = null;
     }
 
+    private static string HistoryTypeCss(LedgerTransaction tx) => tx.TransactionType switch
+    {
+        "Payment" => "payment",
+        "Boundary Due" => "due",
+        "Penalty" => "penalty",
+        _ => "credit",
+    };
+
     private async Task ExportHistoryCsv()
     {
         if (_history is null)
@@ -846,11 +1243,12 @@ else if (_isAuthorized)
             return;
         }
 
-        var headers = new[] { "Date", "Transaction Type", "Expected", "Amount Paid", "Running Debt" };
+        var headers = new[] { "Date", "Transaction Type", "Details", "Expected", "Amount Paid", "Running Debt" };
         var rows = FilteredHistoryTransactions.Select(t => new object?[]
         {
             t.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd"),
             t.TransactionType,
+            string.Join("; ", new[] { t.Subtitle }.Concat(t.Details).Where(x => !string.IsNullOrEmpty(x))),
             t.Expected,
             t.AmountPaid ?? t.AdjustmentAmount,
             t.RunningDebt,

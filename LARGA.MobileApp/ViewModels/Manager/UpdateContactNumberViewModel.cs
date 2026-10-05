@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using LARGA.SharedCore;
 using Microsoft.Maui.Controls;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
@@ -57,9 +58,16 @@ public class UpdateContactNumberViewModel : BindableObject
             return;
         }
 
-        if (NewNumber != ConfirmNewNumber)
+        if (!InputValidator.SamePhone(NewNumber, ConfirmNewNumber))
         {
             await Shell.Current.DisplayAlert("Numbers Don't Match", "New number and confirmation must match.", "OK");
+            return;
+        }
+
+        // Same rule as ManagerWeb (InputValidator): a Philippine mobile number, stored as +639XXXXXXXXX.
+        if (InputValidator.ValidatePhilippineMobile(NewNumber) is string phoneError)
+        {
+            await Shell.Current.DisplayAlert("Invalid Number", phoneError, "OK");
             return;
         }
 
@@ -75,7 +83,7 @@ public class UpdateContactNumberViewModel : BindableObject
                 .GetDocumentSnapshotAsync<ContactNumberProxy>();
 
             var actualCurrentNumber = doc?.Data?.PhoneNumber ?? string.Empty;
-            if (!string.Equals(actualCurrentNumber.Trim(), CurrentNumber.Trim(), StringComparison.Ordinal))
+            if (!InputValidator.SamePhone(actualCurrentNumber, CurrentNumber))
             {
                 await Shell.Current.DisplayAlert("Doesn't Match", "That doesn't match the number currently on file.", "OK");
                 return;
@@ -83,7 +91,7 @@ public class UpdateContactNumberViewModel : BindableObject
 
             var updates = new Dictionary<object, object>
             {
-                ["phoneNumber"] = NewNumber.Trim()
+                ["phoneNumber"] = InputValidator.NormalizePhilippineMobile(NewNumber)!
             };
 
             await CrossFirebaseFirestore.Current

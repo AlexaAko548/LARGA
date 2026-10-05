@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
+             x:Class="LARGA.MobileApp.Views.Driver.ClockInPendingPage"
+             x:DataType="vm:ClockInPendingViewModel"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="White">
+
+    <Grid RowDefinitions="*,Auto" Padding="20">
+
+        <ScrollView Grid.Row="0">
+            <VerticalStackLayout Spacing="15" Margin="0,20,0,0">
+                <Label Text="PRE-SHIFT INSPECTION" Style="{StaticResource StatusDataStyle}" TextColor="Gray" FontSize="12" />
+                <Label Text="{Binding Title}" FontSize="32" FontAttributes="Bold" TextColor="Black" LineHeight="1.1" />
+
+                <ActivityIndicator IsRunning="{Binding IsWaiting}" IsVisible="{Binding IsWaiting}" Color="#0099CC" HorizontalOptions="Start" />
+
+                <Label Text="{Binding Message}" FontSize="14" TextColor="Black" />
+
+                <Border BackgroundColor="#AEE2F0" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15" IsVisible="{Binding HasReasons}">
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="FLAGGED" FontSize="12" TextColor="Black" />
+                        <Label Text="{Binding Reasons}" FontSize="14" TextColor="Black" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border BackgroundColor="#FDECEA" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15" IsVisible="{Binding HasManagerNote}">
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="MANAGER'S NOTE" FontSize="12" TextColor="#B3261E" />
+                        <Label Text="{Binding ManagerNote}" FontSize="14" TextColor="Black" />
+                    </VerticalStackLayout>
+                </Border>
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <VerticalStackLayout Grid.Row="1" Spacing="10" Margin="0,20,0,20">
+            <Button Text="WITHDRAW REQUEST"
+                    Command="{Binding CancelRequestCommand}"
+                    IsVisible="{Binding IsWaiting}"
+                    BackgroundColor="White" TextColor="#B3261E" BorderColor="#B3261E" BorderWidth="1"
+                    CornerRadius="25" HeightRequest="50" FontSize="14" FontAttributes="Bold" />
+            <Button Text="BACK TO DASHBOARD"
+                    Command="{Binding BackToDashboardCommand}"
+                    BackgroundColor="#0099CC" TextColor="White"
+                    CornerRadius="25" HeightRequest="55" FontSize="16" FontAttributes="Bold" />
+        </VerticalStackLayout>
+
+    </Grid>
+</ContentPage>

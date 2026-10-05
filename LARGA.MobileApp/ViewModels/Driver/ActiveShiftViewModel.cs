@@ -4,11 +4,14 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Devices.Sensors;
 using Microsoft.Maui.Dispatching;
 using Microsoft.Maui.Storage;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
+using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
 using LARGA.Shared.Models.Entities;
 
@@ -130,15 +133,17 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         {
             IsPauseAlertVisible = false;
             IsPaused = true;
-            _pauseStartTime = DateTime.Now;
+            _pauseStartTime = ShiftClock.LocalNow;
             _shiftTimer.Stop();
+            _ = SyncBreakStatusAsync(true);
         });
 
         ResumeShiftCommand = new Command(() =>
         {
             IsPaused = false;
-            _totalBreakTime += (DateTime.Now - _pauseStartTime);
+            _totalBreakTime += (ShiftClock.LocalNow - _pauseStartTime);
             _shiftTimer.Start();
+            _ = SyncBreakStatusAsync(false);
         });
 
         ClockOutCommand = new Command(() => IsClockOutAlertVisible = true);
@@ -150,8 +155,104 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
             await Shell.Current.GoToAsync("end-shift-step1");
         });
 
-        SendSosCommand = new Command(() => IsSosAlertVisible = true);
+        SendSosCommand = new Command(async () => await SendSosAsync());
         DismissSosCommand = new Command(() => IsSosAlertVisible = false);
+    }
+
+    private bool _isSendingSos;
+
+    private async Task SendSosAsync()
+    {
+        if (_isSendingSos) return;
+        _isSendingSos = true;
+
+        try
+        {
+            string shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
+            if (string.IsNullOrWhiteSpace(shiftId))
+            {
+                await Shell.Current.DisplayAlert("SOS Failed", "No active shift found. Please clock in first.", "OK");
+                return;
+            }
+
+            var user = CrossFirebaseAuth.Current.CurrentUser;
+            string driverId = user?.Uid ?? string.Empty;
+            string driverName = string.IsNullOrWhiteSpace(user?.DisplayName) ? "Unknown Driver" : user.DisplayName;
+
+            PermissionStatus status = await Permissions.CheckStatusAsync<Permissions.LocationWhenInUse>();
+            if (status != PermissionStatus.Granted)
+            {
+                status = await Permissions.RequestAsync<Permissions.LocationWhenInUse>();
+            }
+
+            Location? location = null;
+            if (status == PermissionStatus.Granted)
+            {
+                location = await Geolocation.Default.GetLocationAsync(
+                    new GeolocationRequest(GeolocationAccuracy.Best, TimeSpan.FromSeconds(15)));
+                location ??= await Geolocation.Default.GetLastKnownLocationAsync();
+            }
+
+            if (location == null)
+            {
+                await Shell.Current.DisplayAlert("SOS Failed", "Unable to get your location. Please enable location services and try again.", "OK");
+                return;
+            }
+
+            var alert = new EmergencySosProxy
+            {
+                ShiftId = shiftId,
+                DriverId = driverId,
+                DriverName = driverName,
+                TaxiUnit = TaxiUnit,
+                Latitude = location.Latitude,
+                Longitude = location.Longitude,
+                IsResolved = false,
+                Timestamp = DateTime.UtcNow,
+            };
+
+            await CrossFirebaseFirestore.Current
+                .GetCollection("emergency_alerts")
+                .AddDocumentAsync(alert);
+
+            IsSosAlertVisible = true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"SOS send failed: {ex.Message}");
+            await Shell.Current.DisplayAlert("SOS Failed", "Could not send your SOS alert. Please try again.", "OK");
+        }
+        finally
+        {
+            _isSendingSos = false;
+        }
+    }
+
+    private class EmergencySosProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
+        public string ShiftId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
+        public string DriverId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverName")]
+        public string DriverName { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiUnit")]
+        public string TaxiUnit { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("latitude")]
+        public double Latitude { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("longitude")]
+        public double Longitude { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("isResolved")]
+        public bool IsResolved { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
+        public DateTime Timestamp { get; set; }
     }
 
     // This method fires every single time the user routes to the Active Shift screen
@@ -163,7 +264,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
 
             if (string.IsNullOrWhiteSpace(savedStartTimeStr) || !DateTime.TryParse(savedStartTimeStr, out var parsedStartTime))
             {
-                _shiftStartTime = DateTime.Now;
+                _shiftStartTime = ShiftClock.LocalNow;
                 Preferences.Set("ShiftStartTime", _shiftStartTime.ToString("o"));
 
                 // Wipe stale timing state for a fresh shift
@@ -176,7 +277,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
             }
 
             ShiftStartTimeDisplay = _shiftStartTime.ToString("hh:mm tt");
-            ShiftEndsAt = _shiftStartTime.AddHours(10).ToString("hh:mm tt");
+            ShiftEndsAt = ReturnDeadlineDisplay();
 
             // Force the timer to restart if it was stopped during a previous clock-out
             if (!_shiftTimer.IsRunning)
@@ -190,15 +291,33 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         {
             System.Diagnostics.Debug.WriteLine($"ApplyQueryAttributes Error: {ex.Message}");
 
-            _shiftStartTime = DateTime.Now;
+            _shiftStartTime = ShiftClock.LocalNow;
             Preferences.Set("ShiftStartTime", _shiftStartTime.ToString("o"));
             ShiftStartTimeDisplay = _shiftStartTime.ToString("hh:mm tt");
-            ShiftEndsAt = _shiftStartTime.AddHours(10).ToString("hh:mm tt");
+            ShiftEndsAt = ReturnDeadlineDisplay();
 
             if (!_shiftTimer.IsRunning)
             {
                 _shiftTimer.Start();
             }
+        }
+    }
+
+    // Mirrors the on-screen pause into shifts/{id}.isOnBreak so ManagerWeb's roster, shift
+    // logs and dashboard show the driver as On Break rather than Active.
+    private async Task SyncBreakStatusAsync(bool isOnBreak)
+    {
+        try
+        {
+            string? shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
+            if (!string.IsNullOrWhiteSpace(shiftId))
+            {
+                await _shiftService.SetOnBreakAsync(shiftId, isOnBreak);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Break Sync Error: {ex.Message}");
         }
     }
 
@@ -215,7 +334,8 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
                     .GetDocument(user.Uid)
                     .GetDocumentSnapshotAsync<ShiftUserProfileProxy>();
 
-                var dynamicTaxiId = userProfileDoc?.Data?.AssignedTaxiId;
+                // Show the unit actually being driven today (a substitute, if one was assigned).
+                var dynamicTaxiId = await _shiftService.GetTodaysTaxiIdAsync(userProfileDoc?.Data?.AssignedTaxiId);
 
                 if (!string.IsNullOrWhiteSpace(dynamicTaxiId))
                 {
@@ -240,18 +360,36 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
 
     private void OnTimerTick(object sender, EventArgs e)
     {
-        _shiftDuration = (DateTime.Now - _shiftStartTime) - _totalBreakTime;
+        _shiftDuration = (ShiftClock.LocalNow - _shiftStartTime) - _totalBreakTime;
         if (_shiftDuration.TotalSeconds < 0) _shiftDuration = TimeSpan.Zero;
 
         DurationDisplay = _shiftDuration.ToString(@"hh\:mm\:ss");
 
-        var newRemaining = TimeSpan.FromHours(10) - _shiftDuration;
-        if (newRemaining.TotalSeconds > 0)
+        // Counts down to the unit's return time (10:00 PM, ShiftRules) rather than a fixed
+        // shift length - the unit is due back at 10 PM however late the driver clocked in.
+        DateTime startUtc = _shiftStartTime.ToUniversalTime();
+        DateTime nowUtc = ShiftClock.UtcNow;
+        TimeSpan untilDeadline = ShiftRules.ReturnDeadlineUtc(startUtc) - nowUtc;
+
+        if (untilDeadline > TimeSpan.Zero)
         {
-            _timeRemaining = newRemaining;
-            TimeRemainingDisplay = $"{_timeRemaining.Hours:D2}h {_timeRemaining.Minutes:D2}m";
+            _timeRemaining = untilDeadline;
+            TimeRemainingDisplay = $"{(int)_timeRemaining.TotalHours:D2}h {_timeRemaining.Minutes:D2}m";
+        }
+        else
+        {
+            TimeSpan late = -untilDeadline;
+            decimal feeIfReturnedNow = ShiftRules.LateReturnFee(startUtc, nowUtc);
+            TimeRemainingDisplay = feeIfReturnedNow > 0
+                ? $"LATE {(int)late.TotalHours}h {late.Minutes:D2}m · ₱{feeIfReturnedNow:N0}"
+                : $"LATE {late.Minutes}m · no fee until 10:30 PM";
         }
     }
+
+    // Unit return time, shown in the phone's local time (the fleet runs on PH time, so for
+    // drivers this reads "10:00 PM").
+    private string ReturnDeadlineDisplay() =>
+        ShiftRules.ReturnDeadlineUtc(_shiftStartTime.ToUniversalTime()).ToLocalTime().ToString("hh:mm tt");
 
     public event PropertyChangedEventHandler PropertyChanged;
     protected void OnPropertyChanged([CallerMemberName] string propertyName = "")

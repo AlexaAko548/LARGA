@@ -28,4 +28,9 @@ public class DebtAdjustment
 
     [FirestoreProperty("timestamp")]
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Set on the automatic credit a payment makes against manual debt: the payment's
+    /// transactionId (boundary_payments), so its history shows it as part of that payment.</summary>
+    [FirestoreProperty("transactionId")]
+    public string? TransactionId { get; set; }
 }

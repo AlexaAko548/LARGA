@@ -80,19 +80,63 @@ public class FleetReportingService
             ActiveDrivers = BuildActiveDrivers(activeShifts, drivers),
             FleetMileage = BuildFleetMileage(recentShifts, now),
             OpenIncidents = BuildOpenIncidents(maintenance, alerts, now),
-            FleetStatus = await BuildFleetStatusAsync(taxis, activeShifts, recentShifts, alerts, idleThresholdMinutes, now),
+            FleetStatus = await BuildFleetStatusAsync(taxis, drivers, activeShifts, recentShifts, alerts, maintenance, idleThresholdMinutes, now),
             // Top Driver Standings is now a "last 14 days" leaderboard rather than an
             // all-time one - a deliberate side effect of no longer fetching full shift/
             // payment history. Arguably more useful anyway (recent performance vs.
             // lifetime), but flagging the semantic change explicitly.
-            TopDrivers = BuildTopDrivers(drivers, recentShifts, maintenance, alerts, recentPayments),
+            TopDrivers = await BuildTopDriversAsync(drivers, maintenance, PhilippineTime.Now.Date.AddDays(1 - StandingsWindowDays), now),
             BoundaryCollections = BuildBoundaryCollections(recentPayments),
             FuelVerification = BuildFuelVerification(recentFuelLogs),
             FleetMileageByTaxi = BuildFleetMileageByTaxi(recentShifts),
             MaintenanceExpenses = BuildMaintenanceExpenses(maintenance),
+            Utilization = BuildUtilization(taxis, activeShifts, recentShifts, OpenWorkOrders(maintenance), now),
         };
 
         return snapshot;
+    }
+
+    // ---------------------------------------------------------------------
+    // Fleet utilization KPIs (LAR-84)
+    // ---------------------------------------------------------------------
+
+    private static FleetUtilization BuildUtilization(List<TaxiUnit> taxis, List<ShiftLog> activeShifts, List<ShiftLog> recentShifts, List<MaintenanceRecord> openJobs, DateTime now)
+    {
+        List<TaxiUnit> operable = taxis
+            .Where(t => !string.Equals(t.Status, "Decommissioned", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(t => t.TaxiId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        HashSet<string> operableIds = operable.Select(t => t.TaxiId).ToHashSet();
+
+        // The last 7 Philippine calendar days, today included.
+        DateTime windowStart = now.ToPhilippineTime().Date.AddDays(1 - FleetUtilization.WindowDays) - PhilippineTime.Offset;
+        List<ShiftLog> windowShifts = recentShifts
+            .Where(s => s.ShiftStart is DateTime start && start >= windowStart && start <= now && operableIds.Contains(s.TaxiId))
+            .ToList();
+
+        Dictionary<string, int> daysByUnit = windowShifts
+            .GroupBy(s => s.TaxiId)
+            .ToDictionary(g => g.Key, g => g.Select(s => s.ShiftStart!.Value.ToPhilippineTime().Date).Distinct().Count());
+
+        List<ShiftLog> completed = windowShifts
+            .Where(s => s.ShiftEnd is DateTime end && end > s.ShiftStart!.Value)
+            .ToList();
+        List<ShiftLog> withMileage = completed.Where(s => ShiftKm(s) > 0).ToList();
+
+        return new FleetUtilization
+        {
+            OperableUnits = operable.Count,
+            UnitsOnRoadNow = activeShifts.Where(s => operableIds.Contains(s.TaxiId)).Select(s => s.TaxiId).Distinct().Count(),
+            UnitsUnderMaintenance = operable.Count(t => TaxiStatusRules.IsUnderMaintenance(t.Status)
+                || (!activeShifts.Any(s => s.TaxiId == t.TaxiId) && openJobs.Any(j => j.TaxiId == t.TaxiId))),
+            UnitDaysWorked = daysByUnit.Values.Sum(),
+            ShiftsCompleted = completed.Count,
+            AverageShiftHours = completed.Count == 0 ? 0 : completed.Average(s => (s.ShiftEnd!.Value - s.ShiftStart!.Value).TotalHours),
+            AverageKmPerShift = withMileage.Count == 0 ? 0 : withMileage.Average(s => (double)ShiftKm(s)),
+            DaysWorkedByUnit = operable
+                .Select(t => new ChartPoint { Label = FormatUnitLabel(t.TaxiId), Value = daysByUnit.GetValueOrDefault(t.TaxiId) })
+                .ToList(),
+        };
     }
 
     // ---------------------------------------------------------------------
@@ -144,8 +188,14 @@ public class FleetReportingService
         };
     }
 
-    private static decimal SumMileage(IEnumerable<ShiftLog> shifts) =>
-        shifts.Sum(s => s.EndMileage > s.StartMileage ? s.EndMileage - s.StartMileage : 0);
+    // A taxi can't cover more than this in one shift - a larger gap means a mistyped or
+    // missing odometer reading (e.g. a start of 0), so that shift's distance is left out.
+    private const int MaxPlausibleShiftKm = 1000;
+
+    private static int ShiftKm(ShiftLog s) =>
+        s.EndMileage > s.StartMileage && s.EndMileage - s.StartMileage <= MaxPlausibleShiftKm ? s.EndMileage - s.StartMileage : 0;
+
+    private static decimal SumMileage(IEnumerable<ShiftLog> shifts) => shifts.Sum(ShiftKm);
 
     private static StatCard BuildOpenIncidents(List<MaintenanceRecord> maintenance, List<EmergencyAlert> alerts, DateTime now)
     {
@@ -185,57 +235,188 @@ public class FleetReportingService
 
     private async Task<FleetStatusCounts> BuildFleetStatusAsync(
         List<TaxiUnit> taxis,
+        List<UserProfile> drivers,
         List<ShiftLog> activeShifts,
         List<ShiftLog> recentShifts,
         List<EmergencyAlert> alerts,
+        List<MaintenanceRecord> maintenance,
         double idleThresholdMinutes,
         DateTime now)
     {
         var counts = new FleetStatusCounts();
+        List<MaintenanceRecord> openJobs = OpenWorkOrders(maintenance);
+        Dictionary<string, List<(EmergencyAlert Alert, ShiftLog Shift)>> sosByTaxi =
+            await UnresolvedSosByTaxiAsync(alerts, activeShifts.Concat(recentShifts));
 
-        foreach (TaxiUnit taxi in taxis)
+        foreach (TaxiUnit taxi in taxis.OrderBy(t => t.TaxiId, StringComparer.OrdinalIgnoreCase))
         {
             ShiftLog? activeShift = activeShifts.FirstOrDefault(s => s.TaxiId == taxi.TaxiId);
 
-            // "Most recent shift" only looks back 14 days now (recentShifts' window) rather
-            // than the taxi's entire history - if a taxi's last shift is older than that AND
-            // still has an unresolved SOS alert against it, that's a data-hygiene problem
-            // worth fixing at the source, not something worth an unbounded query to keep
-            // detecting indefinitely. Falls back to the active shift if the window missed it.
-            ShiftLog? mostRecentShift = recentShifts
-                .Where(s => s.TaxiId == taxi.TaxiId)
-                .OrderByDescending(s => s.ShiftStart ?? DateTime.MinValue)
-                .FirstOrDefault() ?? activeShift;
+            // Every unresolved SOS from a shift on this unit, however old - it stays an
+            // emergency until someone ticks Resolved in SOS Dispatch.
+            List<(EmergencyAlert Alert, ShiftLog Shift)> sosAlerts = sosByTaxi.GetValueOrDefault(taxi.TaxiId) ?? new();
+            (EmergencyAlert Alert, ShiftLog Shift)? latestSos = sosAlerts.Count == 0 ? null : sosAlerts.MaxBy(x => x.Alert.Timestamp);
+            EmergencyAlert? sos = latestSos?.Alert;
 
-            bool hasUnresolvedSos = mostRecentShift is not null
-                && alerts.Any(a => a.ShiftId == mostRecentShift.ShiftId && !a.IsResolved);
-
-            if (hasUnresolvedSos)
+            ShiftLog? driverShift = activeShift ?? latestSos?.Shift;
+            UserProfile? driver = driverShift is null ? null : drivers.FirstOrDefault(d => d.UserId == driverShift.DriverId);
+            var unit = new FleetUnitStatus
             {
+                TaxiId = taxi.TaxiId,
+                PlateNumber = string.IsNullOrWhiteSpace(taxi.PlateNumber) ? null : taxi.PlateNumber,
+                DriverId = driver?.UserId ?? driverShift?.DriverId,
+                DriverName = driver?.FullName,
+                DriverPhone = string.IsNullOrWhiteSpace(driver?.PhoneNumber) ? null : driver.PhoneNumber,
+            };
+
+            if (sos is not null)
+            {
+                unit.Status = FleetUnitStatus.SosStatus;
+                unit.Detail = sosAlerts.Count == 1
+                    ? $"SOS sent {Ago(sos.Timestamp, now)} - open SOS Dispatch"
+                    : $"{sosAlerts.Count} unresolved SOS alerts, latest {Ago(sos.Timestamp, now)} - open SOS Dispatch";
                 counts.Sos++;
             }
-            else if (string.Equals(taxi.Status, "Under Maintenance", StringComparison.OrdinalIgnoreCase))
+            // In the shop: the taxi is marked under maintenance, or - when nobody is driving it -
+            // it has a Garage work order in progress (an active work order, same as the Garage
+            // page lists; one past its estimated finish is still in the shop until resolved).
+            else if (TaxiStatusRules.IsUnderMaintenance(taxi.Status)
+                || (activeShift is null && openJobs.Any(j => j.TaxiId == taxi.TaxiId)))
             {
+                unit.Status = FleetUnitStatus.MaintenanceStatus;
+                List<MaintenanceRecord> jobs = openJobs.Where(j => j.TaxiId == taxi.TaxiId).OrderByDescending(j => j.DateLogged).ToList();
+                unit.Detail = jobs.Count == 0
+                    ? "Marked under maintenance"
+                    : string.Join(" · ", jobs.Take(2).Select(JobLabel)) + (jobs.Count > 2 ? $" · +{jobs.Count - 2} more" : "");
                 counts.Maintenance++;
             }
             else if (activeShift is not null && activeShift.IsOnBreak)
             {
+                unit.Status = FleetUnitStatus.OnBreakStatus;
+                unit.Detail = "On break";
                 counts.OnBreak++;
             }
-            else if (activeShift is not null && await IsMovingAsync(activeShift.ShiftId, idleThresholdMinutes, now))
+            else if (activeShift is null)
             {
-                counts.Active++;
+                // Nobody is driving it - parked, not "idle" (idle means a driver is on shift
+                // but the unit isn't moving).
+                unit.Status = FleetUnitStatus.ParkedStatus;
+                unit.Detail = "No driver on shift - available";
+                counts.Parked++;
             }
             else
             {
-                counts.Idle++;
+                GpsTelemetry? latest = await GetLatestTelemetryAsync(activeShift.ShiftId);
+                bool moving = latest is not null && latest.Timestamp >= now.AddMinutes(-idleThresholdMinutes) && latest.Speed > 0;
+                if (moving)
+                {
+                    unit.Status = FleetUnitStatus.ActiveStatus;
+                    unit.Detail = $"On shift since {activeShift.ShiftStart?.ToPhilippineTime():h:mm tt}";
+                    counts.Active++;
+                }
+                else
+                {
+                    unit.Status = FleetUnitStatus.IdleStatus;
+                    unit.Detail = latest is null ? "On shift - no GPS from the phone yet" : $"Not moving - last GPS {Ago(latest.Timestamp, now)}";
+                    counts.Idle++;
+                }
             }
+
+            counts.Units.Add(unit);
         }
 
         return counts;
     }
 
+    /// <summary>Unresolved SOS alerts by the taxi of the shift each was sent from. Shifts not
+    /// already loaded (older than the dashboard's window) are looked up by either of their IDs.</summary>
+    private async Task<Dictionary<string, List<(EmergencyAlert Alert, ShiftLog Shift)>>> UnresolvedSosByTaxiAsync(
+        IEnumerable<EmergencyAlert> alerts, IEnumerable<ShiftLog> knownShifts)
+    {
+        var shiftsById = new Dictionary<string, ShiftLog>();
+        foreach (ShiftLog shift in knownShifts)
+        {
+            if (!string.IsNullOrEmpty(shift.DocumentId)) shiftsById.TryAdd(shift.DocumentId, shift);
+            if (!string.IsNullOrEmpty(shift.ShiftId)) shiftsById.TryAdd(shift.ShiftId, shift);
+        }
+
+        var byTaxi = new Dictionary<string, List<(EmergencyAlert, ShiftLog)>>(StringComparer.OrdinalIgnoreCase);
+        foreach (EmergencyAlert alert in alerts.Where(a => !a.IsResolved && !string.IsNullOrWhiteSpace(a.ShiftId)))
+        {
+            if (!shiftsById.TryGetValue(alert.ShiftId, out ShiftLog? shift))
+            {
+                DocumentSnapshot doc = await Db.Collection("shifts").Document(alert.ShiftId).GetSnapshotAsync();
+                if (doc.Exists)
+                {
+                    shift = doc.ConvertTo<ShiftLog>();
+                }
+                else
+                {
+                    QuerySnapshot byField = await Db.Collection("shifts").WhereEqualTo("shiftId", alert.ShiftId).Limit(1).GetSnapshotAsync();
+                    shift = byField.Documents.Count > 0 ? byField.Documents[0].ConvertTo<ShiftLog>() : null;
+                }
+
+                if (shift is not null)
+                {
+                    shiftsById[alert.ShiftId] = shift;
+                }
+            }
+
+            if (shift is null || string.IsNullOrWhiteSpace(shift.TaxiId))
+            {
+                continue;
+            }
+
+            if (!byTaxi.TryGetValue(shift.TaxiId, out List<(EmergencyAlert, ShiftLog)>? list))
+            {
+                byTaxi[shift.TaxiId] = list = new();
+            }
+            list.Add((alert, shift));
+        }
+
+        return byTaxi;
+    }
+
+    /// <summary>Garage work orders in progress (the Garage page's Active Work Orders).</summary>
+    private static List<MaintenanceRecord> OpenWorkOrders(IEnumerable<MaintenanceRecord> maintenance) =>
+        maintenance
+            .Where(m => m.DateResolved is null && string.Equals(m.Status, "InProgress", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    private static string JobLabel(MaintenanceRecord job)
+    {
+        string title = string.IsNullOrWhiteSpace(job.IssueTitle) ? "Garage job" : job.IssueTitle.Trim();
+        if (job.EstimatedCompletionDate is not DateTime est)
+        {
+            return $"{title} (no finish date)";
+        }
+
+        DateTime due = est.ToPhilippineTime().Date;
+        return due < PhilippineTime.Now.Date ? $"{title} (overdue since {due:MMM d})" : $"{title} (until {due:MMM d})";
+    }
+
+    private static string Ago(DateTime utc, DateTime now)
+    {
+        TimeSpan age = now - utc;
+        if (age < TimeSpan.FromMinutes(1)) return "just now";
+        if (age < TimeSpan.FromHours(1)) return $"{(int)age.TotalMinutes} min ago";
+        if (age < TimeSpan.FromDays(1)) return $"{(int)age.TotalHours} h ago";
+        return $"{(int)age.TotalDays} d ago";
+    }
+
     private async Task<bool> IsMovingAsync(string shiftId, double idleThresholdMinutes, DateTime now)
+    {
+        GpsTelemetry? latest = await GetLatestTelemetryAsync(shiftId);
+        if (latest is null)
+        {
+            return false; // no telemetry yet - can't confirm movement, treat as Idle
+        }
+
+        bool isRecent = latest.Timestamp >= now.AddMinutes(-idleThresholdMinutes);
+        return isRecent && latest.Speed > 0;
+    }
+
+    private async Task<GpsTelemetry?> GetLatestTelemetryAsync(string shiftId)
     {
         // NOTE: this equality-filter + order-by-a-different-field query needs a Firestore
         // composite index on gps_telemetry (shiftId Asc, timestamp Desc). The first time this
@@ -248,14 +429,7 @@ public class FleetReportingService
             .Limit(1)
             .GetSnapshotAsync();
 
-        if (snapshot.Documents.Count == 0)
-        {
-            return false; // no telemetry yet - can't confirm movement, treat as Idle
-        }
-
-        GpsTelemetry latest = snapshot.Documents[0].ConvertTo<GpsTelemetry>();
-        bool isRecent = latest.Timestamp >= now.AddMinutes(-idleThresholdMinutes);
-        return isRecent && latest.Speed > 0;
+        return snapshot.Documents.Count == 0 ? null : snapshot.Documents[0].ConvertTo<GpsTelemetry>();
     }
 
     /// <summary>Which taxis are *currently* computed as Idle, with enough identity to raise an
@@ -280,7 +454,7 @@ public class FleetReportingService
         foreach (ShiftLog shift in activeShifts)
         {
             if (!taxiById.TryGetValue(shift.TaxiId, out TaxiUnit? taxi)) continue;
-            if (string.Equals(taxi.Status, "Under Maintenance", StringComparison.OrdinalIgnoreCase)) continue;
+            if (TaxiStatusRules.IsUnderMaintenance(taxi.Status)) continue;
             if (shift.IsOnBreak) continue;
             if (alerts.Any(a => a.ShiftId == shift.ShiftId && !a.IsResolved)) continue; // unresolved SOS takes precedence
             if (await IsMovingAsync(shift.ShiftId, idleThresholdMinutes, now)) continue;
@@ -312,53 +486,72 @@ public class FleetReportingService
     // Top Driver Standings
     // ---------------------------------------------------------------------
 
-    private static List<DriverStanding> BuildTopDrivers(
-        List<UserProfile> drivers,
-        List<ShiftLog> shifts,
-        List<MaintenanceRecord> maintenance,
-        List<EmergencyAlert> alerts,
-        List<BoundaryPayment> payments)
-    {
-        var standings = new List<DriverStanding>();
+    /// <summary>How far back Top Driver Standings look.</summary>
+    public const int StandingsWindowDays = 30;
 
-        foreach (UserProfile driver in drivers)
+    /// <summary>
+    /// Top Driver Standings: each driver's DriverPerformance from <paramref name="fromPh"/> to
+    /// <paramref name="nowUtc"/> - attendance against the days they were expected to drive,
+    /// on-time returns, boundaries paid on time, damage incidents - ranked by the average of
+    /// the three percentages, then by boundaries remitted.
+    /// </summary>
+    private async Task<List<DriverStanding>> BuildTopDriversAsync(List<UserProfile> drivers, List<MaintenanceRecord> maintenance, DateTime fromPh, DateTime nowUtc)
+    {
+        DateTime fromUtc = fromPh.Date - PhilippineTime.Offset;
+        List<ShiftLog> shifts = await GetSinceAsync<ShiftLog>("shifts", "shiftStart", fromUtc);
+        // Day-off entries are stored at the day's UTC midnight - a day earlier still covers fromPh.
+        List<ShiftSchedule> exceptions = await GetSinceAsync<ShiftSchedule>("shift_schedules", "scheduledStartTime", fromUtc.AddDays(-1));
+        // Payments for these shifts are recorded after they start.
+        List<BoundaryPayment> payments = await GetSinceAsync<BoundaryPayment>("boundary_payments", "timestamp", fromUtc);
+        decimal defaultRate = await GetDefaultBoundaryRateAsync();
+
+        List<DriverStanding> standings = drivers.Select(driver =>
         {
             List<ShiftLog> driverShifts = shifts.Where(s => s.DriverId == driver.UserId).ToList();
-            HashSet<string> driverShiftIds = driverShifts.Select(s => s.ShiftId).ToHashSet();
+            HashSet<string> ids = driverShifts.SelectMany(s => new[] { s.DocumentId, s.ShiftId }).Where(id => !string.IsNullOrEmpty(id)).ToHashSet();
+            DriverPerformance performance = DriverPerformanceCalculator.Calculate(
+                driver, driverShifts, exceptions.Where(e => e.DriverId == driver.UserId).ToList(), maintenance,
+                payments.Where(p => ids.Contains(p.ShiftId)).ToList(), defaultRate, fromPh, nowUtc);
 
-            double punctualPercent = driverShifts.Count == 0
-                ? 0
-                : 100.0 * driverShifts.Count(s => s.Status != "Overdue") / driverShifts.Count;
-
-            int incidentCount = maintenance.Count(m => m.ShiftId is not null && driverShiftIds.Contains(m.ShiftId))
-                + alerts.Count(a => driverShiftIds.Contains(a.ShiftId));
-
-            decimal boundariesRemitted = payments
-                .Where(p => driverShiftIds.Contains(p.ShiftId))
-                .Sum(p => p.AmountPaid);
-
-            standings.Add(new DriverStanding
+            return new DriverStanding
             {
                 DriverId = driver.UserId,
                 FullName = driver.FullName,
                 TaxiId = driver.AssignedTaxiId,
-                PunctualPercent = punctualPercent,
-                IncidentCount = incidentCount,
-                BoundariesRemitted = boundariesRemitted,
-            });
-        }
+                PunctualPercent = performance.PunctualityPercent ?? 0,
+                IncidentCount = performance.DamageIncidents,
+                BoundariesRemitted = performance.BoundariesRemitted,
+                Performance = performance,
+            };
+        })
+        .OrderByDescending(d => d.Performance.Score)
+        .ThenByDescending(d => d.BoundariesRemitted)
+        .ThenBy(d => d.FullName)
+        .ToList();
 
-        List<DriverStanding> ranked = standings
-            .OrderByDescending(d => d.PunctualPercent)
-            .ThenByDescending(d => d.BoundariesRemitted)
-            .ToList();
-
-        for (int i = 0; i < ranked.Count; i++)
+        for (int i = 0; i < standings.Count; i++)
         {
-            ranked[i].Rank = i + 1;
+            standings[i].Rank = i + 1;
         }
 
-        return ranked;
+        return standings;
+    }
+
+    private async Task<decimal> GetDefaultBoundaryRateAsync()
+    {
+        try
+        {
+            DocumentSnapshot snapshot = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
+            if (snapshot.Exists && snapshot.ConvertTo<SystemConfig>().DefaultBoundaryRate is double rate && rate > 0)
+            {
+                return (decimal)rate;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read the default boundary rate");
+        }
+        return ShiftRules.DefaultBoundaryRate;
     }
 
     // ---------------------------------------------------------------------
@@ -478,19 +671,21 @@ public class FleetReportingService
         List<UserProfile> drivers = (await GetAllAsync<UserProfile>("users"))
             .Where(u => string.Equals(u.Role, "Driver", StringComparison.OrdinalIgnoreCase))
             .ToList();
-        List<ShiftLog> shifts = await GetBetweenAsync<ShiftLog>("shifts", "shiftStart", fromUtc, toUtc);
         List<MaintenanceRecord> maintenance = await GetAllAsync<MaintenanceRecord>("maintenance_logs");
-        List<EmergencyAlert> alerts = await GetAllAsync<EmergencyAlert>("emergency_alerts");
-        List<BoundaryPayment> payments = await GetBetweenAsync<BoundaryPayment>("boundary_payments", "timestamp", fromUtc, toUtc);
+        DateTime until = toUtc < DateTime.UtcNow ? toUtc : DateTime.UtcNow;
+        List<DriverStanding> standings = await BuildTopDriversAsync(drivers, maintenance, fromUtc.ToPhilippineTime().Date, until);
 
-        List<DriverStanding> standings = BuildTopDrivers(drivers, shifts, maintenance, alerts, payments);
-
+        static string Pct(double? p) => p is double v ? v.ToString("0.0", CultureInfo.InvariantCulture) : "";
         return BuildCsv(
-            new[] { "Rank", "DriverName", "TaxiId", "PunctualPercent", "IncidentCount", "BoundariesRemitted" },
+            new[] { "Rank", "DriverName", "TaxiId", "ExpectedDays", "DaysWorked", "MissedDays", "AttendancePercent",
+                    "ShiftsCompleted", "LateReturns", "PunctualityPercent", "BoundariesDue", "PaidOnTime",
+                    "PaymentReliabilityPercent", "DamageIncidents", "BoundariesRemitted" },
             standings.Select(d => new object?[]
             {
-                d.Rank, d.FullName, d.TaxiId, d.PunctualPercent.ToString("0.0", CultureInfo.InvariantCulture),
-                d.IncidentCount, d.BoundariesRemitted,
+                d.Rank, d.FullName, d.TaxiId, d.Performance.ExpectedDays, d.Performance.DaysWorked, d.Performance.MissedDays,
+                Pct(d.Performance.AttendancePercent), d.Performance.ShiftsCompleted, d.Performance.LateReturns,
+                Pct(d.Performance.PunctualityPercent), d.Performance.BoundariesDue, d.Performance.BoundariesPaidOnTime,
+                Pct(d.Performance.PaymentReliabilityPercent), d.Performance.DamageIncidents, d.BoundariesRemitted,
             }));
     }
 

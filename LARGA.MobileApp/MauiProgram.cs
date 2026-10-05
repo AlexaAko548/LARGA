@@ -60,10 +60,23 @@ public static class MauiProgram
         builder.Services.AddSingleton<IShiftManagementService, ShiftManagementService>();
         builder.Services.AddSingleton<INotificationService, NotificationService>();
         builder.Services.AddSingleton<IMaintenanceService, MaintenanceService>();
+        builder.Services.AddSingleton<IPhotoStorageService, PhotoStorageService>();
         builder.Services.AddSingleton<IFuelService, FuelService>();
+        builder.Services.AddSingleton<IGpsTelemetryService, GpsTelemetryService>();
 
 #if ANDROID
         builder.Services.AddSingleton<IOcrService, LARGA.MobileApp.Platforms.Android.Services.AndroidOcrService>();
+#else
+        // ML Kit Text Recognition is Android-only. Without a registration here, every page
+        // that depends on IOcrService (license scan, fuel receipt scan, odometer scan) fails
+        // to resolve via DI - or, for ScanFuelReceiptPage's manual GetService<IOcrService>()
+        // lookup, gets back null and throws - the moment it's opened on Windows/MacCatalyst.
+        // See UnsupportedOcrService's doc comment for why an empty-result stub, not a throw,
+        // is the right fallback.
+        builder.Services.AddSingleton<IOcrService, UnsupportedOcrService>();
+#endif
+
+        // Depends only on IOcrService, so it resolves on every platform (ScanEReceiptPage needs it).
         builder.Services.AddSingleton<LARGA.MobileApp.Services.EReceiptOcrService>();
 
 #if ANDROID
@@ -83,7 +96,6 @@ public static class MauiProgram
             }
         });
 #endif
-#endif
 
         // Register ViewModels 
         builder.Services.AddTransient<LandingViewModel>();
@@ -94,6 +106,7 @@ public static class MauiProgram
         builder.Services.AddTransient<MessageManagerViewModel>();
         builder.Services.AddTransient<PreShiftStep1ViewModel>();
         builder.Services.AddTransient<PreShiftStep2ViewModel>();
+        builder.Services.AddTransient<ClockInPendingViewModel>();
         builder.Services.AddTransient<ShiftCompletedViewModel>();
         builder.Services.AddSingleton<ActiveShiftViewModel>();
         builder.Services.AddTransient<LedgerViewModel>();

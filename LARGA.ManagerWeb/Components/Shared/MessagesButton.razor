@@ -1,0 +1,321 @@
+@* Messages button in every dashboard page header (replaces the old placeholder ✉ icon-btn).
+   Opens a drawer on the right like the manager app's Chats: first the list of driver
+   conversations (name, last message, time), then a driver's chat with a back arrow to the
+   list. SOS Dispatch opens it straight into a driver's chat through ChatDrawerState. Both
+   lists update live (Firestore listeners), and it's the same conversation the driver sees in
+   the LARGA app's Message Manager. *@
+@implements IAsyncDisposable
+@using LARGA.ManagerWeb.Services
+@using LARGA.SharedCore
+@using LARGA.SharedCore.Services
+@using LARGA.Shared.Models.Entities
+@inject ManagerChatService Chat
+@inject ChatDrawerState Drawer
+
+<button class="icon-btn messages-btn" type="button" aria-label="Messages" title="Messages" @onclick="Drawer.OpenList">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z" />
+        <path d="M8.5 11h.01M12 11h.01M15.5 11h.01" />
+    </svg>
+    @if (UnreadCount > 0)
+    {
+        <span class="notification-badge">@(UnreadCount > 9 ? "9+" : UnreadCount.ToString())</span>
+    }
+</button>
+
+@if (Drawer.IsOpen)
+{
+    <div class="chat-drawer-backdrop" @onclick="Drawer.Close"></div>
+    <aside class="chat-drawer" aria-label="Messages">
+        @if (Drawer.DriverId is null)
+        {
+            <header class="chat-drawer-head">
+                <div class="chat-drawer-title">Messages</div>
+                <button class="close-modal" type="button" aria-label="Close messages" @onclick="Drawer.Close">×</button>
+            </header>
+
+            <div class="chat-session-list">
+                @if (_sessionsError is not null)
+                {
+                    <div class="chat-drawer-empty error">Messages unavailable: @_sessionsError</div>
+                }
+                else if (_sessions is null)
+                {
+                    <div class="chat-drawer-empty">Loading conversations...</div>
+                }
+                else if (_sessions.Count == 0)
+                {
+                    <div class="chat-drawer-empty">No conversations yet. Drivers' messages from the LARGA app appear here.</div>
+                }
+                else
+                {
+                    @foreach (ChatSessionView session in _sessions)
+                    {
+                        ChatSessionView item = session;
+                        <button type="button" class="chat-session @(item.IsUnread ? "unread" : "")"
+                                @onclick="() => Drawer.OpenChat(item.DriverId, item.DriverName)">
+                            <span class="table-avatar">@Initials(item.DriverName)</span>
+                            <span class="chat-session-body">
+                                <span class="chat-session-top">
+                                    <span class="chat-session-name">@item.DriverName</span>
+                                    <span class="chat-session-time">@ListTime(item.Timestamp)</span>
+                                </span>
+                                <span class="chat-session-preview">@item.LastMessage</span>
+                            </span>
+                            @if (item.IsUnread)
+                            {
+                                <span class="chat-session-dot" aria-label="Unread"></span>
+                            }
+                        </button>
+                    }
+                }
+            </div>
+        }
+        else
+        {
+            <header class="chat-drawer-head">
+                <button class="chat-back-btn" type="button" aria-label="Back to all messages" title="All messages" @onclick="Drawer.ShowList">←</button>
+                <span class="table-avatar">@Initials(Drawer.DriverName)</span>
+                <div class="chat-drawer-who">
+                    <div class="chat-drawer-name">@Drawer.DriverName</div>
+                    @if (!string.IsNullOrEmpty(Drawer.Subtitle))
+                    {
+                        <div class="chat-drawer-sub">@Drawer.Subtitle</div>
+                    }
+                </div>
+                <button class="close-modal" type="button" aria-label="Close messages" @onclick="Drawer.Close">×</button>
+            </header>
+
+            @* column-reverse keeps the view pinned to the newest message without any JS. *@
+            <div class="chat-messages">
+                @if (_chatError is not null)
+                {
+                    <div class="chat-drawer-empty error">@_chatError</div>
+                }
+                else if (_messages is null)
+                {
+                    <div class="chat-drawer-empty">Loading conversation...</div>
+                }
+                else if (_messages.Count == 0)
+                {
+                    <div class="chat-drawer-empty">No messages yet. The driver sees your message in the LARGA app's Message Manager screen.</div>
+                }
+                else
+                {
+                    @foreach (ChatMessage message in Enumerable.Reverse(_messages))
+                    {
+                        <div class="chat-bubble @(message.IsDriver ? "from-driver" : "from-manager")">
+                            <div class="chat-bubble-text">@message.Text</div>
+                            <div class="chat-bubble-time">@message.Timestamp.ToPhilippineTime().ToString("MMM d, h:mm tt")</div>
+                        </div>
+                    }
+                }
+            </div>
+
+            @if (Drawer.IsEmergency)
+            {
+                <div class="chat-quick">
+                    @foreach (string reply in EmergencyReplies)
+                    {
+                        <button type="button" class="chat-quick-reply" disabled="@_isSending" @onclick="() => SendAsync(reply)">@reply</button>
+                    }
+                </div>
+            }
+
+            @if (_sendError is not null)
+            {
+                <div class="chat-send-error">@_sendError</div>
+            }
+            <form class="chat-compose" @onsubmit="() => SendAsync(_draft)">
+                <input type="text" placeholder="Type a message..." maxlength="500" @bind="_draft" @bind:event="oninput" disabled="@_isSending" />
+                <button class="solid-btn" type="submit" disabled="@(_isSending || string.IsNullOrWhiteSpace(_draft))">Send</button>
+            </form>
+        }
+    </aside>
+}
+
+@code {
+    private static readonly string[] EmergencyReplies =
+    {
+        "Are you safe?",
+        "Help is on the way.",
+        "Stay with the vehicle if it's safe.",
+        "Call 911 if anyone is hurt.",
+        "Where are you exactly?",
+    };
+
+    private List<ChatSessionView>? _sessions;
+    private string? _sessionsError;
+    private Google.Cloud.Firestore.FirestoreChangeListener? _sessionsListener;
+
+    private string? _chatDriverId;
+    private List<ChatMessage>? _messages;
+    private string? _chatError;
+    private Google.Cloud.Firestore.FirestoreChangeListener? _chatListener;
+
+    private string _draft = string.Empty;
+    private bool _isSending;
+    private string? _sendError;
+
+    private int UnreadCount => _sessions?.Count(s => s.IsUnread) ?? 0;
+
+    protected override void OnInitialized()
+    {
+        Drawer.Changed += OnDrawerChanged;
+
+        try
+        {
+            _sessionsListener = Chat.ListenSessions(sessions =>
+            {
+                _sessions = sessions;
+
+                // A driver writing into the chat that's open right now - it's being read.
+                if (Drawer.IsOpen && Drawer.DriverId is string open && sessions.Any(s => s.DriverId == open && s.IsUnread))
+                {
+                    _ = MarkReadAsync(open);
+                }
+                _ = InvokeAsync(StateHasChanged);
+            });
+        }
+        catch (Exception ex)
+        {
+            _sessionsError = ex.Message;
+        }
+
+        // The drawer state lives for the whole browser session - start each page with it closed.
+        if (Drawer.IsOpen)
+        {
+            Drawer.Close();
+        }
+    }
+
+    private void OnDrawerChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            string? wanted = Drawer.IsOpen ? Drawer.DriverId : null;
+            if (wanted != _chatDriverId)
+            {
+                await SwitchChatAsync(wanted);
+            }
+            StateHasChanged();
+        });
+    }
+
+    private async Task SwitchChatAsync(string? driverId)
+    {
+        await StopAsync(_chatListener);
+        _chatListener = null;
+        _chatDriverId = driverId;
+        _messages = null;
+        _chatError = null;
+        _sendError = null;
+        _draft = string.Empty;
+
+        if (driverId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _chatListener = Chat.Listen(driverId, messages =>
+            {
+                if (_chatDriverId != driverId)
+                {
+                    return; // a late update from the chat that was just closed
+                }
+                _messages = messages;
+                _ = InvokeAsync(StateHasChanged);
+            });
+            await MarkReadAsync(driverId);
+        }
+        catch (Exception ex)
+        {
+            _chatError = $"Couldn't open the conversation: {ex.Message}";
+        }
+    }
+
+    private async Task MarkReadAsync(string driverId)
+    {
+        try
+        {
+            await Chat.MarkReadAsync(driverId);
+        }
+        catch (Exception)
+        {
+            // Not critical - the badge just stays until the next successful read.
+        }
+    }
+
+    private async Task SendAsync(string text)
+    {
+        if (Drawer.DriverId is not string driverId || _isSending || string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        _isSending = true;
+        _sendError = null;
+        try
+        {
+            await Chat.SendAsync(driverId, Drawer.DriverName, text);
+            _draft = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _sendError = $"Message not sent: {ex.Message}";
+        }
+        finally
+        {
+            _isSending = false;
+        }
+    }
+
+    // Today: the time; this week: the weekday; older: the date - like the manager app's list.
+    private static string ListTime(DateTime utc)
+    {
+        if (utc == DateTime.MinValue)
+        {
+            return string.Empty;
+        }
+
+        DateTime ph = utc.ToPhilippineTime();
+        DateTime today = PhilippineTime.Now.Date;
+        if (ph.Date == today) return ph.ToString("h:mm tt");
+        if (ph.Date > today.AddDays(-7)) return ph.ToString("ddd");
+        return ph.ToString("MMM d");
+    }
+
+    private static string Initials(string fullName)
+    {
+        string[] parts = fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return "?";
+        if (parts.Length == 1) return parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant();
+        return $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant();
+    }
+
+    private static async Task StopAsync(Google.Cloud.Firestore.FirestoreChangeListener? listener)
+    {
+        if (listener is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await listener.StopAsync();
+        }
+        catch (Exception)
+        {
+            // Already stopped / connection gone.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Drawer.Changed -= OnDrawerChanged;
+        await StopAsync(_chatListener);
+        await StopAsync(_sessionsListener);
+    }
+}

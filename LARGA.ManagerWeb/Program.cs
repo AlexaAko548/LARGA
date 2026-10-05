@@ -4,6 +4,7 @@ using FirebaseAdmin.Auth;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Firestore;
 using Google.Cloud.Firestore.V1;
+using Google.Cloud.Storage.V1;
 using LARGA.ManagerWeb.Components;
 using LARGA.ManagerWeb.Services;
 using LARGA.SharedCore.Services;
@@ -98,12 +99,46 @@ builder.Services.AddSingleton(sp => new Lazy<FirebaseAuth>(() =>
     return FirebaseAuth.GetAuth(firebaseApp);
 }));
 
+// Admin Cloud Storage access for photos the manager uploads (scanned LTO licenses on the
+// Driver & Shifts profile). Same credentials + Lazy<T> deferral as Firestore above; the
+// bucket is the project's default Firebase Storage bucket unless "Firestore:StorageBucket"
+// overrides it.
+builder.Services.AddSingleton(sp => new Lazy<PhotoStorageTarget>(() =>
+{
+    IConfiguration config = sp.GetRequiredService<IConfiguration>();
+    string bucket = config["Firestore:StorageBucket"] ?? "larga-blmtaxi.firebasestorage.app";
+    string? credentialsPath = config["Firestore:CredentialsPath"];
+
+    if (string.IsNullOrWhiteSpace(credentialsPath))
+    {
+        return new PhotoStorageTarget(StorageClient.Create(), bucket);
+    }
+
+    if (!File.Exists(credentialsPath))
+    {
+        throw new FileNotFoundException(
+            $"Firestore:CredentialsPath is set to '{credentialsPath}' but that file does not exist. " +
+            "See LARGA.SeedTool/README.md for how to get a service account key.");
+    }
+
+#pragma warning disable CS0618
+    GoogleCredential credential = GoogleCredential.FromFile(credentialsPath);
+#pragma warning restore CS0618
+    return new PhotoStorageTarget(StorageClient.Create(credential), bucket);
+}));
+
 builder.Services.AddSingleton<DriverManagementService>();
 builder.Services.AddSingleton<FinancialLedgerService>();
 builder.Services.AddSingleton<GarageService>();
 builder.Services.AddSingleton<AlertService>();
 builder.Services.AddSingleton<InventoryAuditService>();
+builder.Services.AddSingleton<ShiftDeadlineService>();
+builder.Services.AddSingleton<ClockInApprovalService>();
+builder.Services.AddSingleton<SosDispatchService>();
+builder.Services.AddSingleton<ManagerChatService>();
+builder.Services.AddScoped<LARGA.ManagerWeb.Services.ChatDrawerState>();
 builder.Services.AddHostedService<IdleAlertMonitorService>();
+builder.Services.AddHostedService<PaymentDriverIdBackfillService>();
 builder.Services.AddSingleton<FuelVerificationService>();
 builder.Services.AddScoped<IManagerAuthService, ManagerAuthService>();
 builder.Services.AddSingleton<ManagerSignInService>();
@@ -113,6 +148,8 @@ builder.Services
     {
         options.LoginPath = "/login";
         options.AccessDeniedPath = "/login";
+        // Re-checks the manager's access every ManagerSignInService.RecheckInterval (10 min).
+        options.Events.OnValidatePrincipal = ManagerSessionValidator.ValidateAsync;
     });
 // [Authorize] requires the Manager role claim, which only ManagerSignInService issues after
 // verifying the Firebase ID token + users/{uid}.role. This also invalidates any cookie minted by
@@ -125,6 +162,8 @@ builder.Services.AddAuthorization(options =>
         .Build();
 });
 builder.Services.AddCascadingAuthenticationState();
+// Same 10-minute re-check for open Blazor circuits, which make no new HTTP requests.
+builder.Services.AddScoped<AuthenticationStateProvider, ManagerRevalidatingAuthStateProvider>();
 
 var app = builder.Build();
 
