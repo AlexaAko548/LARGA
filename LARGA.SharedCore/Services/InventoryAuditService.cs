@@ -19,13 +19,15 @@ public class InventoryAuditService
 
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly ILogger<InventoryAuditService> _logger;
+    private readonly AlertService _alerts;
 
     private FirestoreDb Db => _dbLazy.Value;
 
-    public InventoryAuditService(Lazy<FirestoreDb> dbLazy, ILogger<InventoryAuditService> logger)
+    public InventoryAuditService(Lazy<FirestoreDb> dbLazy, ILogger<InventoryAuditService> logger, AlertService alerts)
     {
         _dbLazy = dbLazy;
         _logger = logger;
+        _alerts = alerts;
     }
 
     public async Task<List<SparePart>> GetSparePartsAsync()
@@ -81,7 +83,7 @@ public class InventoryAuditService
 
         int deduction = Math.Max(1, amount);
 
-        return await Db.RunTransactionAsync(async transaction =>
+        SparePart? updated = await Db.RunTransactionAsync(async transaction =>
         {
             DocumentReference doc = Db.Collection("spare_parts").Document(partId);
             DocumentReference auditDoc = Db.Collection("audit_logs").Document();
@@ -116,6 +118,14 @@ public class InventoryAuditService
 
             return part;
         });
+
+        // Outside the transaction: a failed notification must not roll back the stock change.
+        if (updated is not null && updated.StockQuantity <= updated.ReorderLevel)
+        {
+            await _alerts.CreateLowStockAlertAsync(updated);
+        }
+
+        return updated;
     }
 
     public async Task<SparePart?> AddPartStockAsync(string partId, int amount = 1, string? actorUserId = null)

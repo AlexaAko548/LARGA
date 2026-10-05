@@ -29,16 +29,14 @@ public class GarageService
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly ILogger<GarageService> _logger;
     private readonly InventoryAuditService _inventoryAudit;
-    private readonly AlertService _alerts;
 
     private FirestoreDb Db => _dbLazy.Value;
 
-    public GarageService(Lazy<FirestoreDb> dbLazy, ILogger<GarageService> logger, InventoryAuditService inventoryAudit, AlertService alerts)
+    public GarageService(Lazy<FirestoreDb> dbLazy, ILogger<GarageService> logger, InventoryAuditService inventoryAudit)
     {
         _dbLazy = dbLazy;
         _logger = logger;
         _inventoryAudit = inventoryAudit;
-        _alerts = alerts;
     }
 
     public async Task<GarageSnapshot> GetGarageSnapshotAsync()
@@ -274,7 +272,7 @@ public class GarageService
     /// Records the spare parts a maintenance job consumed. For each part, stock is deducted through
     /// InventoryAuditService.DeductPartAsync (which writes the InventoryStockDeducted audit entry),
     /// then a maintenance_parts_used row is written. If the part then sits at or below its
-    /// ReorderLevel - the same rule Inventory uses to show "Low Stock" - a LowStock alert is raised.
+    /// ReorderLevel, DeductPartAsync raises the LowStock alert (the same as a manual deduction).
     /// All quantities are validated before anything is deducted. Parts are then processed in order
     /// and are not rolled back as a group: if one fails, the parts before it stay deducted and logged.
     /// </summary>
@@ -302,11 +300,6 @@ public class GarageService
                     QuantityUsed = quantity,
                 };
                 await Db.Collection("maintenance_parts_used").AddAsync(usage);
-
-                if (updated.StockQuantity <= updated.ReorderLevel)
-                {
-                    await _alerts.CreateLowStockAlertAsync(updated, maintenanceId);
-                }
             }
 
             return new GarageActionResult { Ok = true };

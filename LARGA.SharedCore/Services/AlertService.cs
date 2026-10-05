@@ -105,14 +105,11 @@ public class AlertService
         }
     }
 
-    /// <summary>Raises a "LowStock" notification after a maintenance job draws a spare part down to or
-    /// below its minimum threshold. The ID ({maintenanceId}_{partId}_LOWSTOCK) is deterministic, so a
-    /// retried job can't post the same alert twice, while a later job that drops the part again still
-    /// gets its own alert.</summary>
-    public async Task CreateLowStockAlertAsync(SparePart part, string maintenanceId)
+    /// <summary>Raises a "LowStock" notification after a deduction leaves a spare part at or below its
+    /// minimum threshold. Called from InventoryAuditService.DeductPartAsync, so every deduction path
+    /// (Inventory page and garage jobs) gets the same alert. Each deduction gets its own alert ID.</summary>
+    public async Task CreateLowStockAlertAsync(SparePart part)
     {
-        DocumentReference docRef = Db.Collection("system_alerts").Document($"{maintenanceId}_{part.PartId}_LOWSTOCK");
-
         try
         {
             var alert = new SystemAlert
@@ -122,11 +119,11 @@ public class AlertService
                 Timestamp = DateTime.UtcNow,
                 IsRead = false,
             };
-            await docRef.SetAsync(alert);
+            await Db.Collection("system_alerts").AddAsync(alert);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to create low-stock alert for part {PartId} (maintenance {MaintenanceId})", part.PartId, maintenanceId);
+            _logger.LogWarning(ex, "Failed to create low-stock alert for part {PartId}", part.PartId);
         }
     }
 
