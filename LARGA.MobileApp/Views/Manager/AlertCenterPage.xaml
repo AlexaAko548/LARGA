@@ -168,11 +168,41 @@
                 </Border>
             </DataTemplate>
 
+            <!-- LOW STOCK TEMPLATE -->
+            <DataTemplate x:Key="LowStockTemplate" x:DataType="vm:AlertItem">
+                <Border BackgroundColor="#FFE0B2" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
+                    <VerticalStackLayout Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Image Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
+                            <Label Grid.Column="1" Text="LOW STOCK" FontAttributes="Bold" FontSize="13"
+                                   TextColor="#E65100" Margin="8,0,0,0" VerticalOptions="Center" />
+                            <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
+                                <Grid.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
+                                                           CommandParameter="{Binding .}" />
+                                </Grid.GestureRecognizers>
+                                <Image Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                            </Grid>
+                        </Grid>
+                        <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="Black" />
+                        <Label Text="{Binding Subtitle}" FontSize="13" TextColor="#555555" />
+                        <Label Text="{Binding Timestamp}" FontSize="13" TextColor="#777777" />
+
+                        <Border BackgroundColor="White" StrokeShape="RoundRectangle 12" HeightRequest="48" Margin="0,8,0,0">
+                            <Button Text="DISMISS" BackgroundColor="Transparent" TextColor="Black" FontAttributes="Bold" FontSize="14"
+                                    Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
+                                    CommandParameter="{Binding .}" />
+                        </Border>
+                    </VerticalStackLayout>
+                </Border>
+            </DataTemplate>
+
             <local:AlertTemplateSelector x:Key="AlertSelector"
                                           SosTemplate="{StaticResource SosTemplate}"
                                           FuelDiscrepancyTemplate="{StaticResource FuelDiscrepancyTemplate}"
                                           ShiftApprovalTemplate="{StaticResource ShiftApprovalTemplate}"
-                                          DriverIdleTemplate="{StaticResource DriverIdleTemplate}" />
+                                          DriverIdleTemplate="{StaticResource DriverIdleTemplate}"
+                                          LowStockTemplate="{StaticResource LowStockTemplate}" />
 
         </ResourceDictionary>
     </ContentPage.Resources>
@@ -182,7 +212,13 @@
             <Label Text="Alert Center" FontSize="28" FontAttributes="Bold" TextColor="Black" />
             <Label Text="{Binding Alerts.Count, StringFormat='{0} active notifications'}" FontSize="14" TextColor="Gray" Margin="0,0,0,8" />
 
-            <CollectionView ItemsSource="{Binding Alerts}" ItemTemplate="{StaticResource AlertSelector}" />
+            <CollectionView ItemsSource="{Binding AlertGroups}" IsGrouped="True" ItemTemplate="{StaticResource AlertSelector}">
+                <CollectionView.GroupHeaderTemplate>
+                    <DataTemplate x:DataType="vm:AlertGroup">
+                        <Label Text="{Binding Title}" FontAttributes="Bold" FontSize="14" TextColor="#555555" Margin="0,8,0,4" />
+                    </DataTemplate>
+                </CollectionView.GroupHeaderTemplate>
+            </CollectionView>
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>
