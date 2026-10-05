@@ -2089,6 +2089,39 @@ background: rgba(255, 176, 32, 0.12);
 border-color: rgba(255, 176, 32, 0.4);
 }
 
+/* Driver's own unit is in the shop that day, no substitute yet - needs the manager. */
+.schedule-cell.maintenance {
+color: #8a4b00;
+background: rgba(255, 152, 0, 0.16);
+border-color: rgba(255, 152, 0, 0.55);
+font-weight: 600;
+}
+
+/* Driving a temporary unit while their own is in the shop. */
+.schedule-cell.substitute {
+color: #4a3aa8;
+background: rgba(103, 80, 214, 0.1);
+border-color: rgba(103, 80, 214, 0.4);
+border-style: dashed;
+}
+
+.schedule-cell.ineligible {
+color: #a13939;
+background: repeating-linear-gradient(
+  135deg,
+  rgba(211, 47, 47, 0.1),
+  rgba(211, 47, 47, 0.1) 6px,
+  rgba(211, 47, 47, 0.18) 6px,
+  rgba(211, 47, 47, 0.18) 12px
+);
+border-color: rgba(211, 47, 47, 0.4);
+cursor: not-allowed;
+}
+
+.schedule-cell:disabled {
+opacity: 0.85;
+}
+
 .schedule-today {
 background: rgba(1,155,207,0.045);
 }
@@ -2327,6 +2360,20 @@ color: #1d1d1d;
 .checklist-photo-slot small {
 color: #5a7a8a;
 font-size: 0.7rem;
+}
+
+.checklist-photo-slot.has-photo {
+padding: 0.5rem;
+border-style: solid;
+}
+
+.checklist-photo-thumb {
+display: block;
+width: 100%;
+height: 120px;
+object-fit: cover;
+border-radius: 6px;
+background: #eaf6fc;
 }
 
 .checklist-items {
@@ -2731,6 +2778,128 @@ background: linear-gradient(180deg, #019bcf, #019bcf);
 color: white;
 }
 
+/* GCash receipt upload + OCR (Record Payment, E-Wallet) */
+.receipt-scan-row {
+display: flex;
+justify-content: flex-end;
+margin-bottom: 0.6rem;
+}
+
+.receipt-scan-btn {
+display: inline-flex;
+align-items: center;
+gap: 0.4rem;
+border: 1px solid #019bcf;
+background: #eaf6fc;
+color: #1d1d1d;
+border-radius: 999px;
+padding: 0.45rem 1rem;
+font-size: 0.85rem;
+cursor: pointer;
+}
+
+.receipt-scan-btn.busy {
+opacity: 0.6;
+cursor: progress;
+}
+
+.receipt-file-input {
+position: absolute;
+width: 1px;
+height: 1px;
+opacity: 0;
+pointer-events: none;
+}
+
+.receipt-preview {
+display: block;
+margin-bottom: 0.6rem;
+}
+
+.receipt-preview img {
+display: block;
+width: 100%;
+max-height: 180px;
+object-fit: contain;
+border-radius: 10px;
+border: 1px solid rgba(1,155,207,0.3);
+background: #f4fafd;
+}
+
+.receipt-details {
+display: flex;
+flex-direction: column;
+gap: 0.5rem;
+}
+
+/* LTO license scan (Driver & Shifts > Profile > Edit Details) */
+.license-scan-row {
+justify-content: flex-start;
+}
+
+.license-scan-results {
+display: flex;
+flex-direction: column;
+gap: 0.35rem;
+margin: 0.4rem 0 0.9rem;
+padding: 0.7rem 0.8rem;
+border: 1px solid rgba(1,155,207,0.3);
+border-radius: 10px;
+background: rgba(255,255,255,0.5);
+}
+
+.license-scan-field {
+display: flex;
+justify-content: space-between;
+gap: 0.8rem;
+font-size: 0.8rem;
+color: #5a7a8a;
+}
+
+.license-scan-field strong {
+color: #1d1d1d;
+text-align: right;
+}
+
+.unit-note {
+font-size: 0.7rem;
+color: #8a4b00;
+margin-top: 0.15rem;
+}
+
+.password-form {
+display: flex;
+flex-direction: column;
+gap: 0.4rem;
+margin-top: 0.5rem;
+}
+
+.field-error {
+color: #c62828;
+font-size: 0.78rem;
+font-weight: 600;
+}
+
+.field-ok {
+color: #1b7a3a;
+font-size: 0.78rem;
+font-weight: 600;
+}
+
+.receipt-hint {
+font-size: 0.72rem;
+color: #5a7a8a;
+}
+
+.receipt-mismatch {
+font-size: 0.78rem;
+color: #a15c00;
+background: #fff4e0;
+border-radius: 8px;
+padding: 0.5rem 0.7rem;
+margin-top: 0.4rem;
+}
+
 .settlement-status-preview {
 display: flex;
 align-items: center;
@@ -3000,7 +3169,8 @@ color: #1d1d1d;
 /* Fuel Verification review modal - two-column driver-submission vs system-validation */
 
 .report-modal.review-modal {
-width: min(94vw, 780px);
+    width: min(94vw, 1000px);
+    max-width: none;
 }
 
 /* LAR-63: both Fuel Verification popups (review + resolve) can grow taller than the
@@ -3008,26 +3178,8 @@ viewport once the OCR section/flag textarea are in play - .report-modal's overfl
 was clipping the bottom (including Verify/Resolve buttons) with no way to reach it. Cap the
 modal height and let just the body scroll, header/actions stay pinned - same pattern the
 photo popup already uses below. */
-.report-modal.review-modal,
-.report-modal.resolve-modal {
-max-height: 90vh;
-display: flex;
-flex-direction: column;
-}
-
-.review-modal .report-body,
-.resolve-modal .report-body {
-overflow-y: auto;
-flex: 1 1 auto;
-min-height: 0;
-}
-
-.review-modal .report-header,
-.review-modal .report-actions,
-.resolve-modal .report-header,
-.resolve-modal .report-actions {
-flex-shrink: 0;
-}
+/* (Their height cap / scrolling body is now the shared .report-modal rule - see
+   "Popups never taller than the screen".) */
 
 @media (max-width: 640px) {
 .report-modal.review-modal {
@@ -3854,4 +4006,1202 @@ grid-template-columns: repeat(3, 1fr);
     .history-modal .history-body {
         padding: 0.8rem 0.8rem 1rem;
     }
+}
+/* Daily Settlements day picker */
+.settlement-day-nav {
+display: flex;
+align-items: center;
+gap: 0.35rem;
+margin-top: 0.25rem;
+flex-wrap: wrap;
+}
+
+.settlement-day-btn {
+width: 28px;
+height: 28px;
+border: 1px solid #c9d6dc;
+border-radius: 6px;
+background: #fff;
+color: #1d1d1d;
+font-size: 1rem;
+line-height: 1;
+cursor: pointer;
+}
+
+.settlement-day-btn:disabled {
+opacity: 0.4;
+cursor: default;
+}
+
+.settlement-day-input {
+height: 28px;
+border: 1px solid #c9d6dc;
+border-radius: 6px;
+padding: 0 0.4rem;
+font-size: 0.9rem;
+font-weight: 700;
+color: #1d1d1d;
+background: #fff;
+}
+
+.settlement-today-link {
+border: none;
+background: none;
+color: #1f6f8b;
+font-size: 0.8rem;
+font-weight: 700;
+cursor: pointer;
+text-decoration: underline;
+}
+
+/* Record Payment / Settle Debt windows: never taller than the screen (the body scrolls),
+   and wider with the GCash receipt in its own column beside the payment details. */
+.report-modal.payment-modal {
+width: min(94vw, 480px);
+}
+
+.report-modal.payment-modal.with-receipt {
+width: min(94vw, 880px);
+}
+
+.payment-body {
+display: grid;
+grid-template-columns: 1fr;
+gap: 1.2rem;
+}
+
+.payment-modal.with-receipt .payment-body {
+grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+align-items: start;
+}
+
+.payment-main,
+.payment-receipt {
+display: flex;
+flex-direction: column;
+min-width: 0;
+}
+
+.payment-main {
+gap: 1rem;
+}
+
+.payment-main > * {
+margin-top: 0;
+margin-bottom: 0;
+}
+
+.payment-receipt {
+border-left: 1px solid rgba(1,155,207,0.25);
+padding-left: 1.2rem;
+}
+
+.payment-receipt .receipt-scan-row {
+justify-content: flex-start;
+}
+
+.payment-receipt .receipt-preview img {
+max-height: 300px;
+}
+
+@media (max-width: 720px) {
+.payment-modal.with-receipt .payment-body {
+grid-template-columns: 1fr;
+}
+
+.payment-receipt {
+border-left: none;
+padding-left: 0;
+border-top: 1px solid rgba(1,155,207,0.25);
+padding-top: 1rem;
+}
+}
+
+.history-receipt img {
+display: block;
+width: 36px;
+height: 48px;
+object-fit: cover;
+border-radius: 4px;
+border: 1px solid rgba(1,155,207,0.3);
+}
+
+.payment-modal input[readonly] {
+background: #eef3f5;
+color: #1d1d1d;
+cursor: default;
+}
+
+/* ---------------------------------------------------------------------
+   Popups never taller than the screen. Every .report-modal (Dashboard reports, Driver &
+   Shifts, Financial Ledger, Fuel Verification, Garage) is capped at the visible height:
+   the header and the action buttons stay put and only the body scrolls, so Confirm/Save
+   is always reachable without zooming out. Same for the Inventory "Log New Part" card.
+   --------------------------------------------------------------------- */
+.report-overlay {
+padding: 16px;
+}
+
+.report-modal {
+max-height: calc(100vh - 32px);
+max-height: calc(100dvh - 32px);
+display: flex;
+flex-direction: column;
+}
+
+.report-modal > .report-header,
+.report-modal > .report-actions {
+flex-shrink: 0;
+}
+
+.report-modal > .report-body {
+flex: 1 1 auto;
+min-height: 0;
+overflow-y: auto;
+}
+
+.modal-card {
+max-height: calc(100vh - 32px);
+max-height: calc(100dvh - 32px);
+overflow-y: auto;
+}
+
+/* Shift Logs > inspection checklist: Pre- and Post-Shift side by side need the room -
+   wider, so each column's photos and items aren't squeezed into a long narrow strip. */
+.report-modal.checklist-modal {
+width: min(96vw, 1100px);
+}
+
+/* Master Debt Ledger: how long the oldest unpaid shift has been waiting */
+.ledger-unpaid-age {
+font-size: 0.72rem;
+color: #5a7a8a;
+margin-top: 0.1rem;
+}
+
+.ledger-unpaid-age.overdue {
+color: #b3261e;
+font-weight: 700;
+}
+
+.driver-cell .status-pill.small {
+margin-left: 0.4rem;
+}
+
+/* Daily Settlements: part of a balance covered by the driver's overpayment credit */
+.settlement-credit-note {
+font-size: 0.72rem;
+color: #1f7a4d;
+font-weight: 700;
+margin-top: 0.1rem;
+}
+
+/* Record Payment: where money above this shift's balance goes */
+.settlement-allocation {
+display: flex;
+flex-direction: column;
+gap: 0.2rem;
+font-size: 0.78rem;
+color: #1f7a4d;
+font-weight: 700;
+background: rgba(31,122,77,0.08);
+border-radius: 8px;
+padding: 0.5rem 0.7rem;
+}
+
+/* Driver & Shifts: clock-in approvals (flagged pre-shift inspections) */
+.clockin-approvals {
+border: 1px solid rgba(214, 138, 20, 0.45);
+background: rgba(214, 138, 20, 0.08);
+border-radius: 14px;
+padding: 1rem 1.1rem;
+margin-bottom: 1.2rem;
+display: flex;
+flex-direction: column;
+gap: 0.8rem;
+}
+
+.clockin-approvals-header {
+display: flex;
+align-items: center;
+gap: 0.6rem;
+}
+
+.clockin-approvals-header h2 {
+margin: 0;
+font-size: 1.05rem;
+color: #1d1d1d;
+}
+
+.clockin-approvals-hint {
+margin: 0;
+font-size: 0.8rem;
+color: #5a4a2a;
+}
+
+.clockin-request {
+display: grid;
+grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto;
+gap: 1rem;
+align-items: start;
+background: #ffffff;
+border: 1px solid rgba(1,155,207,0.2);
+border-radius: 12px;
+padding: 0.9rem 1rem;
+}
+
+.clockin-request-title {
+display: flex;
+align-items: center;
+gap: 0.6rem;
+font-size: 0.9rem;
+color: #1d1d1d;
+}
+
+.clockin-request-time {
+font-size: 0.75rem;
+color: #5a7a8a;
+}
+
+.clockin-request-reasons {
+margin: 0.6rem 0 0.4rem 1.1rem;
+padding: 0;
+font-size: 0.82rem;
+color: #b3261e;
+font-weight: 700;
+}
+
+.clockin-defect {
+font-size: 0.8rem;
+color: #1d1d1d;
+background: rgba(1,155,207,0.06);
+border-radius: 8px;
+padding: 0.45rem 0.6rem;
+margin-top: 0.4rem;
+}
+
+.clockin-request-photos {
+display: flex;
+flex-wrap: wrap;
+gap: 0.5rem;
+}
+
+.clockin-request-photos a {
+display: flex;
+flex-direction: column;
+align-items: center;
+gap: 0.2rem;
+font-size: 0.7rem;
+color: #5a7a8a;
+text-decoration: none;
+}
+
+.clockin-request-photos img {
+width: 72px;
+height: 72px;
+object-fit: cover;
+border-radius: 8px;
+border: 1px solid rgba(1,155,207,0.3);
+}
+
+.clockin-request-actions {
+display: flex;
+flex-direction: column;
+gap: 0.5rem;
+}
+
+.outline-btn.danger {
+color: #b3261e;
+border-color: rgba(179, 38, 30, 0.5);
+}
+
+.checkbox-row {
+display: flex;
+align-items: flex-start;
+gap: 0.5rem;
+font-size: 0.82rem;
+color: #1d1d1d;
+}
+
+@media (max-width: 900px) {
+.clockin-request {
+grid-template-columns: 1fr;
+}
+
+.clockin-request-actions {
+flex-direction: row;
+}
+}
+
+/* ---------------------------------------------------------------------
+   SOS Dispatch (LAR-82)
+   --------------------------------------------------------------------- */
+.sos-summary {
+display: flex;
+align-items: center;
+gap: 1rem;
+border-radius: 14px;
+padding: 1rem 1.2rem;
+margin-bottom: 1.2rem;
+background: rgba(31,122,77,0.08);
+border: 1px solid rgba(31,122,77,0.25);
+}
+
+.sos-summary.has-active {
+background: rgba(211,47,47,0.08);
+border-color: rgba(211,47,47,0.45);
+}
+
+.sos-summary-count {
+font-size: 2.2rem;
+font-weight: 800;
+color: #1f7a4d;
+min-width: 2.5rem;
+text-align: center;
+}
+
+.sos-summary.has-active .sos-summary-count {
+color: #d32f2f;
+}
+
+.sos-summary-title {
+font-weight: 700;
+color: #1d1d1d;
+}
+
+.sos-summary-sub {
+font-size: 0.82rem;
+color: #5a7a8a;
+}
+
+.sos-list {
+display: flex;
+flex-direction: column;
+gap: 1rem;
+margin-bottom: 1.5rem;
+}
+
+.sos-card {
+background: #ffffff;
+border: 1px solid rgba(211,47,47,0.35);
+border-left: 6px solid #d32f2f;
+border-radius: 12px;
+padding: 0.9rem 1.1rem;
+display: flex;
+flex-direction: column;
+gap: 0.8rem;
+}
+
+.sos-card.hostile { border-left-color: #8e1b1b; }
+.sos-card.crash { border-left-color: #e65100; }
+
+.sos-card-head {
+display: flex;
+justify-content: space-between;
+align-items: center;
+gap: 0.6rem;
+flex-wrap: wrap;
+}
+
+.sos-trigger {
+font-weight: 800;
+letter-spacing: 0.04em;
+color: #d32f2f;
+}
+
+.sos-card.hostile .sos-trigger { color: #8e1b1b; }
+.sos-card.crash .sos-trigger { color: #e65100; }
+
+.sos-time {
+font-size: 0.8rem;
+color: #5a7a8a;
+}
+
+.sos-card-body {
+display: grid;
+grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+gap: 1rem;
+}
+
+.sos-driver {
+display: flex;
+gap: 0.7rem;
+align-items: flex-start;
+}
+
+.sos-driver-name {
+font-weight: 700;
+color: #1d1d1d;
+}
+
+.sos-driver-meta {
+font-size: 0.82rem;
+color: #5a7a8a;
+}
+
+.sos-location-label {
+font-size: 0.7rem;
+font-weight: 700;
+letter-spacing: 0.06em;
+color: #5a7a8a;
+}
+
+.sos-coords {
+font-family: var(--font-mono);
+font-size: 1.05rem;
+font-weight: 700;
+color: #1d1d1d;
+margin: 0.2rem 0 0.4rem;
+}
+
+.sos-coords.unavailable {
+font-family: inherit;
+font-size: 0.85rem;
+font-weight: 600;
+color: #b3261e;
+}
+
+.sos-actions {
+display: flex;
+flex-wrap: wrap;
+align-items: center;
+gap: 0.6rem;
+border-top: 1px solid rgba(1,155,207,0.15);
+padding-top: 0.7rem;
+}
+
+.sos-actions a {
+text-decoration: none;
+}
+
+.sos-call {
+background: #d32f2f;
+border-color: #d32f2f;
+}
+
+.sos-no-phone {
+font-size: 0.8rem;
+color: #b3261e;
+}
+
+.sos-toggle {
+display: inline-flex;
+align-items: center;
+gap: 0.4rem;
+margin-left: auto;
+font-size: 0.85rem;
+font-weight: 700;
+color: #1d1d1d;
+cursor: pointer;
+}
+
+.sos-toggle input {
+width: 1.1rem;
+height: 1.1rem;
+cursor: pointer;
+}
+
+.sos-resolved h2 {
+font-size: 1rem;
+color: #1d1d1d;
+margin: 0 0 0.6rem;
+}
+
+.sos-resolved .sos-toggle {
+margin-left: 0;
+}
+
+@media (max-width: 720px) {
+.sos-card-body {
+grid-template-columns: 1fr;
+}
+}
+
+/* ---------------------------------------------------------------------
+   Executive Dashboard - fleet utilization & collection trend (LAR-84)
+   --------------------------------------------------------------------- */
+.utilization-panel {
+background: rgba(1,155,207,0.35);
+border: 1px solid rgba(1,155,207,0.42);
+border-radius: 14px;
+padding: 0.9rem 1rem 1rem;
+}
+
+.utilization-head {
+display: flex;
+justify-content: space-between;
+align-items: baseline;
+margin-bottom: 0.7rem;
+}
+
+.utilization-title {
+font-weight: 800;
+color: #1d1d1d;
+}
+
+.utilization-sub {
+font-size: 0.75rem;
+color: #5a7a8a;
+}
+
+.utilization-grid {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+gap: 0.7rem;
+}
+
+.kpi-tile {
+background: rgba(255,255,255,0.45);
+border: 1px solid rgba(1,155,207,0.25);
+border-radius: 12px;
+padding: 0.7rem 0.8rem;
+display: flex;
+flex-direction: column;
+gap: 0.15rem;
+min-width: 0;
+}
+
+.kpi-value {
+font-size: 1.45rem;
+font-weight: 800;
+letter-spacing: -0.04em;
+color: #1d1d1d;
+}
+
+.kpi-label {
+font-size: 0.75rem;
+font-weight: 700;
+color: #1d1d1d;
+}
+
+.kpi-detail {
+font-size: 0.7rem;
+color: #5a7a8a;
+}
+
+.kpi-meter {
+margin-top: 0.35rem;
+height: 6px;
+border-radius: 999px;
+background: rgba(1,155,207,0.18);
+overflow: hidden;
+}
+
+.kpi-meter span {
+display: block;
+height: 100%;
+border-radius: 999px;
+background: #019bcf;
+}
+
+.chart-legend {
+display: inline-flex;
+align-items: center;
+gap: 0.35rem;
+font-size: 0.68rem !important;
+text-transform: none !important;
+color: #5a7a8a;
+}
+
+.chart-legend i {
+display: inline-block;
+width: 0.65rem;
+height: 0.65rem;
+border-radius: 3px;
+margin-left: 0.3rem;
+}
+
+.legend-collected { background: #019bcf; }
+.legend-outstanding { background: #d9534f; }
+
+.collection-track {
+flex-direction: column;
+justify-content: flex-end;
+align-items: stretch;
+}
+
+.collection-track .collection-collected {
+min-height: 0;
+border-radius: 0;
+}
+
+.collection-outstanding {
+width: 100%;
+background: #d9534f;
+border-radius: 6px 6px 0 0;
+}
+
+/* ---------------------------------------------------------------------
+   Spare Parts Inventory - per-part usage history (LAR-84)
+   --------------------------------------------------------------------- */
+.inventory-table tbody tr.part-row {
+cursor: pointer;
+}
+
+.part-expander {
+display: inline-block;
+width: 1rem;
+color: #019bcf;
+font-weight: 800;
+}
+
+.inventory-table tbody tr.part-history-row > td {
+background: rgba(1,155,207,0.06);
+padding: 0.8rem 1rem 1rem;
+}
+
+.part-history {
+display: flex;
+flex-direction: column;
+gap: 0.7rem;
+}
+
+.part-history-stats {
+display: flex;
+flex-wrap: wrap;
+gap: 0.6rem;
+}
+
+.part-history-stat {
+background: #ffffff;
+border: 1px solid rgba(1,155,207,0.25);
+border-radius: 10px;
+padding: 0.45rem 0.75rem;
+min-width: 130px;
+}
+
+.part-history-stat span {
+display: block;
+font-size: 0.68rem;
+letter-spacing: 0.04em;
+color: #5a7a8a;
+text-transform: uppercase;
+}
+
+.part-history-stat strong {
+font-size: 1rem;
+color: #1d1d1d;
+}
+
+.part-history-table-wrap {
+max-height: 320px;
+overflow: auto;
+border: 1px solid rgba(1,155,207,0.2);
+border-radius: 10px;
+background: #ffffff;
+}
+
+.part-history-table {
+width: 100%;
+border-collapse: collapse;
+font-size: 0.8rem;
+}
+
+.part-history-table th {
+position: sticky;
+top: 0;
+background: #eef8fc;
+text-align: left;
+font-size: 0.68rem;
+letter-spacing: 0.05em;
+color: #5a7a8a;
+padding: 0.45rem 0.6rem;
+}
+
+.part-history-table td {
+padding: 0.45rem 0.6rem;
+border-top: 1px solid rgba(1,155,207,0.12);
+color: #1d1d1d;
+}
+
+.part-history-table .num {
+text-align: right;
+font-family: var(--font-mono);
+white-space: nowrap;
+}
+
+.part-history-empty {
+font-size: 0.8rem;
+color: #5a7a8a;
+}
+
+.part-history-note {
+font-size: 0.72rem;
+color: #5a7a8a;
+}
+
+/* ---------------------------------------------------------------------
+   Messages drawer (header Messages button / SOS Dispatch Message)
+   --------------------------------------------------------------------- */
+.messages-btn {
+position: relative;
+display: inline-grid;
+place-items: center;
+padding: 0;
+}
+
+.messages-btn svg {
+width: 1.15rem;
+height: 1.15rem;
+}
+
+.sos-message {
+background: #019bcf;
+border-color: #019bcf;
+}
+
+.chat-drawer-backdrop {
+position: fixed;
+inset: 0;
+background: rgba(0,0,0,0.25);
+z-index: 900;
+}
+
+.chat-drawer {
+position: fixed;
+top: 0;
+right: 0;
+bottom: 0;
+width: min(420px, 100vw);
+background: #ffffff;
+box-shadow: -8px 0 28px rgba(0,0,0,0.18);
+z-index: 901;
+display: flex;
+flex-direction: column;
+text-align: left;
+}
+
+.chat-drawer-head {
+display: flex;
+align-items: center;
+gap: 0.65rem;
+padding: 0.85rem 1rem;
+border-bottom: 1px solid rgba(1,155,207,0.2);
+}
+
+.chat-drawer-title {
+flex: 1;
+font-size: 1.1rem;
+font-weight: 800;
+color: #1d1d1d;
+}
+
+.chat-back-btn {
+width: 2rem;
+height: 2rem;
+border: none;
+border-radius: 8px;
+background: transparent;
+color: #017aa3;
+font-size: 1.25rem;
+font-weight: 700;
+cursor: pointer;
+flex-shrink: 0;
+}
+
+.chat-back-btn:hover {
+background: rgba(1,155,207,0.12);
+}
+
+.chat-drawer-who {
+flex: 1;
+min-width: 0;
+}
+
+.chat-drawer-name {
+font-weight: 700;
+color: #1d1d1d;
+white-space: nowrap;
+overflow: hidden;
+text-overflow: ellipsis;
+}
+
+.chat-drawer-sub {
+font-size: 0.78rem;
+color: #5a7a8a;
+}
+
+.chat-drawer-empty {
+margin: auto;
+padding: 1rem;
+text-align: center;
+font-size: 0.82rem;
+color: #5a7a8a;
+max-width: 300px;
+}
+
+.chat-drawer-empty.error {
+color: #b3261e;
+}
+
+.chat-session-list {
+flex: 1;
+overflow-y: auto;
+display: flex;
+flex-direction: column;
+}
+
+.chat-session {
+display: flex;
+align-items: center;
+gap: 0.7rem;
+width: 100%;
+padding: 0.75rem 1rem;
+border: none;
+border-bottom: 1px solid rgba(1,155,207,0.12);
+background: #ffffff;
+text-align: left;
+cursor: pointer;
+font: inherit;
+}
+
+.chat-session:hover {
+background: rgba(1,155,207,0.07);
+}
+
+.chat-session-body {
+flex: 1;
+min-width: 0;
+display: flex;
+flex-direction: column;
+gap: 0.15rem;
+}
+
+.chat-session-top {
+display: flex;
+justify-content: space-between;
+gap: 0.5rem;
+}
+
+.chat-session-name {
+font-weight: 600;
+color: #1d1d1d;
+white-space: nowrap;
+overflow: hidden;
+text-overflow: ellipsis;
+}
+
+.chat-session-time {
+font-size: 0.72rem;
+color: #5a7a8a;
+white-space: nowrap;
+}
+
+.chat-session-preview {
+font-size: 0.8rem;
+color: #5a7a8a;
+white-space: nowrap;
+overflow: hidden;
+text-overflow: ellipsis;
+}
+
+.chat-session.unread .chat-session-name,
+.chat-session.unread .chat-session-preview {
+font-weight: 800;
+color: #1d1d1d;
+}
+
+.chat-session.unread .chat-session-time {
+color: #017aa3;
+font-weight: 700;
+}
+
+.chat-session-dot {
+width: 0.6rem;
+height: 0.6rem;
+border-radius: 50%;
+background: #019bcf;
+flex-shrink: 0;
+}
+
+.chat-messages {
+flex: 1;
+overflow-y: auto;
+display: flex;
+flex-direction: column-reverse;
+gap: 0.5rem;
+padding: 0.9rem 1rem;
+background: #f4fafd;
+}
+
+.chat-bubble {
+max-width: 80%;
+padding: 0.5rem 0.75rem;
+border-radius: 14px;
+font-size: 0.88rem;
+line-height: 1.35;
+overflow-wrap: anywhere;
+}
+
+.chat-bubble.from-driver {
+align-self: flex-start;
+background: #ffffff;
+border: 1px solid rgba(1,155,207,0.25);
+border-bottom-left-radius: 4px;
+color: #1d1d1d;
+}
+
+.chat-bubble.from-manager {
+align-self: flex-end;
+background: #019bcf;
+color: #ffffff;
+border-bottom-right-radius: 4px;
+}
+
+.chat-bubble-time {
+font-size: 0.66rem;
+opacity: 0.7;
+margin-top: 0.2rem;
+}
+
+.chat-quick {
+display: flex;
+flex-wrap: wrap;
+gap: 0.35rem;
+padding: 0.6rem 1rem 0;
+}
+
+.chat-quick-reply {
+border: 1px solid rgba(1,155,207,0.4);
+background: #ffffff;
+color: #017aa3;
+border-radius: 999px;
+padding: 0.25rem 0.65rem;
+font-size: 0.75rem;
+cursor: pointer;
+}
+
+.chat-quick-reply:hover:not(:disabled) {
+background: rgba(1,155,207,0.1);
+}
+
+.chat-send-error {
+margin: 0.5rem 1rem 0;
+font-size: 0.78rem;
+color: #b3261e;
+}
+
+.chat-compose {
+display: flex;
+gap: 0.5rem;
+padding: 0.7rem 1rem 1rem;
+}
+
+.chat-compose input {
+flex: 1;
+min-width: 0;
+border: 1px solid rgba(1,155,207,0.35);
+border-radius: 10px;
+padding: 0.55rem 0.7rem;
+font-size: 0.9rem;
+}
+
+/* ---------------------------------------------------------------------
+   Form validation (InputValidator)
+   --------------------------------------------------------------------- */
+.text-input.invalid,
+.form-control.invalid {
+border-color: #c62828;
+background: rgba(198,40,40,0.05);
+}
+
+.text-input.invalid:focus,
+.form-control.invalid:focus {
+outline: 2px solid rgba(198,40,40,0.25);
+}
+
+.field-error[role="alert"] {
+margin-top: 0.25rem;
+}
+
+.field-optional {
+font-weight: 400;
+color: #5a7a8a;
+font-size: 0.8em;
+}
+
+/* ---------------------------------------------------------------------
+   Master Debt Ledger - itemized history
+   --------------------------------------------------------------------- */
+.history-type {
+font-weight: 700;
+}
+
+.history-type.payment { color: #1b7a3a; }
+.history-type.due { color: #1d1d1d; }
+.history-type.penalty { color: #b3261e; }
+.history-type.credit { color: #017aa3; }
+
+.history-sub {
+font-size: 0.75rem;
+color: #5a7a8a;
+}
+
+.history-allocation {
+font-size: 0.75rem;
+color: #1d1d1d;
+padding-left: 0.6rem;
+border-left: 2px solid rgba(27,122,58,0.35);
+margin-top: 0.15rem;
+}
+
+/* Executive Dashboard - fleet status strip (taxi units) */
+.status-strip-label {
+font-size: 0.72rem;
+font-weight: 800;
+letter-spacing: 0.06em;
+text-transform: uppercase;
+color: #5a7a8a;
+margin-right: 0.15rem;
+}
+
+.status-parked {
+background: rgba(90,122,138,0.08);
+color: #5a7a8a;
+border-color: rgba(90,122,138,0.25);
+}
+
+button.status-pill {
+cursor: pointer;
+font-family: inherit;
+}
+
+button.status-pill:hover,
+button.status-pill.open {
+box-shadow: 0 0 0 2px rgba(1,155,207,0.35);
+}
+
+.fleet-units-panel {
+background: #ffffff;
+border: 1px solid rgba(1,155,207,0.3);
+border-radius: 12px;
+padding: 0.6rem 0.9rem 0.8rem;
+}
+
+.fleet-units-head {
+display: flex;
+justify-content: space-between;
+align-items: center;
+margin-bottom: 0.4rem;
+color: #1d1d1d;
+}
+
+.fleet-units-empty {
+font-size: 0.82rem;
+color: #5a7a8a;
+padding: 0.3rem 0;
+}
+
+.fleet-unit-row {
+display: grid;
+grid-template-columns: minmax(110px, 160px) minmax(0, 1fr) auto;
+gap: 0.8rem;
+align-items: center;
+padding: 0.55rem 0;
+border-top: 1px solid rgba(1,155,207,0.12);
+}
+
+.fleet-unit-id {
+display: flex;
+flex-direction: column;
+}
+
+.fleet-unit-id span,
+.fleet-unit-info small {
+font-size: 0.75rem;
+color: #5a7a8a;
+}
+
+.fleet-unit-actions {
+display: flex;
+flex-wrap: wrap;
+gap: 0.4rem;
+}
+
+.fleet-unit-actions a {
+text-decoration: none;
+}
+
+@media (max-width: 720px) {
+.fleet-unit-row {
+grid-template-columns: 1fr;
+}
+}
+
+.leaderboard-window {
+font-size: 0.72rem;
+font-weight: 600;
+color: #5a7a8a;
+letter-spacing: 0.02em;
+text-transform: none;
+}
+
+/* Header profile menu (ManagerProfileMenu) - the manager pill opens a small dropdown in the
+   same style as the notification dropdown; Settings uses the shared report-modal. */
+.manager-menu {
+position: relative;
+display: inline-flex;
+}
+
+.manager-menu-trigger {
+cursor: pointer;
+font-family: inherit;
+}
+
+.manager-menu-trigger:hover {
+background: rgba(1,155,207,0.16);
+}
+
+.manager-menu-backdrop {
+position: fixed;
+inset: 0;
+z-index: 39;
+}
+
+.manager-menu-dropdown {
+position: absolute;
+top: calc(100% + 0.5rem);
+right: 0;
+min-width: 170px;
+background: #fff;
+border: 1px solid rgba(1,155,207,0.28);
+border-radius: 12px;
+box-shadow: 0 12px 28px rgba(1,155,207,0.16);
+padding: 0.35rem;
+z-index: 40;
+display: flex;
+flex-direction: column;
+}
+
+.manager-menu-item {
+border: none;
+background: transparent;
+text-align: left;
+padding: 0.6rem 0.75rem;
+border-radius: 8px;
+font-size: 0.85rem;
+font-weight: 600;
+color: #1d1d1d;
+cursor: pointer;
+}
+
+.manager-menu-item:hover {
+background: rgba(1,155,207,0.1);
+}
+
+.manager-menu-item.danger {
+color: #c62828;
+}
+
+.manager-menu-form-actions {
+display: flex;
+align-items: center;
+justify-content: flex-end;
+gap: 0.75rem;
+}
+
+.manager-menu-hint {
+margin-right: auto;
+color: #5a7a8a;
+font-size: 0.75rem;
 }

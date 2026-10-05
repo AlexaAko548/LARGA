@@ -18,14 +18,8 @@
 
         <div class="checklist-photos-label">DRIVER PHOTOS</div>
         <div class="checklist-photos">
-            <div class="checklist-photo-slot">
-                <span>@(string.IsNullOrEmpty(Detail.PrimaryPhotoUrl) ? "Not submitted" : "Photo attached")</span>
-                <small>@Detail.PrimaryPhotoLabel</small>
-            </div>
-            <div class="checklist-photo-slot">
-                <span>@(string.IsNullOrEmpty(Detail.SecondaryPhotoUrl) ? "Not submitted" : "Photo attached")</span>
-                <small>@Detail.SecondaryPhotoLabel</small>
-            </div>
+            @PhotoSlot(Detail.PrimaryPhotoUrl, Detail.PrimaryPhotoLabel)
+            @PhotoSlot(Detail.SecondaryPhotoUrl, Detail.SecondaryPhotoLabel)
         </div>
 
         <div class="checklist-items-label">CHECKLIST ITEMS</div>
@@ -54,4 +48,23 @@
 
     [Parameter]
     public ChecklistDetail? Detail { get; set; }
+
+    // Firebase Storage download URLs carry their own access token, so the browser can load
+    // them directly - click opens the full-size photo in a new tab.
+    private static RenderFragment PhotoSlot(string? url, string? label) => @<div class="checklist-photo-slot @(string.IsNullOrEmpty(url) ? "" : "has-photo")">
+        @if (string.IsNullOrEmpty(url))
+        {
+            <span>Not submitted</span>
+        }
+        else
+        {
+            <a href="@url" target="_blank" rel="noopener" title="Open full-size photo">
+                @* Seeded demo checklists point at placeholder URLs with no file behind them -
+                   swap a broken image for text instead of the browser's broken-image icon. *@
+                <img class="checklist-photo-thumb" src="@url" alt="@label" loading="lazy"
+                     onerror="this.parentElement.replaceWith(Object.assign(document.createElement('span'), { textContent: 'Photo unavailable' }))" />
+            </a>
+        }
+        <small>@label</small>
+    </div>;
 }

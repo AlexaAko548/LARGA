@@ -29,6 +29,7 @@
                     <Label Text="TODAY'S BOUNDARY" FontSize="12" TextColor="Black" />
                     <!-- Fixed Boundary Amount -->
                     <Label Text="{Binding BoundaryAmountDisplay}" FontSize="28" FontAttributes="Bold" TextColor="Black" />
+                    <Label Text="{Binding LateFeeNote}" IsVisible="{Binding HasLateFee}" FontSize="12" TextColor="#B3261E" />
                 </VerticalStackLayout>
             </Border>
 

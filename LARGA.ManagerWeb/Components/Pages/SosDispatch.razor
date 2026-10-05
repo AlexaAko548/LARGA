@@ -1,0 +1,320 @@
+@page "/sos-dispatch"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using System.Text.Json
+@using LARGA.SharedCore
+@using LARGA.SharedCore.Services
+@using LARGA.Shared.Models.Entities
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject SosDispatchService Dispatch
+@inject ManagerChatService Chat
+@inject LARGA.ManagerWeb.Services.ChatDrawerState ChatDrawer
+@implements IDisposable
+
+<PageTitle>SOS Dispatch</PageTitle>
+
+@* LAR-82: SOS Dispatch & Resolution Panel. Active emergency_alerts with driver info, the
+   coordinates as text (no map, per the ticket), the trigger type, call/text buttons and the
+   EmergencyAlert.IsResolved toggle. *@
+
+@if (_isLoading)
+{
+    <div class="auth-page">
+        <div class="auth-card">
+            <h2>Loading...</h2>
+        </div>
+    </div>
+}
+else
+{
+<div class="dashboard-shell">
+    <DashboardSidebar ActiveItem="SosDispatch" />
+
+    <main class="dashboard-main">
+        <header class="dashboard-header">
+            <div class="header-title-wrap">
+                <h1>SOS DISPATCH</h1>
+                <div class="header-date">Driver emergencies · refreshes every @RefreshInterval.TotalSeconds.ToString("0") seconds</div>
+            </div>
+
+            <div class="header-actions">
+                <NotificationBell />
+                <MessagesButton />
+                <ManagerProfileMenu />
+            </div>
+        </header>
+
+        @if (_loadError is not null)
+        {
+            <div class="data-warning-banner">SOS alerts unavailable: @_loadError</div>
+        }
+
+        <section class="sos-summary @(_active.Count > 0 ? "has-active" : "")">
+            <div class="sos-summary-count">@_active.Count</div>
+            <div>
+                <div class="sos-summary-title">@(_active.Count == 0 ? "No active emergencies" : _active.Count == 1 ? "Active emergency" : "Active emergencies")</div>
+                <div class="sos-summary-sub">@(_active.Count == 0 ? "Drivers' SOS alerts appear here the moment they're sent." : "Call the driver, send help, then mark the alert resolved.")</div>
+            </div>
+        </section>
+
+        @if (_isLoading && _active.Count == 0)
+        {
+            <div class="table-empty">Loading SOS alerts...</div>
+        }
+
+        <section class="sos-list">
+            @foreach (SosAlertView sos in _active)
+            {
+                SosAlertView alert = sos;
+                <article class="sos-card @TriggerCss(alert.TriggerType)">
+                    <div class="sos-card-head">
+                        <span class="sos-trigger">@TriggerIcon(alert.TriggerType) @SosDispatchService.TriggerLabel(alert.TriggerType).ToUpperInvariant()</span>
+                        <span class="sos-time" title="@alert.Timestamp.ToPhilippineTime().ToString("MMM d, yyyy h:mm:ss tt")">@alert.Timestamp.ToPhilippineTime().ToString("h:mm tt") · @Ago(alert.Timestamp)</span>
+                    </div>
+
+                    <div class="sos-card-body">
+                        <div class="sos-driver">
+                            <div class="table-avatar">@Initials(alert.DriverName)</div>
+                            <div>
+                                <div class="sos-driver-name">@alert.DriverName</div>
+                                <div class="sos-driver-meta">@(string.IsNullOrEmpty(alert.TaxiId) ? "Unit unknown" : alert.TaxiId)@(alert.PlateNumber is null ? "" : $" · {alert.PlateNumber}")</div>
+                                <div class="sos-driver-meta">📞 @(alert.PhoneNumber is null ? "No phone number on file" : InputValidator.FormatPhilippineMobile(alert.PhoneNumber))</div>
+                            </div>
+                        </div>
+
+                        <div class="sos-location">
+                            <div class="sos-location-label">LAST KNOWN LOCATION</div>
+                            @if (alert.HasLocation)
+                            {
+                                <div class="sos-coords">@Coordinates(alert)</div>
+                                <button class="profile-btn" type="button" @onclick="() => CopyCoordinatesAsync(alert)">@(_copiedAlertId == alert.AlertId ? "✓ Copied" : "Copy coordinates")</button>
+                            }
+                            else
+                            {
+                                <div class="sos-coords unavailable">Location unavailable - the phone had no GPS fix. Ask the driver where they are.</div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="sos-actions">
+                        @if (alert.PhoneNumber is not null)
+                        {
+                            <a class="solid-btn sos-call" href="tel:@DialNumber(alert.PhoneNumber)">📞 Call driver</a>
+                        }
+                        else
+                        {
+                            <span class="sos-no-phone">No phone number on file - add one in Driver &amp; Shifts to call.</span>
+                        }
+                        @if (!string.IsNullOrEmpty(alert.DriverId))
+                        {
+                            <button class="solid-btn sos-message" type="button" @onclick="() => OpenChat(alert)">
+                                💬 Message@(_unreadDriverIds.Contains(alert.DriverId) ? " · new" : "")
+                            </button>
+                        }
+                        <label class="sos-toggle" title="Mark this emergency as handled">
+                            <input type="checkbox" checked="@alert.IsResolved" disabled="@(_busyAlertId == alert.AlertId)"
+                                   @onchange="e => SetResolvedAsync(alert, e.Value is true)" />
+                            <span>Resolved</span>
+                        </label>
+                    </div>
+                </article>
+            }
+        </section>
+
+        @if (_recentlyResolved.Count > 0)
+        {
+            <section class="sos-resolved">
+                <h2>Resolved in the last 24 hours</h2>
+                <div class="data-table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Driver</th>
+                                <th>Unit</th>
+                                <th>Sent</th>
+                                <th>Resolved</th>
+                                <th>Location</th>
+                                <th>Resolved</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (SosAlertView sos in _recentlyResolved)
+                            {
+                                SosAlertView alert = sos;
+                                <tr>
+                                    <td><span class="status-pill small status-neutral">@SosDispatchService.TriggerLabel(alert.TriggerType)</span></td>
+                                    <td>@alert.DriverName</td>
+                                    <td>@alert.TaxiId</td>
+                                    <td>@alert.Timestamp.ToPhilippineTime().ToString("MMM d, h:mm tt")</td>
+                                    <td>@(alert.ResolvedAt?.ToPhilippineTime().ToString("MMM d, h:mm tt") ?? "–")</td>
+                                    <td>@(alert.HasLocation ? Coordinates(alert) : "unavailable")</td>
+                                    <td>
+                                        <label class="sos-toggle" title="Untick to reopen this emergency">
+                                            <input type="checkbox" checked="@alert.IsResolved" disabled="@(_busyAlertId == alert.AlertId)"
+                                                   @onchange="e => SetResolvedAsync(alert, e.Value is true)" />
+                                            <span>Resolved</span>
+                                        </label>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+    </main>
+
+</div>
+}
+
+@code {
+    // SOS is time-critical: the page re-reads emergency_alerts far more often than the
+    // other pages' 20 s refresh.
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(10);
+
+    // True until the first data load finishes (LoadAsync clears it). Access itself is enforced
+    // server-side by [Authorize].
+    private bool _isLoading = true;
+    private string? _loadError;
+    private List<SosAlertView> _active = new();
+    private List<SosAlertView> _recentlyResolved = new();
+    private string? _busyAlertId;
+    private string? _copiedAlertId;
+    private readonly CancellationTokenSource _refreshCts = new();
+
+    private HashSet<string> _unreadDriverIds = new();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        await LoadAsync();
+        StateHasChanged();
+        _ = RefreshLoopAsync(_refreshCts.Token);
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            (_active, _recentlyResolved) = await Dispatch.GetAlertsAsync();
+            _loadError = null;
+
+            _unreadDriverIds = await Chat.GetUnreadDriverIdsAsync(_active.Select(a => a.DriverId));
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task RefreshLoopAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(RefreshInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                await LoadAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Page closed.
+        }
+    }
+
+    private async Task SetResolvedAsync(SosAlertView alert, bool isResolved)
+    {
+        _busyAlertId = alert.AlertId;
+        try
+        {
+            await Dispatch.SetResolvedAsync(alert.AlertId, isResolved);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Couldn't update the alert: {ex.Message}";
+        }
+        finally
+        {
+            _busyAlertId = null;
+        }
+    }
+
+    // Straight into this driver's chat in the Messages drawer, with the emergency quick replies.
+    private void OpenChat(SosAlertView alert)
+    {
+        _unreadDriverIds.Remove(alert.DriverId);
+        string unit = string.IsNullOrEmpty(alert.TaxiId) ? "Unit unknown" : alert.TaxiId;
+        ChatDrawer.OpenChat(alert.DriverId, alert.DriverName,
+            $"{unit} · SOS {alert.Timestamp.ToPhilippineTime():h:mm tt}", isEmergency: true);
+    }
+
+    private async Task CopyCoordinatesAsync(SosAlertView alert)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", Coordinates(alert));
+            _copiedAlertId = alert.AlertId;
+        }
+        catch (JSException)
+        {
+            // Clipboard blocked (e.g. not a secure context) - the text is on screen to copy by hand.
+        }
+    }
+
+    private static string Coordinates(SosAlertView alert) =>
+        $"{alert.Latitude.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture)}, {alert.Longitude.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture)}";
+
+    // tel: links want the digits (and a leading +) only.
+    private static string DialNumber(string phone) => new string(phone.Where(c => char.IsDigit(c) || c == '+').ToArray());
+
+    private static string Ago(DateTime utc)
+    {
+        TimeSpan age = DateTime.UtcNow - utc;
+        if (age < TimeSpan.FromMinutes(1)) return "just now";
+        if (age < TimeSpan.FromHours(1)) return $"{(int)age.TotalMinutes} min ago";
+        if (age < TimeSpan.FromDays(1)) return $"{(int)age.TotalHours} h ago";
+        return $"{(int)age.TotalDays} d ago";
+    }
+
+    private static string TriggerCss(string triggerType) => triggerType switch
+    {
+        EmergencyAlert.Hostile => "hostile",
+        EmergencyAlert.Crash => "crash",
+        _ => "standard",
+    };
+
+    private static string TriggerIcon(string triggerType) => triggerType switch
+    {
+        EmergencyAlert.Hostile => "⚠",
+        EmergencyAlert.Crash => "💥",
+        _ => "🆘",
+    };
+
+    private static string Initials(string fullName)
+    {
+        string[] parts = fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return "?";
+        if (parts.Length == 1) return parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant();
+        return $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant();
+    }
+
+    public void Dispose()
+    {
+        _refreshCts.Cancel();
+        _refreshCts.Dispose();
+    }
+}

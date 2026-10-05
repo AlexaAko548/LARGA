@@ -74,7 +74,7 @@
 
                     <Frame BackgroundColor="#A1D6E2" CornerRadius="8" Padding="15,10" HasShadow="False">
                         <Grid ColumnDefinitions="*, Auto">
-                            <Label Grid.Column="0" Text="SHIFT ENDS AT :" FontSize="16" TextColor="#4A4A4A" VerticalOptions="Center"/>
+                            <Label Grid.Column="0" Text="RETURN UNIT BY :" FontSize="16" TextColor="#4A4A4A" VerticalOptions="Center"/>
                             <Label Grid.Column="1" Text="{Binding ShiftEndsAt}" Style="{StaticResource StatusDataStyle}" FontSize="20" TextColor="Black"/>
                         </Grid>
                     </Frame>

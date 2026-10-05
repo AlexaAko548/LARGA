@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Windows.Input;
+using Microsoft.Maui.Storage;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using System.Threading.Tasks;
@@ -101,6 +102,11 @@ public class VehicleDefectViewModel : BindableObject
             var assignedTaxi = await _shiftManagementService.GetCurrentUserAssignedTaxiAsync();
             var taxiId = assignedTaxi?.TaxiId ?? string.Empty;
 
+            // Only set when reported mid-shift (end-shift inspection) - a pre-shift defect is
+            // reported before clock-in, so there's no shift to link it to yet.
+            string? shiftId = null;
+            try { shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId"); } catch { }
+
             string? supportingPhotoUrl = null;
             if (!string.IsNullOrWhiteSpace(_photoPath))
             {
@@ -120,6 +126,7 @@ public class VehicleDefectViewModel : BindableObject
             var record = new MaintenanceRecord
             {
                 TaxiId = taxiId,
+                ShiftId = string.IsNullOrWhiteSpace(shiftId) ? null : shiftId,
                 ManagerId = null, // Not yet assigned; manager sets this when creating a work order
                 MaintenanceType = MaintenanceType.BreakdownRepair,
                 IssueTitle = TitleReport,
@@ -139,7 +146,7 @@ public class VehicleDefectViewModel : BindableObject
                 return;
             }
 
-            await Shell.Current.GoToAsync($"..?defectSubmitted=true");
+            await Shell.Current.GoToAsync($"..?defectSubmitted=true&reportId={recordId}");
         });
     }
 

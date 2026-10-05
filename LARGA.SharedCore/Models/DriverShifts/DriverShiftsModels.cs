@@ -18,7 +18,22 @@ public class DriverRosterEntry
     public string FullName { get; set; } = string.Empty;
     public LicenseStatus LicenseStatus { get; set; }
     public bool IsOnShift { get; set; }
+
+    /// <summary>On shift, but the driver has paused it from the mobile app.</summary>
+    public bool IsOnBreak { get; set; }
+
+    /// <summary>On shift and past the unit's 10:00 PM return time (ShiftRules).</summary>
+    public bool IsLateReturn { get; set; }
+
+    /// <summary>Balance unpaid for ShiftRules.DebtFlagDays+ days (users.debtFlaggedSince).</summary>
+    public bool IsDebtFlagged { get; set; }
+
+    /// <summary>The driver's permanent unit (their profile's assignment).</summary>
     public string? AssignedTaxiId { get; set; }
+
+    /// <summary>The unit on their current Active shift, when on shift - can differ from
+    /// AssignedTaxiId (a substitute, or a shift started before a reassignment).</summary>
+    public string? CurrentShiftTaxiId { get; set; }
 }
 
 public class RosterSnapshot
@@ -42,6 +57,25 @@ public class ScheduleDayCell
     /// <summary>True when this day was explicitly marked off (a "DayOff" exception exists
     /// for this driver/date), as opposed to just defaulting to a working day.</summary>
     public bool IsDayOff { get; set; }
+
+    /// <summary>True when the driver's license makes them ineligible to be scheduled on
+    /// this specific date - either this date falls on/after their license's expiry, or
+    /// within one month before it (mirrors the same 1-month cutoff used for "On Shift"
+    /// eligibility elsewhere). The cell is locked (no unit, no day-off toggle) when true.</summary>
+    public bool IsLicenseIneligible { get; set; }
+
+    /// <summary>The driver's own assigned unit is in the shop on this date (taxi status
+    /// "Under Maintenance", or an In Progress Garage job covering the date). Without a
+    /// substitute, the driver has nothing to drive - TaxiId is null.</summary>
+    public bool IsOwnUnitUnderMaintenance { get; set; }
+
+    /// <summary>A temporary unit the manager assigned for just this date while the driver's
+    /// own unit is under maintenance. When set, TaxiId is this unit.</summary>
+    public string? SubstituteTaxiId { get; set; }
+
+    /// <summary>Why the driver's own unit is out, for the cell's tooltip / substitute window
+    /// (e.g. "Brake repair - until Oct 3").</summary>
+    public string? MaintenanceNote { get; set; }
 }
 
 public class DriverScheduleRow
@@ -70,17 +104,23 @@ public class WeekSchedule
 
     public int TotalTaxis { get; set; }
     public List<string> TaxiIds { get; set; } = new();
+
+    /// <summary>Per day (Monday through Sunday), the units a substitute can be picked from:
+    /// not under maintenance and not driven by anyone else that day.</summary>
+    public List<List<string>> FreeTaxiIdsByDay { get; set; } = new();
 }
 
 public class ShiftLogEntry
 {
+    /// <summary>The shift's Firestore document ID.</summary>
     public string ShiftId { get; set; } = string.Empty;
     public DateTime? ShiftStart { get; set; }
     public string DriverId { get; set; } = string.Empty;
     public string DriverName { get; set; } = string.Empty;
     public string TaxiId { get; set; } = string.Empty;
 
-    /// <summary>Raw ShiftLog.Status (e.g. Active, Completed, Overdue).</summary>
+    /// <summary>ShiftLog.Status (e.g. Active, Completed, Overdue), except an Active shift the
+    /// driver has paused shows as "On Break".</summary>
     public string Status { get; set; } = string.Empty;
 
     public bool HasPreShiftChecklist { get; set; }
@@ -158,20 +198,30 @@ public class DriverProfileDetail
 {
     public string DriverId { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
+
+    /// <summary>The email the driver signs in to the mobile app with.</summary>
+    public string Email { get; set; } = string.Empty;
+
     public string PhoneNumber { get; set; } = string.Empty;
     public string? Address { get; set; }
     public DateTime? DateJoined { get; set; }
     public bool IsOnShift { get; set; }
+
+    /// <summary>The driver's permanent unit (their profile's assignment).</summary>
     public string? AssignedTaxiId { get; set; }
+
+    /// <summary>The unit on their current Active shift, if any.</summary>
+    public string? CurrentShiftTaxiId { get; set; }
+
     public string LicenseNumber { get; set; } = string.Empty;
     public string LicenseClassification { get; set; } = string.Empty;
     public string LicenseRestrictionCode { get; set; } = string.Empty;
     public LicenseStatus LicenseStatus { get; set; }
     public DateTime? LicenseExpiryDate { get; set; }
     public string? LtoIdPhotoUrl { get; set; }
-    public double PunctualPercent { get; set; }
-    public double PaymentReliabilityPercent { get; set; }
-    public int DamageIncidentCount { get; set; }
+    /// <summary>Attendance, punctuality, payment reliability and damage incidents over the last
+    /// DriverManagementService.PerformanceWindowDays days.</summary>
+    public LARGA.SharedCore.Services.DriverPerformance Performance { get; set; } = new();
     public string? ManagerNote { get; set; }
 }
 
@@ -189,4 +239,38 @@ public class ResetPasswordResult
     public bool Ok { get; set; }
     public string? ErrorMessage { get; set; }
     public string? NewPassword { get; set; }
+}
+
+/// <summary>A flagged pre-shift inspection waiting for the manager (clockin_requests).</summary>
+public class ClockInApprovalItem
+{
+    public string RequestId { get; set; } = string.Empty;
+    public string DriverId { get; set; } = string.Empty;
+    public string DriverName { get; set; } = string.Empty;
+    public string TaxiId { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public List<string> FlagReasons { get; set; } = new();
+
+    /// <summary>A checklist item failed (vs. only low fuel) - denying then escalates to maintenance.</summary>
+    public bool HasFailedItems { get; set; }
+
+    public bool IsBelowHalfTank { get; set; }
+    public int StartMileage { get; set; }
+    public string? FuelPhotoUrl { get; set; }
+    public string? OdometerPhotoUrl { get; set; }
+    public List<ClockInDefect> Defects { get; set; } = new();
+}
+
+public class ClockInDefect
+{
+    public string Title { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string Priority { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
+}
+
+public class ClockInDecisionResult
+{
+    public bool Ok { get; set; }
+    public string? ErrorMessage { get; set; }
 }

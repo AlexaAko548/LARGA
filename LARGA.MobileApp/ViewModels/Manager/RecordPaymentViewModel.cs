@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -44,6 +45,7 @@ public class RecordPaymentViewModel : BindableObject
     private string _expectedText = string.Empty;
     private string _amountReceivedText = string.Empty;
     private string _errorText = string.Empty;
+    private string _allocationText = string.Empty;
     private string _receiptDateText = NotScanned;
     private string _referenceText = NotScanned;
     private int _selectedDriverIndex;
@@ -105,7 +107,19 @@ public class RecordPaymentViewModel : BindableObject
     public string DriverName { get => _driverName; private set => Set(ref _driverName, value); }
     public string PlateText { get => _plateText; private set => Set(ref _plateText, value); }
     public string ExpectedText { get => _expectedText; private set => Set(ref _expectedText, value); }
-    public string AmountReceivedText { get => _amountReceivedText; set => Set(ref _amountReceivedText, value); }
+    public string AmountReceivedText
+    {
+        get => _amountReceivedText;
+        set
+        {
+            Set(ref _amountReceivedText, value);
+            RefreshAllocation();
+        }
+    }
+
+    /// <summary>Where the amount entered will go when it's more than this shift / debt (empty otherwise). Same split
+    /// the web's Record Payment and Settle Debt show.</summary>
+    public string AllocationText { get => _allocationText; private set => Set(ref _allocationText, value); }
 
     /// <summary>The manager's note on an Other Payment, kept on the payment records for audit. Optional.</summary>
     public string NotesText { get => _notesText; set => Set(ref _notesText, value); }
@@ -197,6 +211,48 @@ public class RecordPaymentViewModel : BindableObject
         DriverName = SelectedDebtor.DriverName;
         PlateText = "Debt";
         ExpectedText = Money(QuickLedgerCalculator.TotalOwedBy(_snapshot.Input, PhilippineTime.Now, SelectedDebtor.DriverId));
+        RefreshAllocation();
+    }
+
+    // The plan for the amount typed so far (no evidence - that's only built on Confirm).
+    private PaymentPlan? PlanFor(decimal amount, string method, PaymentEvidence? evidence, DateTime nowUtc)
+    {
+        if (_snapshot is null) return null;
+
+        if (IsOtherMode)
+        {
+            return SelectedDebtor is null
+                ? null
+                : QuickLedgerCalculator.PlanDebtSettlement(_snapshot.Input, SelectedDebtor.DriverId, amount, method, evidence, nowUtc);
+        }
+
+        return _boundaryRow is null
+            ? null
+            : QuickLedgerCalculator.PlanBoundaryPayment(_snapshot.Input, _boundaryRow, amount, method, evidence, nowUtc);
+    }
+
+    private void RefreshAllocation()
+    {
+        PaymentPlan? plan = TryReadAmount(out decimal amount)
+            ? PlanFor(amount, QuickLedgerCalculator.CashMethod, null, DateTime.UtcNow)
+            : null;
+        AllocationText = plan is null ? string.Empty : DescribeAllocation(plan, IsOtherMode);
+    }
+
+    private static string DescribeAllocation(PaymentPlan plan, bool isOtherMode)
+    {
+        // Nothing to explain when it all goes to the one thing on screen.
+        bool onlyMain = isOtherMode
+            ? plan.Advance == 0 && plan.Unallocated == 0
+            : plan.ToOthers == 0 && plan.AdjustmentCredit == 0 && plan.Advance == 0;
+        if (onlyMain) return string.Empty;
+
+        var parts = new List<string>();
+        if (plan.ToFirst > 0) parts.Add($"{Money(plan.ToFirst)} to this shift");
+        if (plan.ToOthers > 0) parts.Add($"{Money(plan.ToOthers)} to {(isOtherMode ? "unpaid shifts" : "older unpaid shifts")}");
+        if (plan.AdjustmentCredit > 0) parts.Add($"{Money(plan.AdjustmentCredit)} to manual debt");
+        if (plan.Advance > 0) parts.Add($"{Money(plan.Advance)} kept as advance credit");
+        return parts.Count == 0 ? string.Empty : "Goes to: " + string.Join(", ", parts) + ".";
     }
 
     private void ResetForm()
@@ -207,6 +263,7 @@ public class RecordPaymentViewModel : BindableObject
         ReceiptDateText = NotScanned;
         ReferenceText = NotScanned;
         ErrorText = string.Empty;
+        AllocationText = string.Empty;
         IsEWallet = false;
     }
 
@@ -278,44 +335,39 @@ public class RecordPaymentViewModel : BindableObject
                     return;
                 }
 
-                decimal owed = QuickLedgerCalculator.TotalOwedBy(_snapshot.Input, PhilippineTime.Now, debtor.DriverId);
-                if (amount > owed)
-                {
-                    ErrorText = $"Amount is more than the {Money(owed)} owed.";
-                    return;
-                }
-
                 // Check the allocation before uploading the photo, so a refused payment doesn't leave a stray file behind.
-                DebtSettlementPlan preview = QuickLedgerCalculator.PlanDebtSettlement(
-                    _snapshot.Input, PhilippineTime.Now, debtor.DriverId, amount, method, null, nowUtc);
-                if (preview.Unallocated > 0)
+                // Money above the debt is kept as advance credit on the driver's latest shift (same as the web's Settle
+                // Debt); it's only refused when the driver has no shift to hold it.
+                PaymentPlan? preview = PlanFor(amount, method, null, nowUtc);
+                if (preview is null || preview.Unallocated > 0)
                 {
-                    ErrorText = $"Amount is more than the {Money(owed)} owed.";
+                    ErrorText = "This driver has no shifts yet to hold an advance payment - record only what they owe.";
                     return;
                 }
 
                 PaymentEvidence evidence = await BuildEvidenceAsync(note.Length > 0 ? note : null, nowUtc, debtor.DriverId);
-                DebtSettlementPlan plan = QuickLedgerCalculator.PlanDebtSettlement(
-                    _snapshot.Input, PhilippineTime.Now, debtor.DriverId, amount, method, evidence, nowUtc);
+                PaymentPlan plan = PlanFor(amount, method, evidence, nowUtc)!;
 
-                await _service.SaveDebtSettlementAsync(plan, debtor.DriverId, nowUtc);
+                await _service.SavePaymentPlanAsync(plan, debtor.DriverId, nowUtc);
                 auditAction = "QuickLedgerDebtPaymentRecorded";
                 auditDetails = DescribeSettlement(debtor.DriverName, amount, method, plan, evidence);
             }
             else
             {
+                // Money above this shift's balance goes to the driver's older debt, then advance credit - same as the
+                // web's Record Payment.
                 PendingBoundaryRow row = _boundaryRow!;
-                if (amount > row.Remaining)
+                PaymentEvidence? evidence = IsEWallet ? await BuildEvidenceAsync(null, nowUtc, row.ShiftKey) : null;
+                PaymentPlan? plan = PlanFor(amount, method, evidence, nowUtc);
+                if (plan is null || plan.PaymentUpdates.Count == 0)
                 {
-                    ErrorText = $"Amount is more than the {Money(row.Remaining)} still due.";
+                    ErrorText = "This shift could not be found. Pull to refresh and try again.";
                     return;
                 }
 
-                PaymentEvidence? evidence = IsEWallet ? await BuildEvidenceAsync(null, nowUtc, row.ShiftKey) : null;
-                BoundaryPaymentWrite write = QuickLedgerCalculator.PlanBoundaryPayment(row, amount, method, evidence, nowUtc);
-                await _service.SaveBoundaryPaymentAsync(write, nowUtc);
+                await _service.SavePaymentPlanAsync(plan, row.DriverId, nowUtc);
                 auditAction = "QuickLedgerPaymentRecorded";
-                auditDetails = DescribeBoundaryPayment(row, amount, method, write, evidence);
+                auditDetails = DescribeBoundaryPayment(row, amount, method, plan, evidence);
             }
 
             IsOpen = false;
@@ -359,20 +411,25 @@ public class RecordPaymentViewModel : BindableObject
     }
 
     private static string DescribeBoundaryPayment(
-        PendingBoundaryRow row, decimal amount, string method, BoundaryPaymentWrite write, PaymentEvidence? evidence) =>
-        $"Recorded {Money(amount)} {method} payment against {row.DriverName}'s boundary for shift {row.ShiftKey} " +
-        $"(transaction {write.TransactionId}). Shift status: {write.PaymentStatus}." + EvidenceSuffix(evidence);
+        PendingBoundaryRow row, decimal amount, string method, PaymentPlan plan, PaymentEvidence? evidence)
+    {
+        string status = plan.PaymentUpdates.FirstOrDefault(w => w.ShiftId == row.ShiftKey)?.PaymentStatus ?? "Partial";
+        string split = DescribeAllocation(plan, isOtherMode: false);
+        return $"Recorded {Money(amount)} {method} payment against {row.DriverName}'s boundary for shift {row.ShiftKey} " +
+               $"(transaction {plan.TransactionId}). Shift status: {status}." +
+               (split.Length > 0 ? " " + split : string.Empty) + EvidenceSuffix(evidence);
+    }
 
     private static string DescribeSettlement(
-        string driverName, decimal amount, string method, DebtSettlementPlan plan, PaymentEvidence? evidence)
+        string driverName, decimal amount, string method, PaymentPlan plan, PaymentEvidence? evidence)
     {
-        string txn = plan.PaymentUpdates.FirstOrDefault()?.TransactionId ?? string.Empty;
         string credit = plan.AdjustmentCredit > 0
             ? $", with {Money(plan.AdjustmentCredit)} credited against manual debt"
             : string.Empty;
+        string advance = plan.Advance > 0 ? $", and {Money(plan.Advance)} kept as advance credit" : string.Empty;
 
-        return $"Recorded {Money(amount)} {method} debt payment from {driverName} (transaction {txn}), " +
-               $"applied to {plan.PaymentUpdates.Count} shift(s){credit}." + EvidenceSuffix(evidence);
+        return $"Recorded {Money(amount)} {method} debt payment from {driverName} (transaction {plan.TransactionId}), " +
+               $"applied to {plan.PaymentUpdates.Count} shift(s){credit}{advance}." + EvidenceSuffix(evidence);
     }
 
     private static string EvidenceSuffix(PaymentEvidence? evidence)

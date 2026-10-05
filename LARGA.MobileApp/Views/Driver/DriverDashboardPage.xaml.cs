@@ -21,6 +21,10 @@ public partial class DriverDashboardPage : ContentPage
         if (BindingContext is DriverDashboardViewModel vm)
         {
             vm.IsOffline = !Preferences.Get("IsShiftActive", false);
+
+            // Then confirm against Firestore (the shift may have been auto-closed, or started
+            // on another phone) - see SyncOpenShiftAsync.
+            _ = vm.SyncOpenShiftAsync();
         }
     }
 }

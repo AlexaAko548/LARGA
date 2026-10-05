@@ -12,6 +12,7 @@
   </ItemGroup>
 
 	<ItemGroup>
+		<PackageReference Include="Google.Cloud.Storage.V1" Version="4.10.0" />
 		<PackageReference Include="Plugin.Firebase" Version="4.1.0" />
 		<PackageReference Include="Google.Cloud.Firestore" Version="4.4.0" />
 		<PackageReference Include="FirebaseAdmin" Version="3.6.0" />
@@ -20,6 +21,7 @@
 		     its own (MA002) - add it explicitly, pinned to the same version as MobileApp's
 		     MauiVersion-based packages. -->
 		<PackageReference Include="Microsoft.Maui.Essentials" Version="9.0.120" />
+		<PackageReference Include="SkiaSharp" Version="3.119.2" />
 	</ItemGroup>
 
 </Project>

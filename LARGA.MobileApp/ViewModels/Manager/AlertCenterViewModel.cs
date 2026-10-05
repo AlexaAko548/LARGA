@@ -30,12 +30,17 @@ public class AlertCenterViewModel : BindableObject
     private IDisposable? _defectListener;
     private IDisposable? _idleListener;
 
+    // Cards the manager closed with X this session. X never makes a decision on the record (Resolve,
+    // Approve and Deny do), so without this the live listener would keep showing the card.
+    private readonly HashSet<string> _hiddenIds = new();
+
     public ObservableCollection<AlertItem> Alerts { get; } = new();
 
     public ICommand LoadAlertsCommand { get; }
     public ICommand DismissAlertCommand { get; }
     public ICommand ApproveShiftCommand { get; }
     public ICommand DenyShiftCommand { get; }
+    public ICommand ResolveFuelCommand { get; }
     public ICommand CallDriverCommand { get; }
     public ICommand MessageDriverCommand { get; }
     public ICommand ViewLocationCommand { get; }
@@ -49,6 +54,7 @@ public class AlertCenterViewModel : BindableObject
         DismissAlertCommand = new Command<AlertItem>(async (alert) => await DismissAsync(alert));
         ApproveShiftCommand = new Command<AlertItem>(async (alert) => await ResolveDefectAsync(alert, "Dismissed"));
         DenyShiftCommand = new Command<AlertItem>(async (alert) => await ResolveDefectAsync(alert, "InProgress"));
+        ResolveFuelCommand = new Command<AlertItem>(async (alert) => await ResolveFuelFlagAsync(alert));
 
         CallDriverCommand = new Command<AlertItem>((alert) =>
         {
@@ -218,7 +224,8 @@ public class AlertCenterViewModel : BindableObject
     private void RefreshCombinedAlerts()
     {
         Alerts.Clear();
-        foreach (var item in _sosItems.Concat(_fuelItems).Concat(_defectItems).Concat(_idleItems))
+        foreach (var item in _sosItems.Concat(_fuelItems).Concat(_defectItems).Concat(_idleItems)
+                     .Where(i => !_hiddenIds.Contains(i.Id)))
         {
             Alerts.Add(item);
         }
@@ -270,22 +277,25 @@ public class AlertCenterViewModel : BindableObject
             switch (alert.Type)
             {
                 case AlertType.Sos:
+                    // Same writes as the web's SOS Dispatch (SosDispatchService.SetResolvedAsync):
+                    // the resolved time for its Resolved list, and the matching bell alert read.
                     await CrossFirebaseFirestore.Current
                         .GetCollection("emergency_alerts")
                         .GetDocument(alert.Id)
-                        .UpdateDataAsync(new Dictionary<object, object> { ["isResolved"] = true });
+                        .UpdateDataAsync(new Dictionary<object, object>
+                        {
+                            ["isResolved"] = true,
+                            ["resolvedAt"] = DateTime.UtcNow,
+                        });
+                    await MarkSosBellReadAsync(alert.Id);
                     break;
 
                 case AlertType.FuelDiscrepancy:
-                    await CrossFirebaseFirestore.Current
-                        .GetCollection("fuel_logs")
-                        .GetDocument(alert.Id)
-                        .UpdateDataAsync(new Dictionary<object, object> { ["verificationStatus"] = "Verified" });
-                    break;
-
                 case AlertType.ShiftApproval:
-                    // No status write here - Approve/Deny are the real decisions for a defect
-                    // report; the top-right X just hides the card from this session's view.
+                    // No status write here - Resolve (fuel) and Approve/Deny (defect) are the real
+                    // decisions; X just hides the card for this session.
+                    _hiddenIds.Add(alert.Id);
+                    RefreshCombinedAlerts();
                     break;
 
                 case AlertType.DriverIdle:
@@ -316,7 +326,7 @@ public class AlertCenterViewModel : BindableObject
                 await CrossFirebaseFirestore.Current
                     .GetCollection("taxis")
                     .GetDocument(alert.TaxiId)
-                    .UpdateDataAsync(new Dictionary<object, object> { ["status"] = "Maintenance" });
+                    .UpdateDataAsync(new Dictionary<object, object> { ["status"] = LARGA.SharedCore.TaxiStatusRules.UnderMaintenance });
             }
 
             if (newStatus == "InProgress")
@@ -329,6 +339,70 @@ public class AlertCenterViewModel : BindableObject
             System.Diagnostics.Debug.WriteLine($"Resolve Defect Error: {ex.Message}");
             await Shell.Current.DisplayAlert("Error", "Could not send this report to the garage. Please try again.", "OK");
         }
+    }
+
+    /// <summary>The bell entry ManagerWeb raised for this SOS ({alertId}_SOS), if any.</summary>
+    private static async Task MarkSosBellReadAsync(string alertId)
+    {
+        try
+        {
+            var bell = CrossFirebaseFirestore.Current.GetCollection("system_alerts").GetDocument($"{alertId}_SOS");
+            var snapshot = await bell.GetDocumentSnapshotAsync<BellProxy>();
+            if (snapshot?.Data != null)
+            {
+                await bell.UpdateDataAsync(new Dictionary<object, object> { ["isRead"] = true });
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"SOS bell update error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Resolves a flagged fuel log the same way as the web's Fuel Verification
+    /// (FuelVerificationService.ResolveFlagAsync): a resolution note is required, it's added to
+    /// fuelLogDetails as "Resolved: ...", and the log moves to Verified.
+    /// </summary>
+    private async Task ResolveFuelFlagAsync(AlertItem? alert)
+    {
+        if (alert == null || alert.Type != AlertType.FuelDiscrepancy) return;
+
+        string? note = await Shell.Current.DisplayPromptAsync(
+            "Resolve fuel flag", "How was this discrepancy resolved?", "Resolve", "Cancel",
+            placeholder: "e.g. Receipt re-checked with the driver", maxLength: 500);
+        if (note is null) return; // cancelled
+        note = note.Trim();
+        if (note.Length == 0)
+        {
+            await Shell.Current.DisplayAlert("Note required", "Enter a short note on how this was resolved.", "OK");
+            return;
+        }
+
+        try
+        {
+            var document = CrossFirebaseFirestore.Current.GetCollection("fuel_logs").GetDocument(alert.Id);
+            var snapshot = await document.GetDocumentSnapshotAsync<FuelLogProxy>();
+            string existing = snapshot?.Data?.FuelLogDetails ?? string.Empty;
+            string combined = string.IsNullOrWhiteSpace(existing) ? $"Resolved: {note}" : $"{existing}\n\nResolved: {note}";
+
+            await document.UpdateDataAsync(new Dictionary<object, object>
+            {
+                ["verificationStatus"] = "Verified",
+                ["fuelLogDetails"] = combined,
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Resolve fuel flag error: {ex.Message}");
+            await Shell.Current.DisplayAlert("Error", "Could not resolve this flag. Please try again.", "OK");
+        }
+    }
+
+    private class BellProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("isRead")]
+        public bool IsRead { get; set; }
     }
 
     private class DriverLookup

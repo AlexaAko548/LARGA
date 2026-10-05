@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Plugin.Firebase.Auth;
+using LARGA.MobileApp.Services;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -53,122 +54,34 @@ public class LedgerViewModel : INotifyPropertyChanged
         try
         {
             PaymentHistory.Clear();
-            decimal totalDebt = 0m;
-            var tempPayments = new List<PaymentRecord>();
 
-            // 1. Fetch Debts & Calculate Outstanding Balance
-            var debtsSnapshot = await CrossFirebaseFirestore.Current
-                .GetCollection("debt_adjustments")
-                .WhereEqualsTo("DriverId", user.Uid) // Adjusted for groupmate's PascalCase
-                .GetDocumentsAsync<Dictionary<string, object>>();
+            // Same per-shift calculation as the web's Master Debt Ledger, so the driver and the
+            // manager see the same balance (see DriverDebtCalculator).
+            var ledger = await DriverDebtCalculator.LoadAsync(user.Uid);
+            OutstandingDebtBalance = $"₱ {ledger.TotalDebt:N2}";
 
-            // Fallback to camelCase if PascalCase returns empty
-            if (!debtsSnapshot.Documents.Any())
-            {
-                debtsSnapshot = await CrossFirebaseFirestore.Current
-                    .GetCollection("debt_adjustments")
-                    .WhereEqualsTo("driverId", user.Uid)
-                    .GetDocumentsAsync<Dictionary<string, object>>();
-            }
-
-            foreach (var doc in debtsSnapshot.Documents)
-            {
-                object amountObj = doc.Data.ContainsKey("Amount") ? doc.Data["Amount"] :
-                                   doc.Data.ContainsKey("amount") ? doc.Data["amount"] : null;
-
-                if (amountObj != null)
+            var payments = ledger.Shifts
+                .Where(s => s.HasPayment)
+                .Select(s => new PaymentRecord
                 {
-                    totalDebt += Convert.ToDecimal(amountObj);
-                }
-            }
-            OutstandingDebtBalance = $"₱ {Math.Max(0, totalDebt):N2}";
+                    DateStr = s.PaymentTimestampUtc is DateTime paidAt ? paidAt.ToLocalTime().ToString("M/dd") : "N/A",
+                    Amount = $"{s.Paid:N2}",
+                    // Exact match: "Unpaid" also contains "Paid".
+                    Status = s.PaymentStatus == "Paid" ? "(Full)" : s.PaymentStatus == "Partial" ? "(Partial)" : "UNPAID",
+                    RawDate = s.PaymentTimestampUtc ?? DateTime.MinValue,
+                })
+                .OrderByDescending(p => p.RawDate);
 
-            // 2. Fetch Shifts to get ShiftIds
-            var shiftsSnapshot = await CrossFirebaseFirestore.Current
-                .GetCollection("shifts")
-                .WhereEqualsTo("driverId", user.Uid)
-                .GetDocumentsAsync<Dictionary<string, object>>();
-
-            foreach (var shift in shiftsSnapshot.Documents)
-            {
-                object shiftIdObj = shift.Data.ContainsKey("ShiftId") ? shift.Data["ShiftId"] :
-                                    shift.Data.ContainsKey("shiftId") ? shift.Data["shiftId"] : null;
-
-                string shiftId = shiftIdObj?.ToString();
-
-                if (!string.IsNullOrEmpty(shiftId))
-                {
-                    // 3. Fetch Payments linked to ShiftId
-                    var paymentsSnapshot = await CrossFirebaseFirestore.Current
-                        .GetCollection("boundary_payments")
-                        .WhereEqualsTo("ShiftId", shiftId)
-                        .GetDocumentsAsync<Dictionary<string, object>>();
-
-                    if (!paymentsSnapshot.Documents.Any())
-                    {
-                        paymentsSnapshot = await CrossFirebaseFirestore.Current
-                            .GetCollection("boundary_payments")
-                            .WhereEqualsTo("shiftId", shiftId)
-                            .GetDocumentsAsync<Dictionary<string, object>>();
-                    }
-
-                    foreach (var paymentDoc in paymentsSnapshot.Documents)
-                    {
-                        if (paymentDoc.Data != null)
-                        {
-                            // Status Evaluation (0=Waiting, 1=Partial, 2=Paid)
-                            string statusText = "UNPAID";
-                            object statusObj = paymentDoc.Data.ContainsKey("PaymentStatus") ? paymentDoc.Data["PaymentStatus"] :
-                                               paymentDoc.Data.ContainsKey("paymentStatus") ? paymentDoc.Data["paymentStatus"] : null;
-
-                            string statusStr = statusObj?.ToString() ?? "";
-                            if (statusStr == "1" || statusStr.Contains("Partial")) statusText = "(Partial)";
-                            else if (statusStr == "2" || statusStr.Contains("Paid")) statusText = "(Full)";
-
-                            // Timestamp Evaluation
-                            string dateStr = "N/A";
-                            object timeObj = paymentDoc.Data.ContainsKey("Timestamp") ? paymentDoc.Data["Timestamp"] :
-                                             paymentDoc.Data.ContainsKey("timestamp") ? paymentDoc.Data["timestamp"] : null;
-
-                            if (timeObj is DateTime dt)
-                            {
-                                dateStr = dt.ToLocalTime().ToString("M/dd");
-                            }
-
-                            // Amount Evaluation
-                            object amountObj = paymentDoc.Data.ContainsKey("AmountPaid") ? paymentDoc.Data["AmountPaid"] :
-                                               paymentDoc.Data.ContainsKey("amountPaid") ? paymentDoc.Data["amountPaid"] : null;
-
-                            decimal amount = amountObj != null ? Convert.ToDecimal(amountObj) : 0.00m;
-
-                            tempPayments.Add(new PaymentRecord
-                            {
-                                DateStr = dateStr,
-                                Amount = $"{amount:N2}",
-                                Status = statusText,
-                                RawDate = timeObj is DateTime rawDt ? rawDt : DateTime.MinValue
-                            });
-                        }
-                    }
-                }
-            }
-
-            // 4. Update the UI and Sort
-            var sortedPayments = tempPayments.OrderByDescending(p => p.RawDate).ToList();
-
-            foreach (var payment in sortedPayments)
+            foreach (var payment in payments)
             {
                 PaymentHistory.Add(payment);
             }
 
-            if (PaymentHistory.Any())
-            {
-                CurrentShiftPayment = PaymentHistory.First().Status.Replace("(", "").Replace(")", "").ToUpper();
-            }
-            else
-            {
-                CurrentShiftPayment = "UNPAID";
-            }
+            // Today's shift: its payment status, or UNPAID when nothing has been paid on it yet.
+            var latestShift = ledger.Shifts.OrderByDescending(s => s.ShiftStartUtc).FirstOrDefault();
+            CurrentShiftPayment = latestShift is null || !latestShift.HasPayment
+                ? "UNPAID"
+                : latestShift.PaymentStatus == "Paid" ? "FULL" : latestShift.PaymentStatus == "Partial" ? "PARTIAL" : "UNPAID";
         }
         catch (Exception ex)
         {

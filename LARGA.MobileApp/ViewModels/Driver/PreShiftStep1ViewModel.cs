@@ -19,6 +19,10 @@ public class PreShiftStep1ViewModel : BindableObject, IQueryAttributable
         { "Exterior", null }
     };
 
+    // maintenance_logs IDs of defects reported during this inspection - sent with the clock-in
+    // request so the manager sees them.
+    private readonly List<string> _defectReportIds = new();
+
     public string ProgressText => $"{_items.Values.Count(v => v != null)} / 5 completed";
     public double ProgressRatio => _items.Values.Count(v => v != null) / 5.0;
 
@@ -78,7 +82,11 @@ public class PreShiftStep1ViewModel : BindableObject, IQueryAttributable
                 await Shell.Current.DisplayAlert("Incomplete", "Please complete all 5 inspection items before proceeding.", "OK");
                 return;
             }
-            await Shell.Current.GoToAsync("pre-shift-step2");
+            await Shell.Current.GoToAsync("pre-shift-step2", new Dictionary<string, object>
+            {
+                { "inspection", _items.ToDictionary(kv => kv.Key, kv => kv.Value == true) },
+                { "defectReportIds", _defectReportIds.ToList() },
+            });
         });
     }
 
@@ -113,8 +121,16 @@ public class PreShiftStep1ViewModel : BindableObject, IQueryAttributable
     {
         if (query.TryGetValue("defectSubmitted", out var value) && value?.ToString() == "true")
         {
-            await Shell.Current.DisplayAlert("On pause.", "Wait for the Manager's evaluation.", "OK");
-            await Shell.Current.DisplayAlert("Shift approved!", string.Empty, "OK");
+            if (query.TryGetValue("reportId", out var reportId) && !string.IsNullOrWhiteSpace(reportId?.ToString())
+                && !_defectReportIds.Contains(reportId.ToString()!))
+            {
+                _defectReportIds.Add(reportId.ToString()!);
+            }
+
+            // Paper Ch. IV: a flagged inspection goes to the manager, who decides whether the
+            // unit can go out today - the actual wait happens after step 2 (ClockInPendingPage).
+            await Shell.Current.DisplayAlert("Defect reported",
+                "Finish the checklist. Because of this issue, your clock-in will be sent to the manager for approval before your shift can start.", "OK");
         }
     }
 }

@@ -16,6 +16,7 @@ public partial class AppShell : Shell
         Routing.RegisterRoute("message-manager", typeof(MessageManagerPage));
         Routing.RegisterRoute("pre-shift-step1", typeof(Views.Driver.PreShiftStep1Page));
         Routing.RegisterRoute("pre-shift-step2", typeof(Views.Driver.PreShiftStep2Page));
+        Routing.RegisterRoute("clockin-pending", typeof(Views.Driver.ClockInPendingPage));
         //Routing.RegisterRoute("odometer-scan", typeof(Views.Driver.OdometerScanPage));
         Routing.RegisterRoute("active-shift", typeof(Views.Driver.ActiveShiftPage));
         Routing.RegisterRoute("end-shift-step1", typeof(Views.Driver.EndShiftStep1Page));

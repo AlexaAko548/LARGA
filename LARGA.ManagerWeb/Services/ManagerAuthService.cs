@@ -1,131 +1,95 @@
-﻿using FirebaseAdmin.Auth;
-using Google.Cloud.Firestore;
-using LARGA.SharedCore.Models.ManagerProfile;
-using Microsoft.AspNetCore.Components.Authorization;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using Google.Cloud.Firestore;
+using LARGA.ManagerWeb.Models;
+using LARGA.SharedCore;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.Extensions.Logging;
 
 namespace LARGA.ManagerWeb.Services
 {
     public interface IManagerAuthService
     {
         Task<(bool Success, string ErrorMessage)> UpdateContactNumberAsync(UpdateContactModel model);
-        Task<(bool Success, string ErrorMessage)> UpdatePasswordAsync(UpdatePasswordModel model);
     }
 
+    /// <summary>
+    /// The signed-in manager's own profile changes from the header's profile menu. A password
+    /// change isn't here: it has to prove the current password, which only Firebase sign-in can
+    /// do, so the profile menu runs it in the browser (firebase-auth.js largaFirebaseChangePassword).
+    /// </summary>
     public class ManagerAuthService : IManagerAuthService
     {
         private readonly Lazy<FirestoreDb> _firestoreDb;
-        private readonly Lazy<FirebaseAuth> _firebaseAuth;
         private readonly AuthenticationStateProvider _authStateProvider;
+        private readonly ILogger<ManagerAuthService> _logger;
 
         public ManagerAuthService(
             Lazy<FirestoreDb> firestoreDb,
-            Lazy<FirebaseAuth> firebaseAuth,
-            AuthenticationStateProvider authStateProvider)
+            AuthenticationStateProvider authStateProvider,
+            ILogger<ManagerAuthService> logger)
         {
             _firestoreDb = firestoreDb;
-            _firebaseAuth = firebaseAuth;
             _authStateProvider = authStateProvider;
+            _logger = logger;
         }
 
-        // Upgraded diagnostic method to find the exact reason the User ID is missing
-        private async Task<(bool IsAuthenticated, string Uid, string ErrorMsg)> GetCurrentUserContextAsync()
+        private async Task<string?> GetCurrentUidAsync()
         {
-            try
-            {
-                var authState = await _authStateProvider.GetAuthenticationStateAsync();
-                var user = authState.User;
-
-                // 1. Check if Blazor actually recognizes the user as logged in
-                if (user?.Identity?.IsAuthenticated != true)
-                {
-                    return (false, string.Empty, "Session invalid: Blazor AuthenticationStateProvider says you are not authenticated. Check your Login provider setup.");
-                }
-
-                // 2. Try to find the Firebase UID in standard claims (added "uid" check)
-                string uid = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                    ?? user.FindFirst("uid")?.Value
-                    ?? user.FindFirst("user_id")?.Value
-                    ?? user.FindFirst("sub")?.Value;
-
-                if (!string.IsNullOrEmpty(uid))
-                {
-                    return (true, uid, string.Empty);
-                }
-
-                // 3. If authenticated but UID is missing, list the claims that DO exist
-                var existingClaims = string.Join(", ", user.Claims.Select(c => c.Type));
-                return (true, string.Empty, $"Logged in, but UID claim is missing. Available claims: [{existingClaims}]");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Error retrieving current user ID: {ex.Message}");
-                return (false, string.Empty, $"Auth context error: {ex.Message}");
-            }
+            AuthenticationState authState = await _authStateProvider.GetAuthenticationStateAsync();
+            return authState.User.Identity?.IsAuthenticated == true
+                ? authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                : null;
         }
 
+        /// <summary>
+        /// Same rules as the mobile app's Update Contact Number: the current number must match the
+        /// one on file, the new one must be a Philippine mobile number, and it's saved to
+        /// users/{uid}.phoneNumber as +639XXXXXXXXX.
+        /// </summary>
         public async Task<(bool Success, string ErrorMessage)> UpdateContactNumberAsync(UpdateContactModel model)
         {
+            if (!InputValidator.SamePhone(model.NewContactNumber, model.ConfirmContactNumber))
+            {
+                return (false, "The new number and its confirmation don't match.");
+            }
+
+            if (InputValidator.ValidatePhilippineMobile(model.NewContactNumber) is string phoneError)
+            {
+                return (false, phoneError);
+            }
+
             try
             {
-                var authContext = await GetCurrentUserContextAsync();
-                if (!authContext.IsAuthenticated || string.IsNullOrEmpty(authContext.Uid))
-                    return (false, authContext.ErrorMsg);
+                string? uid = await GetCurrentUidAsync();
+                if (string.IsNullOrEmpty(uid))
+                {
+                    return (false, "Your session has expired. Please sign in again.");
+                }
 
-                var db = _firestoreDb.Value;
-                DocumentReference docRef = db.Collection("users").Document(authContext.Uid);
+                DocumentReference docRef = _firestoreDb.Value.Collection("users").Document(uid);
+                DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
+                string onFile = snapshot.Exists && snapshot.TryGetValue("phoneNumber", out string phone) ? phone : string.Empty;
+
+                if (!InputValidator.SamePhone(onFile, model.CurrentContactNumber))
+                {
+                    return (false, "That doesn't match the number currently on file.");
+                }
 
                 await docRef.UpdateAsync(new Dictionary<string, object>
                 {
-                    { "contactNumber", model.NewContactNumber }
+                    ["phoneNumber"] = InputValidator.NormalizePhilippineMobile(model.NewContactNumber)!,
                 });
 
                 return (true, string.Empty);
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Firestore Update Contact Error: {ex.Message}");
-                if (ex is OperationCanceledException)
-                    return (false, "Connection timed out. Check if your Firebase CredentialsPath is correct in appsettings.");
-
-                return (false, ex.Message);
+                _logger.LogWarning(ex, "Failed to update the manager's contact number.");
+                return (false, "Couldn't update your contact number. Please try again.");
             }
         }
-
-        public async Task<(bool Success, string ErrorMessage)> UpdatePasswordAsync(UpdatePasswordModel model)
-        {
-            try
-            {
-                var authContext = await GetCurrentUserContextAsync();
-                if (!authContext.IsAuthenticated || string.IsNullOrEmpty(authContext.Uid))
-                    return (false, authContext.ErrorMsg);
-
-                var auth = _firebaseAuth.Value;
-
-                var args = new UserRecordArgs
-                {
-                    Uid = authContext.Uid,
-                    Password = model.NewPassword
-                };
-
-                await auth.UpdateUserAsync(args);
-                return (true, string.Empty);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Firebase Admin Update Password Error: {ex.Message}");
-
-                if (ex is OperationCanceledException)
-                    return (false, "Firebase Admin SDK timed out. Ensure 'Firestore:CredentialsPath' is correctly set to your service account JSON file in appsettings.");
-
-                return (false, ex.Message);
-            }
-        }
-
     }
 }
