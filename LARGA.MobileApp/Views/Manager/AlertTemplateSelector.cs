@@ -8,6 +8,7 @@ public class AlertTemplateSelector : DataTemplateSelector
     public DataTemplate? FuelDiscrepancyTemplate { get; set; }
     public DataTemplate? ShiftApprovalTemplate { get; set; }
     public DataTemplate? DriverIdleTemplate { get; set; }
+    public DataTemplate? LowStockTemplate { get; set; }
 
     protected override DataTemplate OnSelectTemplate(object item, BindableObject container)
     {
@@ -18,6 +19,7 @@ public class AlertTemplateSelector : DataTemplateSelector
             AlertType.FuelDiscrepancy => FuelDiscrepancyTemplate!,
             AlertType.ShiftApproval => ShiftApprovalTemplate!,
             AlertType.DriverIdle => DriverIdleTemplate!,
+            AlertType.LowStock => LowStockTemplate!,
             _ => SosTemplate!
         };
     }
