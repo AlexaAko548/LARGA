@@ -28,13 +28,17 @@ public class GarageService
 
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly ILogger<GarageService> _logger;
+    private readonly InventoryAuditService _inventoryAudit;
+    private readonly AlertService _alerts;
 
     private FirestoreDb Db => _dbLazy.Value;
 
-    public GarageService(Lazy<FirestoreDb> dbLazy, ILogger<GarageService> logger)
+    public GarageService(Lazy<FirestoreDb> dbLazy, ILogger<GarageService> logger, InventoryAuditService inventoryAudit, AlertService alerts)
     {
         _dbLazy = dbLazy;
         _logger = logger;
+        _inventoryAudit = inventoryAudit;
+        _alerts = alerts;
     }
 
     public async Task<GarageSnapshot> GetGarageSnapshotAsync()
@@ -263,6 +267,54 @@ public class GarageService
         {
             _logger.LogWarning(ex, "Failed to schedule routine check {CheckId}", checkId);
             return new GarageActionResult { Ok = false, ErrorMessage = "Could not schedule this check. Please try again." };
+        }
+    }
+
+    /// <summary>
+    /// Records the spare parts a maintenance job consumed. For each part, stock is deducted through
+    /// InventoryAuditService.DeductPartAsync (which writes the InventoryStockDeducted audit entry),
+    /// then a maintenance_parts_used row is written. If the part then sits at or below its
+    /// ReorderLevel - the same rule Inventory uses to show "Low Stock" - a LowStock alert is raised.
+    /// All quantities are validated before anything is deducted. Parts are then processed in order
+    /// and are not rolled back as a group: if one fails, the parts before it stay deducted and logged.
+    /// </summary>
+    public async Task<GarageActionResult> LogPartsUsedAsync(string maintenanceId, IReadOnlyList<(string PartId, int Quantity)> parts, string? actorUserId = null)
+    {
+        if (parts.Count == 0 || parts.Any(p => string.IsNullOrWhiteSpace(p.PartId) || p.Quantity <= 0))
+        {
+            return new GarageActionResult { Ok = false, ErrorMessage = "Each part needs a selection and a quantity above zero." };
+        }
+
+        try
+        {
+            foreach ((string partId, int quantity) in parts)
+            {
+                SparePart? updated = await _inventoryAudit.DeductPartAsync(partId, quantity, actorUserId);
+                if (updated is null)
+                {
+                    return new GarageActionResult { Ok = false, ErrorMessage = "One of the selected parts no longer exists." };
+                }
+
+                var usage = new MaintenancePartsUsed
+                {
+                    MaintenanceId = maintenanceId,
+                    PartId = partId,
+                    QuantityUsed = quantity,
+                };
+                await Db.Collection("maintenance_parts_used").AddAsync(usage);
+
+                if (updated.StockQuantity <= updated.ReorderLevel)
+                {
+                    await _alerts.CreateLowStockAlertAsync(updated, maintenanceId);
+                }
+            }
+
+            return new GarageActionResult { Ok = true };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to log parts used for {MaintenanceId}", maintenanceId);
+            return new GarageActionResult { Ok = false, ErrorMessage = "Could not log the parts used. Please check the stock and try again." };
         }
     }
 

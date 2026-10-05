@@ -105,6 +105,31 @@ public class AlertService
         }
     }
 
+    /// <summary>Raises a "LowStock" notification after a maintenance job draws a spare part down to or
+    /// below its minimum threshold. The ID ({maintenanceId}_{partId}_LOWSTOCK) is deterministic, so a
+    /// retried job can't post the same alert twice, while a later job that drops the part again still
+    /// gets its own alert.</summary>
+    public async Task CreateLowStockAlertAsync(SparePart part, string maintenanceId)
+    {
+        DocumentReference docRef = Db.Collection("system_alerts").Document($"{maintenanceId}_{part.PartId}_LOWSTOCK");
+
+        try
+        {
+            var alert = new SystemAlert
+            {
+                Type = "LowStock",
+                Message = $"{part.PartName} is low on stock: {part.StockQuantity} {part.Unit} left (minimum {part.ReorderLevel}).",
+                Timestamp = DateTime.UtcNow,
+                IsRead = false,
+            };
+            await docRef.SetAsync(alert);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to create low-stock alert for part {PartId} (maintenance {MaintenanceId})", part.PartId, maintenanceId);
+        }
+    }
+
     private async Task<List<T>> GetAllAsync<T>(string collection) where T : class
     {
         QuerySnapshot snapshot = await Db.Collection(collection).GetSnapshotAsync();
