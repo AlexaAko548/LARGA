@@ -4994,3 +4994,143 @@ border-radius: 10px;
 padding: 0.55rem 0.7rem;
 font-size: 0.9rem;
 }
+
+/* ---------------------------------------------------------------------
+   Form validation (InputValidator)
+   --------------------------------------------------------------------- */
+.text-input.invalid,
+.form-control.invalid {
+border-color: #c62828;
+background: rgba(198,40,40,0.05);
+}
+
+.text-input.invalid:focus,
+.form-control.invalid:focus {
+outline: 2px solid rgba(198,40,40,0.25);
+}
+
+.field-error[role="alert"] {
+margin-top: 0.25rem;
+}
+
+.field-optional {
+font-weight: 400;
+color: #5a7a8a;
+font-size: 0.8em;
+}
+
+/* ---------------------------------------------------------------------
+   Master Debt Ledger - itemized history
+   --------------------------------------------------------------------- */
+.history-type {
+font-weight: 700;
+}
+
+.history-type.payment { color: #1b7a3a; }
+.history-type.due { color: #1d1d1d; }
+.history-type.penalty { color: #b3261e; }
+.history-type.credit { color: #017aa3; }
+
+.history-sub {
+font-size: 0.75rem;
+color: #5a7a8a;
+}
+
+.history-allocation {
+font-size: 0.75rem;
+color: #1d1d1d;
+padding-left: 0.6rem;
+border-left: 2px solid rgba(27,122,58,0.35);
+margin-top: 0.15rem;
+}
+
+/* Executive Dashboard - fleet status strip (taxi units) */
+.status-strip-label {
+font-size: 0.72rem;
+font-weight: 800;
+letter-spacing: 0.06em;
+text-transform: uppercase;
+color: #5a7a8a;
+margin-right: 0.15rem;
+}
+
+.status-parked {
+background: rgba(90,122,138,0.08);
+color: #5a7a8a;
+border-color: rgba(90,122,138,0.25);
+}
+
+button.status-pill {
+cursor: pointer;
+font-family: inherit;
+}
+
+button.status-pill:hover,
+button.status-pill.open {
+box-shadow: 0 0 0 2px rgba(1,155,207,0.35);
+}
+
+.fleet-units-panel {
+background: #ffffff;
+border: 1px solid rgba(1,155,207,0.3);
+border-radius: 12px;
+padding: 0.6rem 0.9rem 0.8rem;
+}
+
+.fleet-units-head {
+display: flex;
+justify-content: space-between;
+align-items: center;
+margin-bottom: 0.4rem;
+color: #1d1d1d;
+}
+
+.fleet-units-empty {
+font-size: 0.82rem;
+color: #5a7a8a;
+padding: 0.3rem 0;
+}
+
+.fleet-unit-row {
+display: grid;
+grid-template-columns: minmax(110px, 160px) minmax(0, 1fr) auto;
+gap: 0.8rem;
+align-items: center;
+padding: 0.55rem 0;
+border-top: 1px solid rgba(1,155,207,0.12);
+}
+
+.fleet-unit-id {
+display: flex;
+flex-direction: column;
+}
+
+.fleet-unit-id span,
+.fleet-unit-info small {
+font-size: 0.75rem;
+color: #5a7a8a;
+}
+
+.fleet-unit-actions {
+display: flex;
+flex-wrap: wrap;
+gap: 0.4rem;
+}
+
+.fleet-unit-actions a {
+text-decoration: none;
+}
+
+@media (max-width: 720px) {
+.fleet-unit-row {
+grid-template-columns: 1fr;
+}
+}
+
+.leaderboard-window {
+font-size: 0.72rem;
+font-weight: 600;
+color: #5a7a8a;
+letter-spacing: 0.02em;
+text-transform: none;
+}

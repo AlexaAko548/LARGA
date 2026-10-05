@@ -355,8 +355,9 @@ else if (_isAuthorized)
 
                 <div class="report-section">
                     <label>Amount Received (PHP)</label>
-                    <input class="text-input" type="number" min="0" step="1" @bind="_paymentAmountInput" @bind:event="oninput"
+                    <input class="text-input @(PaymentAmountError is not null && _paymentAmountInput != 0 ? "invalid" : "")" type="number" min="0" max="@MaxPayment" step="0.01" @bind="_paymentAmountInput" @bind:event="oninput"
                            readonly="@(_paymentMethod == "EWallet")" placeholder="@(_paymentMethod == "EWallet" ? "Filled in from the receipt" : "")" />
+                    <FieldError Show="_paymentAmountInput != 0" Message="@PaymentAmountError" />
                 </div>
 
                 <div class="payment-method-toggle">
@@ -400,7 +401,7 @@ else if (_isAuthorized)
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="ClosePaymentModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingPayment || _paymentAmountInput <= 0 || (PaymentExtra > 0 && _paymentOtherDebt is null) || (_paymentMethod == "EWallet" && !IsReceiptReady))" @onclick="ConfirmPaymentAsync">@(_isSavingPayment ? "Saving…" : "Confirm Payment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingPayment || PaymentAmountError is not null || (PaymentExtra > 0 && _paymentOtherDebt is null) || (_paymentMethod == "EWallet" && !IsReceiptReady))" @onclick="ConfirmPaymentAsync">@(_isSavingPayment ? "Saving…" : "Confirm Payment")</button>
             </div>
         </div>
     </div>
@@ -431,7 +432,8 @@ else if (_isAuthorized)
 
                 <div class="report-section">
                     <label>Amount (PHP)</label>
-                    <input class="text-input" type="number" min="0" step="1" placeholder="e.g. 200" @bind="_adjustmentAmountInput" @bind:event="oninput" />
+                    <input class="text-input @(AdjustmentAmountError is not null && _adjustmentAmountInput != 0 ? "invalid" : "")" type="number" min="0" max="@MaxAdjustment" step="0.01" placeholder="e.g. 200" @bind="_adjustmentAmountInput" @bind:event="oninput" />
+                    <FieldError Show="_adjustmentAmountInput != 0" Message="@AdjustmentAmountError" />
                 </div>
 
                 <div class="report-section">
@@ -444,7 +446,9 @@ else if (_isAuthorized)
 
                 <div class="report-section">
                     <label>Note</label>
-                    <textarea class="text-input textarea" @bind="_adjustmentReason" placeholder="Reason for adjustment"></textarea>
+                    <textarea class="text-input textarea" maxlength="300" @bind="_adjustmentReason" @bind:event="oninput" placeholder="Reason for adjustment (required)"></textarea>
+                    <FieldError Show="_adjustmentReason.Length > 0" Message="@AdjustmentReasonError" />
+                    <small class="receipt-hint">@_adjustmentReason.Length / 300</small>
                 </div>
 
                 <div class="info-banner">Adjustments don't touch today's boundary payments - they're a separate correction that feeds the Master Debt Ledger balance.</div>
@@ -456,7 +460,7 @@ else if (_isAuthorized)
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseAdjustmentModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingAdjustment || string.IsNullOrEmpty(_adjustmentDriverId) || _adjustmentAmountInput <= 0)" @onclick="ConfirmAdjustmentAsync">@(_isSavingAdjustment ? "Saving…" : "Save Adjustment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingAdjustment || string.IsNullOrEmpty(_adjustmentDriverId) || AdjustmentAmountError is not null || AdjustmentReasonError is not null)" @onclick="ConfirmAdjustmentAsync">@(_isSavingAdjustment ? "Saving…" : "Save Adjustment")</button>
             </div>
         </div>
     </div>
@@ -480,8 +484,9 @@ else if (_isAuthorized)
 
                 <div class="report-section">
                     <label>Amount Received (PHP)</label>
-                    <input class="text-input" type="number" min="0" step="1" @bind="_settleAmountInput" @bind:event="oninput"
+                    <input class="text-input @(SettleAmountError is not null && _settleAmountInput != 0 ? "invalid" : "")" type="number" min="0" max="@MaxPayment" step="0.01" @bind="_settleAmountInput" @bind:event="oninput"
                            readonly="@(_settleMethod == "EWallet")" placeholder="@(_settleMethod == "EWallet" ? "Filled in from the receipt" : "")" />
+                    <FieldError Show="_settleAmountInput != 0" Message="@SettleAmountError" />
                 </div>
 
                 <div class="payment-method-toggle">
@@ -516,7 +521,7 @@ else if (_isAuthorized)
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseSettleModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingSettle || _settleAmountInput <= 0 || (_settleMethod == "EWallet" && !IsReceiptReady))" @onclick="ConfirmSettleAsync">@(_isSavingSettle ? "Saving…" : "Confirm Payment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingSettle || SettleAmountError is not null || (_settleMethod == "EWallet" && !IsReceiptReady))" @onclick="ConfirmSettleAsync">@(_isSavingSettle ? "Saving…" : "Confirm Payment")</button>
             </div>
         </div>
     </div>
@@ -576,7 +581,17 @@ else if (_isAuthorized)
                                     {
                                         <tr>
                                             <td>@tx.Timestamp.ToPhilippineTime().ToString("MMM d, yyyy")</td>
-                                            <td>@tx.TransactionType</td>
+                                            <td>
+                                                <div class="history-type @HistoryTypeCss(tx)">@tx.TransactionType</div>
+                                                @if (tx.Subtitle is not null)
+                                                {
+                                                    <div class="history-sub">@tx.Subtitle</div>
+                                                }
+                                                @foreach (string line in tx.Details)
+                                                {
+                                                    <div class="history-allocation">@line</div>
+                                                }
+                                            </td>
                                             <td>@(tx.Expected.HasValue ? $"₱ {tx.Expected.Value:N0}" : "–")</td>
                                             <td>
                                                 @if (tx.AmountPaid.HasValue)
@@ -639,6 +654,15 @@ else if (_isAuthorized)
     private bool _showPaymentModal;
     private SettlementRow? _paymentRow;
     private decimal _paymentAmountInput;
+
+    // Amount checks (InputValidator) - one handover is never more than this, so a bigger number
+    // is a typo (an extra zero) rather than a real payment.
+    private const decimal MaxPayment = 100_000m;
+    private const decimal MaxAdjustment = 50_000m;
+    private string? PaymentAmountError => InputValidator.ValidateAmount(_paymentAmountInput, "the amount received", MaxPayment);
+    private string? SettleAmountError => InputValidator.ValidateAmount(_settleAmountInput, "the amount received", MaxPayment);
+    private string? AdjustmentAmountError => InputValidator.ValidateAmount(_adjustmentAmountInput, "the amount", MaxAdjustment);
+    private string? AdjustmentReasonError => InputValidator.ValidateText(_adjustmentReason, "a reason", 300, required: true, minLength: 5);
     private string _paymentMethod = "Cash";
     private bool _isSavingPayment;
     private string? _paymentError;
@@ -1060,7 +1084,7 @@ else if (_isAuthorized)
 
     private async Task ConfirmPaymentAsync()
     {
-        if (_paymentRow is null || _paymentAmountInput <= 0)
+        if (_paymentRow is null || PaymentAmountError is not null)
         {
             return;
         }
@@ -1102,7 +1126,7 @@ else if (_isAuthorized)
 
     private async Task ConfirmAdjustmentAsync()
     {
-        if (string.IsNullOrEmpty(_adjustmentDriverId) || _adjustmentAmountInput <= 0)
+        if (string.IsNullOrEmpty(_adjustmentDriverId) || AdjustmentAmountError is not null || AdjustmentReasonError is not null)
         {
             return;
         }
@@ -1155,7 +1179,7 @@ else if (_isAuthorized)
 
     private async Task ConfirmSettleAsync()
     {
-        if (_settleRow is null || _settleAmountInput <= 0)
+        if (_settleRow is null || SettleAmountError is not null)
         {
             return;
         }
@@ -1210,6 +1234,14 @@ else if (_isAuthorized)
         _history = null;
     }
 
+    private static string HistoryTypeCss(LedgerTransaction tx) => tx.TransactionType switch
+    {
+        "Payment" => "payment",
+        "Boundary Due" => "due",
+        "Penalty" => "penalty",
+        _ => "credit",
+    };
+
     private async Task ExportHistoryCsv()
     {
         if (_history is null)
@@ -1217,11 +1249,12 @@ else if (_isAuthorized)
             return;
         }
 
-        var headers = new[] { "Date", "Transaction Type", "Expected", "Amount Paid", "Running Debt" };
+        var headers = new[] { "Date", "Transaction Type", "Details", "Expected", "Amount Paid", "Running Debt" };
         var rows = FilteredHistoryTransactions.Select(t => new object?[]
         {
             t.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd"),
             t.TransactionType,
+            string.Join("; ", new[] { t.Subtitle }.Concat(t.Details).Where(x => !string.IsNullOrEmpty(x))),
             t.Expected,
             t.AmountPaid ?? t.AdjustmentAmount,
             t.RunningDebt,

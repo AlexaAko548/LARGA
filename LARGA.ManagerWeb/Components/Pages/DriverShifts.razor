@@ -470,7 +470,7 @@ else if (_isAuthorized)
                 <div class="settlement-modal-subject">@_denyClockIn.DriverName · @_denyClockIn.TaxiId</div>
                 <div class="report-section">
                     <label>Note to the driver (required)</label>
-                    <textarea class="text-input textarea" @bind="_denyNote" placeholder="e.g. Front tire is worn - the unit stays in the garage until it's replaced."></textarea>
+                    <textarea class="text-input textarea" maxlength="500" @bind="_denyNote" @bind:event="oninput" placeholder="e.g. Front tire is worn - the unit stays in the garage until it's replaced."></textarea>
                 </div>
                 <label class="checkbox-row">
                     <input type="checkbox" @bind="_denyMarkUnderMaintenance" />
@@ -639,16 +639,23 @@ else if (_isAuthorized)
                 {
                     <div class="report-section">
                         <label>Full Name</label>
-                        <input class="text-input" @bind="_newDriverName" placeholder="e.g. Mark Santos" />
+                        <input class="text-input @InvalidCss(ShowNew(_newDriverName), NewNameError)" maxlength="80" @bind="_newDriverName" @bind:event="oninput" placeholder="e.g. Mark Santos" />
+                        <FieldError Show="ShowNew(_newDriverName)" Message="@NewNameError" />
                     </div>
                     <div class="report-section">
-                        <label>Email</label>
-                        <input class="text-input" type="email" @bind="_newDriverEmail" placeholder="e.g. mark.santos@gmail.com" autocomplete="off" />
-                        
+                        <label>Email <span class="field-optional">(optional)</span></label>
+                        <input class="text-input @InvalidCss(ShowNew(_newDriverEmail), NewEmailError)" type="email" maxlength="254" @bind="_newDriverEmail" @bind:event="oninput" placeholder="e.g. mark.santos@gmail.com" autocomplete="off" />
+                        <FieldError Show="ShowNew(_newDriverEmail)" Message="@NewEmailError" />
+                        <small class="receipt-hint">The driver's own inbox, for Forgot Password. Leave blank to generate a login email.</small>
                     </div>
                     <div class="report-section">
                         <label>Contact Number</label>
-                        <input class="text-input" @bind="_newDriverPhone" placeholder="+63 9XX XXX XXXX" />
+                        <input class="text-input @InvalidCss(ShowNew(_newDriverPhone), NewPhoneError)" type="tel" inputmode="tel" maxlength="17" @bind="_newDriverPhone" @bind:event="oninput" placeholder="0917 123 4567" />
+                        <FieldError Show="ShowNew(_newDriverPhone)" Message="@NewPhoneError" />
+                        @if (NewPhoneError is null)
+                        {
+                            <small class="receipt-hint">Philippine mobile number - 09XX XXX XXXX or +63 9XX XXX XXXX. Saved as @InputValidator.FormatPhilippineMobile(_newDriverPhone).</small>
+                        }
                     </div>
                     <div class="report-section">
                         <label>Assigned Unit</label>
@@ -662,7 +669,8 @@ else if (_isAuthorized)
                     </div>
                     <div class="report-section">
                         <label>Temporary Password</label>
-                        <input class="text-input" @bind="_newDriverPassword" placeholder="Auto-generated or manual" />
+                        <input class="text-input @InvalidCss(ShowNew(_newDriverPassword), NewPasswordError)" maxlength="64" @bind="_newDriverPassword" @bind:event="oninput" placeholder="Auto-generated or manual" autocomplete="off" />
+                        <FieldError Show="ShowNew(_newDriverPassword)" Message="@NewPasswordError" />
                     </div>
                     <div class="info-banner">Leave password blank to auto-generate a secure temporary password.</div>
                     @if (_addDriverError is not null)
@@ -710,7 +718,8 @@ else if (_isAuthorized)
                 </div>
                 <div class="report-section">
                     <label>Manager Notes</label>
-                    <textarea class="text-input textarea" @bind="_managerNoteText" placeholder="Special instructions for the driver…"></textarea>
+                    <textarea class="text-input textarea" maxlength="500" @bind="_managerNoteText" @bind:event="oninput" placeholder="Special instructions for the driver…"></textarea>
+                    <small class="receipt-hint">@_managerNoteText.Length / 500</small>
                 </div>
                 <div class="info-banner">This will be shown on the driver's mobile home screen.</div>
                 @if (_noteError is not null)
@@ -771,7 +780,7 @@ else if (_isAuthorized)
                 <div class="profile-section">
                     <div class="profile-section-label">Contact Information</div>
                     <div class="profile-field" title="Mobile app login email">✉ @(string.IsNullOrEmpty(_selectedProfile.Email) ? "No login email" : _selectedProfile.Email)</div>
-                    <div class="profile-field">📞 @(string.IsNullOrEmpty(_selectedProfile.PhoneNumber) ? "Not set" : _selectedProfile.PhoneNumber)</div>
+                    <div class="profile-field">📞 @(string.IsNullOrEmpty(_selectedProfile.PhoneNumber) ? "Not set" : InputValidator.FormatPhilippineMobile(_selectedProfile.PhoneNumber))</div>
                     <div class="profile-field">📍 @(string.IsNullOrEmpty(_selectedProfile.Address) ? "Not set" : _selectedProfile.Address)</div>
                 </div>
 
@@ -787,7 +796,14 @@ else if (_isAuthorized)
                     <div class="profile-field">📅 @(_selectedProfile.LicenseExpiryDate is { } exp ? $"Expires {exp:MMM d, yyyy}" : "No expiry date set")</div>
                     @if (string.IsNullOrEmpty(_selectedProfile.LtoIdPhotoUrl))
                     {
-                        <div class="profile-field">🖼 No LTO ID photo attached - upload one under Edit Details.</div>
+                        @if (_selectedProfile.LicenseExpiryDate is not null || !string.IsNullOrEmpty(_selectedProfile.LicenseNumber))
+                        {
+                            <div class="field-error">⚠ License details are on file but no photo of the license - re-scan it (Edit Details here, or the manager app) to attach one.</div>
+                        }
+                        else
+                        {
+                            <div class="profile-field">🖼 No LTO ID photo attached - upload one under Edit Details.</div>
+                        }
                     }
                     else
                     {
@@ -798,16 +814,24 @@ else if (_isAuthorized)
                 </div>
 
                 <div class="profile-section">
-                    <div class="profile-section-label">Performance Metrics</div>
+                    <div class="profile-section-label">Performance · last @DriverManagementService.PerformanceWindowDays days</div>
+                    @{ DriverPerformance perf = _selectedProfile.Performance; }
                     <div class="profile-metric">
-                        <div class="profile-metric-label"><span>Punctuality</span><span>@_selectedProfile.PunctualPercent.ToString("0")%</span></div>
-                        <div class="profile-metric-track"><div class="profile-metric-fill" style="width:@(_selectedProfile.PunctualPercent.ToString("0"))%"></div></div>
+                        <div class="profile-metric-label"><span>Attendance</span><span>@PercentText(perf.AttendancePercent)</span></div>
+                        <div class="profile-metric-track"><div class="profile-metric-fill" style="width:@MeterText(perf.AttendancePercent)%"></div></div>
+                        <small class="receipt-hint">@(perf.ExpectedDays == 0 ? "No working days expected yet (no assigned unit, or days off / license / unit in the shop)." : $"Drove {perf.DaysWorked} of {perf.ExpectedDays} expected days · {perf.MissedDays} missed")</small>
                     </div>
                     <div class="profile-metric">
-                        <div class="profile-metric-label"><span>Payment Reliability</span><span>@_selectedProfile.PaymentReliabilityPercent.ToString("0")%</span></div>
-                        <div class="profile-metric-track"><div class="profile-metric-fill" style="width:@(_selectedProfile.PaymentReliabilityPercent.ToString("0"))%"></div></div>
+                        <div class="profile-metric-label"><span>Punctuality</span><span>@PercentText(perf.PunctualityPercent)</span></div>
+                        <div class="profile-metric-track"><div class="profile-metric-fill" style="width:@MeterText(perf.PunctualityPercent)%"></div></div>
+                        <small class="receipt-hint">@(perf.PunctualityPercent is null ? "No shifts yet." : $"{perf.ShiftsCompleted - perf.LateReturns} on-time returns · {perf.LateReturns} late · {perf.MissedDays} missed day(s) count as not punctual")</small>
                     </div>
-                    <div class="profile-field">Damage Incidents: <strong>@_selectedProfile.DamageIncidentCount</strong></div>
+                    <div class="profile-metric">
+                        <div class="profile-metric-label"><span>Payment Reliability</span><span>@PercentText(perf.PaymentReliabilityPercent)</span></div>
+                        <div class="profile-metric-track"><div class="profile-metric-fill" style="width:@MeterText(perf.PaymentReliabilityPercent)%"></div></div>
+                        <small class="receipt-hint">@(perf.BoundariesDue == 0 ? "No boundaries due yet." : $"{perf.BoundariesPaidOnTime} of {perf.BoundariesDue} boundaries paid in full by the next day")</small>
+                    </div>
+                    <div class="profile-field">Damage Incidents: <strong>@perf.DamageIncidents</strong> · Boundaries Remitted: <strong>₱ @perf.BoundariesRemitted.ToString("N0")</strong></div>
                 </div>
 
                 @if (!string.IsNullOrWhiteSpace(_selectedProfile.ManagerNote))
@@ -830,16 +854,13 @@ else if (_isAuthorized)
                         @* Two steps on purpose - this used to change the password on a single click. *@
                         <div class="password-form">
                             <label>New Password</label>
-                            <input class="text-input" type="text" @bind="_newPasswordInput" @bind:event="oninput"
+                            <input class="text-input" type="text" maxlength="64" @bind="_newPasswordInput" @bind:event="oninput"
                                    placeholder="Leave blank to generate one" autocomplete="off" />
-                            @if (_newPasswordInput.Length is > 0 and < 6)
-                            {
-                                <div class="field-error">At least 6 characters.</div>
-                            }
+                            <FieldError Show="_newPasswordInput.Length > 0" Message="@InputValidator.ValidatePassword(_newPasswordInput, required: false)" />
                             <small class="receipt-hint">The driver's current password stops working immediately.</small>
                             <div class="profile-edit-actions">
                                 <button class="cancel-btn" type="button" disabled="@_isResettingPassword" @onclick="() => _showPasswordForm = false">Cancel</button>
-                                <button class="download-btn" type="button" disabled="@(_isResettingPassword || _newPasswordInput.Length is > 0 and < 6)" @onclick="ResetPasswordAsync">
+                                <button class="download-btn" type="button" disabled="@(_isResettingPassword || InputValidator.ValidatePassword(_newPasswordInput, required: false) is not null)" @onclick="ResetPasswordAsync">
                                     @(_isResettingPassword ? "Saving…" : "Set Password")
                                 </button>
                             </div>
@@ -852,12 +873,15 @@ else if (_isAuthorized)
                 <div class="profile-section">
                     <div class="profile-section-label">Edit Driver Details</div>
                     <label>Login Email (mobile app)</label>
-                    <input class="text-input" type="email" @bind="_editEmail" placeholder="driver's personal email" />
+                    <input class="text-input @InvalidCss(true, EditEmailError)" type="email" maxlength="254" @bind="_editEmail" @bind:event="oninput" placeholder="driver's personal email" />
+                    <FieldError Show="true" Message="@EditEmailError" />
                     <small class="receipt-hint">Use an address the driver can open - the mobile app's Forgot Password sends its reset link here.</small>
                     <label>Phone Number</label>
-                    <input class="text-input" @bind="_editPhone" />
-                    <label>Address</label>
-                    <input class="text-input" @bind="_editAddress" />
+                    <input class="text-input @InvalidCss(true, EditPhoneError)" type="tel" inputmode="tel" maxlength="17" @bind="_editPhone" @bind:event="oninput" placeholder="0917 123 4567" />
+                    <FieldError Show="true" Message="@EditPhoneError" />
+                    <label>Address <span class="field-optional">(optional)</span></label>
+                    <input class="text-input @InvalidCss(true, EditAddressError)" maxlength="200" @bind="_editAddress" @bind:event="oninput" />
+                    <FieldError Show="true" Message="@EditAddressError" />
                     <label>Assigned Taxi</label>
                     <select class="text-input" @bind="_editAssignedTaxi">
                         <option value="">Unassigned</option>
@@ -945,18 +969,26 @@ else if (_isAuthorized)
                     }
 
                     <label>License Number</label>
-                    <input class="text-input" @bind="_editLicenseNumber" />
-                    <label>License Classification</label>
-                    <input class="text-input" @bind="_editLicenseClass" />
-                    <label>License Restriction Code</label>
-                    <input class="text-input" @bind="_editLicenseRestriction" />
+                    <input class="text-input @InvalidCss(true, EditLicenseNumberError)" maxlength="16" @bind="_editLicenseNumber" @bind:event="oninput" placeholder="A01-23-456789" />
+                    <FieldError Show="true" Message="@EditLicenseNumberError" />
+                    <label>License Classification (DL codes)</label>
+                    <input class="text-input @InvalidCss(true, EditLicenseClassError)" maxlength="40" @bind="_editLicenseClass" @bind:event="oninput" placeholder="e.g. A, B, B1, B2" />
+                    <FieldError Show="true" Message="@EditLicenseClassError" />
+                    <label>License Restriction Code <span class="field-optional">(optional)</span></label>
+                    <input class="text-input @InvalidCss(true, EditRestrictionError)" maxlength="20" @bind="_editLicenseRestriction" @bind:event="oninput" placeholder="e.g. 1, 2 or None" />
+                    <FieldError Show="true" Message="@EditRestrictionError" />
                     <label>License Expiry Date</label>
-                    <input type="date" class="text-input" @bind="_editLicenseExpiry" />
+                    <input type="date" class="text-input @InvalidCss(true, EditExpiryError)" max="@PhilippineTime.Now.AddYears(10).ToString("yyyy-MM-dd")" @bind="_editLicenseExpiry" />
+                    <FieldError Show="true" Message="@EditExpiryError" />
+                    @if (!string.IsNullOrWhiteSpace(_editLicenseNumber) && _editLicenseExpiry is null)
+                    {
+                        <div class="field-error">Add the expiry date too - without it the license status stays NOT SET.</div>
+                    }
                 </div>
 
                 <div class="profile-section profile-edit-actions">
                     <button class="cancel-btn" type="button" @onclick="CancelEditProfile">Cancel</button>
-                    <button class="download-btn" type="button" disabled="@_isSavingProfile" @onclick="SaveProfileAsync">@(_isSavingProfile ? "Saving…" : "Save Changes")</button>
+                    <button class="download-btn" type="button" disabled="@(_isSavingProfile || EditFormError is not null)" title="@EditFormError" @onclick="SaveProfileAsync">@(_isSavingProfile ? "Saving…" : "Save Changes")</button>
                 </div>
             }
         </aside>
@@ -1467,8 +1499,21 @@ else if (_isAuthorized)
 
     private void CloseChecklistModal() => _showChecklistModal = false;
 
+    // Register New Driver checks (InputValidator - the same rules the service enforces).
+    // A field's error shows once something is typed in it, or for every field after
+    // Register Driver is pressed.
+    private bool _registerAttempted;
+    private string? NewNameError => InputValidator.ValidateFullName(_newDriverName);
+    private string? NewEmailError => InputValidator.ValidateEmail(_newDriverEmail, required: false);
+    private string? NewPhoneError => InputValidator.ValidatePhilippineMobile(_newDriverPhone);
+    private string? NewPasswordError => InputValidator.ValidatePassword(_newDriverPassword, required: false);
+    private bool ShowNew(string value) => _registerAttempted || !string.IsNullOrEmpty(value);
+
+    private static string InvalidCss(bool show, string? error) => show && error is not null ? "invalid" : string.Empty;
+
     private void OpenAddDriverModal()
     {
+        _registerAttempted = false;
         _newDriverName = string.Empty;
         _newDriverEmail = string.Empty;
         _newDriverPhone = string.Empty;
@@ -1483,9 +1528,10 @@ else if (_isAuthorized)
 
     private async Task RegisterDriverAsync()
     {
-        if (string.IsNullOrWhiteSpace(_newDriverName))
+        _registerAttempted = true;
+        if ((NewNameError ?? NewEmailError ?? NewPhoneError ?? NewPasswordError) is not null)
         {
-            _addDriverError = "Full name is required.";
+            _addDriverError = "Fix the highlighted fields first.";
             return;
         }
 
@@ -1495,7 +1541,7 @@ else if (_isAuthorized)
         try
         {
             CreateDriverResult result = await DriverManagement.CreateDriverAsync(
-                _newDriverName.Trim(), _newDriverPhone.Trim(),
+                InputValidator.NormalizeSpaces(_newDriverName), _newDriverPhone.Trim(),
                 string.IsNullOrWhiteSpace(_newDriverPassword) ? null : _newDriverPassword,
                 _newDriverTaxi,
                 string.IsNullOrWhiteSpace(_newDriverEmail) ? null : _newDriverEmail);
@@ -1578,6 +1624,17 @@ else if (_isAuthorized)
             _rosterError = ex.Message;
         }
     }
+
+    // Edit Driver Details checks (InputValidator - the same rules UpdateDriverProfileAsync enforces).
+    private string? EditEmailError => InputValidator.ValidateEmail(_editEmail);
+    private string? EditPhoneError => InputValidator.ValidatePhilippineMobile(_editPhone);
+    private string? EditAddressError => InputValidator.ValidateText(_editAddress, "the address", 200);
+    private string? EditLicenseNumberError => InputValidator.ValidateLicenseNumber(_editLicenseNumber);
+    private string? EditLicenseClassError => InputValidator.ValidateLicenseClassification(_editLicenseClass);
+    private string? EditRestrictionError => InputValidator.ValidateRestrictionCode(_editLicenseRestriction);
+    private string? EditExpiryError => InputValidator.ValidateLicenseExpiry(_editLicenseExpiry, PhilippineTime.Now);
+    private string? EditFormError => EditEmailError ?? EditPhoneError ?? EditAddressError ?? EditLicenseNumberError
+        ?? EditLicenseClassError ?? EditRestrictionError ?? EditExpiryError;
 
     private void LoadEditFieldsFromProfile()
     {
@@ -1715,6 +1772,12 @@ else if (_isAuthorized)
             return;
         }
 
+        if (EditFormError is string formError)
+        {
+            _profileError = formError;
+            return;
+        }
+
         _isSavingProfile = true;
         _profileError = null;
 
@@ -1822,6 +1885,11 @@ else if (_isAuthorized)
     }
 
     private static string ShortId(string id) => "#" + (id.Length <= 6 ? id : id[..6]).ToUpperInvariant();
+
+    private static string PercentText(double? percent) => percent is double p ? $"{p:0}%" : "—";
+
+    private static string MeterText(double? percent) =>
+        Math.Clamp(percent ?? 0, 0, 100).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
 
     private static string LicenseStatusLabel(LicenseStatus status) => status == LicenseStatus.NotSet ? "NOT SET" : status.ToString().ToUpperInvariant();
 

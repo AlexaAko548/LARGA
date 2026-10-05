@@ -82,7 +82,7 @@ else if (_isAuthorized)
                             <div>
                                 <div class="sos-driver-name">@alert.DriverName</div>
                                 <div class="sos-driver-meta">@(string.IsNullOrEmpty(alert.TaxiId) ? "Unit unknown" : alert.TaxiId)@(alert.PlateNumber is null ? "" : $" · {alert.PlateNumber}")</div>
-                                <div class="sos-driver-meta">📞 @(alert.PhoneNumber ?? "No phone number on file")</div>
+                                <div class="sos-driver-meta">📞 @(alert.PhoneNumber is null ? "No phone number on file" : InputValidator.FormatPhilippineMobile(alert.PhoneNumber))</div>
                             </div>
                         </div>
 

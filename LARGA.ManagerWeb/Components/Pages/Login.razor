@@ -29,12 +29,14 @@
 
         <div class="form-block">
             <label for="email">EMAIL ADDRESS</label>
-            <InputText id="email" @bind-Value="_model.Email" class="form-control" type="email" placeholder="manager@company.com" />
+            <InputText id="email" @bind-Value="_model.Email" class="form-control" type="email" maxlength="254" placeholder="manager@company.com" />
+            <ValidationMessage For="() => _model.Email" class="field-error" />
         </div>
 
         <div class="form-block">
             <label for="password">PASSWORD</label>
-            <InputText id="password" @bind-Value="_model.Password" class="form-control" type="password" placeholder="Enter your password" />
+            <InputText id="password" @bind-Value="_model.Password" class="form-control" type="password" maxlength="64" placeholder="Enter your password" />
+            <ValidationMessage For="() => _model.Password" class="field-error" />
         </div>
 
         <div class="inline-action">
@@ -123,7 +125,11 @@
 
     private class LoginFormModel
     {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your email address.")]
+        [LARGA.ManagerWeb.Validation.StrictEmail]
         public string Email { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your password.")]
         public string Password { get; set; } = string.Empty;
     }
 }

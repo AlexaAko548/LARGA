@@ -8,6 +8,7 @@
 @inject NavigationManager Navigation
 @inject FleetReportingService FleetReporting
 @inject FinancialLedgerService Ledger
+@inject LARGA.ManagerWeb.Services.ChatDrawerState ChatDrawer
 
 <PageTitle>Executive Dashboard</PageTitle>
 
@@ -56,14 +57,70 @@ else if (_isAuthorized)
             }
             else
             {
-                <div class="status-pill status-success"><span class="dot"></span> @_snapshot.FleetStatus.Active Active</div>
-                <div class="status-pill status-warning"><span class="dot"></span> @_snapshot.FleetStatus.Maintenance Maintenance</div>
-                <div class="status-pill status-warning alt"><span class="dot"></span> @_snapshot.FleetStatus.OnBreak On Break</div>
-                <div class="status-pill status-danger"><span class="dot"></span> @_snapshot.FleetStatus.Sos SOS</div>
-                <div class="status-pill status-neutral idle"><span class="dot"></span> @_snapshot.FleetStatus.Idle Idle</div>
+                @* Fleet status = the taxi units (each in exactly one pill); click a pill for its units. *@
+                <span class="status-strip-label">Fleet Status · @_snapshot.FleetStatus.Total units</span>
+                @foreach ((string status, string label, string css, string tip) in StatusPills)
+                {
+                    string key = status;
+                    int count = _snapshot.FleetStatus.Units.Count(u => u.Status == key);
+                    <button type="button" class="status-pill @css @(_openStatus == key ? "open" : "")" title="@tip"
+                            aria-expanded="@(_openStatus == key)" @onclick="() => ToggleStatus(key)">
+                        <span class="dot"></span> @count @label
+                    </button>
+                }
             }
             <button class="generate-btn" type="button" @onclick="OpenReportModal">✦ Generate Reports</button>
         </div>
+
+        @if (_snapshot is not null && _openStatus is not null)
+        {
+            List<FleetUnitStatus> openUnits = _snapshot.FleetStatus.Units.Where(u => u.Status == _openStatus).ToList();
+            <section class="fleet-units-panel">
+                <div class="fleet-units-head">
+                    <strong>@StatusPills.First(p => p.Status == _openStatus).Label · @openUnits.Count unit(s)</strong>
+                    <button type="button" class="close-modal" aria-label="Close" @onclick="() => _openStatus = null">×</button>
+                </div>
+                @if (openUnits.Count == 0)
+                {
+                    <div class="fleet-units-empty">No units in this status right now.</div>
+                }
+                else
+                {
+                    @foreach (FleetUnitStatus unit in openUnits)
+                    {
+                        FleetUnitStatus u = unit;
+                        <div class="fleet-unit-row">
+                            <div class="fleet-unit-id">
+                                <strong>@u.TaxiId</strong>
+                                <span>@(u.PlateNumber ?? "No plate")</span>
+                            </div>
+                            <div class="fleet-unit-info">
+                                <div>@(u.DriverName ?? (u.Status is FleetUnitStatus.ParkedStatus or FleetUnitStatus.MaintenanceStatus ? "No driver" : "Unknown driver"))</div>
+                                <small>@u.Detail</small>
+                            </div>
+                            <div class="fleet-unit-actions">
+                                @if (u.Status == FleetUnitStatus.SosStatus)
+                                {
+                                    <a class="solid-btn sos-call" href="/sos-dispatch">Open SOS Dispatch</a>
+                                }
+                                @if (u.Status == FleetUnitStatus.MaintenanceStatus)
+                                {
+                                    <a class="outline-btn" href="/garage">Open Garage</a>
+                                }
+                                @if (u.DriverPhone is not null && u.Status is not (FleetUnitStatus.ParkedStatus or FleetUnitStatus.MaintenanceStatus))
+                                {
+                                    <a class="outline-btn" href="tel:@u.DriverPhone">📞 Call</a>
+                                }
+                                @if (u.DriverId is not null && u.DriverName is not null && u.Status is not (FleetUnitStatus.ParkedStatus or FleetUnitStatus.MaintenanceStatus))
+                                {
+                                    <button type="button" class="outline-btn" @onclick="() => ChatDrawer.OpenChat(u.DriverId!, u.DriverName!, u.TaxiId, isEmergency: u.Status == FleetUnitStatus.SosStatus)">💬 Message</button>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </section>
+        }
 
         <section class="stats-grid">
             <article class="stat-card">
@@ -80,7 +137,7 @@ else if (_isAuthorized)
                 <div class="stat-body">
                     <div class="stat-trend">@(_snapshot is null ? "No data" : $"{_snapshot.ActiveDrivers.RatioPercent:0}%")</div>
                     <div class="stat-value">@(_snapshot?.ActiveDrivers.ActiveCount ?? 0) / @(_snapshot?.ActiveDrivers.TotalDrivers ?? 0)</div>
-                    <div class="stat-label">Drivers On-shift</div>
+                    <div class="stat-label">Active Drivers (on shift / all drivers)</div>
                 </div>
             </article>
 
@@ -215,7 +272,7 @@ else if (_isAuthorized)
 
         <section class="leaderboard-panel">
             <div class="leaderboard-header">
-                <div class="leaderboard-title">Top Driver Standings</div>
+                <div class="leaderboard-title">Top Driver Standings <span class="leaderboard-window">· last @FleetReportingService.StandingsWindowDays days</span></div>
                 <div class="leaderboard-crest">◈</div>
             </div>
 
@@ -235,9 +292,13 @@ else if (_isAuthorized)
                                 <div class="driver-plate">@driver.TaxiId</div>
                             </div>
                             <div class="driver-metrics">
-                                <span>Punctual</span>
-                                <strong>@driver.PunctualPercent.ToString("0")%</strong>
-                                <span>Incidents</span>
+                                <span title="Days driven out of the days they were expected to (missed: @driver.Performance.MissedDays)">Attendance</span>
+                                <strong>@Pct(driver.Performance.AttendancePercent)</strong>
+                                <span title="On-time returns; missed days and late returns count against it">Punctual</span>
+                                <strong>@Pct(driver.Performance.PunctualityPercent)</strong>
+                                <span title="Boundaries paid in full by the next day">Paid on time</span>
+                                <strong>@Pct(driver.Performance.PaymentReliabilityPercent)</strong>
+                                <span title="Accident / damage reports from their shifts">Incidents</span>
                                 <strong>@driver.IncidentCount</strong>
                                 <span>Boundaries Remitted</span>
                                 <strong>₱ @driver.BoundariesRemitted.ToString("#,##0.00")</strong>
@@ -278,13 +339,14 @@ else if (_isAuthorized)
                     <div class="date-range">
                         <div class="date-field">
                             <span>From</span>
-                            <input type="date" @bind="_reportFromDate" />
+                            <input type="date" max="@PhilippineTime.Now.ToString("yyyy-MM-dd")" @bind="_reportFromDate" />
                         </div>
                         <div class="date-field">
                             <span>To</span>
-                            <input type="date" @bind="_reportToDate" />
+                            <input type="date" max="@PhilippineTime.Now.ToString("yyyy-MM-dd")" @bind="_reportToDate" />
                         </div>
                     </div>
+                    <FieldError Message="@ReportRangeError" />
                 </div>
 
                 <div class="report-section compact">
@@ -310,7 +372,7 @@ else if (_isAuthorized)
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseReportModal">Cancel</button>
                 <button class="download-btn" type="button"
-                        disabled="@(_selectedExportFormat != CsvFormat || _isExportingReport)"
+                        disabled="@(_selectedExportFormat != CsvFormat || _isExportingReport || ReportRangeError is not null)"
                         @onclick="DownloadReportAsync">
                     @(_isExportingReport ? "Preparing…" : _selectedExportFormat == CsvFormat ? "Download CSV" : "Export unavailable until data is available")
                 </button>
@@ -406,6 +468,21 @@ else if (_isAuthorized)
         StateHasChanged();
     }
 
+    // The design's five Fleet Status pills, plus Parked so the counts always add up to the units.
+    private static readonly (string Status, string Label, string Css, string Tip)[] StatusPills =
+    {
+        (FleetUnitStatus.ActiveStatus, "Active", "status-success", "A driver is on shift and the unit is moving (recent GPS)."),
+        (FleetUnitStatus.MaintenanceStatus, "Maintenance", "status-warning", "In the shop: marked Under Maintenance, or it has an active Garage work order."),
+        (FleetUnitStatus.OnBreakStatus, "On Break", "status-warning alt", "The driver on shift pressed On Break."),
+        (FleetUnitStatus.SosStatus, "SOS", "status-danger", "Units with an unresolved SOS - one unit can have several alerts; SOS Dispatch lists each alert."),
+        (FleetUnitStatus.IdleStatus, "Idle", "status-neutral idle", "A driver is on shift, but the unit hasn't moved for a while (or hasn't sent GPS yet)."),
+        (FleetUnitStatus.ParkedStatus, "Parked", "status-parked", "Nobody is driving it right now - in the garage, available."),
+    };
+
+    private string? _openStatus;
+
+    private void ToggleStatus(string status) => _openStatus = _openStatus == status ? null : status;
+
     private List<CollectionDay> _collection = new();
     private string? _collectionError;
 
@@ -417,7 +494,7 @@ else if (_isAuthorized)
 
     private string CollectionRate() => CollectionPercent() is double percent ? $"{Math.Min(percent, 100):0}%" : "–";
 
-    private static string Pct(double? percent) => $"{percent ?? 0:0}%";
+    private static string Pct(double? percent) => percent is double p ? $"{p:0}%" : "—";
 
     private static string MeterWidth(double? percent) =>
         Math.Clamp(percent ?? 0, 0, 100).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
@@ -478,9 +555,14 @@ else if (_isAuthorized)
         _selectedExportFormat = selected;
     }
 
+    private string? ReportRangeError =>
+        _reportFromDate.Date > _reportToDate.Date ? "The From date must be on or before the To date."
+        : (_reportToDate.Date - _reportFromDate.Date).TotalDays > 366 ? "Pick a range of one year or less."
+        : null;
+
     private async Task DownloadReportAsync()
     {
-        if (_selectedExportFormat != CsvFormat || _isExportingReport)
+        if (_selectedExportFormat != CsvFormat || _isExportingReport || ReportRangeError is not null)
         {
             return;
         }

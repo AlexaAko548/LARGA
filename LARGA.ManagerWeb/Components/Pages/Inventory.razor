@@ -207,25 +207,30 @@ else if (_isAuthorized)
             <div class="modal-body">
                 <div class="form-group">
                     <label>Part Name</label>
-                    <input type="text" placeholder="e.g. Brake Pads" @bind="newPart.PartName" />
+                    <input type="text" maxlength="60" placeholder="e.g. Brake Pads" @bind="newPart.PartName" @bind:event="oninput" />
+                    <FieldError Show="_partAttempted || newPart.PartName.Length > 0" Message="@PartNameError" />
                 </div>
                 <div class="form-group">
                     <label>Quantity</label>
-                    <input type="number" placeholder="e.g. 10" @bind="newPart.StockQuantity" />
+                    <input type="number" min="0" max="@MaxStock" step="1" placeholder="e.g. 10" @bind="newPart.StockQuantity" @bind:event="oninput" />
+                    <FieldError Message="@PartQuantityError" />
                 </div>
                 <div class="form-group">
                     <label>Unit</label>
-                    <input type="text" placeholder="pcs / set / L" @bind="newPart.Unit" />
+                    <input type="text" maxlength="10" placeholder="pcs / set / L" @bind="newPart.Unit" @bind:event="oninput" />
+                    <FieldError Show="_partAttempted || newPart.Unit.Length > 0" Message="@PartUnitError" />
                 </div>
                 <div class="form-group">
                     <label>Min Stock Level</label>
-                    <input type="number" placeholder="Alert threshold" @bind="newPart.ReorderLevel" />
+                    <input type="number" min="0" max="@MaxStock" step="1" placeholder="Alert threshold" @bind="newPart.ReorderLevel" @bind:event="oninput" />
+                    <FieldError Message="@PartReorderError" />
                 </div>
                 <div class="form-group">
                     <label>Unit Price (₱ per unit)</label>
-                    <input type="number" min="0" step="0.01" placeholder="e.g. 1500" @bind="newPart.UnitPrice" />
+                    <input type="number" min="0" max="@MaxUnitPrice" step="0.01" placeholder="e.g. 1500" @bind="newPart.UnitPrice" @bind:event="oninput" />
+                    <FieldError Message="@PartPriceError" />
                 </div>
-                <button class="btn-save-part" @onclick="SavePartAsync">SAVE PART</button>
+                <button class="btn-save-part" type="button" disabled="@(_partAttempted && NewPartError is not null)" @onclick="SavePartAsync">SAVE PART</button>
             </div>
         </div>
     </div>
@@ -246,13 +251,15 @@ else if (_isAuthorized)
                 </div>
                 <div class="form-group">
                     <label>Quantity (@selectedPart.Unit)</label>
-                    <input type="number" min="1" @bind="adjustAmount" />
+                    <input type="number" min="1" max="@(isAddMode ? MaxStock : selectedPart.StockQuantity)" step="1" @bind="adjustAmount" @bind:event="oninput" />
+                    <FieldError Message="@AdjustAmountError" />
                 </div>
                 @if (isAddMode)
                 {
                     <div class="form-group">
                         <label>Unit Price (₱ per @selectedPart.Unit)</label>
-                        <input type="number" min="0" step="0.01" @bind="adjustUnitPrice" />
+                        <input type="number" min="0" max="@MaxUnitPrice" step="0.01" @bind="adjustUnitPrice" @bind:event="oninput" />
+                        <FieldError Message="@AdjustPriceError" />
                     </div>
                 }
                 else
@@ -269,10 +276,10 @@ else if (_isAuthorized)
                     </div>
                     <div class="form-group">
                         <label>Note (optional)</label>
-                        <input type="text" placeholder="e.g. replaced front-left tire" @bind="adjustNote" />
+                        <input type="text" maxlength="200" placeholder="e.g. replaced front-left tire" @bind="adjustNote" />
                     </div>
                 }
-                <button class="btn-save-part" type="button" disabled="@isApplyingAdjustment" @onclick="ApplyStockAdjustmentAsync">
+                <button class="btn-save-part" type="button" disabled="@(isApplyingAdjustment || AdjustAmountError is not null || (isAddMode && AdjustPriceError is not null))" @onclick="ApplyStockAdjustmentAsync">
                     @(isApplyingAdjustment ? "PROCESSING..." : isAddMode ? "CONFIRM ADD" : "CONFIRM DEDUCT")
                 </button>
             </div>
@@ -296,6 +303,26 @@ else if (_isAuthorized)
     private bool isAddMode = true;
     private bool isApplyingAdjustment;
     private int adjustAmount = 1;
+
+    // Input checks (InputValidator). Counts are whole numbers within a sane range; a deduction
+    // can't take out more than is in stock.
+    private const int MaxStock = 100_000;
+    private const decimal MaxUnitPrice = 1_000_000m;
+    private bool _partAttempted;
+    private string? PartNameError => InputValidator.ValidateText(newPart.PartName, "the part name", 60, required: true, minLength: 2);
+    private string? PartQuantityError => InputValidator.ValidateWholeNumber(newPart.StockQuantity, "the quantity", 0, MaxStock);
+    private string? PartUnitError => InputValidator.ValidateText(newPart.Unit, "the unit", 10, required: true);
+    private string? PartReorderError => InputValidator.ValidateWholeNumber(newPart.ReorderLevel, "the min stock level", 0, MaxStock);
+    private string? PartPriceError => InputValidator.ValidateAmount(newPart.UnitPrice, "the unit price", MaxUnitPrice, allowZero: true);
+    private string? NewPartError => PartNameError ?? PartQuantityError ?? PartUnitError ?? PartReorderError ?? PartPriceError
+        ?? (parts.Any(p => string.Equals(p.PartName.Trim(), newPart.PartName.Trim(), StringComparison.OrdinalIgnoreCase))
+            ? $"\"{newPart.PartName.Trim()}\" is already in the inventory - use + Add on it instead." : null);
+    private string? AdjustAmountError => selectedPart is null ? null
+        : !isAddMode && selectedPart.StockQuantity <= 0 ? "There's no stock left to deduct."
+        : InputValidator.ValidateWholeNumber(adjustAmount, "the quantity", 1, isAddMode ? MaxStock : selectedPart.StockQuantity) is string e
+            ? (!isAddMode && adjustAmount > selectedPart.StockQuantity ? $"Only {selectedPart.StockQuantity} {selectedPart.Unit} in stock." : e)
+            : null;
+    private string? AdjustPriceError => InputValidator.ValidateAmount(adjustUnitPrice, "the unit price", MaxUnitPrice, allowZero: true);
     private decimal adjustUnitPrice;
     private string adjustTicketId = string.Empty;
     private string adjustNote = string.Empty;
@@ -450,9 +477,9 @@ else if (_isAuthorized)
             return;
         }
 
-        if (adjustAmount <= 0)
+        if ((AdjustAmountError ?? (isAddMode ? AdjustPriceError : null)) is string adjustError)
         {
-            _actionError = "Please enter a valid positive quantity.";
+            _actionError = adjustError;
             return;
         }
 
@@ -506,9 +533,10 @@ else if (_isAuthorized)
     {
         _actionError = null;
 
-        if (string.IsNullOrWhiteSpace(newPart.PartName))
+        _partAttempted = true;
+        if (NewPartError is string partError)
         {
-            _actionError = "Part name is required.";
+            _actionError = partError;
             return;
         }
 
@@ -516,7 +544,7 @@ else if (_isAuthorized)
         {
             SparePart saved = await InventoryAudit.AddSparePartAsync(new SparePart
             {
-                PartName = newPart.PartName,
+                PartName = InputValidator.NormalizeSpaces(newPart.PartName),
                 StockQuantity = newPart.StockQuantity,
                 ReorderLevel = newPart.ReorderLevel,
                 Unit = newPart.Unit,
@@ -526,6 +554,7 @@ else if (_isAuthorized)
             parts.Add(saved);
             parts = parts.OrderBy(p => p.PartName, StringComparer.OrdinalIgnoreCase).ToList();
             newPart = new SparePart { Unit = "pcs" };
+            _partAttempted = false;
             showAddModal = false;
         }
         catch (Exception ex)

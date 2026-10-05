@@ -210,12 +210,14 @@ else if (_isAuthorized)
 
                 <div class="report-section">
                     <label>Mechanic Instructions</label>
-                    <textarea class="text-input textarea" @bind="_ticketInstructions" placeholder="What should the shop do?"></textarea>
+                    <textarea class="text-input textarea" maxlength="500" @bind="_ticketInstructions" @bind:event="oninput" placeholder="What should the shop do?"></textarea>
+                    <FieldError Show="_ticketInstructions.Length > 0" Message="@TicketInstructionsError" />
                 </div>
 
                 <div class="report-section">
                     <label>Estimated Completion Date</label>
-                    <input class="text-input" type="date" @bind="_ticketEstimatedDate" />
+                    <input class="text-input" type="date" min="@PhilippineTime.Now.ToString("yyyy-MM-dd")" max="@PhilippineTime.Now.AddYears(1).ToString("yyyy-MM-dd")" @bind="_ticketEstimatedDate" />
+                    <FieldError Message="@TicketDateError" />
                 </div>
 
                 @if (_ticketError is not null)
@@ -225,7 +227,7 @@ else if (_isAuthorized)
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseCreateTicketModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@_isSavingTicket" @onclick="ConfirmCreateTicketAsync">@(_isSavingTicket ? "Saving…" : "Confirm & Create")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingTicket || TicketInstructionsError is not null || TicketDateError is not null)" @onclick="ConfirmCreateTicketAsync">@(_isSavingTicket ? "Saving…" : "Confirm & Create")</button>
             </div>
         </div>
     </div>
@@ -264,7 +266,8 @@ else if (_isAuthorized)
                 {
                     <div class="report-section">
                         <label>Scheduled Date</label>
-                        <input class="text-input" type="date" min="@DateTime.UtcNow.Date.ToString("yyyy-MM-dd")" @bind="_scheduleDate" />
+                        <input class="text-input" type="date" min="@PhilippineTime.Now.ToString("yyyy-MM-dd")" max="@PhilippineTime.Now.AddYears(1).ToString("yyyy-MM-dd")" @bind="_scheduleDate" />
+                        <FieldError Message="@ScheduleDateError" />
                     </div>
                     <div class="info-banner">Manually chosen - not checked against the shop's daily capacity.</div>
                 }
@@ -276,7 +279,7 @@ else if (_isAuthorized)
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseScheduleModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingSchedule || _isLoadingAutoDate || !_scheduleDate.HasValue)" @onclick="ConfirmScheduleAsync">@(_isSavingSchedule ? "Saving…" : "Confirm Schedule")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingSchedule || _isLoadingAutoDate || !_scheduleDate.HasValue || ScheduleDateError is not null)" @onclick="ConfirmScheduleAsync">@(_isSavingSchedule ? "Saving…" : "Confirm Schedule")</button>
             </div>
         </div>
     </div>
@@ -440,10 +443,24 @@ else if (_isAuthorized)
         _ticketReport = null;
     }
 
+    // A work order needs real instructions, and dates can't be in the past or over a year out.
+    private string? TicketInstructionsError => InputValidator.ValidateText(_ticketInstructions, "the mechanic instructions", 500, required: true, minLength: 5);
+    private string? TicketDateError => FutureDateError(_ticketEstimatedDate, "Estimated completion");
+    private string? ScheduleDateError => FutureDateError(_scheduleDate, "The scheduled date");
+
+    private static string? FutureDateError(DateTime? date, string what)
+    {
+        if (date is not DateTime d) return null;
+        DateTime today = PhilippineTime.Now.Date;
+        if (d.Date < today) return $"{what} can't be in the past.";
+        return d.Date > today.AddYears(1) ? $"{what} can't be more than a year from today." : null;
+    }
+
     private async Task ConfirmCreateTicketAsync()
     {
-        if (_ticketReport is null)
+        if (_ticketReport is null || TicketInstructionsError is not null || TicketDateError is not null)
         {
+            _ticketError = TicketInstructionsError ?? TicketDateError;
             return;
         }
 
