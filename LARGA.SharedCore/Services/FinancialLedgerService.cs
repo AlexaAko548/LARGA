@@ -116,7 +116,7 @@ public class FinancialLedgerService
     /// its first payment (deterministic ID, matching the seed data's own {shiftId}_PAY
     /// convention) or adds to an existing one's AmountPaid on a subsequent partial payment.
     /// </summary>
-    public async Task<RecordPaymentResult> RecordPaymentAsync(string shiftId, decimal amountReceived, string paymentMethod)
+    public async Task<RecordPaymentResult> RecordPaymentAsync(string shiftId, decimal amountReceived, string paymentMethod, string? actorUserId = null)
     {
         if (string.IsNullOrWhiteSpace(shiftId))
         {
@@ -167,7 +167,20 @@ public class FinancialLedgerService
                 Timestamp = DateTime.UtcNow,
             };
 
-            await docRef.SetAsync(payment, SetOptions.Overwrite);
+            decimal remainingAfterPayment = Math.Max(0, expected - newAmountPaid);
+            var audit = new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "BoundaryPaymentRecorded",
+                AuditLogDetails = $"Recorded PHP {amountReceived:N2} {method} payment for shift {shiftId}. Status: {newStatus}. Remaining: PHP {remainingAfterPayment:N2}.",
+                Timestamp = DateTime.UtcNow,
+            };
+
+            // Payment and its audit entry commit together, so a payment can't land unlogged.
+            WriteBatch batch = Db.StartBatch();
+            batch.Set(docRef, payment, SetOptions.Overwrite);
+            batch.Set(Db.Collection("audit_logs").Document(), audit);
+            await batch.CommitAsync();
 
             return new RecordPaymentResult
             {
@@ -372,7 +385,7 @@ public class FinancialLedgerService
     /// what's actually owed - an overpayment beyond total debt is reported back
     /// (UnallocatedAmount) rather than silently recorded as a negative balance/credit.
     /// </summary>
-    public async Task<SettleDebtResult> SettleDebtAsync(string driverId, decimal amountReceived, string paymentMethod)
+    public async Task<SettleDebtResult> SettleDebtAsync(string driverId, decimal amountReceived, string paymentMethod, string? actorUserId = null)
     {
         if (string.IsNullOrWhiteSpace(driverId))
         {
@@ -400,6 +413,10 @@ public class FinancialLedgerService
 
             decimal remaining = amountReceived;
             DateTime now = DateTime.UtcNow;
+
+            // Every write for this settlement (payments, credit, audit entry) goes into one batch,
+            // so a settlement is either fully recorded and logged, or not at all.
+            WriteBatch batch = Db.StartBatch();
 
             foreach (BoundaryPayment payment in outstanding)
             {
@@ -432,7 +449,7 @@ public class FinancialLedgerService
                     EPayReceiptPhoto = payment.EPayReceiptPhoto,
                     Timestamp = now,
                 };
-                await Db.Collection("boundary_payments").Document(payment.PaymentId).SetAsync(updated, SetOptions.Overwrite);
+                batch.Set(Db.Collection("boundary_payments").Document(payment.PaymentId), updated, SetOptions.Overwrite);
 
                 remaining -= apply;
             }
@@ -441,7 +458,7 @@ public class FinancialLedgerService
             if (remaining > 0 && adjustmentDebt > 0)
             {
                 decimal creditApplied = Math.Min(remaining, adjustmentDebt);
-                await Db.Collection("debt_adjustments").AddAsync(new DebtAdjustment
+                batch.Set(Db.Collection("debt_adjustments").Document(), new DebtAdjustment
                 {
                     DriverId = driverId,
                     Amount = -creditApplied,
@@ -450,6 +467,18 @@ public class FinancialLedgerService
                 });
                 remaining -= creditApplied;
             }
+
+            decimal unallocated = Math.Max(0, remaining);
+            decimal applied = amountReceived - unallocated;
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "DebtSettled",
+                AuditLogDetails = $"Settled PHP {applied:N2} of debt for driver {driverId} via {method}. Unallocated: PHP {unallocated:N2}.",
+                Timestamp = now,
+            });
+
+            await batch.CommitAsync();
 
             DebtLedgerSnapshot refreshed = await GetDebtLedgerAsync();
             decimal newTotal = refreshed.Rows.FirstOrDefault(r => r.DriverId == driverId)?.TotalDebt ?? 0;

@@ -715,7 +715,7 @@ else if (_isAuthorized)
         _paymentError = null;
         try
         {
-            RecordPaymentResult result = await Ledger.RecordPaymentAsync(_paymentRow.ShiftId, _paymentAmountInput, _paymentMethod);
+            RecordPaymentResult result = await Ledger.RecordPaymentAsync(_paymentRow.ShiftId, _paymentAmountInput, _paymentMethod, actorUserId: _managerUserId);
             if (!result.Ok)
             {
                 _paymentError = result.ErrorMessage ?? "Could not save this payment.";
@@ -806,7 +806,7 @@ else if (_isAuthorized)
         _settleError = null;
         try
         {
-            SettleDebtResult result = await Ledger.SettleDebtAsync(_settleRow.DriverId, _settleAmountInput, _settleMethod);
+            SettleDebtResult result = await Ledger.SettleDebtAsync(_settleRow.DriverId, _settleAmountInput, _settleMethod, actorUserId: _managerUserId);
             if (!result.Ok)
             {
                 _settleError = result.ErrorMessage ?? "Could not save this settlement.";
