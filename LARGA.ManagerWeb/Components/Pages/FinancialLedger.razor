@@ -15,15 +15,15 @@
 
 <PageTitle>Financial Ledger &amp; Debts</PageTitle>
 
-@if (_isCheckingAccess)
+@if (_isLoading)
 {
     <div class="auth-page">
         <div class="auth-card">
-            <h2>Checking access...</h2>
+            <h2>Loading...</h2>
         </div>
     </div>
 }
-else if (_isAuthorized)
+else
 {
 <div class="dashboard-shell">
     <DashboardSidebar ActiveItem="FinancialLedger" />
@@ -631,9 +631,8 @@ else if (_isAuthorized)
 }
 
 @code {
-    private bool _isCheckingAccess = true;
-    private bool _isAuthorized;
-    private IJSObjectReference? _firebaseModule;
+    // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
+    private bool _isLoading = true;
     private IJSObjectReference? _fileDownloadModule;
 
     private string _activeTab = "daily";
@@ -752,16 +751,6 @@ else if (_isAuthorized)
             return;
         }
 
-        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
-        var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
-        _isAuthorized = result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True;
-        _isCheckingAccess = false;
-
-        if (!_isAuthorized)
-        {
-            Navigation.NavigateTo("/login", forceLoad: false);
-            return;
-        }
 
         await LoadSettlementAsync();
 
@@ -775,6 +764,7 @@ else if (_isAuthorized)
             // second warning banner for a page whose primary data already loaded fine.
         }
 
+        _isLoading = false;
         StateHasChanged();
     }
 

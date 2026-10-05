@@ -18,6 +18,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
 {
     private readonly INotificationService _notificationService;
     private readonly IShiftManagementService _shiftService;
+    private readonly IGpsTelemetryService _telemetryService;
     private bool _isOffline = true;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -96,10 +97,11 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     public ICommand ActiveShiftCommand { get; }
     public ICommand MessageManagerCommand { get; }
 
-    public DriverDashboardViewModel(INotificationService notificationService, IShiftManagementService shiftService)
+    public DriverDashboardViewModel(INotificationService notificationService, IShiftManagementService shiftService, IGpsTelemetryService telemetryService)
     {
         _notificationService = notificationService;
         _shiftService = shiftService;
+        _telemetryService = telemetryService;
 
         ToggleShiftCommand = new Command(async () =>
         {
@@ -148,9 +150,16 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                 Microsoft.Maui.Storage.Preferences.Set("CurrentShiftId", open.DocumentId);
                 Microsoft.Maui.Storage.Preferences.Set("IsShiftActive", true);
                 Microsoft.Maui.Storage.Preferences.Set("ShiftStartTime", open.ShiftStartUtc.ToLocalTime().ToString("o"));
+
+                // LAR-77: resumes GPS for a shift that's still open after the app was restarted
+                // (a no-op when it's already running for this shift).
+                _telemetryService.Start(open.DocumentId);
             }
             else if (Microsoft.Maui.Storage.Preferences.Get("IsShiftActive", false))
             {
+                // The shift ended elsewhere (e.g. auto-closed at 6:00 AM) - stop sending GPS for it.
+                _telemetryService.Stop();
+
                 Microsoft.Maui.Storage.SecureStorage.Remove("ActiveShiftDocumentId");
                 Microsoft.Maui.Storage.Preferences.Remove("CurrentShiftId");
                 Microsoft.Maui.Storage.Preferences.Remove("IsShiftActive");

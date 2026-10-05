@@ -25,6 +25,10 @@ public static class ShiftRules
 
     public const decimal LateFeePerHour = 100m;
 
+    /// <summary>The boundary (daily rent) used when system_configs/global has no positive
+    /// defaultBoundaryRate. The one fallback every ledger (web and phone) uses.</summary>
+    public const decimal DefaultBoundaryRate = 800m;
+
     /// <summary>Returning the unit with the fuel below half-tank (paper Fig. 10: end-of-shift
     /// fuel check). Charged on the shift being ended, on top of the boundary.</summary>
     public const decimal LowFuelPenalty = 50m;

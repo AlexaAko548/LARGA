@@ -87,10 +87,11 @@ service cloud.firestore {
       allow write: if isManager();
     }
 
-    // Payments are recorded by the manager only (ManagerWeb's Financial Ledger); drivers see
-    // them read-only on their Ledger screen.
+    // Payments are recorded by managers only (ManagerWeb's Financial Ledger, the app's Quick
+    // Ledger). A driver reads only their own, read-only on their Ledger screen - driverId is set
+    // on every payment document (older ones are backfilled by ManagerWeb on startup).
     match /boundary_payments/{paymentId} {
-      allow read: if isManager() || isDriver();
+      allow read: if isManager() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow create, update, delete: if isManager();
     }
 
@@ -106,9 +107,12 @@ service cloud.firestore {
       allow update: if isManager();
     }
 
+    // A point can only come from the driver who owns the shift it's for, and is never edited.
     match /gps_telemetry/{logId} {
       allow read: if isManager();
-      allow write: if isDriver();
+      allow create: if isDriver()
+        && request.resource.data.driverId == request.auth.uid
+        && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid;
     }
 
     // Driver SOS (Active Shift screen) - a driver can only raise one as themselves.

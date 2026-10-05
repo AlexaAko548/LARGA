@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using LARGA.MobileApp.Services;
+using LARGA.SharedCore.Services;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
@@ -105,7 +106,7 @@ public class ProfileViewModel : BindableObject
     public ICommand UpdateContactNumberCommand { get; }
     public ICommand LogoutCommand { get; }
 
-    public ProfileViewModel()
+    public ProfileViewModel(IGpsTelemetryService telemetryService)
     {
         LoadProfileCommand = new Command(async () => await LoadProfileAsync());
         ChangePasswordCommand = new Command(async () => await Shell.Current.GoToAsync("driver-change-password"));
@@ -113,6 +114,8 @@ public class ProfileViewModel : BindableObject
 
         LogoutCommand = new Command(async () =>
         {
+            // No GPS points after logout - they'd be written for a driver who isn't signed in.
+            telemetryService.Stop();
             await CrossFirebaseAuth.Current.SignOutAsync();
             await Shell.Current.GoToAsync("//landing");
         });

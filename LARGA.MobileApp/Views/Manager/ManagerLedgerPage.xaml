@@ -213,6 +213,7 @@
                             </Border>
                         </VerticalStackLayout>
 
+                        <Label Text="{Binding RecordPayment.AllocationText}" FontSize="13" TextColor="#4A5568" />
                         <Label Text="{Binding RecordPayment.ErrorText}" Style="{StaticResource Ledger.Error}" />
 
                         <Button Text="CONFIRM PAYMENT" Style="{StaticResource Ledger.PrimaryButton}"

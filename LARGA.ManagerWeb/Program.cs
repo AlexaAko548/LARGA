@@ -138,6 +138,7 @@ builder.Services.AddSingleton<SosDispatchService>();
 builder.Services.AddSingleton<ManagerChatService>();
 builder.Services.AddScoped<LARGA.ManagerWeb.Services.ChatDrawerState>();
 builder.Services.AddHostedService<IdleAlertMonitorService>();
+builder.Services.AddHostedService<PaymentDriverIdBackfillService>();
 builder.Services.AddSingleton<FuelVerificationService>();
 builder.Services.AddScoped<IManagerAuthService, ManagerAuthService>();
 builder.Services.AddSingleton<ManagerSignInService>();
@@ -147,6 +148,8 @@ builder.Services
     {
         options.LoginPath = "/login";
         options.AccessDeniedPath = "/login";
+        // Re-checks the manager's access every ManagerSignInService.RecheckInterval (10 min).
+        options.Events.OnValidatePrincipal = ManagerSessionValidator.ValidateAsync;
     });
 // [Authorize] requires the Manager role claim, which only ManagerSignInService issues after
 // verifying the Firebase ID token + users/{uid}.role. This also invalidates any cookie minted by
@@ -159,6 +162,8 @@ builder.Services.AddAuthorization(options =>
         .Build();
 });
 builder.Services.AddCascadingAuthenticationState();
+// Same 10-minute re-check for open Blazor circuits, which make no new HTTP requests.
+builder.Services.AddScoped<AuthenticationStateProvider, ManagerRevalidatingAuthStateProvider>();
 
 var app = builder.Build();
 

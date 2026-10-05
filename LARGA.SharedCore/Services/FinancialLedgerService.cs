@@ -21,7 +21,7 @@ namespace LARGA.SharedCore.Services;
 /// </summary>
 public class FinancialLedgerService
 {
-    private const decimal DefaultBoundaryRate = 800m;
+    private const decimal DefaultBoundaryRate = ShiftRules.DefaultBoundaryRate;
 
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly Lazy<PhotoStorageTarget> _storageLazy;
@@ -133,14 +133,17 @@ public class FinancialLedgerService
             UserProfile? driver = drivers.FirstOrDefault(d => d.UserId == shift.DriverId);
             // The shift's charge covers all of its payment documents (one per payment); a shift
             // still on the road with nothing paid has none yet.
-            ShiftCharge charge = chargeByShift.GetValueOrDefault(shift.DocumentId) ?? NewCharge(shift, Array.Empty<BoundaryPayment>(), defaultRate);
+            bool isCharge = chargeByShift.TryGetValue(shift.DocumentId, out ShiftCharge? existing);
+            ShiftCharge charge = existing ?? NewCharge(shift, Array.Empty<BoundaryPayment>(), defaultRate);
 
             ExtraCharges extras = charge.Extras;
             decimal expected = charge.Expected;
             decimal paid = charge.Paid;
 
-            // The part of this shift's balance the driver's overpayment credit covers.
-            decimal credit = charge.Outstanding > 0
+            // The part of this shift's balance the driver's overpayment credit covers. Only real
+            // charges get credit - a shift still on the road with nothing paid isn't owed yet, and
+            // owedAfterCredit has no entry for it, which would otherwise read as fully covered.
+            decimal credit = isCharge && charge.Outstanding > 0
                 ? charge.Outstanding - owedAfterCredit.GetValueOrDefault(shift.DocumentId)
                 : 0m;
 
@@ -907,8 +910,7 @@ public class FinancialLedgerService
     }
 
     /// <summary>A new payment document for one payment on one shift - holding only this
-    /// payment's amount (see BoundaryPaymentRules). Same fields as the Quick Ledger writes, plus
-    /// fuelPenalty and recordedVia.</summary>
+    /// payment's amount (see BoundaryPaymentRules). Same fields as the Quick Ledger writes.</summary>
     private Task CreatePaymentAsync(ShiftCharge charge, decimal amount, PaymentMethod method, DateTime now,
         (string Url, string? ReferenceNo)? receipt, string transactionId, int index, string source)
     {
@@ -920,6 +922,7 @@ public class FinancialLedgerService
         var fields = new Dictionary<string, object>
         {
             ["shiftId"] = shiftKey,
+            ["driverId"] = charge.DriverId,
             ["expectedBoundary"] = (double)(charge.Expected - charge.Extras.Total),
             ["lateFees"] = (double)charge.Extras.LateFee,
             ["fuelPenalty"] = (double)charge.Extras.FuelPenalty,
@@ -944,6 +947,38 @@ public class FinancialLedgerService
         // Create, not Set: refuses to touch a document that already exists, so a payment can
         // never overwrite another one.
         return Db.Collection("boundary_payments").Document(docId).CreateAsync(fields);
+    }
+
+    /// <summary>
+    /// Stamps driverId on every boundary_payments document that doesn't have one yet, from the
+    /// shift it belongs to. firestore.rules let a driver read only payments carrying their own
+    /// driverId, so documents written before that field existed would otherwise disappear from
+    /// the driver's ledger. Only touches documents missing it, so running it again is harmless.
+    /// Returns how many documents were updated.
+    /// </summary>
+    public async Task<int> BackfillPaymentDriverIdsAsync()
+    {
+        (List<ShiftLog> shifts, List<BoundaryPayment> payments, _, _) = await GetFullLedgerDataAsync();
+        Dictionary<string, ShiftLog> shiftsById = BuildShiftLookup(shifts);
+
+        var updates = payments
+            .Where(p => string.IsNullOrEmpty(p.DriverId) && !string.IsNullOrEmpty(p.PaymentId))
+            .Select(p => (Payment: p, Shift: shiftsById.GetValueOrDefault(p.ShiftId)))
+            .Where(x => !string.IsNullOrEmpty(x.Shift?.DriverId))
+            .ToList();
+
+        // Firestore batches hold at most 500 writes.
+        foreach (var chunk in updates.Chunk(400))
+        {
+            WriteBatch batch = Db.StartBatch();
+            foreach ((BoundaryPayment payment, ShiftLog? shift) in chunk)
+            {
+                batch.Update(Db.Collection("boundary_payments").Document(payment.PaymentId), "driverId", shift!.DriverId);
+            }
+            await batch.CommitAsync();
+        }
+
+        return updates.Count;
     }
 
     /// <summary>What a shift owes on top of the boundary (ShiftRules), set at clock-out.</summary>

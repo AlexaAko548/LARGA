@@ -72,14 +72,18 @@ public class QuickLedgerService
         var fields = new Dictionary<object, object>
         {
             ["shiftId"] = write.ShiftId,
+            // firestore.rules let a driver read only payments carrying their own driverId.
+            ["driverId"] = write.DriverId,
             ["expectedBoundary"] = (double)write.ExpectedBoundary,
             ["lateFees"] = (double)write.LateFees,
+            ["fuelPenalty"] = (double)write.FuelPenalty,
             ["amountPaid"] = (double)write.AmountPaid,
             ["paymentMethod"] = method,
             ["paymentStatus"] = write.PaymentStatus,
             ["timestamp"] = nowUtc,
             [RecordedAtField] = RecordedAtText(nowUtc),
             ["transactionId"] = write.TransactionId,
+            ["recordedVia"] = RecordedVia,
         };
         AddEvidence(fields, write.Evidence);
 
@@ -87,8 +91,11 @@ public class QuickLedgerService
         await VerifySavedAsync(document, write);
     }
 
-    /// <summary>Saves a debt settlement: each allocation as its own payment, then the automatic credit against manual debt.</summary>
-    public async Task SaveDebtSettlementAsync(DebtSettlementPlan plan, string driverId, DateTime nowUtc)
+    /// <summary>
+    /// Saves a payment plan (Record Payment or Record Other Payment): each allocation as its own payment document, then
+    /// the automatic credit against manual debt - the same records the web's BookPaymentAsync writes.
+    /// </summary>
+    public async Task SavePaymentPlanAsync(PaymentPlan plan, string driverId, DateTime nowUtc)
     {
         foreach (BoundaryPaymentWrite update in plan.PaymentUpdates)
         {
@@ -101,8 +108,10 @@ public class QuickLedgerService
             {
                 ["driverId"] = driverId,
                 ["amount"] = (double)-plan.AdjustmentCredit,
-                ["reason"] = "Automatic credit from a lump-sum debt settlement.",
+                ["reason"] = "Automatic credit from a debt payment.",
                 ["timestamp"] = nowUtc,
+                // Ties it to the payment's documents, so the web's history shows it as part of that payment.
+                ["transactionId"] = plan.TransactionId,
             };
             if (!string.IsNullOrEmpty(plan.Evidence?.Notes))
             {
@@ -204,7 +213,10 @@ public class QuickLedgerService
                 ShiftId: StringOf(doc.Data.ShiftId),
                 DriverId: StringOf(doc.Data.DriverId),
                 TaxiId: StringOf(doc.Data.TaxiId),
-                StartUtc: ToUtc(doc.Data.ShiftStart)));
+                StartUtc: ToUtc(doc.Data.ShiftStart),
+                Status: StringOf(doc.Data.Status),
+                LateFee: doc.Data.LateFee is null ? null : ToDecimal(doc.Data.LateFee),
+                FuelPenalty: doc.Data.FuelPenalty is null ? null : ToDecimal(doc.Data.FuelPenalty)));
         }
 
         return records;
@@ -230,12 +242,14 @@ public class QuickLedgerService
                 ShiftId: StringOf(doc.Data.ShiftId),
                 ExpectedBoundary: ToDecimal(doc.Data.ExpectedBoundary),
                 LateFees: ToDecimal(doc.Data.LateFees),
+                FuelPenalty: ToDecimal(doc.Data.FuelPenalty),
                 AmountPaid: ToDecimal(doc.Data.AmountPaid),
                 PaymentStatus: StringOf(doc.Data.PaymentStatus),
                 PaymentMethod: StringOf(doc.Data.PaymentMethod),
                 TimestampUtc: ParseRecordedAt(StringOf(doc.Data.RecordedAtUtc)) ?? ToUtc(doc.Data.Timestamp),
-                // Older records have no transactionId, so each one is its own transaction.
-                TransactionId: StringOf(doc.Data.TransactionId) is { Length: > 0 } txn ? txn : doc.Reference.Id));
+                // Kept empty on older records (no transactionId): BoundaryPaymentRules.TotalPaid tells old
+                // running-total documents apart by it, and Done Today groups those by document ID instead.
+                TransactionId: StringOf(doc.Data.TransactionId)));
         }
 
         return records;
@@ -364,6 +378,9 @@ public class QuickLedgerService
     /// </summary>
     private const string RecordedAtField = "recordedAtUtc";
 
+    // boundary_payments.recordedVia: which screen took the payment, shown in the web's Financial History.
+    private const string RecordedVia = "Quick Ledger";
+
     private static string RecordedAtText(DateTime utc) => DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToString("o", CultureInfo.InvariantCulture);
 
     private static DateTime? ParseRecordedAt(string? text) =>
@@ -414,6 +431,15 @@ public class QuickLedgerService
 
         [Plugin.Firebase.Firestore.FirestoreProperty("shiftStart")]
         public object? ShiftStart { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
+        public object? Status { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("lateFee")]
+        public object? LateFee { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("fuelPenalty")]
+        public object? FuelPenalty { get; set; }
     }
 
     public class BoundaryPaymentProxy
@@ -426,6 +452,9 @@ public class QuickLedgerService
 
         [Plugin.Firebase.Firestore.FirestoreProperty("lateFees")]
         public object? LateFees { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("fuelPenalty")]
+        public object? FuelPenalty { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("amountPaid")]
         public object? AmountPaid { get; set; }
