@@ -3465,6 +3465,19 @@ grid-template-columns: repeat(3, 1fr);
     font-size: 0.85rem;
 }
 
+/* Audit table column sizing: keep the date on one line, give actor and action room */
+.audit-table .col-date {
+    white-space: nowrap;
+}
+
+.audit-table .col-actor {
+    min-width: 18rem;
+}
+
+.audit-table .col-action {
+    min-width: 17rem;
+}
+
 /* ---- "Log New Part" modal (matches .report-overlay / .report-modal) ---- */
 .modal-overlay {
     position: fixed;

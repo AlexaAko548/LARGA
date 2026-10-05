@@ -321,6 +321,17 @@ public class AlertCenterViewModel : BindableObject
 
             if (newStatus == "InProgress")
             {
+                await AuditLogWriter.WriteAsync("VehicleDefectDeniedUnitMaintenance",
+                    $"Vehicle defect report denied for {alert.TaxiId} ({alert.DriverName}): {alert.FailedItem}. Unit put under maintenance.");
+            }
+            else
+            {
+                await AuditLogWriter.WriteAsync("VehicleDefectApproved",
+                    $"Vehicle defect report approved for {alert.TaxiId} ({alert.DriverName}): {alert.FailedItem}.");
+            }
+
+            if (newStatus == "InProgress")
+            {
                 await Shell.Current.DisplayAlert("Sent to Garage", $"{alert.DriverName}'s report has been sent to the garage for a work order. {alert.TaxiId} is now marked under maintenance.", "OK");
             }
         }

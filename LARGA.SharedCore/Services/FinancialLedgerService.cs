@@ -187,7 +187,7 @@ public class FinancialLedgerService
     // Manual adjustments
     // ---------------------------------------------------------------------
 
-    public async Task<AdjustmentResult> AddAdjustmentAsync(string driverId, decimal amount, string reason)
+    public async Task<AdjustmentResult> AddAdjustmentAsync(string driverId, decimal amount, string reason, string? actorUserId = null)
     {
         if (string.IsNullOrWhiteSpace(driverId))
         {
@@ -206,15 +206,34 @@ public class FinancialLedgerService
 
         try
         {
+            DateTime now = DateTime.UtcNow;
+            string trimmedReason = reason.Trim();
+
             var adjustment = new DebtAdjustment
             {
                 DriverId = driverId,
                 Amount = amount,
-                Reason = reason.Trim(),
-                Timestamp = DateTime.UtcNow,
+                Reason = trimmedReason,
+                Timestamp = now,
             };
 
-            await Db.Collection("debt_adjustments").AddAsync(adjustment);
+            var audit = new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "DebtAdjustmentRecorded",
+                AuditLogDetails = $"{(amount > 0 ? "Added" : "Credited")} PHP {Math.Abs(amount):N2} {(amount > 0 ? "debt" : "credit")} for driver {driverId}. Reason: {trimmedReason}",
+                Timestamp = now,
+            };
+
+            // Adjustment and its audit entry commit together, so a debt change can't land unlogged.
+            DocumentReference adjustmentDoc = Db.Collection("debt_adjustments").Document();
+            DocumentReference auditDoc = Db.Collection("audit_logs").Document();
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Set(adjustmentDoc, adjustment);
+            batch.Set(auditDoc, audit);
+            await batch.CommitAsync();
+
             return new AdjustmentResult { Ok = true };
         }
         catch (Exception ex)

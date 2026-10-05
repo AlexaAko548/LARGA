@@ -521,6 +521,7 @@ else if (_isAuthorized)
 @code {
     private bool _isCheckingAccess = true;
     private bool _isAuthorized;
+    private string _managerUserId = string.Empty;
     private IJSObjectReference? _firebaseModule;
     private IJSObjectReference? _fileDownloadModule;
 
@@ -626,6 +627,10 @@ else if (_isAuthorized)
         _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
         var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
         _isAuthorized = result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True;
+        if (_isAuthorized && result.TryGetProperty("uid", out var uidProp) && uidProp.ValueKind == JsonValueKind.String)
+        {
+            _managerUserId = uidProp.GetString() ?? string.Empty;
+        }
         _isCheckingAccess = false;
 
         if (!_isAuthorized)
@@ -751,7 +756,7 @@ else if (_isAuthorized)
         try
         {
             decimal signedAmount = _adjustmentDirection == "Credit" ? -_adjustmentAmountInput : _adjustmentAmountInput;
-            AdjustmentResult result = await Ledger.AddAdjustmentAsync(_adjustmentDriverId, signedAmount, _adjustmentReason);
+            AdjustmentResult result = await Ledger.AddAdjustmentAsync(_adjustmentDriverId, signedAmount, _adjustmentReason, actorUserId: _managerUserId);
             if (!result.Ok)
             {
                 _adjustmentError = result.ErrorMessage ?? "Could not save this adjustment.";
