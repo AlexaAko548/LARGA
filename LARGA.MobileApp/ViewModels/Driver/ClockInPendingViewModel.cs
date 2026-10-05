@@ -24,13 +24,15 @@ public class ClockInPendingViewModel : BindableObject
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 
     private readonly IShiftManagementService _shiftService;
+    private readonly IGpsTelemetryService _telemetryService;
     private IDispatcherTimer? _timer;
     private bool _isChecking;
     private bool _isFinished;
 
-    public ClockInPendingViewModel(IShiftManagementService shiftService)
+    public ClockInPendingViewModel(IShiftManagementService shiftService, IGpsTelemetryService telemetryService)
     {
         _shiftService = shiftService;
+        _telemetryService = telemetryService;
         CancelRequestCommand = new Command(async () => await CancelRequestAsync());
         BackToDashboardCommand = new Command(async () => await BackToDashboardAsync());
     }
@@ -156,6 +158,10 @@ public class ClockInPendingViewModel : BindableObject
         Preferences.Set("IsShiftActive", true);
         Preferences.Set("ShiftStartTime", ShiftClock.LocalNow.ToString("o"));
         Preferences.Remove(PendingRequestKey);
+
+        // LAR-77 Contextual Auto-Cutoff Protocol: an approved clock-in is still a successful
+        // clock-in, so telemetry starts here too (PreShiftStep2 covers the unflagged path).
+        _telemetryService.Start(newDocumentId);
 
         // The inspection the manager approved becomes this shift's pre-shift checklist (its
         // photos were uploaded with the request). Never blocks the shift.

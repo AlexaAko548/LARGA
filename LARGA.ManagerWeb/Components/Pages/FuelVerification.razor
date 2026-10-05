@@ -1,5 +1,7 @@
 @page "/fuel-verification"
 @using LARGA.SharedCore
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 @using System.Text.Json
 @using LARGA.SharedCore.Models.FuelVerification
 @using LARGA.SharedCore.Services
@@ -34,11 +36,7 @@ else if (_isAuthorized)
             <div class="header-actions">
                 <NotificationBell />
                 <MessagesButton />
-                <div class="manager-pill">
-                    <span class="manager-dot"></span>
-                    <span>Manager</span>
-                    <span class="caret">▾</span>
-                </div>
+                <ManagerProfileMenu />
             </div>
         </header>
 

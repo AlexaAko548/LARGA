@@ -15,6 +15,11 @@
 
         <!-- Chat Area -->
         <CollectionView x:Name="MessagesCollectionView" Grid.Row="1" ItemsSource="{Binding Messages}" Margin="20" VerticalScrollBarVisibility="Never">
+            <!-- Shown while chats/{driverId}/messages is empty (the chat doc is only created on the first send) -->
+            <CollectionView.EmptyView>
+                <Label Text="Send your first message to your manager..." IsVisible="{Binding HasLoadedMessages}" TextColor="Gray" FontSize="14"
+                       HorizontalOptions="Center" VerticalOptions="Center" HorizontalTextAlignment="Center" LineBreakMode="WordWrap" />
+            </CollectionView.EmptyView>
             <CollectionView.ItemTemplate>
                 <DataTemplate>
                     <Border StrokeThickness="0" StrokeShape="RoundRectangle 15" Padding="20" Margin="0,0,0,15" MaximumWidthRequest="250">

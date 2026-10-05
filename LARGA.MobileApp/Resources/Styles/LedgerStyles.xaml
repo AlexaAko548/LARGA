@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ResourceDictionary xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                    xmlns:local="clr-namespace:LARGA.MobileApp.Controls">
+
+    <!--
+        Shared look for the manager Quick Ledger and its receipt scanner. Font roles follow the other pages:
+          Barlow Condensed Bold  -> page and sheet titles, CTA buttons
+          Inter                  -> names, body text, eyebrow labels (uppercase, tracked)
+          DM Mono                -> money, statuses, reference numbers, secondary buttons
+          Material Icons         -> glyphs
+        Every style has an explicit key and sets all the properties it needs, so nothing changes other screens.
+    -->
+
+    <!-- Titles -->
+    <Style x:Key="Ledger.Title" TargetType="Label">
+        <Setter Property="FontFamily" Value="BarlowCondensedBold" />
+        <Setter Property="FontSize" Value="32" />
+        <Setter Property="TextColor" Value="{StaticResource LargaDarkText}" />
+    </Style>
+
+    <Style x:Key="Ledger.Heading" TargetType="Label">
+        <Setter Property="FontFamily" Value="BarlowCondensedBold" />
+        <Setter Property="FontSize" Value="24" />
+        <Setter Property="TextColor" Value="{StaticResource LargaDarkText}" />
+    </Style>
+
+    <!-- Eyebrows and field captions: Inter, bold, uppercase-tracked, muted (as EyebrowLabelStyle) -->
+    <Style x:Key="Ledger.SectionLabel" TargetType="Label" BasedOn="{StaticResource EyebrowLabelStyle}">
+        <Setter Property="TextColor" Value="{StaticResource LargaDarkText}" />
+    </Style>
+
+    <Style x:Key="Ledger.Caption" TargetType="Label" BasedOn="{StaticResource EyebrowLabelStyle}" />
+
+    <!-- Body text -->
+    <Style x:Key="Ledger.Subtitle" TargetType="Label">
+        <Setter Property="FontFamily" Value="InterRegular" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="TextColor" Value="{StaticResource LargaMutedText}" />
+    </Style>
+
+    <Style x:Key="Ledger.Detail" TargetType="Label">
+        <Setter Property="FontFamily" Value="InterRegular" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="TextColor" Value="{StaticResource LargaMutedText}" />
+    </Style>
+
+    <Style x:Key="Ledger.CardTitle" TargetType="Label">
+        <Setter Property="FontFamily" Value="InterRegular" />
+        <Setter Property="FontAttributes" Value="Bold" />
+        <Setter Property="FontSize" Value="17" />
+        <Setter Property="TextColor" Value="{StaticResource LargaDarkText}" />
+    </Style>
+
+    <Style x:Key="Ledger.ListName" TargetType="Label">
+        <Setter Property="FontFamily" Value="InterRegular" />
+        <Setter Property="FontAttributes" Value="Bold" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="TextColor" Value="{StaticResource LargaDarkText}" />
+    </Style>
+
+    <Style x:Key="Ledger.Error" TargetType="Label">
+        <Setter Property="FontFamily" Value="InterRegular" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="TextColor" Value="{StaticResource LargaDanger}" />
+    </Style>
+
+    <!-- Numbers, statuses and reference numbers: DM Mono, as StatusDataStyle -->
+    <Style x:Key="Ledger.Value" TargetType="Label">
+        <Setter Property="FontFamily" Value="DMMonoMedium" />
+        <Setter Property="FontSize" Value="22" />
+        <Setter Property="TextColor" Value="{StaticResource LargaDarkText}" />
+    </Style>
+
+    <Style x:Key="Ledger.FieldValue" TargetType="Label">
+        <Setter Property="FontFamily" Value="DMMonoMedium" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="TextColor" Value="{StaticResource LargaDarkText}" />
+        <Setter Property="HorizontalTextAlignment" Value="End" />
+    </Style>
+
+    <Style x:Key="Ledger.Status" TargetType="Label">
+        <Setter Property="FontFamily" Value="DMMonoMedium" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="TextColor" Value="{StaticResource LargaDarkText}" />
+    </Style>
+
+    <Style x:Key="Ledger.Icon" TargetType="Label">
+        <Setter Property="FontFamily" Value="MaterialIcons" />
+        <Setter Property="FontSize" Value="22" />
+        <Setter Property="TextColor" Value="{StaticResource LargaDarkText}" />
+        <Setter Property="VerticalOptions" Value="Center" />
+    </Style>
+
+    <Style x:Key="Ledger.PillText" TargetType="Label">
+        <Setter Property="FontFamily" Value="BarlowCondensedSemiBold" />
+        <Setter Property="FontSize" Value="16" />
+        <Setter Property="TextColor" Value="{StaticResource LargaWhite}" />
+    </Style>
+
+    <!-- Surfaces, following the Figma: light-blue cards and fields, white boxes inside them. -->
+    <Style x:Key="Ledger.Card" TargetType="Border">
+        <Setter Property="BackgroundColor" Value="{StaticResource LargaLightBlue}" />
+        <Setter Property="StrokeThickness" Value="0" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 14" />
+        <Setter Property="Padding" Value="14" />
+    </Style>
+
+    <Style x:Key="Ledger.Row" TargetType="Border">
+        <Setter Property="BackgroundColor" Value="{StaticResource LargaLightBlue}" />
+        <Setter Property="StrokeThickness" Value="0" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 14" />
+        <Setter Property="Padding" Value="14" />
+    </Style>
+
+    <Style x:Key="Ledger.Field" TargetType="Border">
+        <Setter Property="BackgroundColor" Value="{StaticResource LargaLightBlue}" />
+        <Setter Property="StrokeThickness" Value="0" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 12" />
+        <Setter Property="Padding" Value="12,8" />
+    </Style>
+
+    <Style x:Key="Ledger.InnerCard" TargetType="Border">
+        <Setter Property="BackgroundColor" Value="{StaticResource LargaWhite}" />
+        <Setter Property="StrokeThickness" Value="0" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 12" />
+        <Setter Property="Padding" Value="12,8" />
+    </Style>
+
+    <Style x:Key="Ledger.Sheet" TargetType="Border">
+        <Setter Property="BackgroundColor" Value="{StaticResource LargaWhite}" />
+        <Setter Property="StrokeThickness" Value="0" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 20" />
+        <Setter Property="Padding" Value="18" />
+    </Style>
+
+    <Style x:Key="Ledger.CloseBadge" TargetType="Border">
+        <Setter Property="BackgroundColor" Value="{StaticResource LargaLightBlue}" />
+        <Setter Property="StrokeThickness" Value="0" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 16" />
+        <Setter Property="WidthRequest" Value="32" />
+        <Setter Property="HeightRequest" Value="32" />
+        <Setter Property="VerticalOptions" Value="Start" />
+    </Style>
+
+    <Style x:Key="Ledger.Pill" TargetType="Border">
+        <Setter Property="BackgroundColor" Value="{StaticResource LargaPrimaryBlue}" />
+        <Setter Property="StrokeThickness" Value="0" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 18" />
+        <Setter Property="Padding" Value="14,6" />
+        <Setter Property="VerticalOptions" Value="Center" />
+    </Style>
+
+    <!-- Buttons, sized down for the sheets. Primary (blue) marks the selected or main action; the light-blue
+         secondary style marks the unselected toggle. -->
+    <Style x:Key="Ledger.Button" TargetType="Button">
+        <Setter Property="BackgroundColor" Value="{StaticResource LargaLightBlue}" />
+        <Setter Property="TextColor" Value="{StaticResource LargaDarkText}" />
+        <Setter Property="FontFamily" Value="DMMonoMedium" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="BorderWidth" Value="0" />
+        <Setter Property="HeightRequest" Value="38" />
+        <Setter Property="MinimumHeightRequest" Value="38" />
+        <Setter Property="Padding" Value="12,0" />
+    </Style>
+
+    <Style x:Key="Ledger.PrimaryButton" TargetType="Button" BasedOn="{StaticResource Ledger.Button}">
+        <Setter Property="BackgroundColor" Value="{StaticResource LargaPrimaryBlue}" />
+        <Setter Property="TextColor" Value="{StaticResource LargaWhite}" />
+        <Setter Property="FontFamily" Value="BarlowCondensedSemiBold" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="CornerRadius" Value="19" />
+        <Setter Property="HeightRequest" Value="40" />
+        <Setter Property="MinimumHeightRequest" Value="40" />
+    </Style>
+
+    <Style x:Key="Ledger.OutlineButton" TargetType="Button" BasedOn="{StaticResource Ledger.PrimaryButton}" />
+
+    <!-- Inputs. Entry and Picker sit inside a Ledger.Field border, so the platform underline is removed. -->
+    <Style x:Key="Ledger.Entry" TargetType="local:LedgerEntry">
+        <Setter Property="BackgroundColor" Value="Transparent" />
+        <Setter Property="TextColor" Value="{StaticResource LargaDarkText}" />
+        <Setter Property="PlaceholderColor" Value="{StaticResource LargaMutedText}" />
+        <Setter Property="FontFamily" Value="DMMonoMedium" />
+        <Setter Property="FontSize" Value="22" />
+        <Setter Property="MinimumHeightRequest" Value="46" />
+        <Setter Property="VerticalOptions" Value="Center" />
+    </Style>
+
+    <Style x:Key="Ledger.Picker" TargetType="local:LedgerPicker">
+        <Setter Property="BackgroundColor" Value="Transparent" />
+        <Setter Property="TextColor" Value="{StaticResource LargaDarkText}" />
+        <Setter Property="TitleColor" Value="{StaticResource LargaMutedText}" />
+        <Setter Property="FontFamily" Value="InterRegular" />
+        <Setter Property="FontAttributes" Value="Bold" />
+        <Setter Property="FontSize" Value="16" />
+    </Style>
+</ResourceDictionary>

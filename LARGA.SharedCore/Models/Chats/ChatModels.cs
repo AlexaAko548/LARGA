@@ -4,6 +4,9 @@ using System.Linq;
 
 namespace LARGA.SharedCore.Models.Chats;
 
+/// <summary>A registered driver (users doc with role == "Driver") the manager can chat with.</summary>
+public record ChatDriver(string Id, string FullName);
+
 /// <summary>A chat session shaped for display - ManagerWeb and Mobile both consume this 
 /// to display the active list of driver conversations.</summary>
 public class ChatSession : INotifyPropertyChanged
@@ -13,7 +16,12 @@ public class ChatSession : INotifyPropertyChanged
     public string Initials => string.IsNullOrWhiteSpace(DriverName) ? "?" : string.Join("", DriverName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(n => n[0])).ToUpper();
     public string LastMessage { get; set; } = string.Empty;
     public DateTime Timestamp { get; set; }
-    public string DisplayTime => Timestamp.Date == DateTime.Today ? Timestamp.ToString("h:mm tt").ToLower() : Timestamp.ToString("ddd").ToLower();
+
+    /// <summary>False for a driver with no chats/{driverId} doc yet (chats are created lazily on the first message).</summary>
+    public bool HasConversation { get; set; }
+
+    public string DisplayTime => !HasConversation ? string.Empty
+        : Timestamp.Date == DateTime.Today ? Timestamp.ToString("h:mm tt").ToLower() : Timestamp.ToString("ddd").ToLower();
 
     private bool _isUnread;
     public bool IsUnread
