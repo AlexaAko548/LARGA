@@ -1,25 +1,18 @@
 @page "/dashboard"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 @using System.Text.Json
 @using LARGA.SharedCore
 @using LARGA.SharedCore.Models.Dashboard
 @using LARGA.SharedCore.Services
 @rendermode InteractiveServer
 @inject IJSRuntime JS
-@inject NavigationManager Navigation
 @inject FleetReportingService FleetReporting
+@inject FinancialLedgerService Ledger
+@inject LARGA.ManagerWeb.Services.ChatDrawerState ChatDrawer
 
 <PageTitle>Executive Dashboard</PageTitle>
 
-@if (_isCheckingAccess)
-{
-    <div class="auth-page">
-        <div class="auth-card">
-            <h2>Checking access...</h2>
-        </div>
-    </div>
-}
-else if (_isAuthorized)
-{
 <div class="dashboard-shell">
     <DashboardSidebar ActiveItem="Dashboard" />
 
@@ -32,12 +25,8 @@ else if (_isAuthorized)
 
             <div class="header-actions">
                 <NotificationBell />
-                <button class="icon-btn" type="button" aria-label="Messages">✉</button>
-                <div class="manager-pill">
-                    <span class="manager-dot"></span>
-                    <span>Manager</span>
-                    <span class="caret">▾</span>
-                </div>
+                <MessagesButton />
+                <ManagerProfileMenu />
             </div>
         </header>
 
@@ -55,14 +44,70 @@ else if (_isAuthorized)
             }
             else
             {
-                <div class="status-pill status-success"><span class="dot"></span> @_snapshot.FleetStatus.Active Active</div>
-                <div class="status-pill status-warning"><span class="dot"></span> @_snapshot.FleetStatus.Maintenance Maintenance</div>
-                <div class="status-pill status-warning alt"><span class="dot"></span> @_snapshot.FleetStatus.OnBreak On Break</div>
-                <div class="status-pill status-danger"><span class="dot"></span> @_snapshot.FleetStatus.Sos SOS</div>
-                <div class="status-pill status-neutral idle"><span class="dot"></span> @_snapshot.FleetStatus.Idle Idle</div>
+                @* Fleet status = the taxi units (each in exactly one pill); click a pill for its units. *@
+                <span class="status-strip-label">Fleet Status · @_snapshot.FleetStatus.Total units</span>
+                @foreach ((string status, string label, string css, string tip) in StatusPills)
+                {
+                    string key = status;
+                    int count = _snapshot.FleetStatus.Units.Count(u => u.Status == key);
+                    <button type="button" class="status-pill @css @(_openStatus == key ? "open" : "")" title="@tip"
+                            aria-expanded="@(_openStatus == key)" @onclick="() => ToggleStatus(key)">
+                        <span class="dot"></span> @count @label
+                    </button>
+                }
             }
             <button class="generate-btn" type="button" @onclick="OpenReportModal">✦ Generate Reports</button>
         </div>
+
+        @if (_snapshot is not null && _openStatus is not null)
+        {
+            List<FleetUnitStatus> openUnits = _snapshot.FleetStatus.Units.Where(u => u.Status == _openStatus).ToList();
+            <section class="fleet-units-panel">
+                <div class="fleet-units-head">
+                    <strong>@StatusPills.First(p => p.Status == _openStatus).Label · @openUnits.Count unit(s)</strong>
+                    <button type="button" class="close-modal" aria-label="Close" @onclick="() => _openStatus = null">×</button>
+                </div>
+                @if (openUnits.Count == 0)
+                {
+                    <div class="fleet-units-empty">No units in this status right now.</div>
+                }
+                else
+                {
+                    @foreach (FleetUnitStatus unit in openUnits)
+                    {
+                        FleetUnitStatus u = unit;
+                        <div class="fleet-unit-row">
+                            <div class="fleet-unit-id">
+                                <strong>@u.TaxiId</strong>
+                                <span>@(u.PlateNumber ?? "No plate")</span>
+                            </div>
+                            <div class="fleet-unit-info">
+                                <div>@(u.DriverName ?? (u.Status is FleetUnitStatus.ParkedStatus or FleetUnitStatus.MaintenanceStatus ? "No driver" : "Unknown driver"))</div>
+                                <small>@u.Detail</small>
+                            </div>
+                            <div class="fleet-unit-actions">
+                                @if (u.Status == FleetUnitStatus.SosStatus)
+                                {
+                                    <a class="solid-btn sos-call" href="/sos-dispatch">Open SOS Dispatch</a>
+                                }
+                                @if (u.Status == FleetUnitStatus.MaintenanceStatus)
+                                {
+                                    <a class="outline-btn" href="/garage">Open Garage</a>
+                                }
+                                @if (u.DriverPhone is not null && u.Status is not (FleetUnitStatus.ParkedStatus or FleetUnitStatus.MaintenanceStatus))
+                                {
+                                    <a class="outline-btn" href="tel:@u.DriverPhone">📞 Call</a>
+                                }
+                                @if (u.DriverId is not null && u.DriverName is not null && u.Status is not (FleetUnitStatus.ParkedStatus or FleetUnitStatus.MaintenanceStatus))
+                                {
+                                    <button type="button" class="outline-btn" @onclick="() => ChatDrawer.OpenChat(u.DriverId!, u.DriverName!, u.TaxiId, isEmergency: u.Status == FleetUnitStatus.SosStatus)">💬 Message</button>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </section>
+        }
 
         <section class="stats-grid">
             <article class="stat-card">
@@ -79,7 +124,7 @@ else if (_isAuthorized)
                 <div class="stat-body">
                     <div class="stat-trend">@(_snapshot is null ? "No data" : $"{_snapshot.ActiveDrivers.RatioPercent:0}%")</div>
                     <div class="stat-value">@(_snapshot?.ActiveDrivers.ActiveCount ?? 0) / @(_snapshot?.ActiveDrivers.TotalDrivers ?? 0)</div>
-                    <div class="stat-label">Drivers On-shift</div>
+                    <div class="stat-label">Active Drivers (on shift / all drivers)</div>
                 </div>
             </article>
 
@@ -102,15 +147,79 @@ else if (_isAuthorized)
             </article>
         </section>
 
+        @* LAR-84: fleet utilization KPIs. *@
+        <section class="utilization-panel">
+            <div class="utilization-head">
+                <div>
+                    <div class="utilization-title">Fleet Utilization</div>
+                    <div class="utilization-sub">Last @FleetUtilization.WindowDays days · @(_snapshot?.Utilization.OperableUnits ?? 0) operable units (decommissioned excluded)</div>
+                </div>
+            </div>
+
+            <div class="utilization-grid">
+                <div class="kpi-tile">
+                    <div class="kpi-value">@Pct(_snapshot?.Utilization.UtilizationPercent)</div>
+                    <div class="kpi-label">Utilization rate</div>
+                    <div class="kpi-detail">@(_snapshot?.Utilization.UnitDaysWorked ?? 0) of @((_snapshot?.Utilization.OperableUnits ?? 0) * FleetUtilization.WindowDays) unit-days on the road</div>
+                    <div class="kpi-meter"><span style="width: @MeterWidth(_snapshot?.Utilization.UtilizationPercent)%"></span></div>
+                </div>
+                <div class="kpi-tile">
+                    <div class="kpi-value">@(_snapshot?.Utilization.UnitsOnRoadNow ?? 0) / @(_snapshot?.Utilization.OperableUnits ?? 0)</div>
+                    <div class="kpi-label">Units on the road now</div>
+                    <div class="kpi-detail">@Pct(_snapshot?.Utilization.OnRoadPercent) of the fleet</div>
+                    <div class="kpi-meter"><span style="width: @MeterWidth(_snapshot?.Utilization.OnRoadPercent)%"></span></div>
+                </div>
+                <div class="kpi-tile">
+                    <div class="kpi-value">@Pct(_snapshot?.Utilization.AvailabilityPercent)</div>
+                    <div class="kpi-label">Fleet availability</div>
+                    <div class="kpi-detail">@(_snapshot?.Utilization.UnitsUnderMaintenance ?? 0) unit(s) under maintenance</div>
+                    <div class="kpi-meter"><span style="width: @MeterWidth(_snapshot?.Utilization.AvailabilityPercent)%"></span></div>
+                </div>
+                <div class="kpi-tile">
+                    <div class="kpi-value">@CollectionRate()</div>
+                    <div class="kpi-label">Boundary collection rate</div>
+                    <div class="kpi-detail">₱@(_collection.Sum(d => d.Collected).ToString("#,##0")) of ₱@(_collection.Sum(d => d.Expected).ToString("#,##0")) due</div>
+                    <div class="kpi-meter"><span style="width: @MeterWidth(CollectionPercent())%"></span></div>
+                </div>
+                <div class="kpi-tile">
+                    <div class="kpi-value">@((_snapshot?.Utilization.AverageShiftHours ?? 0).ToString("0.0")) h</div>
+                    <div class="kpi-label">Average shift length</div>
+                    <div class="kpi-detail">@(_snapshot?.Utilization.ShiftsCompleted ?? 0) completed shift(s)</div>
+                </div>
+                <div class="kpi-tile">
+                    <div class="kpi-value">@((_snapshot?.Utilization.AverageKmPerShift ?? 0).ToString("#,##0")) km</div>
+                    <div class="kpi-label">Average distance per shift</div>
+                    <div class="kpi-detail">From start/end odometer readings</div>
+                </div>
+            </div>
+        </section>
+
         <section class="panel-grid">
             <article class="chart-panel">
                 <div class="panel-header">
                     <span>Boundary Collections</span>
-                    <strong>Paid vs. Outstanding</strong>
-                    <button type="button" aria-label="Expand">↗</button>
+                    <strong>Last 7 Days</strong>
+                    <span class="chart-legend"><i class="legend-collected"></i>Collected <i class="legend-outstanding"></i>Outstanding</span>
                 </div>
                 <div class="chart-area">
-                    <SimpleBarChart Data="_snapshot?.BoundaryCollections" ValuePrefix="₱" EmptyMessage="No boundary payment data" />
+                    @if (_collectionError is not null)
+                    {
+                        <div class="chart-empty">Collections unavailable: @_collectionError</div>
+                    }
+                    else
+                    {
+                        <CollectionTrendChart Days="_collection" />
+                    }
+                </div>
+            </article>
+
+            <article class="chart-panel">
+                <div class="panel-header">
+                    <span>Fleet Utilization</span>
+                    <strong>Days on the Road per Unit</strong>
+                </div>
+                <div class="chart-area">
+                    <SimpleBarChart Data="_snapshot?.Utilization.DaysWorkedByUnit" ValueFormat="0 'd'" EmptyMessage="No shifts in the last 7 days" />
                 </div>
             </article>
 
@@ -150,7 +259,7 @@ else if (_isAuthorized)
 
         <section class="leaderboard-panel">
             <div class="leaderboard-header">
-                <div class="leaderboard-title">Top Driver Standings</div>
+                <div class="leaderboard-title">Top Driver Standings <span class="leaderboard-window">· last @FleetReportingService.StandingsWindowDays days</span></div>
                 <div class="leaderboard-crest">◈</div>
             </div>
 
@@ -170,9 +279,13 @@ else if (_isAuthorized)
                                 <div class="driver-plate">@driver.TaxiId</div>
                             </div>
                             <div class="driver-metrics">
-                                <span>Punctual</span>
-                                <strong>@driver.PunctualPercent.ToString("0")%</strong>
-                                <span>Incidents</span>
+                                <span title="Days driven out of the days they were expected to (missed: @driver.Performance.MissedDays)">Attendance</span>
+                                <strong>@Pct(driver.Performance.AttendancePercent)</strong>
+                                <span title="On-time returns; missed days and late returns count against it">Punctual</span>
+                                <strong>@Pct(driver.Performance.PunctualityPercent)</strong>
+                                <span title="Boundaries paid in full by the next day">Paid on time</span>
+                                <strong>@Pct(driver.Performance.PaymentReliabilityPercent)</strong>
+                                <span title="Accident / damage reports from their shifts">Incidents</span>
                                 <strong>@driver.IncidentCount</strong>
                                 <span>Boundaries Remitted</span>
                                 <strong>₱ @driver.BoundariesRemitted.ToString("#,##0.00")</strong>
@@ -213,13 +326,14 @@ else if (_isAuthorized)
                     <div class="date-range">
                         <div class="date-field">
                             <span>From</span>
-                            <input type="date" @bind="_reportFromDate" />
+                            <input type="date" max="@PhilippineTime.Now.ToString("yyyy-MM-dd")" @bind="_reportFromDate" />
                         </div>
                         <div class="date-field">
                             <span>To</span>
-                            <input type="date" @bind="_reportToDate" />
+                            <input type="date" max="@PhilippineTime.Now.ToString("yyyy-MM-dd")" @bind="_reportToDate" />
                         </div>
                     </div>
+                    <FieldError Message="@ReportRangeError" />
                 </div>
 
                 <div class="report-section compact">
@@ -245,7 +359,7 @@ else if (_isAuthorized)
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseReportModal">Cancel</button>
                 <button class="download-btn" type="button"
-                        disabled="@(_selectedExportFormat != CsvFormat || _isExportingReport)"
+                        disabled="@(_selectedExportFormat != CsvFormat || _isExportingReport || ReportRangeError is not null)"
                         @onclick="DownloadReportAsync">
                     @(_isExportingReport ? "Preparing…" : _selectedExportFormat == CsvFormat ? "Download CSV" : "Export unavailable until data is available")
                 </button>
@@ -254,14 +368,9 @@ else if (_isAuthorized)
     </div>
 }
 
-}
-
 @code {
     private const string CsvFormat = "CSV File";
 
-    private bool _isCheckingAccess = true;
-    private bool _isAuthorized;
-    private IJSObjectReference? _firebaseModule;
     private IJSObjectReference? _fileDownloadModule;
     private bool _showReportModal;
     private string _selectedReportType = "Financial Summary";
@@ -291,25 +400,8 @@ else if (_isAuthorized)
         "CSV File"
     };
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnInitializedAsync()
     {
-        if (!firstRender)
-        {
-            return;
-        }
-
-        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
-        var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
-        _isAuthorized = result.TryGetProperty("ok", out var okProp)
-            && okProp.ValueKind == JsonValueKind.True;
-        _isCheckingAccess = false;
-
-        if (!_isAuthorized)
-        {
-            Navigation.NavigateTo("/login", forceLoad: false);
-            return;
-        }
-
         try
         {
             _snapshot = await FleetReporting.GetDashboardSnapshotAsync();
@@ -319,8 +411,58 @@ else if (_isAuthorized)
             _dataError = ex.Message;
         }
 
+        // Same per-day totals as Daily Settlements, so the chart and the ledger always agree.
+        try
+        {
+            _collection = (await Ledger.GetCollectionTrendAsync(FleetUtilization.WindowDays))
+                .Select(day => new CollectionDay
+                {
+                    Date = day.Date,
+                    Expected = day.ExpectedCollection,
+                    Collected = day.CollectedSoFar + day.CreditApplied,
+                    Outstanding = day.StillOutstanding,
+                    Shifts = day.Rows.Count,
+                })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _collectionError = ex.Message;
+        }
+
         StateHasChanged();
     }
+
+    // The design's five Fleet Status pills, plus Parked so the counts always add up to the units.
+    private static readonly (string Status, string Label, string Css, string Tip)[] StatusPills =
+    {
+        (FleetUnitStatus.ActiveStatus, "Active", "status-success", "A driver is on shift and the unit is moving (recent GPS)."),
+        (FleetUnitStatus.MaintenanceStatus, "Maintenance", "status-warning", "In the shop: marked Under Maintenance, or it has an active Garage work order."),
+        (FleetUnitStatus.OnBreakStatus, "On Break", "status-warning alt", "The driver on shift pressed On Break."),
+        (FleetUnitStatus.SosStatus, "SOS", "status-danger", "Units with an unresolved SOS - one unit can have several alerts; SOS Dispatch lists each alert."),
+        (FleetUnitStatus.IdleStatus, "Idle", "status-neutral idle", "A driver is on shift, but the unit hasn't moved for a while (or hasn't sent GPS yet)."),
+        (FleetUnitStatus.ParkedStatus, "Parked", "status-parked", "Nobody is driving it right now - in the garage, available."),
+    };
+
+    private string? _openStatus;
+
+    private void ToggleStatus(string status) => _openStatus = _openStatus == status ? null : status;
+
+    private List<CollectionDay> _collection = new();
+    private string? _collectionError;
+
+    private double? CollectionPercent()
+    {
+        decimal expected = _collection.Sum(d => d.Expected);
+        return expected <= 0 ? null : (double)(_collection.Sum(d => d.Collected) / expected) * 100;
+    }
+
+    private string CollectionRate() => CollectionPercent() is double percent ? $"{Math.Min(percent, 100):0}%" : "–";
+
+    private static string Pct(double? percent) => percent is double p ? $"{p:0}%" : "—";
+
+    private static string MeterWidth(double? percent) =>
+        Math.Clamp(percent ?? 0, 0, 100).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
 
     private static string FormatPercentTrend(double? percent)
     {
@@ -378,9 +520,14 @@ else if (_isAuthorized)
         _selectedExportFormat = selected;
     }
 
+    private string? ReportRangeError =>
+        _reportFromDate.Date > _reportToDate.Date ? "The From date must be on or before the To date."
+        : (_reportToDate.Date - _reportFromDate.Date).TotalDays > 366 ? "Pick a range of one year or less."
+        : null;
+
     private async Task DownloadReportAsync()
     {
-        if (_selectedExportFormat != CsvFormat || _isExportingReport)
+        if (_selectedExportFormat != CsvFormat || _isExportingReport || ReportRangeError is not null)
         {
             return;
         }

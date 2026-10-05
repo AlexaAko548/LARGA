@@ -67,7 +67,10 @@ public class EndShiftStep1ViewModel : BindableObject
                 await Shell.Current.DisplayAlert("Incomplete", "Please complete all 5 inspection items before proceeding.", "OK");
                 return;
             }
-            await Shell.Current.GoToAsync("end-shift-step2");
+            await Shell.Current.GoToAsync("end-shift-step2", new Dictionary<string, object>
+            {
+                { "inspection", _items.ToDictionary(kv => kv.Key, kv => kv.Value == true) },
+            });
         });
     }
 

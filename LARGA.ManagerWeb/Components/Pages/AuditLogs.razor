@@ -1,4 +1,6 @@
 @page "/audit-logs"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 @using System.Text.Json
 @using System.Text
 @using LARGA.SharedCore
@@ -8,15 +10,15 @@
 @inject NavigationManager Navigation
 @inject InventoryAuditService InventoryAudit
 
-@if (_isCheckingAccess)
+@if (_isLoading)
 {
     <div class="auth-page">
         <div class="auth-card">
-            <h2>Checking access...</h2>
+            <h2>Loading...</h2>
         </div>
     </div>
 }
-else if (_isAuthorized)
+else
 {
 <div class="dashboard-shell">
     <DashboardSidebar ActiveItem="AuditLogs" />
@@ -31,12 +33,8 @@ else if (_isAuthorized)
 
         <div class="header-actions">
             <NotificationBell />
-            <button class="icon-btn" type="button" aria-label="Messages">✉</button>
-            <div class="manager-pill">
-                <span class="manager-dot"></span>
-                <span>Manager</span>
-                <span class="caret">▾</span>
-            </div>
+            <MessagesButton />
+            <ManagerProfileMenu />
         </div>
     </header>
 
@@ -106,9 +104,8 @@ else if (_isAuthorized)
 }
 
 @code {
-    private bool _isCheckingAccess = true;
-    private bool _isAuthorized;
-    private IJSObjectReference? _firebaseModule;
+    // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
+    private bool _isLoading = true;
     private IJSObjectReference? _fileDownloadModule;
     private string? _loadError;
     private string? _exportError;
@@ -131,16 +128,6 @@ else if (_isAuthorized)
             return;
         }
 
-        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
-        JsonElement result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
-        _isAuthorized = result.TryGetProperty("ok", out JsonElement okProp) && okProp.ValueKind == JsonValueKind.True;
-        _isCheckingAccess = false;
-
-        if (!_isAuthorized)
-        {
-            Navigation.NavigateTo("/login", forceLoad: false);
-            return;
-        }
 
         try
         {
@@ -151,6 +138,7 @@ else if (_isAuthorized)
             _loadError = ex.Message;
         }
 
+        _isLoading = false;
         StateHasChanged();
     }
 

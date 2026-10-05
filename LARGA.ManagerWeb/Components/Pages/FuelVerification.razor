@@ -1,4 +1,7 @@
 @page "/fuel-verification"
+@using LARGA.SharedCore
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 @using System.Text.Json
 @using LARGA.SharedCore.Models.FuelVerification
 @using LARGA.SharedCore.Services
@@ -10,15 +13,15 @@
 
 <PageTitle>Fuel Verification</PageTitle>
 
-@if (_isCheckingAccess)
+@if (_isLoading)
 {
     <div class="auth-page">
         <div class="auth-card">
-            <h2>Checking access...</h2>
+            <h2>Loading...</h2>
         </div>
     </div>
 }
-else if (_isAuthorized)
+else
 {
 <div class="dashboard-shell">
     <DashboardSidebar ActiveItem="FuelVerification" />
@@ -31,13 +34,9 @@ else if (_isAuthorized)
             </div>
 
             <div class="header-actions">
-                <button class="icon-btn" type="button" aria-label="Notifications">◌</button>
-                <button class="icon-btn" type="button" aria-label="Messages">✉</button>
-                <div class="manager-pill">
-                    <span class="manager-dot"></span>
-                    <span>Manager</span>
-                    <span class="caret">▾</span>
-                </div>
+                <NotificationBell />
+                <MessagesButton />
+                <ManagerProfileMenu />
             </div>
         </header>
 
@@ -282,7 +281,8 @@ else if (_isAuthorized)
 
                     <div class="report-section">
                         <label>Flag Reason (only needed to flag)</label>
-                        <textarea class="text-input textarea" @bind="_flagReason" placeholder="Why is this submission being flagged?"></textarea>
+                        <textarea class="text-input textarea" maxlength="300" @bind="_flagReason" @bind:event="oninput" placeholder="Why is this submission being flagged?"></textarea>
+                        <FieldError Show="_flagReason.Length > 0" Message="@FlagReasonError" />
                     </div>
                 }
 
@@ -299,7 +299,7 @@ else if (_isAuthorized)
                     {
                         <button class="cancel-btn" type="button" disabled="@_isSavingReview" @onclick="() => ResolveAsync(ResolveAction.ResetToPending)">Reset to Pending</button>
                     }
-                    <button class="cancel-btn" type="button" disabled="@_isSavingReview" @onclick="() => ResolveAsync(ResolveAction.Flag)">🚩 Flag Irregularity</button>
+                    <button class="cancel-btn" type="button" disabled="@(_isSavingReview || FlagReasonError is not null)" title="@(FlagReasonError is null ? "" : "Write a flag reason first")" @onclick="() => ResolveAsync(ResolveAction.Flag)">🚩 Flag Irregularity</button>
                     <button class="download-btn" type="button" disabled="@_isSavingReview" @onclick="() => ResolveAsync(ResolveAction.Verify)">@(_isSavingReview ? "Saving…" : "✓ Verify & Approve")</button>
                 }
             </div>
@@ -325,7 +325,7 @@ else if (_isAuthorized)
 @if (_showResolveModal && _resolveEntry is not null)
 {
     <div class="report-overlay" @onclick="CloseResolveModal">
-        <div class="report-modal" @onclick:stopPropagation="true">
+        <div class="report-modal resolve-modal" @onclick:stopPropagation="true">
             <div class="report-header">
                 <div>
                     <h3>Resolve Flag</h3>
@@ -340,7 +340,8 @@ else if (_isAuthorized)
 
                 <div class="report-section">
                     <label>Resolution Note</label>
-                    <textarea class="text-input textarea" @bind="_resolutionNote" placeholder="Explain how this was resolved (e.g. driver provided explanation, penalty applied)..."></textarea>
+                    <textarea class="text-input textarea" maxlength="500" @bind="_resolutionNote" @bind:event="oninput" placeholder="Explain how this was resolved (e.g. driver provided explanation, penalty applied)..."></textarea>
+                    <FieldError Show="_resolutionNote.Length > 0" Message="@ResolutionNoteError" />
                 </div>
 
                 @if (_resolveError is not null)
@@ -350,16 +351,15 @@ else if (_isAuthorized)
             </div>
             <div class="report-actions">
                 <button class="cancel-btn pull-left" type="button" disabled="@_isSavingResolve" @onclick="CloseResolveModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingResolve || string.IsNullOrWhiteSpace(_resolutionNote))" @onclick="ConfirmResolveAsync">@(_isSavingResolve ? "Saving…" : "Mark Resolved")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingResolve || ResolutionNoteError is not null)" @onclick="ConfirmResolveAsync">@(_isSavingResolve ? "Saving…" : "Mark Resolved")</button>
             </div>
         </div>
     </div>
 }
 
 @code {
-    private bool _isCheckingAccess = true;
-    private bool _isAuthorized;
-    private IJSObjectReference? _firebaseModule;
+    // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
+    private bool _isLoading = true;
 
     private FuelVerificationSnapshot? _snapshot;
     private string? _error;
@@ -370,6 +370,8 @@ else if (_isAuthorized)
     private bool _isLoadingReview;
     private FuelReviewDetail? _reviewDetail;
     private string _flagReason = string.Empty;
+    private string? FlagReasonError => InputValidator.ValidateText(_flagReason, "a flag reason", 300, required: true, minLength: 5);
+    private string? ResolutionNoteError => InputValidator.ValidateText(_resolutionNote, "a resolution note", 500, required: true, minLength: 5);
     private bool _isSavingReview;
     private string? _reviewError;
 
@@ -391,18 +393,8 @@ else if (_isAuthorized)
             return;
         }
 
-        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
-        var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
-        _isAuthorized = result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True;
-        _isCheckingAccess = false;
-
-        if (!_isAuthorized)
-        {
-            Navigation.NavigateTo("/login", forceLoad: false);
-            return;
-        }
-
         await LoadSnapshotAsync();
+        _isLoading = false;
         StateHasChanged();
     }
 
@@ -503,6 +495,12 @@ else if (_isAuthorized)
     {
         if (_reviewDetail is null)
         {
+            return;
+        }
+
+        if (action == ResolveAction.Flag && FlagReasonError is string flagError)
+        {
+            _reviewError = flagError;
             return;
         }
 

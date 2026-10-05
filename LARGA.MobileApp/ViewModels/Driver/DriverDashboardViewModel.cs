@@ -1,3 +1,4 @@
+using Microsoft.Maui.Storage;
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore.Services;
 using Microsoft.Maui.Controls;
@@ -17,6 +18,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
 {
     private readonly INotificationService _notificationService;
     private readonly IShiftManagementService _shiftService;
+    private readonly IGpsTelemetryService _telemetryService;
     private bool _isOffline = true;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -95,16 +97,82 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     public ICommand ActiveShiftCommand { get; }
     public ICommand MessageManagerCommand { get; }
 
-    public DriverDashboardViewModel(INotificationService notificationService, IShiftManagementService shiftService)
+    public DriverDashboardViewModel(INotificationService notificationService, IShiftManagementService shiftService, IGpsTelemetryService telemetryService)
     {
         _notificationService = notificationService;
         _shiftService = shiftService;
+        _telemetryService = telemetryService;
 
-        ToggleShiftCommand = new Command(async () => await Shell.Current.GoToAsync("pre-shift-step1"));
+        ToggleShiftCommand = new Command(async () =>
+        {
+            // A clock-in already waiting for the manager's evaluation - go back to it rather
+            // than starting another inspection.
+            if (!string.IsNullOrEmpty(Preferences.Get(ClockInPendingViewModel.PendingRequestKey, string.Empty)))
+            {
+                await Shell.Current.GoToAsync("clockin-pending");
+                return;
+            }
+
+            // Units go out from 6:00 AM (ShiftRules) - stop here rather than after the whole
+            // pre-shift checklist. ClockInAsync enforces the same rule on submit.
+            await _shiftService.RefreshTestClockAsync();
+            if (!LARGA.SharedCore.ShiftRules.CanClockIn(LARGA.SharedCore.ShiftClock.UtcNow))
+            {
+                await Shell.Current.DisplayAlert("Too early", "Shifts start at 6:00 AM. You can clock in and do your pre-shift checklist from 6:00 AM onwards.", "OK");
+                return;
+            }
+            await Shell.Current.GoToAsync("pre-shift-step1");
+        });
         ActiveShiftCommand = new Command(async () => await Shell.Current.GoToAsync("active-shift"));
         MessageManagerCommand = new Command(async () => await Shell.Current.GoToAsync("message-manager"));
 
         _ = InitializeDashboardDataAsync();
+        _ = SyncOpenShiftAsync();
+    }
+
+    /// <summary>
+    /// The phone remembers the current shift locally (SecureStorage/Preferences), but Firestore
+    /// is the source of truth. Re-align the two so the driver is never stuck:
+    /// - an open shift the phone lost track of (reinstall, cleared data, another phone) is put
+    ///   back, so the dashboard offers Active Shift → Clock Out and the shift can end normally;
+    /// - a shift the phone still thinks is active but that has since ended (e.g. auto-closed
+    ///   at 6:00 AM as a missed clock-out) is cleared, so a new shift can start.
+    /// A network error leaves the local state untouched.
+    /// </summary>
+    public async Task SyncOpenShiftAsync()
+    {
+        try
+        {
+            var open = await _shiftService.GetMyOpenShiftAsync();
+            if (open != null)
+            {
+                await Microsoft.Maui.Storage.SecureStorage.SetAsync("ActiveShiftDocumentId", open.DocumentId);
+                Microsoft.Maui.Storage.Preferences.Set("CurrentShiftId", open.DocumentId);
+                Microsoft.Maui.Storage.Preferences.Set("IsShiftActive", true);
+                Microsoft.Maui.Storage.Preferences.Set("ShiftStartTime", open.ShiftStartUtc.ToLocalTime().ToString("o"));
+
+                // LAR-77: resumes GPS for a shift that's still open after the app was restarted
+                // (a no-op when it's already running for this shift).
+                _telemetryService.Start(open.DocumentId);
+            }
+            else if (Microsoft.Maui.Storage.Preferences.Get("IsShiftActive", false))
+            {
+                // The shift ended elsewhere (e.g. auto-closed at 6:00 AM) - stop sending GPS for it.
+                _telemetryService.Stop();
+
+                Microsoft.Maui.Storage.SecureStorage.Remove("ActiveShiftDocumentId");
+                Microsoft.Maui.Storage.Preferences.Remove("CurrentShiftId");
+                Microsoft.Maui.Storage.Preferences.Remove("IsShiftActive");
+                Microsoft.Maui.Storage.Preferences.Remove("ShiftStartTime");
+            }
+
+            bool isActive = open != null;
+            await Microsoft.Maui.ApplicationModel.MainThread.InvokeOnMainThreadAsync(() => IsOffline = !isActive);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Open Shift Sync Error: {ex.Message}");
+        }
     }
 
     private async Task InitializeDashboardDataAsync()
@@ -129,7 +197,9 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                 DateTimeOffset? licenseExpiryOffset = userProfileDoc?.Data?.LicenseExpiryDate;
                 EvaluateLicenseAlert(licenseExpiryOffset?.UtcDateTime);
 
-                var dynamicTaxiId = userProfileDoc?.Data?.AssignedTaxiId;
+                // Today's unit - a substitute the manager assigned while the driver's own unit is
+                // under maintenance, otherwise their permanent one.
+                var dynamicTaxiId = await _shiftService.GetTodaysTaxiIdAsync(userProfileDoc?.Data?.AssignedTaxiId);
 
                 if (!string.IsNullOrWhiteSpace(dynamicTaxiId))
                 {
@@ -140,7 +210,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                         AssignedUnitDetails = $"{taxi.YearManufactured} {taxi.Model}";
                         MaintenanceStatus = taxi.Status;
 
-                        if (string.Equals(taxi.Status, "Under Maintenance", StringComparison.OrdinalIgnoreCase))
+                        if (LARGA.SharedCore.TaxiStatusRules.IsUnderMaintenance(taxi.Status))
                         {
                             await LoadMaintenanceDayLabelAsync(dynamicTaxiId);
                         }

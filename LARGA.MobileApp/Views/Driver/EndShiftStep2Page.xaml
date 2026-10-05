@@ -58,7 +58,7 @@
                         <RadioButton GroupName="FuelLevel" IsChecked="{Binding IsBelowHalfTankSelected}" VerticalOptions="Center" />
                         <VerticalStackLayout VerticalOptions="Center">
                             <Label Text="Below half-tank" TextColor="Black" />
-                            <Label Text="(Penalty to the previous driver: ₱ 50.00)" TextColor="Red" TextDecorations="Underline" FontSize="10" IsVisible="{Binding PenaltyNoteVisible}" />
+                            <Label Text="(₱ 50.00 penalty added to today's boundary)" TextColor="Red" TextDecorations="Underline" FontSize="10" IsVisible="{Binding PenaltyNoteVisible}" />
                         </VerticalStackLayout>
                     </HorizontalStackLayout>
 

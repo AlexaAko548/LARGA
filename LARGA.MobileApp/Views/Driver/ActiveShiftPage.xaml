@@ -2,6 +2,7 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:viewmodels="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
+             xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
              x:Class="LARGA.MobileApp.Views.Driver.ActiveShiftPage"
              x:DataType="viewmodels:ActiveShiftViewModel"
              NavigationPage.HasNavigationBar="False"
@@ -29,9 +30,9 @@
 
                         <!-- SOS Icon Button -->
                         <Border Grid.Column="1" BackgroundColor="#FF2424" Stroke="#FF7373" StrokeThickness="6" StrokeShape="RoundRectangle 30" WidthRequest="60" HeightRequest="60" VerticalOptions="Center" HorizontalOptions="Center">
-                            <Border.GestureRecognizers>
-                                <TapGestureRecognizer Command="{Binding SendSosCommand}" />
-                            </Border.GestureRecognizers>
+                            <Border.Behaviors>
+                                <toolkit:TouchBehavior LongPressDuration="3000" LongPressCommand="{Binding SendSosCommand}" />
+                            </Border.Behaviors>
                             <Image Source="sos_icon.png" WidthRequest="30" HeightRequest="30" HorizontalOptions="Center" VerticalOptions="Center" />
                         </Border>
                     </Grid>
@@ -73,7 +74,7 @@
 
                     <Frame BackgroundColor="#A1D6E2" CornerRadius="8" Padding="15,10" HasShadow="False">
                         <Grid ColumnDefinitions="*, Auto">
-                            <Label Grid.Column="0" Text="SHIFT ENDS AT :" FontSize="16" TextColor="#4A4A4A" VerticalOptions="Center"/>
+                            <Label Grid.Column="0" Text="RETURN UNIT BY :" FontSize="16" TextColor="#4A4A4A" VerticalOptions="Center"/>
                             <Label Grid.Column="1" Text="{Binding ShiftEndsAt}" Style="{StaticResource StatusDataStyle}" FontSize="20" TextColor="Black"/>
                         </Grid>
                     </Frame>

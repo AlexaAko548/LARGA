@@ -34,8 +34,8 @@ public partial class ManagerDashboardPage : ContentPage
     private const double CloseUpResolution = 0.6;
 
     private readonly FleetMapViewModel _viewModel;
-    private readonly MapControl _mapControl;
-    private readonly MemoryLayer _pinsLayer;
+    private MapControl? _mapControl;
+    private MemoryLayer? _pinsLayer;
     private bool _hasCenteredMap;
 
     public ManagerDashboardPage()
@@ -44,29 +44,57 @@ public partial class ManagerDashboardPage : ContentPage
         _viewModel = new FleetMapViewModel();
         BindingContext = _viewModel;
 
-        _mapControl = new MapControl();
-        MapHost.Content = _mapControl;
+        // SkiaSharp's WinUI native interop (which Mapsui's MapRenderer depends on) is broken
+        // in *unpackaged* Windows builds - a known, currently-unresolved upstream limitation
+        // (see dotnet/maui#23737, mono/SkiaSharp#2968/#3440), not anything specific to this
+        // app. This project deliberately builds unpackaged on Windows
+        // (WindowsPackageType=None in the .csproj) so the team can debug UI quickly without
+        // MSIX signing/packaging - so on Windows, `new MapControl()` throws a
+        // TypeInitializationException the moment it's touched, taking down the whole page
+        // with it. Android (where this actually ships) is unaffected. Rather than crash,
+        // degrade: catch it here and show a placeholder instead of the live map, so the rest
+        // of the Manager Dashboard (which doesn't depend on the map) still works on Windows.
+        try
+        {
+            _mapControl = new MapControl();
+            MapHost.Content = _mapControl;
 
-        var tileSource = new HttpTileSource(
-            new GlobalSphericalMercator(),
-            $"https://api.maptiler.com/maps/streets-v2/{{z}}/{{x}}/{{y}}.png?key={MapTilerConfig.ApiKey}",
-            name: "MapTiler");
-        _mapControl.Map.Layers.Add(new TileLayer(tileSource));
+            var tileSource = new HttpTileSource(
+                new GlobalSphericalMercator(),
+                $"https://api.maptiler.com/maps/streets-v2/{{z}}/{{x}}/{{y}}.png?key={MapTilerConfig.ApiKey}",
+                name: "MapTiler");
+            _mapControl.Map.Layers.Add(new TileLayer(tileSource));
 
-        _pinsLayer = new MemoryLayer("FleetPins") { Features = [] };
-        _mapControl.Map.Layers.Add(_pinsLayer);
+            _pinsLayer = new MemoryLayer("FleetPins") { Features = [] };
+            _mapControl.Map.Layers.Add(_pinsLayer);
 
-        _mapControl.Info += OnMapInfo;
+            _mapControl.Info += OnMapInfo;
 
-        var (defaultX, defaultY) = SphericalMercator.FromLonLat(DefaultLon, DefaultLat);
-        _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(defaultX, defaultY), DefaultResolution);
+            var (defaultX, defaultY) = SphericalMercator.FromLonLat(DefaultLon, DefaultLat);
+            _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(defaultX, defaultY), DefaultResolution);
 
-        // Mapsui's Pin isn't bindable-ItemsSource-friendly (no Command/CommandParameter), so
-        // the map's feature layer is kept in sync with the viewmodel's Pins by hand.
-        _viewModel.Pins.CollectionChanged += OnPinsChanged;
-        _viewModel.PropertyChanged += OnViewModelPropertyChanged;
-        _viewModel.FleetLoaded += OnFleetLoaded;
-        _viewModel.NavigateRequested += OnNavigateRequested;
+            // Mapsui's Pin isn't bindable-ItemsSource-friendly (no Command/CommandParameter),
+            // so the map's feature layer is kept in sync with the viewmodel's Pins by hand.
+            _viewModel.Pins.CollectionChanged += OnPinsChanged;
+            _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            _viewModel.FleetLoaded += OnFleetLoaded;
+            _viewModel.NavigateRequested += OnNavigateRequested;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Live Fleet Map unavailable on this platform/build: {ex.Message}");
+            _mapControl = null;
+            _pinsLayer = null;
+            MapHost.Content = new Label
+            {
+                Text = "Live map unavailable in this build.\n(Known SkiaSharp/Windows-unpackaged limitation - works on Android.)",
+                TextColor = Colors.White,
+                BackgroundColor = Microsoft.Maui.Graphics.Color.FromArgb("#0F2A3D"),
+                HorizontalTextAlignment = TextAlignment.Center,
+                VerticalTextAlignment = TextAlignment.Center,
+                Padding = new Thickness(24),
+            };
+        }
 
         // Keep the map border below the header instead of a fixed guessed margin - the
         // header's height changes with its content (e.g. the date label) and with OS font
@@ -89,6 +117,10 @@ public partial class ManagerDashboardPage : ContentPage
 
     private void OnPinsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        // Only ever subscribed once the map itself initialized successfully - see the
+        // try/catch in the constructor - but guard anyway now that these are nullable.
+        if (_mapControl is null || _pinsLayer is null) return;
+
         var features = new List<IFeature>();
 
         foreach (var pin in _viewModel.Pins)
@@ -138,12 +170,16 @@ public partial class ManagerDashboardPage : ContentPage
 
     private void OnNavigateRequested(object? sender, FleetPin pin)
     {
+        if (_mapControl is null) return;
+
         var (x, y) = SphericalMercator.FromLonLat(pin.Longitude, pin.Latitude);
         _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), CloseUpResolution);
     }
 
     private void OnFleetLoaded(object? sender, EventArgs e)
     {
+        if (_mapControl is null) return;
+
         // Runs once per load, after Pins is fully rebuilt (unlike Pins.CollectionChanged,
         // which fires separately for ApplyFilter's Clear() and each individual Add() - acting
         // on one of those mid-rebuild events could see a partial/empty list and wrongly
@@ -187,6 +223,7 @@ public partial class ManagerDashboardPage : ContentPage
         // already set before OnMapInfo returns), so this covers both selection paths in one
         // place rather than duplicating the pan logic in OnMapInfo too.
         if (e.PropertyName != nameof(FleetMapViewModel.SelectedPin)) return;
+        if (_mapControl is null) return;
 
         var pin = _viewModel.SelectedPin;
         if (pin == null) return;
@@ -197,6 +234,8 @@ public partial class ManagerDashboardPage : ContentPage
 
     private void OnMapInfo(object? sender, MapInfoEventArgs e)
     {
+        if (_pinsLayer is null) return;
+
         var mapInfo = e.GetMapInfo([_pinsLayer]);
         if (mapInfo.Feature?.Data is FleetPin pin)
         {

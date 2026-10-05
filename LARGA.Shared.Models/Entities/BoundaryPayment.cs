@@ -86,11 +86,19 @@ public class BoundaryPayment
     [FirestoreProperty("shiftId")]
     public string ShiftId { get; set; } = string.Empty;
 
+    /// <summary>The shift's driver. firestore.rules let a driver read only their own payments,
+    /// so every write sets it (older documents are backfilled by ManagerWeb on startup).</summary>
+    [FirestoreProperty("driverId")]
+    public string? DriverId { get; set; }
+
     [FirestoreProperty("expectedBoundary", ConverterType = typeof(DecimalConverter))]
     public decimal ExpectedBoundary { get; set; }
 
     [FirestoreProperty("lateFees", ConverterType = typeof(DecimalConverter))]
     public decimal LateFees { get; set; }
+
+    [FirestoreProperty("fuelPenalty", ConverterType = typeof(DecimalConverter))]
+    public decimal FuelPenalty { get; set; }
 
     [FirestoreProperty("amountPaid", ConverterType = typeof(DecimalConverter))]
     public decimal AmountPaid { get; set; }
@@ -107,6 +115,43 @@ public class BoundaryPayment
     [FirestoreProperty("ePayReceiptPhoto")]
     public string? EPayReceiptPhoto { get; set; }
 
+    /// <summary>The GCash receipt's reference number as printed (13 digits) - text, since it
+    /// doesn't fit referenceNumber's int.</summary>
+    [FirestoreProperty("receiptReferenceNo")]
+    public string? ReceiptReferenceNo { get; set; }
+
     [FirestoreProperty("timestamp")]
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+
+    // One document per payment (see SharedCore BoundaryPaymentRules) - the fields the manager
+    // app's Quick Ledger writes too.
+
+    /// <summary>Shared by every document written for one handover (a payment split across
+    /// several shifts). Empty on old running-total documents.</summary>
+    [FirestoreProperty("transactionId")]
+    public string? TransactionId { get; set; }
+
+    /// <summary>GCash reference number as the Quick Ledger stores it (see ReceiptReferenceNo).</summary>
+    [FirestoreProperty("gcashReferenceNumber")]
+    public string? GcashReferenceNumber { get; set; }
+
+    [FirestoreProperty("notes")]
+    public string? Notes { get; set; }
+
+    /// <summary>When the payment was recorded, as ISO text - written together with timestamp
+    /// and never changed afterwards (older code overwrote timestamp on later payments).</summary>
+    [FirestoreProperty("recordedAtUtc")]
+    public string? RecordedAtUtc { get; set; }
+
+    /// <summary>recordedAtUtc when present, otherwise timestamp.</summary>
+    public DateTime RecordedAt =>
+        DateTime.TryParse(RecordedAtUtc, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out DateTime at)
+            ? at
+            : Timestamp;
+
+    /// <summary>Which screen took the payment ("Daily Settlements", "Master Debt Ledger"); not
+    /// written by the manager app.</summary>
+    [FirestoreProperty("recordedVia")]
+    public string? RecordedVia { get; set; }
 }

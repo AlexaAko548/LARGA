@@ -1,0 +1,15 @@
+@* The red message under a form field (InputValidator's result) - nothing when the value is
+   fine or the field shouldn't be checked yet. *@
+@if (Show && !string.IsNullOrEmpty(Message))
+{
+    <div class="field-error" role="alert">@Message</div>
+}
+
+@code {
+    [Parameter]
+    public string? Message { get; set; }
+
+    /// <summary>False until the field should be checked (e.g. untouched and not yet submitted).</summary>
+    [Parameter]
+    public bool Show { get; set; } = true;
+}

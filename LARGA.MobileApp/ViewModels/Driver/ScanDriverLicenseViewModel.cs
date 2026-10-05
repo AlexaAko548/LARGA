@@ -8,7 +8,9 @@ using LARGA.MobileApp.Services;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
+using LARGA.SharedCore;
 using Plugin.Firebase.Firestore;
+using Plugin.Firebase.Storage;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -133,14 +135,28 @@ public class ScanDriverLicenseViewModel : BindableObject
                 return;
             }
 
+            // Same rule as ManagerWeb's license scan: the driver's first and last name must be
+            // on the card (LtoLicenseParser.NameMatches).
             var registeredName = await GetRegisteredNameAsync();
-            if (!DriverLicenseTextParser.NamesLikelyMatch(registeredName, _parsed.FullName))
+            if (!string.IsNullOrWhiteSpace(registeredName))
             {
-                await Shell.Current.DisplayAlert(
-                    "Name doesn't match",
-                    $"This license appears to belong to \"{_parsed.FullName}\", but this account is registered as \"{registeredName}\". Please scan the license that belongs to this driver.",
-                    "OK");
-                return;
+                if (string.IsNullOrWhiteSpace(_parsed.FullName))
+                {
+                    await Shell.Current.DisplayAlert(
+                        "Couldn't read the name",
+                        "We couldn't read the name on this license. Retake the photo so the name is clearly visible.",
+                        "OK");
+                    return;
+                }
+
+                if (!LARGA.SharedCore.Services.LtoLicenseParser.NameMatches(registeredName, _parsed.FullName))
+                {
+                    await Shell.Current.DisplayAlert(
+                        "Name doesn't match",
+                        $"This license appears to belong to \"{_parsed.FullName}\", but this account is registered as \"{registeredName}\". The driver's first and last name must be on the license.",
+                        "OK");
+                    return;
+                }
             }
 
             NameDisplay = _parsed.FullName ?? string.Empty;
@@ -187,18 +203,47 @@ public class ScanDriverLicenseViewModel : BindableObject
         public string FullName { get; set; } = string.Empty;
     }
 
+    /// <summary>The same checks ManagerWeb's license scan applies before it saves (InputValidator /
+    /// LtoLicenseParser): a real LTO license number and DL codes, and a license that isn't
+    /// expired or expiring within 3 months. Null when everything is fine.</summary>
+    private string? ValidateBeforeSave()
+    {
+        DateTime today = PhilippineTime.Now.Date;
+        string? error = InputValidator.ValidateLicenseNumber(LicenseNumberDisplay, required: true)
+            ?? InputValidator.ValidateLicenseClassification(DlCodesDisplay);
+        if (error is not null) return error;
+
+        if (ExpiryDate.Date < today) return $"This license expired on {ExpiryDate:MMM d, yyyy} - it can't be saved.";
+        if (ExpiryDate.Date <= today.AddMonths(3)) return $"This license expires on {ExpiryDate:MMM d, yyyy} - within 3 months. The driver needs to renew it first.";
+        return InputValidator.ValidateLicenseExpiry(ExpiryDate, today);
+    }
+
     private async Task SaveAsync()
     {
         if (string.IsNullOrWhiteSpace(_targetUserId)) return;
 
+        if (ValidateBeforeSave() is string error)
+        {
+            await Shell.Current.DisplayAlert("Check the license details", error, "OK");
+            return;
+        }
+
         IsBusy = true;
         try
         {
+            // The photo goes with the details - ManagerWeb's driver profile shows it under
+            // License Credentials (users/{id}.ltoIdPhotoUrl, same lto_ids/{driverId}/ folder the
+            // web's own license scan uploads to). Without it the web showed a VALID license
+            // with no photo on file.
+            string photoUrl = await UploadLicensePhotoAsync();
+
             var updates = new Dictionary<object, object>
             {
-                ["licenseNumber"] = LicenseNumberDisplay,
-                ["licenseClassification"] = DlCodesDisplay,
-                ["licenseExpiryDate"] = ExpiryDate
+                ["licenseNumber"] = InputValidator.NormalizeLicenseNumber(LicenseNumberDisplay)!,
+                ["licenseClassification"] = InputValidator.NormalizeLicenseClassification(DlCodesDisplay),
+                // Calendar date at UTC midnight - how ManagerWeb stores it, so both read the same day.
+                ["licenseExpiryDate"] = DateTime.SpecifyKind(ExpiryDate.Date, DateTimeKind.Utc),
+                ["ltoIdPhotoUrl"] = photoUrl,
             };
 
             await CrossFirebaseFirestore.Current
@@ -211,12 +256,23 @@ public class ScanDriverLicenseViewModel : BindableObject
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Save License Error: {ex.Message}");
-            await Shell.Current.DisplayAlert("Error", "Failed to save your license details. Please try again.", "OK");
+            await Shell.Current.DisplayAlert("Error", "Failed to save the license details and photo. Check the connection and try again.", "OK");
         }
         finally
         {
             IsBusy = false;
         }
+    }
+
+    private async Task<string> UploadLicensePhotoAsync()
+    {
+        string extension = Path.GetExtension(_localFilePath);
+        if (string.IsNullOrWhiteSpace(extension)) extension = ".jpg";
+
+        var storageRef = CrossFirebaseStorage.Current.GetRootReference()
+            .GetChild($"lto_ids/{_targetUserId}/{DateTime.UtcNow:yyyyMMddHHmmss}{extension.ToLowerInvariant()}");
+        await storageRef.PutFile(_localFilePath).AwaitAsync();
+        return await storageRef.GetDownloadUrlAsync();
     }
 
     private async Task ClosePageAsync()

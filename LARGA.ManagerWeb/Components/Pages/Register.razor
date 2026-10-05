@@ -1,5 +1,9 @@
 @page "/register"
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
 @using System.ComponentModel.DataAnnotations
+@using LARGA.ManagerWeb.Validation
+@using LARGA.SharedCore
 @rendermode InteractiveServer
 @inject NavigationManager Navigation
 
@@ -29,22 +33,26 @@
 
         <div class="form-block">
             <label for="fullName">FULL NAME</label>
-            <InputText id="fullName" @bind-Value="_model.FullName" class="form-control" placeholder="e.g. Regina Cruz" />
+            <InputText id="fullName" @bind-Value="_model.FullName" class="form-control" maxlength="80" placeholder="e.g. Regina Cruz" />
+            <ValidationMessage For="() => _model.FullName" class="field-error" />
         </div>
 
         <div class="form-block">
             <label for="workEmail">WORK EMAIL</label>
-            <InputText id="workEmail" @bind-Value="_model.Email" class="form-control" type="email" placeholder="manager@company.com" />
+            <InputText id="workEmail" @bind-Value="_model.Email" class="form-control" type="email" maxlength="254" placeholder="manager@company.com" />
+            <ValidationMessage For="() => _model.Email" class="field-error" />
         </div>
 
         <div class="two-column">
             <div class="form-block">
                 <label for="fleetSize">FLEET SIZE</label>
-                <InputText id="fleetSize" @bind-Value="_model.FleetSize" class="form-control" placeholder="e.g. 20" />
+                <InputText id="fleetSize" @bind-Value="_model.FleetSize" class="form-control" inputmode="numeric" maxlength="4" placeholder="e.g. 20" />
+                <ValidationMessage For="() => _model.FleetSize" class="field-error" />
             </div>
             <div class="form-block">
                 <label for="phone">PHONE</label>
-                <InputText id="phone" @bind-Value="_model.Phone" class="form-control" type="tel" placeholder="+63 9XX XXX XXXX" />
+                <InputText id="phone" @bind-Value="_model.Phone" class="form-control" type="tel" maxlength="17" placeholder="0917 123 4567" />
+                <ValidationMessage For="() => _model.Phone" class="field-error" />
             </div>
         </div>
 
@@ -70,23 +78,30 @@
 
     private void Continue()
     {
-        var url = $"/register/password?fullName={Uri.EscapeDataString(_model.FullName)}&email={Uri.EscapeDataString(_model.Email)}&fleetSize={Uri.EscapeDataString(_model.FleetSize)}&phone={Uri.EscapeDataString(_model.Phone)}";
+        // Passed on in their standard forms (name spacing tidied, email lower-case, phone +63...).
+        string fullName = InputValidator.NormalizeSpaces(_model.FullName);
+        string email = _model.Email.Trim().ToLowerInvariant();
+        string phone = InputValidator.NormalizePhilippineMobile(_model.Phone) ?? _model.Phone.Trim();
+        var url = $"/register/password?fullName={Uri.EscapeDataString(fullName)}&email={Uri.EscapeDataString(email)}&fleetSize={Uri.EscapeDataString(_model.FleetSize.Trim())}&phone={Uri.EscapeDataString(phone)}";
         Navigation.NavigateTo(url, forceLoad: false);
     }
 
     private class RegisterFormModel
     {
         [Required(ErrorMessage = "Full name is required.")]
+        [FullName]
         public string FullName { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Work email is required.")]
-        [EmailAddress(ErrorMessage = "Please enter a valid work email.")]
+        [StrictEmail]
         public string Email { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Fleet size is required.")]
+        [RegularExpression(@"^\s*[1-9]\d{0,3}\s*$", ErrorMessage = "Enter the number of taxis (1-9999).")]
         public string FleetSize { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Phone number is required.")]
+        [PhilippineMobile]
         public string Phone { get; set; } = string.Empty;
     }
 }

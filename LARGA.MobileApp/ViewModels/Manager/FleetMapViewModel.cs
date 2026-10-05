@@ -106,11 +106,12 @@ public class UnitChip : BindableObject
 public class FleetMapViewModel : BindableObject
 {
     // Idle threshold: no telemetry update / no movement within this window counts as Idle
-    // rather than Active. A placeholder judgment call, same as FuelReviewDetail's tolerance
-    // constants - the real number belongs in system_configs once there's real fleet data to
-    // tune it against (see FleetReportingService's own idle-threshold config for the
-    // ManagerWeb-side equivalent).
-    private const int IdleThresholdMinutes = 10;
+    // rather than Active. LAR-81: now read from system_configs/global, the same manager-
+    // configurable value FleetReportingService (ManagerWeb) already uses, instead of a local
+    // hardcoded guess - a manager tuning the threshold on the web should see it take effect
+    // on the mobile map too.
+    private const double DefaultIdleThresholdMinutes = 15;
+    private double _idleThresholdMinutes = DefaultIdleThresholdMinutes;
 
     private readonly List<FleetPin> _allPins = new();
 
@@ -285,6 +286,8 @@ public class FleetMapViewModel : BindableObject
             IdleCount = 0;
             SosCount = 0;
 
+            _idleThresholdMinutes = await GetIdleThresholdMinutesAsync();
+
             var driverCache = new Dictionary<string, DriverLookup>();
             var taxiCache = new Dictionary<string, TaxiLookup>();
 
@@ -325,7 +328,7 @@ public class FleetMapViewModel : BindableObject
                 }
 
                 var latestTimestamp = FirestoreDateTimeFix.Apply(latest.Timestamp);
-                bool recentlyMoving = latest.Speed > 0 && latestTimestamp >= now.AddMinutes(-IdleThresholdMinutes);
+                bool recentlyMoving = latest.Speed > 0 && latestTimestamp >= now.AddMinutes(-_idleThresholdMinutes);
 
                 FleetDriverStatus status = hasSos ? FleetDriverStatus.Sos
                     : doc.Data.IsOnBreak ? FleetDriverStatus.OnBreak
@@ -445,6 +448,29 @@ public class FleetMapViewModel : BindableObject
         }
     }
 
+    /// <summary>Mirrors FleetReportingService.GetIdleThresholdMinutesAsync (ManagerWeb) so a
+    /// manager-configured threshold applies consistently on both surfaces. Missing doc, zero/
+    /// negative value, or any read error all fall back to the same 15-minute default as the
+    /// web side.</summary>
+    private static async Task<double> GetIdleThresholdMinutesAsync()
+    {
+        try
+        {
+            var doc = await CrossFirebaseFirestore.Current
+                .GetCollection("system_configs")
+                .GetDocument("global")
+                .GetDocumentSnapshotAsync<SystemConfigProxy>();
+
+            double configured = doc?.Data?.IdleThresholdMinutes ?? 0;
+            return configured > 0 ? configured : DefaultIdleThresholdMinutes;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Idle threshold config read failed: {ex.Message}");
+            return DefaultIdleThresholdMinutes;
+        }
+    }
+
     private async Task<DriverLookup?> GetDriverAsync(string driverId, Dictionary<string, DriverLookup> cache)
     {
         if (string.IsNullOrWhiteSpace(driverId)) return null;
@@ -511,6 +537,12 @@ public class FleetMapViewModel : BindableObject
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
         public string ShiftId { get; set; } = string.Empty;
+    }
+
+    private class SystemConfigProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("idleThresholdMinutes")]
+        public double IdleThresholdMinutes { get; set; }
     }
 
     private class DriverLookup
