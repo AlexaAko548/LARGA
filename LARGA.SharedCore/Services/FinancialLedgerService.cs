@@ -207,7 +207,7 @@ public class FinancialLedgerService
     /// </summary>
     /// <param name="shiftId">The shift's document ID (SettlementRow.ShiftId); a shiftId field
     /// value also works.</param>
-    public async Task<RecordPaymentResult> RecordPaymentAsync(string shiftId, decimal amountReceived, string paymentMethod, PaymentReceipt? receipt = null)
+    public async Task<RecordPaymentResult> RecordPaymentAsync(string shiftId, decimal amountReceived, string paymentMethod, PaymentReceipt? receipt = null, string? actorUserId = null)
     {
         if (string.IsNullOrWhiteSpace(shiftId))
         {
@@ -251,11 +251,17 @@ public class FinancialLedgerService
                 driverAdjustments, amountReceived, advanceTarget: thisCharge, method, now, receiptLink, SourceDailySettlements);
 
             decimal thisPaid = thisCharge.Paid + booking.ToFirst + booking.Advance;
+            SettlementStatus newStatus = thisPaid >= thisCharge.Expected ? SettlementStatus.Cleared : thisPaid > 0 ? SettlementStatus.Partial : SettlementStatus.Waiting;
+            decimal remainingAfterPayment = Math.Max(0, thisCharge.Expected - thisPaid);
+
+            await WriteAuditAsync(actorUserId, "BoundaryPaymentRecorded",
+                $"Recorded PHP {amountReceived:N2} {method} payment for shift {shiftId}. Status: {newStatus}. Remaining: PHP {remainingAfterPayment:N2}.", now);
+
             return new RecordPaymentResult
             {
                 Ok = true,
-                NewStatus = thisPaid >= thisCharge.Expected ? SettlementStatus.Cleared : thisPaid > 0 ? SettlementStatus.Partial : SettlementStatus.Waiting,
-                RemainingAfterPayment = Math.Max(0, thisCharge.Expected - thisPaid),
+                NewStatus = newStatus,
+                RemainingAfterPayment = remainingAfterPayment,
                 AppliedToOlderDebt = booking.ToOthers + booking.ToAdjustments,
                 AdvanceCredit = booking.Advance,
             };
@@ -295,7 +301,7 @@ public class FinancialLedgerService
     // Manual adjustments
     // ---------------------------------------------------------------------
 
-    public async Task<AdjustmentResult> AddAdjustmentAsync(string driverId, decimal amount, string reason)
+    public async Task<AdjustmentResult> AddAdjustmentAsync(string driverId, decimal amount, string reason, string? actorUserId = null)
     {
         if (string.IsNullOrWhiteSpace(driverId))
         {
@@ -320,15 +326,34 @@ public class FinancialLedgerService
 
         try
         {
+            DateTime now = DateTime.UtcNow;
+            string trimmedReason = reason.Trim();
+
             var adjustment = new DebtAdjustment
             {
                 DriverId = driverId,
                 Amount = amount,
-                Reason = reason.Trim(),
-                Timestamp = DateTime.UtcNow,
+                Reason = trimmedReason,
+                Timestamp = now,
             };
 
-            await Db.Collection("debt_adjustments").AddAsync(adjustment);
+            var audit = new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "DebtAdjustmentRecorded",
+                AuditLogDetails = $"{(amount > 0 ? "Added" : "Credited")} PHP {Math.Abs(amount):N2} {(amount > 0 ? "debt" : "credit")} for driver {driverId}. Reason: {trimmedReason}",
+                Timestamp = now,
+            };
+
+            // Adjustment and its audit entry commit together, so a debt change can't land unlogged.
+            DocumentReference adjustmentDoc = Db.Collection("debt_adjustments").Document();
+            DocumentReference auditDoc = Db.Collection("audit_logs").Document();
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Set(adjustmentDoc, adjustment);
+            batch.Set(auditDoc, audit);
+            await batch.CommitAsync();
+
             return new AdjustmentResult { Ok = true };
         }
         catch (Exception ex)
@@ -578,7 +603,7 @@ public class FinancialLedgerService
     /// an automatic offsetting credit. Anything above what's owed is kept as advance credit on
     /// their latest shift, covering their next boundary.
     /// </summary>
-    public async Task<SettleDebtResult> SettleDebtAsync(string driverId, decimal amountReceived, string paymentMethod, PaymentReceipt? receipt = null)
+    public async Task<SettleDebtResult> SettleDebtAsync(string driverId, decimal amountReceived, string paymentMethod, PaymentReceipt? receipt = null, string? actorUserId = null)
     {
         if (string.IsNullOrWhiteSpace(driverId))
         {
@@ -614,6 +639,9 @@ public class FinancialLedgerService
                 advanceTarget: latest, PaymentMethodOf(paymentMethod), DateTime.UtcNow, receiptLink, SourceMasterLedger);
             decimal remaining = booking.Advance;
 
+            await WriteAuditAsync(actorUserId, "DebtSettled",
+                $"Settled PHP {amountReceived - remaining:N2} of debt for driver {driverId} via {PaymentMethodOf(paymentMethod)}. Advance credit: PHP {remaining:N2}.");
+
             DebtLedgerSnapshot refreshed = await GetDebtLedgerAsync();
             decimal newTotal = refreshed.Rows.FirstOrDefault(r => r.DriverId == driverId)?.TotalDebt ?? 0;
 
@@ -637,6 +665,27 @@ public class FinancialLedgerService
     /// the mobile quick ledger the document ID). Matching on both links them all.</summary>
     private static List<string> IdsOf(ShiftLog shift) =>
         new[] { shift.DocumentId, shift.ShiftId }.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
+
+    /// <summary>Logs a ledger action to audit_logs. Payments are booked across several writes
+    /// (BookPaymentAsync), so this runs after they succeed; a failed audit write is only logged,
+    /// never reported as a failed payment - that would invite the manager to record it twice.</summary>
+    private async Task WriteAuditAsync(string? actorUserId, string actionType, string details, DateTime? timestamp = null)
+    {
+        try
+        {
+            await Db.Collection("audit_logs").AddAsync(new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = actionType,
+                AuditLogDetails = details,
+                Timestamp = timestamp ?? DateTime.UtcNow,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write {ActionType} audit entry", actionType);
+        }
+    }
 
     private static PaymentMethod PaymentMethodOf(string paymentMethod) =>
         string.Equals(paymentMethod, "EWallet", StringComparison.OrdinalIgnoreCase) ? PaymentMethod.EWallet : PaymentMethod.Cash;

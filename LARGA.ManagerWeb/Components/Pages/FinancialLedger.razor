@@ -7,6 +7,8 @@
 @using LARGA.SharedCore.Models.FinancialLedger
 @using LARGA.SharedCore.Services
 @rendermode InteractiveServer
+@using System.Security.Claims
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject FinancialLedgerService Ledger
@@ -633,6 +635,7 @@ else
 @code {
     // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
     private bool _isLoading = true;
+    private string _managerUserId = string.Empty;
     private IJSObjectReference? _fileDownloadModule;
 
     private string _activeTab = "daily";
@@ -751,6 +754,9 @@ else
             return;
         }
 
+        // Audit entries are attributed to the signed-in manager, from the server session.
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _managerUserId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
 
         await LoadSettlementAsync();
 
@@ -1082,7 +1088,7 @@ else
         try
         {
             RecordPaymentResult result = await Ledger.RecordPaymentAsync(_paymentRow.ShiftId, _paymentAmountInput, _paymentMethod,
-                _paymentMethod == "EWallet" ? PendingReceipt() : null);
+                _paymentMethod == "EWallet" ? PendingReceipt() : null, actorUserId: _managerUserId);
             if (!result.Ok)
             {
                 _paymentError = result.ErrorMessage ?? "Could not save this payment.";
@@ -1124,7 +1130,7 @@ else
         try
         {
             decimal signedAmount = _adjustmentDirection == "Credit" ? -_adjustmentAmountInput : _adjustmentAmountInput;
-            AdjustmentResult result = await Ledger.AddAdjustmentAsync(_adjustmentDriverId, signedAmount, _adjustmentReason);
+            AdjustmentResult result = await Ledger.AddAdjustmentAsync(_adjustmentDriverId, signedAmount, _adjustmentReason, actorUserId: _managerUserId);
             if (!result.Ok)
             {
                 _adjustmentError = result.ErrorMessage ?? "Could not save this adjustment.";
@@ -1177,7 +1183,7 @@ else
         try
         {
             SettleDebtResult result = await Ledger.SettleDebtAsync(_settleRow.DriverId, _settleAmountInput, _settleMethod,
-                _settleMethod == "EWallet" ? PendingReceipt() : null);
+                _settleMethod == "EWallet" ? PendingReceipt() : null, actorUserId: _managerUserId);
             if (!result.Ok)
             {
                 _settleError = result.ErrorMessage ?? "Could not save this settlement.";

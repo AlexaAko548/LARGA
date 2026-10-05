@@ -6,6 +6,8 @@
 @using LARGA.SharedCore.Models.DriverShifts
 @using LARGA.SharedCore.Services
 @rendermode InteractiveServer
+@using System.Security.Claims
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject DriverManagementService DriverManagement
@@ -997,6 +999,7 @@ else
 @code {
     // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
     private bool _isLoading = true;
+    private string _managerUserId = string.Empty;
 
     private string _activeTab = "roster";
 
@@ -1069,6 +1072,9 @@ else
             return;
         }
 
+        // Audit entries are attributed to the signed-in manager, from the server session.
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _managerUserId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
 
         await LoadRosterAsync();
         await LoadClockInRequestsAsync();
@@ -1532,7 +1538,8 @@ else
                 InputValidator.NormalizeSpaces(_newDriverName), _newDriverPhone.Trim(),
                 string.IsNullOrWhiteSpace(_newDriverPassword) ? null : _newDriverPassword,
                 _newDriverTaxi,
-                string.IsNullOrWhiteSpace(_newDriverEmail) ? null : _newDriverEmail);
+                string.IsNullOrWhiteSpace(_newDriverEmail) ? null : _newDriverEmail,
+                actorUserId: _managerUserId);
 
             if (!result.Ok)
             {
