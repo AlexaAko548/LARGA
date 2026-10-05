@@ -201,7 +201,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                         AssignedUnitDetails = $"{taxi.YearManufactured} {taxi.Model}";
                         MaintenanceStatus = taxi.Status;
 
-                        if (string.Equals(taxi.Status, "Under Maintenance", StringComparison.OrdinalIgnoreCase))
+                        if (LARGA.SharedCore.TaxiStatusRules.IsUnderMaintenance(taxi.Status))
                         {
                             await LoadMaintenanceDayLabelAsync(dynamicTaxiId);
                         }

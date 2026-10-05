@@ -160,7 +160,7 @@ public class ClockInApprovalService
 
             if (markUnitUnderMaintenance && !string.IsNullOrWhiteSpace(request.TaxiId))
             {
-                await Db.Collection("taxis").Document(request.TaxiId).UpdateAsync("status", "Under Maintenance");
+                await Db.Collection("taxis").Document(request.TaxiId).UpdateAsync("status", TaxiStatusRules.UnderMaintenance);
             }
 
             await docRef.UpdateAsync(new Dictionary<string, object>

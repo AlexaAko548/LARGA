@@ -316,7 +316,7 @@ public class AlertCenterViewModel : BindableObject
                 await CrossFirebaseFirestore.Current
                     .GetCollection("taxis")
                     .GetDocument(alert.TaxiId)
-                    .UpdateDataAsync(new Dictionary<object, object> { ["status"] = "Maintenance" });
+                    .UpdateDataAsync(new Dictionary<object, object> { ["status"] = LARGA.SharedCore.TaxiStatusRules.UnderMaintenance });
             }
 
             if (newStatus == "InProgress")

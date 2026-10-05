@@ -117,4 +117,36 @@ public class BoundaryPayment
 
     [FirestoreProperty("timestamp")]
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+
+    // One document per payment (see SharedCore BoundaryPaymentRules) - the fields the manager
+    // app's Quick Ledger writes too.
+
+    /// <summary>Shared by every document written for one handover (a payment split across
+    /// several shifts). Empty on old running-total documents.</summary>
+    [FirestoreProperty("transactionId")]
+    public string? TransactionId { get; set; }
+
+    /// <summary>GCash reference number as the Quick Ledger stores it (see ReceiptReferenceNo).</summary>
+    [FirestoreProperty("gcashReferenceNumber")]
+    public string? GcashReferenceNumber { get; set; }
+
+    [FirestoreProperty("notes")]
+    public string? Notes { get; set; }
+
+    /// <summary>When the payment was recorded, as ISO text - written together with timestamp
+    /// and never changed afterwards (older code overwrote timestamp on later payments).</summary>
+    [FirestoreProperty("recordedAtUtc")]
+    public string? RecordedAtUtc { get; set; }
+
+    /// <summary>recordedAtUtc when present, otherwise timestamp.</summary>
+    public DateTime RecordedAt =>
+        DateTime.TryParse(RecordedAtUtc, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out DateTime at)
+            ? at
+            : Timestamp;
+
+    /// <summary>Which screen took the payment ("Daily Settlements", "Master Debt Ledger"); not
+    /// written by the manager app.</summary>
+    [FirestoreProperty("recordedVia")]
+    public string? RecordedVia { get; set; }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LARGA.SharedCore;
 using Plugin.Firebase.Firestore;
 
 namespace LARGA.MobileApp.Services;
@@ -10,8 +11,9 @@ namespace LARGA.MobileApp.Services;
 /// The signed-in driver's debt, worked out the same way as ManagerWeb's Master Debt Ledger
 /// (FinancialLedgerService.BuildCharges) so the phone and the manager see the same number:
 /// every ended shift owes its boundary + late fee + fuel penalty, minus what's been paid on
-/// its boundary_payments document (a shift nobody has paid anything on has no document and
-/// owes it all); minus any overpayment credit (paid above a shift's total); plus the net of the
+/// its boundary_payments documents - one per payment, added up by BoundaryPaymentRules (a
+/// shift nobody has paid anything on has no document and owes it all); minus any overpayment
+/// credit (paid above a shift's total); plus the net of the
 /// driver's manual debt_adjustments. A shift still Active
 /// isn't owed yet.
 ///
@@ -80,22 +82,26 @@ public static class DriverDebtCalculator
             var ids = new[] { shiftDoc.Reference.Id, shift.ShiftId }
                 .Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
 
-            PaymentProxy? payment = null;
+            // Every payment is its own document, so a shift can have several; they're added up
+            // the same way as on the web (BoundaryPaymentRules.TotalPaid), and the most recent one
+            // carries the expected boundary and Paid/Partial status.
+            var documents = new Dictionary<string, PaymentProxy>();
             foreach (string id in ids)
             {
                 var found = await db.GetCollection("boundary_payments")
                     .WhereEqualsTo("shiftId", id)
                     .GetDocumentsAsync<PaymentProxy>();
-
-                // If a shift ever got two documents, the one holding the money counts.
                 foreach (var doc in found.Documents)
                 {
-                    if (doc.Data != null && (payment == null || doc.Data.AmountPaid > payment.AmountPaid))
-                    {
-                        payment = doc.Data;
-                    }
+                    if (doc.Data != null) documents[doc.Reference.Id] = doc.Data;
                 }
             }
+
+            PaymentProxy? payment = documents.Values
+                .OrderByDescending(d => FirestoreDateTimeFix.Apply(d.Timestamp))
+                .FirstOrDefault();
+            decimal totalPaid = BoundaryPaymentRules.TotalPaid(
+                documents.Select(kv => (kv.Key, (string?)kv.Value.TransactionId, (decimal)kv.Value.AmountPaid)));
 
             bool isActive = shift.Status == "Active";
             if (isActive && payment == null) continue;
@@ -115,7 +121,7 @@ public static class DriverDebtCalculator
                 TaxiId = shift.TaxiId ?? string.Empty,
                 IsActive = isActive,
                 Expected = boundary + lateFee + fuelPenalty,
-                Paid = (decimal)(payment?.AmountPaid ?? 0),
+                Paid = totalPaid,
                 HasPayment = payment != null,
                 PaymentStatus = string.IsNullOrEmpty(payment?.PaymentStatus) ? "Unpaid" : payment.PaymentStatus,
                 PaymentTimestampUtc = paidAt,
@@ -176,6 +182,7 @@ public static class DriverDebtCalculator
         [FirestoreProperty("amountPaid")] public double AmountPaid { get; set; }
         [FirestoreProperty("paymentStatus")] public string PaymentStatus { get; set; }
         [FirestoreProperty("timestamp")] public DateTime Timestamp { get; set; }
+        [FirestoreProperty("transactionId")] public string TransactionId { get; set; }
     }
 
     private class AdjustmentProxy

@@ -238,7 +238,8 @@ The ManagerWeb dashboard's 5 fleet-status pills (Active / Maintenance / On Break
 2. **Maintenance** — `TAXI_UNIT.Status == "Under Maintenance"`.
 3. **On Break** — taxi has a `SHIFT_LOG` with `Status == "Active"` and `IsOnBreak == true`.
 4. **Active** — taxi has a `SHIFT_LOG` with `Status == "Active"`, not on break, and its latest `GPS_TELEMETRY` point is newer than `now - SYSTEM_CONFIG.IdleThresholdMinutes` with `Speed > 0`.
-5. **Idle** — everything else (default/fallback): on an active shift but stale or zero-speed telemetry, or simply no active shift right now and not under maintenance.
+5. **Parked** — no active shift right now (nobody driving it) and not under maintenance.
+6. **Idle** — everything else: on an active shift but stale or zero-speed telemetry (or none yet).
 
 ## Dashboard read-cost notes
 

@@ -36,7 +36,13 @@ public class ForgotPasswordViewModel : INotifyPropertyChanged
             return;
         }
 
-        var success = await _authService.SendPasswordResetEmailAsync(Email);
+        if (!LARGA.SharedCore.InputValidator.IsValidEmail(Email))
+        {
+            await Application.Current.MainPage.DisplayAlert("Invalid Email", "Enter a valid email address, e.g. juan.delacruz@gmail.com.", "OK");
+            return;
+        }
+
+        var success = await _authService.SendPasswordResetEmailAsync(Email.Trim());
 
         if (success)
         {

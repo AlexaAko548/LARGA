@@ -90,13 +90,48 @@ public class ActiveDriversStat
 }
 
 /// <summary>Live, computed per-taxi status counts - see docs/ERD.md "Live fleet status".</summary>
+/// <remarks>Counts taxi units, not drivers - each unit is in exactly one bucket.</remarks>
 public class FleetStatusCounts
 {
+    /// <summary>On a shift and moving (recent GPS).</summary>
     public int Active { get; set; }
     public int Maintenance { get; set; }
     public int OnBreak { get; set; }
     public int Sos { get; set; }
+
+    /// <summary>On a shift but not moving for the idle threshold (or no GPS from it yet).</summary>
     public int Idle { get; set; }
+
+    /// <summary>No driver on it right now - in the garage, free to be assigned.</summary>
+    public int Parked { get; set; }
+
+    public int Total => Active + Maintenance + OnBreak + Sos + Idle + Parked;
+
+    /// <summary>Every unit with its status - what the pills open into.</summary>
+    public List<FleetUnitStatus> Units { get; set; } = new();
+}
+
+/// <summary>One taxi unit on the Executive Dashboard's Fleet Status strip.</summary>
+public class FleetUnitStatus
+{
+    public const string ActiveStatus = "Active";
+    public const string IdleStatus = "Idle";
+    public const string OnBreakStatus = "OnBreak";
+    public const string SosStatus = "Sos";
+    public const string MaintenanceStatus = "Maintenance";
+    public const string ParkedStatus = "Parked";
+
+    public string TaxiId { get; set; } = string.Empty;
+    public string? PlateNumber { get; set; }
+    public string Status { get; set; } = ParkedStatus;
+
+    /// <summary>The driver on shift on it (none when parked or in maintenance).</summary>
+    public string? DriverId { get; set; }
+    public string? DriverName { get; set; }
+    public string? DriverPhone { get; set; }
+
+    /// <summary>What's going on, e.g. "Not moving for 25 min", "Brake replacement".</summary>
+    public string? Detail { get; set; }
 }
 
 public class DriverStanding
@@ -108,6 +143,9 @@ public class DriverStanding
     public double PunctualPercent { get; set; }
     public int IncidentCount { get; set; }
     public decimal BoundariesRemitted { get; set; }
+
+    /// <summary>The full picture behind the row (attendance, on-time returns, payments).</summary>
+    public LARGA.SharedCore.Services.DriverPerformance Performance { get; set; } = new();
 }
 
 /// <summary>Generic (label, value) pair for chart series.</summary>

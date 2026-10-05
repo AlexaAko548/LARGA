@@ -252,7 +252,7 @@ public class DriverManagementService
             .GroupBy(j => j.TaxiId, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
         var flaggedTaxis = taxis
-            .Where(t => string.Equals(t.Status, "Under Maintenance", StringComparison.OrdinalIgnoreCase))
+            .Where(t => TaxiStatusRules.IsUnderMaintenance(t.Status))
             .Select(t => t.TaxiId)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -597,16 +597,10 @@ public class DriverManagementService
         List<BoundaryPayment> allPayments = await GetAllAsync<BoundaryPayment>("boundary_payments");
         List<MaintenanceRecord> allMaintenance = await GetAllAsync<MaintenanceRecord>("maintenance_logs");
 
-        List<BoundaryPayment> driverPayments = allPayments.Where(p => shiftIds.Contains(p.ShiftId)).ToList();
-        int damageCount = allMaintenance.Count(m => m.MaintenanceType == MaintenanceType.AccidentCorrection && m.ShiftId is not null && shiftIds.Contains(m.ShiftId));
-
-        double punctualPercent = driverShifts.Count == 0
-            ? 0
-            : 100.0 * driverShifts.Count(s => s.Status != "Overdue") / driverShifts.Count;
-
-        double paymentReliabilityPercent = driverPayments.Count == 0
-            ? 0
-            : 100.0 * driverPayments.Count(p => p.PaymentStatus == PaymentStatus.Paid) / driverPayments.Count;
+        List<ShiftSchedule> exceptions = await GetWhereEqualAsync<ShiftSchedule>("shift_schedules", "driverId", driverId);
+        DriverPerformance performance = DriverPerformanceCalculator.Calculate(
+            profile, driverShifts, exceptions, allMaintenance, allPayments.Where(p => shiftIds.Contains(p.ShiftId)).ToList(),
+            await GetDefaultBoundaryRateAsync(), PhilippineTime.Now.Date.AddDays(1 - PerformanceWindowDays), DateTime.UtcNow);
 
         ShiftLog? activeShift = driverShifts.FirstOrDefault(s => s.Status == "Active");
         DateTime now = DateTime.UtcNow;
@@ -631,11 +625,29 @@ public class DriverManagementService
             LicenseStatus = ComputeLicenseStatus(profile.LicenseExpiryDate, now),
             LicenseExpiryDate = profile.LicenseExpiryDate,
             LtoIdPhotoUrl = profile.LtoIdPhotoUrl,
-            PunctualPercent = punctualPercent,
-            PaymentReliabilityPercent = paymentReliabilityPercent,
-            DamageIncidentCount = damageCount,
+            Performance = performance,
             ManagerNote = profile.ManagerNote,
         };
+    }
+
+    /// <summary>How far back the profile's performance figures look.</summary>
+    public const int PerformanceWindowDays = 30;
+
+    private async Task<decimal> GetDefaultBoundaryRateAsync()
+    {
+        try
+        {
+            DocumentSnapshot snapshot = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
+            if (snapshot.Exists && snapshot.ConvertTo<SystemConfig>().DefaultBoundaryRate is double rate && rate > 0)
+            {
+                return (decimal)rate;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read the default boundary rate");
+        }
+        return 800m;
     }
 
     public async Task UpdateDriverProfileAsync(
@@ -649,13 +661,26 @@ public class DriverManagementService
         string? assignedTaxiId,
         string? ltoIdPhotoUrl = null)
     {
+        // Same rules the Edit Details form checks (InputValidator) - refused here too so nothing
+        // malformed is ever stored. Phone and license number are saved in one standard format.
+        string? error = InputValidator.ValidatePhilippineMobile(phoneNumber)
+            ?? InputValidator.ValidateText(address, "the address", 200)
+            ?? InputValidator.ValidateLicenseNumber(licenseNumber)
+            ?? InputValidator.ValidateLicenseClassification(licenseClassification)
+            ?? InputValidator.ValidateRestrictionCode(licenseRestrictionCode)
+            ?? InputValidator.ValidateLicenseExpiry(licenseExpiryDate, DateTime.UtcNow);
+        if (error is not null)
+        {
+            throw new ArgumentException(error);
+        }
+
         var updates = new Dictionary<string, object>
         {
-            ["phoneNumber"] = phoneNumber ?? string.Empty,
-            ["address"] = address ?? string.Empty,
-            ["licenseNumber"] = licenseNumber ?? string.Empty,
-            ["licenseClassification"] = licenseClassification ?? string.Empty,
-            ["licenseRestrictionCode"] = licenseRestrictionCode ?? string.Empty,
+            ["phoneNumber"] = InputValidator.NormalizePhilippineMobile(phoneNumber)!,
+            ["address"] = InputValidator.NormalizeSpaces(address),
+            ["licenseNumber"] = InputValidator.NormalizeLicenseNumber(licenseNumber) ?? string.Empty,
+            ["licenseClassification"] = InputValidator.NormalizeLicenseClassification(licenseClassification),
+            ["licenseRestrictionCode"] = InputValidator.NormalizeSpaces(licenseRestrictionCode),
             ["assignedTaxiId"] = assignedTaxiId ?? string.Empty,
         };
 
@@ -683,6 +708,11 @@ public class DriverManagementService
 
     public async Task SetManagerNoteAsync(string driverId, string note)
     {
+        if (InputValidator.ValidateText(note, "the note", 500) is string error)
+        {
+            throw new ArgumentException(error);
+        }
+
         await Db.Collection("users").Document(driverId).UpdateAsync("managerNote", note);
     }
 
@@ -692,11 +722,17 @@ public class DriverManagementService
 
     public async Task<CreateDriverResult> CreateDriverAsync(string fullName, string phoneNumber, string? temporaryPassword, string? assignedTaxiId = null, string? email = null)
     {
-        string password = string.IsNullOrWhiteSpace(temporaryPassword) ? GenerateTemporaryPassword() : temporaryPassword;
-        if (password.Length < 6)
+        fullName = InputValidator.NormalizeSpaces(fullName);
+        string? inputError = InputValidator.ValidateFullName(fullName)
+            ?? InputValidator.ValidatePhilippineMobile(phoneNumber)
+            ?? InputValidator.ValidatePassword(temporaryPassword, required: false);
+        if (inputError is not null)
         {
-            return new CreateDriverResult { Ok = false, ErrorMessage = "Temporary password must be at least 6 characters." };
+            return new CreateDriverResult { Ok = false, ErrorMessage = inputError };
         }
+        phoneNumber = InputValidator.NormalizePhilippineMobile(phoneNumber)!;
+
+        string password = string.IsNullOrWhiteSpace(temporaryPassword) ? GenerateTemporaryPassword() : temporaryPassword;
 
         // Drivers sign in with email+password (same as the mobile app's login screen). The
         // driver's own email is preferred - the mobile app's Forgot Password can only reach a
@@ -780,11 +816,11 @@ public class DriverManagementService
 
     public async Task<ResetPasswordResult> ResetDriverPasswordAsync(string driverId, string? newPassword)
     {
-        string password = string.IsNullOrWhiteSpace(newPassword) ? GenerateTemporaryPassword() : newPassword;
-        if (password.Length < 6)
+        if (InputValidator.ValidatePassword(newPassword, required: false) is string passwordError)
         {
-            return new ResetPasswordResult { Ok = false, ErrorMessage = "Password must be at least 6 characters." };
+            return new ResetPasswordResult { Ok = false, ErrorMessage = passwordError };
         }
+        string password = string.IsNullOrWhiteSpace(newPassword) ? GenerateTemporaryPassword() : newPassword;
 
         try
         {
@@ -859,8 +895,7 @@ public class DriverManagementService
     }
 
     // Shape check only (something@domain.tld) - Firebase Auth does the real validation.
-    private static bool IsValidEmail(string email) =>
-        System.Text.RegularExpressions.Regex.IsMatch(email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$");
+    private static bool IsValidEmail(string email) => InputValidator.IsValidEmail(email);
 
     private static string GenerateDriverEmail(string fullName)
     {

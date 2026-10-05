@@ -219,9 +219,9 @@ public class DriverProfileDetail
     public LicenseStatus LicenseStatus { get; set; }
     public DateTime? LicenseExpiryDate { get; set; }
     public string? LtoIdPhotoUrl { get; set; }
-    public double PunctualPercent { get; set; }
-    public double PaymentReliabilityPercent { get; set; }
-    public int DamageIncidentCount { get; set; }
+    /// <summary>Attendance, punctuality, payment reliability and damage incidents over the last
+    /// DriverManagementService.PerformanceWindowDays days.</summary>
+    public LARGA.SharedCore.Services.DriverPerformance Performance { get; set; } = new();
     public string? ManagerNote { get; set; }
 }
 

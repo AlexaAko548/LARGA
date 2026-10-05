@@ -80,10 +80,16 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
             return;
         }
 
+        if (!LARGA.SharedCore.InputValidator.IsValidEmail(Email))
+        {
+            ErrorMessage = "Enter a valid email address, e.g. juan.delacruz@gmail.com.";
+            return;
+        }
+
         try
         {
             ErrorMessage = string.Empty;
-            var userId = await _authService.LoginAsync(Email, Password);
+            var userId = await _authService.LoginAsync(Email.Trim(), Password);
 
             if (!string.IsNullOrEmpty(userId))
             {

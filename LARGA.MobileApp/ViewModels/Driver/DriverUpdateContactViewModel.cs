@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using LARGA.SharedCore;
 using Microsoft.Maui.Controls;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
@@ -11,8 +11,6 @@ namespace LARGA.MobileApp.ViewModels.Driver;
 
 public class DriverUpdateContactViewModel : BindableObject
 {
-    private static readonly Regex ContactNumberRegex = new("^\\+?\\d{10,13}$", RegexOptions.Compiled);
-
     private string _currentNumber = string.Empty;
     public string CurrentNumber
     {
@@ -84,20 +82,19 @@ public class DriverUpdateContactViewModel : BindableObject
             return;
         }
 
-        if (NewNumber != ConfirmNewNumber)
+        if (!InputValidator.SamePhone(NewNumber, ConfirmNewNumber))
         {
             await Shell.Current.DisplayAlert("Numbers Don't Match", "New number and confirmation must match.", "OK");
             return;
         }
 
-        var normalizedCurrent = NormalizePhone(CurrentNumber);
-        var normalizedNew = NormalizePhone(NewNumber);
-
-        if (!ContactNumberRegex.IsMatch(normalizedNew))
+        // Same rule as ManagerWeb (InputValidator): a Philippine mobile number, stored as +639XXXXXXXXX.
+        if (InputValidator.ValidatePhilippineMobile(NewNumber) is string phoneError)
         {
-            await Shell.Current.DisplayAlert("Invalid Number", "Please enter a valid contact number (10-13 digits).", "OK");
+            await Shell.Current.DisplayAlert("Invalid Number", phoneError, "OK");
             return;
         }
+        var normalizedNew = InputValidator.NormalizePhilippineMobile(NewNumber)!;
 
         IsBusy = true;
         try
@@ -114,8 +111,8 @@ public class DriverUpdateContactViewModel : BindableObject
                 .GetDocument(user.Uid)
                 .GetDocumentSnapshotAsync<ContactNumberProxy>();
 
-            var currentOnFile = NormalizePhone(doc?.Data?.PhoneNumber ?? string.Empty);
-            if (!string.Equals(currentOnFile, normalizedCurrent, StringComparison.Ordinal))
+            // 0917... and +63917... are the same number, however either was typed.
+            if (!InputValidator.SamePhone(doc?.Data?.PhoneNumber, CurrentNumber))
             {
                 await Shell.Current.DisplayAlert("Doesn't Match", "Current number does not match our records.", "OK");
                 return;
@@ -147,19 +144,6 @@ public class DriverUpdateContactViewModel : BindableObject
         {
             IsBusy = false;
         }
-    }
-
-    private static string NormalizePhone(string input)
-    {
-        if (string.IsNullOrWhiteSpace(input)) return string.Empty;
-
-        var trimmed = input.Trim();
-        if (trimmed.StartsWith("+", StringComparison.Ordinal))
-        {
-            return "+" + Regex.Replace(trimmed[1..], "[^0-9]", string.Empty);
-        }
-
-        return Regex.Replace(trimmed, "[^0-9]", string.Empty);
     }
 
     private class ContactNumberProxy

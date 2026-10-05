@@ -144,6 +144,13 @@ public class LedgerTransaction
     /// <summary>The GCash receipt image the payment was recorded with, if any.</summary>
     public string? ReceiptUrl { get; set; }
     public string? ReceiptReferenceNo { get; set; }
+
+    /// <summary>The line under the type: which day a boundary is for, or for a payment its
+    /// method and where it came from ("Cash · Daily Settlements").</summary>
+    public string? Subtitle { get; set; }
+
+    /// <summary>Payment rows: where the money went, one line each ("₱150 → Oct 1 boundary (TAXI_002)").</summary>
+    public List<string> Details { get; set; } = new();
 }
 
 /// <summary>A GCash receipt attached to an E-Wallet payment: the uploaded image, stored in
