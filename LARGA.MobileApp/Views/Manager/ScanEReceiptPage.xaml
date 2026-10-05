@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:cv="clr-namespace:Camera.MAUI;assembly=Camera.MAUI"
+             x:Class="LARGA.MobileApp.Views.Manager.ScanEReceiptPage"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="{StaticResource LargaWhite}">
+
+    <Grid RowDefinitions="Auto,*,Auto" Padding="20,15,20,20" RowSpacing="15">
+
+        <!-- Header -->
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,*" ColumnSpacing="12">
+            <Label Grid.Column="0" Text="&#xe5c4;" Style="{StaticResource Ledger.Icon}" FontSize="26"
+                   TextColor="{StaticResource LargaPrimaryBlue}">
+                <Label.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnCancelClicked" />
+                </Label.GestureRecognizers>
+            </Label>
+            <Border Grid.Column="1" Style="{StaticResource Ledger.Field}" Padding="12,10" VerticalOptions="Center">
+                <Label Text="SCAN E-RECEIPT" Style="{StaticResource Ledger.Heading}" FontSize="18" HorizontalTextAlignment="Center" />
+            </Border>
+        </Grid>
+
+        <!-- Camera / captured photo -->
+        <Border Grid.Row="1" BackgroundColor="#101010" StrokeThickness="0" StrokeShape="RoundRectangle 14" Padding="6">
+            <Grid>
+                <cv:CameraView x:Name="ReceiptCamera" HorizontalOptions="FillAndExpand" VerticalOptions="FillAndExpand"
+                               CamerasLoaded="Camera_CamerasLoaded" />
+                <Image x:Name="CapturedReceiptPreview" IsVisible="False" Aspect="AspectFit" />
+            </Grid>
+        </Border>
+
+        <!-- Read-only receipt details, filled from the scan -->
+        <VerticalStackLayout Grid.Row="2" Spacing="12">
+            <Label x:Name="ScanStatusLabel" Text="Line up the receipt and capture it." Style="{StaticResource Ledger.Detail}"
+                   HorizontalTextAlignment="Center" />
+
+            <!-- One detail per row, full width, so long reference numbers stay readable -->
+            <VerticalStackLayout Spacing="8">
+                <Border Style="{StaticResource Ledger.Field}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Amount" Style="{StaticResource Ledger.Caption}" VerticalOptions="Center" />
+                        <Label x:Name="LblAmount" Grid.Column="1" Text="--" Style="{StaticResource Ledger.FieldValue}" />
+                    </Grid>
+                </Border>
+                <Border Style="{StaticResource Ledger.Field}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Date" Style="{StaticResource Ledger.Caption}" VerticalOptions="Center" />
+                        <Label x:Name="LblDate" Grid.Column="1" Text="--" Style="{StaticResource Ledger.FieldValue}" />
+                    </Grid>
+                </Border>
+                <Border Style="{StaticResource Ledger.Field}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Reference No." Style="{StaticResource Ledger.Caption}" VerticalOptions="Center" />
+                        <Label x:Name="LblReference" Grid.Column="1" Text="--" Style="{StaticResource Ledger.FieldValue}" LineBreakMode="NoWrap" />
+                    </Grid>
+                </Border>
+            </VerticalStackLayout>
+
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                <Button Grid.Column="0" x:Name="BtnRetake" Text="RETAKE" Clicked="OnRetakeClicked" IsVisible="False"
+                        Style="{StaticResource Ledger.OutlineButton}" />
+                <Button Grid.Column="1" x:Name="BtnCapture" Text="CAPTURE" Clicked="OnCaptureClicked"
+                        Style="{StaticResource Ledger.PrimaryButton}" />
+            </Grid>
+        </VerticalStackLayout>
+    </Grid>
+</ContentPage>
