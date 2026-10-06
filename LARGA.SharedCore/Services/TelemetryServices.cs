@@ -28,6 +28,14 @@ namespace LARGA.SharedCore.Services;
 /// a persistent notification, so the OS can still suspend it if the app is swiped away or
 /// killed outright. True always-on background tracking is a much larger platform-specific
 /// task; flagged as a follow-up rather than silently claimed here.
+///
+/// Storage: there's no deletion code here on purpose. gps_telemetry has a Firestore TTL
+/// policy (Cloud Console > Firestore > Time-to-live, not Firebase Console - it's a separate
+/// product UI over the same project) on the "timestamp" field, offset 7 days - Firestore
+/// deletes documents past that age in the background at no extra read/write cost. No feature
+/// reads telemetry older than its own shift (FleetReportingService wants only the latest
+/// point, FuelVerificationService only queries within [shiftStart, now]), so a week is just a
+/// buffer for manual review after a shift ends, not something any code depends on.
 /// </summary>
 public interface IGpsTelemetryService
 {
