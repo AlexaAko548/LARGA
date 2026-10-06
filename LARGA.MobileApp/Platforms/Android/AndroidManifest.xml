@@ -31,4 +31,18 @@
 	<uses-feature android:name="android.hardware.camera" android:required="false" />
 	<uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+	<!-- LAR-86/87: background emergency detection + manager-call handling -->
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+	<uses-permission android:name="android.permission.WAKE_LOCK" />
+	<uses-permission android:name="android.permission.VIBRATE" />
+	<uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+	<uses-permission android:name="android.permission.READ_CALL_LOG" />
+	<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+	<!-- Lets the 5-second SOS cancel pop-up appear over the lock screen (Android 14+: the driver
+	     enables "Full screen notifications" for the app once; the app prompts for it). -->
+	<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+	<!-- MODIFY_PHONE_STATE is deliberately omitted: Android grants it only to system/signature
+	     apps, so a sideloaded enterprise APK can't hold it. We auto-answer with ANSWER_PHONE_CALLS
+	     + TelecomManager.AcceptRingingCall() instead. -->
 </manifest>

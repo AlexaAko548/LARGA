@@ -21,6 +21,7 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
     private readonly IShiftManagementService _shiftService;
     private readonly IPhotoStorageService _photoStorage;
     private readonly IGpsTelemetryService _telemetryService;
+    private readonly IEmergencyMonitor _emergencyMonitor;
     private Dictionary<string, bool> _inspection = new();
     private bool _isSubmitting;
     private string? _odometerPhotoLocalPath;
@@ -96,12 +97,13 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
     public ICommand ConfirmEndShiftCommand { get; }
     public ICommand SelectFuelCommand { get; }
 
-    public EndShiftStep2ViewModel(IOcrService ocrService, IShiftManagementService shiftService, IPhotoStorageService photoStorage, IGpsTelemetryService telemetryService)
+    public EndShiftStep2ViewModel(IOcrService ocrService, IShiftManagementService shiftService, IPhotoStorageService photoStorage, IGpsTelemetryService telemetryService, IEmergencyMonitor emergencyMonitor)
     {
         _ocrService = ocrService;
         _shiftService = shiftService;
         _photoStorage = photoStorage;
         _telemetryService = telemetryService;
+        _emergencyMonitor = emergencyMonitor;
 
         CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Register<EndShiftStep2ViewModel, OdometerScannedData, string>(this, "EndShiftOdometerScanned", (r, data) =>
         {
@@ -155,6 +157,9 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                     // LAR-77 Contextual Auto-Cutoff Protocol: telemetry severs strictly on a
                     // successful clock-out.
                     _telemetryService.Stop();
+
+                    // LAR-86/87: automated emergency detection stops with the shift.
+                    _emergencyMonitor.Stop();
                 }
 
                 Preferences.Remove("IsShiftActive");

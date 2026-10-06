@@ -106,7 +106,7 @@ public class ProfileViewModel : BindableObject
     public ICommand UpdateContactNumberCommand { get; }
     public ICommand LogoutCommand { get; }
 
-    public ProfileViewModel(IGpsTelemetryService telemetryService)
+    public ProfileViewModel(IGpsTelemetryService telemetryService, IEmergencyMonitor emergencyMonitor)
     {
         LoadProfileCommand = new Command(async () => await LoadProfileAsync());
         ChangePasswordCommand = new Command(async () => await Shell.Current.GoToAsync("driver-change-password"));
@@ -116,6 +116,8 @@ public class ProfileViewModel : BindableObject
         {
             // No GPS points after logout - they'd be written for a driver who isn't signed in.
             telemetryService.Stop();
+            // LAR-86/87: likewise stop emergency detection when the driver signs out.
+            emergencyMonitor.Stop();
             await CrossFirebaseAuth.Current.SignOutAsync();
             await Shell.Current.GoToAsync("//landing");
         });

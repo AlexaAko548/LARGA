@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="LARGA.MobileApp.Views.Shared.EmergencyCountdownPage"
+             NavigationPage.HasNavigationBar="False"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="{StaticResource LargaDanger}">
+
+    <Grid RowDefinitions="*,Auto" Padding="24,48,24,32">
+
+        <VerticalStackLayout Grid.Row="0" VerticalOptions="Center" Spacing="16">
+            <Label x:Name="TitleLabel"
+                   FontFamily="BarlowCondensedBold"
+                   FontSize="34"
+                   TextColor="{StaticResource LargaWhite}"
+                   HorizontalTextAlignment="Center" />
+
+            <Label x:Name="MessageLabel"
+                   FontFamily="InterRegular"
+                   FontSize="16"
+                   TextColor="{StaticResource LargaWhite}"
+                   HorizontalTextAlignment="Center" />
+
+            <Label x:Name="SecondsLabel"
+                   FontFamily="BarlowCondensedBold"
+                   FontSize="120"
+                   TextColor="{StaticResource LargaWhite}"
+                   HorizontalTextAlignment="Center"
+                   Margin="0,24,0,0" />
+        </VerticalStackLayout>
+
+        <Button Grid.Row="1"
+                Text="CANCEL"
+                FontFamily="InterBold"
+                FontSize="22"
+                HeightRequest="72"
+                CornerRadius="12"
+                BackgroundColor="{StaticResource LargaWhite}"
+                TextColor="{StaticResource LargaDanger}"
+                Clicked="OnCancelClicked" />
+    </Grid>
+</ContentPage>

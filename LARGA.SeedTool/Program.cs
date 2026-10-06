@@ -1307,6 +1307,10 @@ internal static class Program
             StandardLatePenalty = 100,
             DefaultBoundaryRate = 800,
             IdleThresholdMinutes = 15,
+            // LAR-86/87: the manager's number (matches SampleManager in SeedUsersAsync) so the
+            // automated SOS protocols can auto-answer their callback. Stored normalized, the form
+            // the contact-number update keeps this list in.
+            ManagerPhoneNumbers = new List<string> { "+639171234567" },
         });
     }
 }
