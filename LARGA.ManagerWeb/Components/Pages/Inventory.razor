@@ -1,4 +1,6 @@
 @page "/inventory"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 @using System.Text.Json
 @using LARGA.SharedCore
 @using LARGA.Shared.Models.Entities
@@ -32,11 +34,7 @@ else if (_isAuthorized)
         <div class="header-actions">
             <NotificationBell />
             <MessagesButton />
-            <div class="manager-pill">
-                <span class="manager-dot"></span>
-                <span>Manager</span>
-                <span class="caret">▾</span>
-            </div>
+            <ManagerProfileMenu />
         </div>
     </header>
 

@@ -1,0 +1,156 @@
+﻿@using LARGA.SharedCore.Models.ManagerProfile
+@using LARGA.ManagerWeb.Services
+@inject IManagerAuthService ManagerAuthService
+@inject NavigationManager Navigation
+
+<div class="dropdown" style="position: relative; display: inline-block;">
+    <!-- Header Button -->
+    <button class="btn btn-light rounded-pill border px-3 d-flex align-items-center" type="button" @onclick="ToggleDropdown">
+        <span class="text-primary me-2" style="font-size: 0.75rem;">●</span>
+        <span class="fw-bold" style="color: #4a5568;">Manager</span>
+        <span class="ms-2 small" style="color: #a0aec0;">▼</span>
+    </button>
+
+    <!-- Dropdown Menu -->
+    @if (isDropdownOpen)
+    {
+        <ul class="dropdown-menu show shadow-sm" style="position: absolute; right: 0; top: 110%; display: block; z-index: 1050; min-width: 160px; border-radius: 8px;">
+            <li>
+                <a class="dropdown-item py-2" href="javascript:void(0)" @onclick="OpenSettingsModal">
+                    <span class="oi oi-cog me-2"></span> Settings
+                </a>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+                <a class="dropdown-item text-danger py-2" href="javascript:void(0)" @onclick="HandleLogout">
+                    <span class="oi oi-account-logout me-2"></span> Logout
+                </a>
+            </li>
+        </ul>
+    }
+</div>
+
+<!-- Settings Modal -->
+@if (isSettingsModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5); z-index: 1060;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-light border-bottom-0">
+                    <h5 class="modal-title fw-bold" style="color: #2d3748;">Manager Settings</h5>
+                    <button type="button" class="btn-close" @onclick="CloseSettingsModal"></button>
+                </div>
+                <div class="modal-body p-4">
+
+                    @if (!string.IsNullOrEmpty(updateError))
+                    {
+                        <div class="alert alert-danger py-2 px-3 small mb-3">@updateError</div>
+                    }
+
+                    <!-- Update Contact Number Form -->
+                    <h6 class="fw-bold mb-3" style="color: #4a5568;">Update Contact Number</h6>
+                    <EditForm Model="@contactModel" OnValidSubmit="UpdateContactNumber">
+                        <DataAnnotationsValidator />
+                        <div class="input-group mb-1">
+                            <InputText @bind-Value="contactModel.NewContactNumber" class="form-control bg-light" placeholder="e.g. +639..." />
+                            <button class="btn btn-info text-white fw-bold" type="submit">Update</button>
+                        </div>
+                        <ValidationMessage For="@(() => contactModel.NewContactNumber)" class="text-danger small mb-4" />
+                    </EditForm>
+
+                    <hr class="my-4" />
+
+                    <!-- Update Password Form -->
+                    <h6 class="fw-bold mb-3" style="color: #4a5568;">Update Password</h6>
+                    <EditForm Model="@passwordModel" OnValidSubmit="UpdatePassword">
+                        <DataAnnotationsValidator />
+                        <div class="mb-2">
+                            <InputText @bind-Value="passwordModel.CurrentPassword" type="password" class="form-control bg-light" placeholder="Current Password" />
+                            <ValidationMessage For="@(() => passwordModel.CurrentPassword)" class="text-danger small" />
+                        </div>
+                        <div class="mb-2">
+                            <InputText @bind-Value="passwordModel.NewPassword" type="password" class="form-control bg-light" placeholder="New Password" />
+                            <ValidationMessage For="@(() => passwordModel.NewPassword)" class="text-danger small" />
+                        </div>
+                        <div class="mb-4">
+                            <InputText @bind-Value="passwordModel.ConfirmPassword" type="password" class="form-control bg-light" placeholder="Confirm New Password" />
+                            <ValidationMessage For="@(() => passwordModel.ConfirmPassword)" class="text-danger small" />
+                        </div>
+                        <div class="d-flex justify-content-end">
+                            <button class="btn btn-info text-white fw-bold px-4" type="submit">Save Password</button>
+                        </div>
+                    </EditForm>
+
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isDropdownOpen = false;
+    private bool isSettingsModalOpen = false;
+    private string updateError = string.Empty;
+
+    private UpdateContactModel contactModel = new();
+    private UpdatePasswordModel passwordModel = new();
+
+    private void ToggleDropdown()
+    {
+        isDropdownOpen = !isDropdownOpen;
+        StateHasChanged();
+    }
+
+    private void OpenSettingsModal()
+    {
+        isSettingsModalOpen = true;
+        isDropdownOpen = false;
+        updateError = string.Empty;
+        StateHasChanged();
+    }
+
+    private void CloseSettingsModal()
+    {
+        isSettingsModalOpen = false;
+        contactModel = new();
+        passwordModel = new();
+        updateError = string.Empty;
+        StateHasChanged();
+    }
+
+    private async Task UpdateContactNumber()
+    {
+        updateError = string.Empty;
+        var result = await ManagerAuthService.UpdateContactNumberAsync(contactModel);
+
+        if (result.Success)
+        {
+            CloseSettingsModal();
+        }
+        else
+        {
+            updateError = $"Failed to update contact: {result.ErrorMessage}";
+        }
+    }
+
+    private async Task UpdatePassword()
+    {
+        updateError = string.Empty;
+        var result = await ManagerAuthService.UpdatePasswordAsync(passwordModel);
+
+        if (result.Success)
+        {
+            await HandleLogout(); // Kick user to login page after successful password change
+        }
+        else
+        {
+            // Now, if it fails, the UI will tell you exactly what went wrong
+            updateError = $"Failed to update password: {result.ErrorMessage}";
+        }
+    }
+
+    private async Task HandleLogout()
+    {
+        Navigation.NavigateTo("/auth/signout", forceLoad: true);
+    }
+}

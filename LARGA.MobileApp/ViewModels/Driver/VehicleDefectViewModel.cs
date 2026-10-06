@@ -22,7 +22,9 @@ public class VehicleDefectViewModel : BindableObject
     private string _titleReport = string.Empty;
     private string _description = string.Empty;
     private string _priority = "High";
-    private string? _photoPath;
+    // The photo is read into memory as soon as it's taken: the camera saves it in the app's cache,
+    // which Android may clear (e.g. when the phone is low on storage) before the report is submitted.
+    private byte[]? _photoBytes;
     private ImageSource? _defectPhoto;
 
     public string ChecklistItem
@@ -108,17 +110,21 @@ public class VehicleDefectViewModel : BindableObject
             try { shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId"); } catch { }
 
             string? supportingPhotoUrl = null;
-            if (!string.IsNullOrWhiteSpace(_photoPath))
+            if (_photoBytes is { Length: > 0 })
             {
                 try
                 {
                     var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                    supportingPhotoUrl = await UploadPhotoAsync(_photoPath, $"maintenance_logs/{driverId}/{timestamp}/defect.jpg");
+                    supportingPhotoUrl = await UploadPhotoAsync(_photoBytes, $"maintenance_logs/{driverId}/{timestamp}/defect.jpg");
                 }
                 catch (Exception uploadEx)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Defect photo upload error: {uploadEx.Message}");
-                    await Shell.Current.DisplayAlert("Upload Failed", "Unable to upload the photo to cloud storage. Please check your internet connection and try again.", "OK");
+                    System.Diagnostics.Debug.WriteLine($"Defect photo upload error: {uploadEx}");
+                    string message = "Unable to upload the photo to cloud storage. Please check your internet connection and try again.";
+#if DEBUG
+                    message += $" ({uploadEx.GetType().Name}: {uploadEx.Message})";
+#endif
+                    await Shell.Current.DisplayAlert("Upload Failed", message, "OK");
                     return;
                 }
             }
@@ -159,9 +165,14 @@ public class VehicleDefectViewModel : BindableObject
                 var photo = await MediaPicker.Default.CapturePhotoAsync();
                 if (photo != null)
                 {
-                    _photoPath = photo.FullPath;
-                    var stream = await photo.OpenReadAsync();
-                    DefectPhoto = ImageSource.FromStream(() => stream);
+                    using (Stream stream = await photo.OpenReadAsync())
+                    using (var buffer = new MemoryStream())
+                    {
+                        await stream.CopyToAsync(buffer);
+                        _photoBytes = buffer.ToArray();
+                    }
+                    byte[] bytes = _photoBytes;
+                    DefectPhoto = ImageSource.FromStream(() => new MemoryStream(bytes));
                 }
             }
         }
@@ -175,15 +186,10 @@ public class VehicleDefectViewModel : BindableObject
     // Firebase Storage and returns a durable download URL, instead of the local device
     // cache path (which stops resolving once the cache is cleared or the report is viewed
     // from a different device - the bug LAR-61 was filed against).
-    private static async Task<string> UploadPhotoAsync(string localFilePath, string remotePath)
+    private static async Task<string> UploadPhotoAsync(byte[] photoBytes, string remotePath)
     {
-        if (string.IsNullOrWhiteSpace(localFilePath) || !File.Exists(localFilePath))
-        {
-            throw new ArgumentException("File path is invalid or does not exist", nameof(localFilePath));
-        }
-
         var storageRef = CrossFirebaseStorage.Current.GetRootReference().GetChild(remotePath);
-        await storageRef.PutFile(localFilePath).AwaitAsync();
+        await storageRef.PutBytes(photoBytes, new StorageMetadata(contentType: "image/jpeg")).AwaitAsync();
         return await storageRef.GetDownloadUrlAsync();
     }
 }

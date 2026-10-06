@@ -32,11 +32,12 @@ public static class ShiftClock
 
         value = value.Trim();
         DateTime phTime;
-        if (DateTime.TryParseExact(value, "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime full))
+        // One- or two-digit hours: "8:00" and "08:00" both work.
+        if (DateTime.TryParseExact(value, new[] { "yyyy-MM-dd H:mm", "yyyy-MM-dd HH:mm" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime full))
         {
             phTime = full;
         }
-        else if (TimeSpan.TryParseExact(value, @"hh\:mm", CultureInfo.InvariantCulture, out TimeSpan timeOfDay))
+        else if (TimeSpan.TryParseExact(value, new[] { @"h\:mm", @"hh\:mm" }, CultureInfo.InvariantCulture, out TimeSpan timeOfDay))
         {
             phTime = PhilippineTime.Now.Date + timeOfDay;
         }

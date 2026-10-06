@@ -606,3 +606,7 @@ bin/
 obj/
 
 *.iml
+
+.context/
+
+CLAUDE.md

@@ -1,65 +1,69 @@
 @page "/login"
-@using System.Text.Json
 @rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+@using System.Text.Json
+@using LARGA.ManagerWeb.Services
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
+@inject ManagerSignInService SignInService
 
 <PageTitle>Login - web</PageTitle>
 
 <div class="auth-page">
-    <div class="back-link">
-        <a href="/">← Back to Home</a>
-    </div>
-
-    <EditForm Model="_model" FormName="manager-login" OnValidSubmit="HandleLogin" class="auth-card">
-        <DataAnnotationsValidator />
-
-        <div class="brand-lockup">
-            <img class="mini-logo" src="/images/larga-logo-taxi.png" alt="LARGA Fleet OS logo" />
-            <div class="brand-title">Manager Portal</div>
+        <div class="back-link">
+            <a href="/">← Back to Home</a>
         </div>
 
-        <h2>Welcome back</h2>
-        <p>Sign in to your manager account to continue.</p>
+        <EditForm Model="_model" FormName="manager-login" OnValidSubmit="HandleLogin" class="auth-card">
+            <DataAnnotationsValidator />
 
-        @if (!string.IsNullOrWhiteSpace(_errorMessage))
-        {
-            <div class="login-error">@_errorMessage</div>
-        }
+            <div class="brand-lockup">
+                <img class="mini-logo" src="/images/larga-logo-taxi.png" alt="LARGA Fleet OS logo" />
+                <div class="brand-title">Manager Portal</div>
+            </div>
 
-        <div class="form-block">
-            <label for="email">EMAIL ADDRESS</label>
-            <InputText id="email" @bind-Value="_model.Email" class="form-control" type="email" maxlength="254" placeholder="manager@company.com" />
-            <ValidationMessage For="() => _model.Email" class="field-error" />
+            <h2>Welcome back</h2>
+            <p>Sign in to your manager account to continue.</p>
+
+            @if (!string.IsNullOrWhiteSpace(_errorMessage))
+            {
+                <div class="login-error">@_errorMessage</div>
+            }
+
+            <div class="form-block">
+                <label for="email">EMAIL ADDRESS</label>
+                <InputText id="email" @bind-Value="_model.Email" class="form-control" type="email" maxlength="254" placeholder="manager@company.com" />
+                <ValidationMessage For="() => _model.Email" class="field-error" />
+            </div>
+
+            <div class="form-block">
+                <label for="password">PASSWORD</label>
+                <InputText id="password" @bind-Value="_model.Password" class="form-control" type="password" maxlength="64" placeholder="Enter your password" />
+                <ValidationMessage For="() => _model.Password" class="field-error" />
+            </div>
+
+            <div class="inline-action">
+                <a href="/login">Forgot password?</a>
+            </div>
+
+            <button class="primary-btn full-width" type="submit" disabled="@_isSubmitting">
+                @(_isSubmitting ? "SIGNING IN..." : "SIGN IN TO DASHBOARD")
+            </button>
+
+            <div class="auth-divider"><span>OR</span></div>
+
+            <div class="switch-copy">
+                Don't have a manager account? <a href="/register">Request Access</a>
+            </div>
+        </EditForm>
+
+        <div class="portal-note">
+            <span class="shield-icon">◈</span>
+            <span>Manager-only portal</span>
+            <span class="dot-separator">•</span>
+            <span>Drivers use the mobile app</span>
         </div>
-
-        <div class="form-block">
-            <label for="password">PASSWORD</label>
-            <InputText id="password" @bind-Value="_model.Password" class="form-control" type="password" maxlength="64" placeholder="Enter your password" />
-            <ValidationMessage For="() => _model.Password" class="field-error" />
-        </div>
-
-        <div class="inline-action">
-            <a href="/login">Forgot password?</a>
-        </div>
-
-        <button class="primary-btn full-width" type="submit" disabled="@_isSubmitting">
-            @(_isSubmitting ? "SIGNING IN..." : "SIGN IN TO DASHBOARD")
-        </button>
-
-        <div class="auth-divider"><span>OR</span></div>
-
-        <div class="switch-copy">
-            Don't have a manager account? <a href="/register">Request Access</a>
-        </div>
-    </EditForm>
-
-    <div class="portal-note">
-        <span class="shield-icon">◈</span>
-        <span>Manager-only portal</span>
-        <span class="dot-separator">•</span>
-        <span>Drivers use the mobile app</span>
-    </div>
 </div>
 
 @code {
@@ -72,7 +76,14 @@
     {
         if (firstRender)
         {
-            _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+            try
+            {
+                // Safely import Firebase
+                _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+            }
+            catch { }
+
+            StateHasChanged();
         }
     }
 
@@ -92,13 +103,25 @@
 
             if (result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True)
             {
-                Navigation.NavigateTo("/dashboard", forceLoad: false);
+                // The browser-side role check is only for UX; the server re-verifies the ID token and
+                // the Manager role before issuing a one-time ticket for the cookie endpoint.
+                string? idToken = result.TryGetProperty("idToken", out var tokenProp) && tokenProp.ValueKind == JsonValueKind.String
+                    ? tokenProp.GetString()
+                    : null;
+
+                var (ticket, error) = await SignInService.CreateTicketAsync(idToken);
+                if (ticket is null)
+                {
+                    _errorMessage = error;
+                    return;
+                }
+
+                var signInUrl = $"/auth/signin?ticket={ticket}&returnUrl={Uri.EscapeDataString(GetSafeReturnUrl())}";
+                Navigation.NavigateTo(signInUrl, forceLoad: true, replace: true);
                 return;
             }
 
-            if (result.TryGetProperty("code", out var codeProp)
-                && codeProp.ValueKind == JsonValueKind.String
-                && codeProp.GetString() == "manager-only")
+            if (result.TryGetProperty("code", out var codeProp) && codeProp.ValueKind == JsonValueKind.String && codeProp.GetString() == "manager-only")
             {
                 _errorMessage = "This account is not authorized to access the manager portal.";
                 return;
@@ -131,5 +154,38 @@
 
         [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your password.")]
         public string Password { get; set; } = string.Empty;
+    }
+
+    private string GetSafeReturnUrl()
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        string? candidate = null;
+
+        string queryText = uri.Query;
+        if (!string.IsNullOrWhiteSpace(queryText))
+        {
+            foreach (var segment in queryText.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var parts = segment.Split('=', 2);
+                var key = Uri.UnescapeDataString(parts[0]);
+
+                if (key.Equals("ReturnUrl", StringComparison.OrdinalIgnoreCase))
+                {
+                    candidate = parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : string.Empty;
+                    break;
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(candidate)
+            && Uri.IsWellFormedUriString(candidate, UriKind.Relative)
+            && candidate.StartsWith('/')
+            && !candidate.StartsWith("//")
+            && !candidate.StartsWith("/\\"))
+        {
+            return candidate;
+        }
+
+        return "/dashboard";
     }
 }
