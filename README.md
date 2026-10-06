@@ -96,7 +96,7 @@ These files are intentionally excluded from source control. Obtain the developme
 - Copy `LARGA.ManagerWeb/appsettings.Development.json.example` to `LARGA.ManagerWeb/appsettings.Development.json` and obtain any local map/API settings from the team. For server-side Firestore/Admin access, copy `appsettings.Local.json.example` to `appsettings.Local.json` and set `Firestore:ProjectId` and `Firestore:CredentialsPath` to a service-account key stored outside the repository. Never commit the key.
 - A service-account key can be generated in Firebase Console → Project settings → Service accounts → **Generate new private key**. Restrict the key to local development and revoke it if exposed.
 
-Manager login requires a Firebase Auth account whose Firestore user profile has `role` set to `Manager` (case-insensitive). Valid credentials without the profile/role do not grant web access.
+Manager login requires a Firebase Auth account whose Firestore user profile has `role` set to `Manager` or `Assistant Manager` (case-insensitive). Valid credentials without one of these roles do not grant web access. Assistant Managers can view the dashboard, drivers & shifts, SOS dispatch, financial ledger (and record payments), garage, and fuel logs; Audit Logs and Inventory are Manager-only.
 
 ## GitFlow
 
