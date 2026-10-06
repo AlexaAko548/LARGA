@@ -5,6 +5,7 @@ using Microsoft.Maui.Controls;
 using Microsoft.Maui.Storage;
 using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
+using LARGA.MobileApp.Services;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -25,14 +26,16 @@ public class ClockInPendingViewModel : BindableObject
 
     private readonly IShiftManagementService _shiftService;
     private readonly IGpsTelemetryService _telemetryService;
+    private readonly IEmergencyMonitor _emergencyMonitor;
     private IDispatcherTimer? _timer;
     private bool _isChecking;
     private bool _isFinished;
 
-    public ClockInPendingViewModel(IShiftManagementService shiftService, IGpsTelemetryService telemetryService)
+    public ClockInPendingViewModel(IShiftManagementService shiftService, IGpsTelemetryService telemetryService, IEmergencyMonitor emergencyMonitor)
     {
         _shiftService = shiftService;
         _telemetryService = telemetryService;
+        _emergencyMonitor = emergencyMonitor;
         CancelRequestCommand = new Command(async () => await CancelRequestAsync());
         BackToDashboardCommand = new Command(async () => await BackToDashboardAsync());
     }
@@ -162,6 +165,9 @@ public class ClockInPendingViewModel : BindableObject
         // LAR-77 Contextual Auto-Cutoff Protocol: an approved clock-in is still a successful
         // clock-in, so telemetry starts here too (PreShiftStep2 covers the unflagged path).
         _telemetryService.Start(newDocumentId);
+
+        // LAR-86/87: automated emergency detection runs for the length of the shift.
+        _ = _emergencyMonitor.StartAsync(newDocumentId);
 
         // The inspection the manager approved becomes this shift's pre-shift checklist (its
         // photos were uploaded with the request). Never blocks the shift.

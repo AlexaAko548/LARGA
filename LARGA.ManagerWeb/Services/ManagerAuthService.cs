@@ -78,10 +78,30 @@ namespace LARGA.ManagerWeb.Services
                     return (false, "That doesn't match the number currently on file.");
                 }
 
+                string normalizedNew = InputValidator.NormalizePhilippineMobile(model.NewContactNumber)!;
+
                 await docRef.UpdateAsync(new Dictionary<string, object>
                 {
-                    ["phoneNumber"] = InputValidator.NormalizePhilippineMobile(model.NewContactNumber)!,
+                    ["phoneNumber"] = normalizedNew,
                 });
+
+                // LAR-86/87: keep this manager's number current in the driver app's auto-answer
+                // allowlist (system_configs/global.managerPhoneNumbers). Best-effort - a failure
+                // here must not fail the contact-number change the manager just confirmed.
+                try
+                {
+                    DocumentReference configRef = _firestoreDb.Value.Collection("system_configs").Document("global");
+                    string? normalizedOld = InputValidator.NormalizePhilippineMobile(onFile);
+                    if (normalizedOld != null && normalizedOld != normalizedNew)
+                    {
+                        await configRef.UpdateAsync("managerPhoneNumbers", FieldValue.ArrayRemove(normalizedOld));
+                    }
+                    await configRef.UpdateAsync("managerPhoneNumbers", FieldValue.ArrayUnion(normalizedNew));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Updated the manager's number but couldn't sync the SOS auto-answer allowlist.");
+                }
 
                 return (true, string.Empty);
             }
