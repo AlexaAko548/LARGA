@@ -1,4 +1,3 @@
-using System.Collections.Specialized;
 using System.ComponentModel;
 using BruTile.Predefined;
 using BruTile.Web;
@@ -33,10 +32,18 @@ public partial class ManagerDashboardPage : ContentPage
     // to zoom in past the general fleet-overview level to the driver's exact spot.
     private const double CloseUpResolution = 0.6;
 
+    // How long a pin glides from its last known spot to a freshly-refreshed one, instead of
+    // snapping instantly - the write cadence underneath (gps_telemetry every 30s, see
+    // TelemetryServices.cs) stays put; this is a purely visual smoothing layer so a 30s-old
+    // position doesn't look like it's teleporting around the map.
+    private const uint PinGlideDurationMs = 1500;
+    private const string PinAnimationName = "FleetPinGlide";
+
     private readonly FleetMapViewModel _viewModel;
     private MapControl? _mapControl;
     private MemoryLayer? _pinsLayer;
     private bool _hasCenteredMap;
+    private readonly Dictionary<string, (double X, double Y)> _lastRenderedPositions = new();
 
     public ManagerDashboardPage()
     {
@@ -79,7 +86,9 @@ public partial class ManagerDashboardPage : ContentPage
 
             // Mapsui's Pin isn't bindable-ItemsSource-friendly (no Command/CommandParameter),
             // so the map's feature layer is kept in sync with the viewmodel's Pins by hand.
-            _viewModel.Pins.CollectionChanged += OnPinsChanged;
+            // Driven off FleetLoaded (fires once, after a full refresh settles) rather than
+            // Pins.CollectionChanged (fires once per Clear() and once per Add(), mid-rebuild)
+            // so a glide animation always starts from a stable prior frame, never a partial one.
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
             _viewModel.FleetLoaded += OnFleetLoaded;
             _viewModel.NavigateRequested += OnNavigateRequested;
@@ -117,19 +126,86 @@ public partial class ManagerDashboardPage : ContentPage
     {
         base.OnAppearing();
         _viewModel.LoadFleetCommand.Execute(null);
+        _viewModel.StartAutoRefresh();
     }
 
-    private void OnPinsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    protected override void OnDisappearing()
     {
-        // Only ever subscribed once the map itself initialized successfully - see the
-        // try/catch in the constructor - but guard anyway now that these are nullable.
+        base.OnDisappearing();
+        _viewModel.StopAutoRefresh();
+        this.AbortAnimation(PinAnimationName);
+    }
+
+    /// <summary>Rebuilds the pin layer from the viewmodel's current Pins. A true data refresh
+    /// (animate: true, from FleetLoaded) glides any pin whose position actually changed from
+    /// its last-rendered spot to the new one; a filter-only change (animate: false, from the
+    /// StatusFilter property) just snaps the now-visible set straight to their real
+    /// positions - there's no "old" position to glide from, the pin was simply hidden.</summary>
+    private void RenderPins(bool animate)
+    {
+        if (_mapControl is null || _pinsLayer is null) return;
+
+        var targets = _viewModel.Pins
+            .Select(pin =>
+            {
+                var (x, y) = SphericalMercator.FromLonLat(pin.Longitude, pin.Latitude);
+                return (Pin: pin, X: x, Y: y);
+            })
+            .ToList();
+
+        var animating = new Dictionary<string, (double FromX, double FromY, double ToX, double ToY)>();
+        if (animate)
+        {
+            foreach (var target in targets)
+            {
+                if (_lastRenderedPositions.TryGetValue(target.Pin.TaxiId, out var prev) &&
+                    (Math.Abs(prev.X - target.X) > 0.01 || Math.Abs(prev.Y - target.Y) > 0.01))
+                {
+                    animating[target.Pin.TaxiId] = (prev.X, prev.Y, target.X, target.Y);
+                }
+            }
+        }
+
+        this.AbortAnimation(PinAnimationName);
+
+        if (animating.Count == 0)
+        {
+            ApplyPinFeatures(targets);
+        }
+        else
+        {
+            var anim = new Animation(t =>
+            {
+                var frame = targets.Select(target => animating.TryGetValue(target.Pin.TaxiId, out var a)
+                    ? (target.Pin, X: a.FromX + (a.ToX - a.FromX) * t, Y: a.FromY + (a.ToY - a.FromY) * t)
+                    : target);
+                ApplyPinFeatures(frame);
+            });
+            anim.Commit(this, PinAnimationName, length: PinGlideDurationMs, easing: Easing.CubicInOut);
+        }
+
+        _lastRenderedPositions.Clear();
+        foreach (var target in targets)
+        {
+            _lastRenderedPositions[target.Pin.TaxiId] = (target.X, target.Y);
+        }
+
+        if (!_hasCenteredMap && !MapFocusRequest.HasPending && targets.Count > 0)
+        {
+            _hasCenteredMap = true;
+            var first = targets[0];
+            _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(first.X, first.Y), DefaultResolution);
+        }
+    }
+
+    private void ApplyPinFeatures(IEnumerable<(FleetPin Pin, double X, double Y)> items)
+    {
         if (_mapControl is null || _pinsLayer is null) return;
 
         var features = new List<IFeature>();
 
-        foreach (var pin in _viewModel.Pins)
+        foreach (var (pin, x, y) in items)
         {
-            var (x, y) = SphericalMercator.FromLonLat(pin.Longitude, pin.Latitude);
             var digits = new string(pin.TaxiId.Where(char.IsDigit).ToArray());
             var shortUnitLabel = int.TryParse(digits, out var unitNumber) ? $"{unitNumber:D2}" : "—";
 
@@ -162,14 +238,6 @@ public partial class ManagerDashboardPage : ContentPage
 
         _pinsLayer.Features = features;
         _mapControl.RefreshGraphics();
-
-        if (!_hasCenteredMap && !MapFocusRequest.HasPending && _viewModel.Pins.Count > 0)
-        {
-            _hasCenteredMap = true;
-            var first = _viewModel.Pins[0];
-            var (x, y) = SphericalMercator.FromLonLat(first.Longitude, first.Latitude);
-            _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), DefaultResolution);
-        }
     }
 
     private void OnNavigateRequested(object? sender, FleetPin pin)
@@ -183,6 +251,8 @@ public partial class ManagerDashboardPage : ContentPage
     private void OnFleetLoaded(object? sender, EventArgs e)
     {
         if (_mapControl is null) return;
+
+        RenderPins(animate: true);
 
         // Runs once per load, after Pins is fully rebuilt (unlike Pins.CollectionChanged,
         // which fires separately for ApplyFilter's Clear() and each individual Add() - acting
@@ -221,6 +291,14 @@ public partial class ManagerDashboardPage : ContentPage
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(FleetMapViewModel.StatusFilter))
+        {
+            // Filter toggled: the visible set changed, but no new telemetry arrived, so just
+            // snap to the (already-known) real positions - nothing to glide from.
+            RenderPins(animate: false);
+            return;
+        }
+
         // Selecting a unit from the bottom shortcut row can pick a taxi that's off-screen
         // (or was never in view because the map hasn't been panned there) - pan to it same
         // as tapping its pin directly would. A tap on the pin itself also raises this (it's

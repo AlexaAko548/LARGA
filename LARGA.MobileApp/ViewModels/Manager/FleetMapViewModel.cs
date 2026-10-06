@@ -174,6 +174,14 @@ public class FleetMapViewModel : BindableObject
     private static readonly TimeZoneInfo TalisayTimeZone = ResolveTalisayTimeZone();
     private readonly System.Timers.Timer _clockTimer;
 
+    // Keeps the map's pin positions current while the tab is open, on the same cadence
+    // GpsTelemetryService writes at (TelemetryServices.cs) - no point polling faster than
+    // new data can possibly arrive. Start/Stop are called from the page's OnAppearing/
+    // OnDisappearing so this doesn't keep reading Firestore while the manager is elsewhere
+    // in the app.
+    private readonly System.Timers.Timer _autoRefreshTimer;
+    private bool _isRefreshing;
+
     private string _currentDateText = string.Empty;
     public string CurrentDateText
     {
@@ -249,7 +257,13 @@ public class FleetMapViewModel : BindableObject
         _clockTimer = new System.Timers.Timer(60_000);
         _clockTimer.Elapsed += (_, _) => MainThread.BeginInvokeOnMainThread(UpdateCurrentDate);
         _clockTimer.Start();
+
+        _autoRefreshTimer = new System.Timers.Timer(30_000);
+        _autoRefreshTimer.Elapsed += (_, _) => MainThread.BeginInvokeOnMainThread(async () => await LoadFleetAsync());
     }
+
+    public void StartAutoRefresh() => _autoRefreshTimer.Start();
+    public void StopAutoRefresh() => _autoRefreshTimer.Stop();
 
     private void UpdateCurrentDate()
     {
@@ -276,6 +290,11 @@ public class FleetMapViewModel : BindableObject
 
     private async Task LoadFleetAsync()
     {
+        // The 30s auto-refresh tick can fire again before a slow previous run (e.g. a big
+        // fleet on a weak connection) has finished - skip rather than stack overlapping runs.
+        if (_isRefreshing) return;
+        _isRefreshing = true;
+
         try
         {
             // Revisiting the Map tab re-runs this whole method (OnAppearing), so the stat
@@ -405,6 +424,10 @@ public class FleetMapViewModel : BindableObject
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Load Fleet Error: {ex.Message}");
+        }
+        finally
+        {
+            _isRefreshing = false;
         }
     }
 
