@@ -215,6 +215,9 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
                 .GetCollection("emergency_alerts")
                 .AddDocumentAsync(alert);
 
+            await LARGA.MobileApp.Services.AuditLogWriter.WriteAsync("SosTriggered",
+                $"Triggered SOS for {TaxiUnit} ({driverName}) during shift {shiftId}.");
+
             IsSosAlertVisible = true;
         }
         catch (Exception ex)

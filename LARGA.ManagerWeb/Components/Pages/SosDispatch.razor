@@ -187,11 +187,21 @@ else
 
     private HashSet<string> _unreadDriverIds = new();
 
+    private string _managerUserId = string.Empty;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
         {
             return;
+        }
+
+        // Read the signed-in manager's UID for the audit log entry on each resolve.
+        IJSObjectReference firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+        JsonElement access = await firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
+        if (access.TryGetProperty("uid", out JsonElement uidProp) && uidProp.ValueKind == JsonValueKind.String)
+        {
+            _managerUserId = uidProp.GetString() ?? string.Empty;
         }
 
         await LoadAsync();
@@ -240,7 +250,7 @@ else
         _busyAlertId = alert.AlertId;
         try
         {
-            await Dispatch.SetResolvedAsync(alert.AlertId, isResolved);
+            await Dispatch.SetResolvedAsync(alert.AlertId, isResolved, _managerUserId);
             await LoadAsync();
         }
         catch (Exception ex)
