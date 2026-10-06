@@ -209,9 +209,6 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
                 return;
             }
 
-            await LARGA.MobileApp.Services.AuditLogWriter.WriteAsync("SosTriggered",
-                $"Triggered SOS for {TaxiUnit} ({driverName}) during shift {shiftId}.");
-
             IsSosAlertVisible = true;
         }
         catch (Exception ex)
