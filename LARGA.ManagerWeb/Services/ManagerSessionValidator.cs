@@ -25,7 +25,8 @@ public static class ManagerSessionValidator
         bool revoked = uid is null || signIn.IsKnownRevoked(uid);
         if (!revoked && ManagerSignInService.NeedsRecheck(principal))
         {
-            ManagerSignInService.AccessCheck access = await signIn.CheckAccessAsync(uid, principal.FindFirst(ClaimTypes.Email)?.Value);
+            ManagerSignInService.AccessCheck access = await signIn.CheckAccessAsync(
+                uid, principal.FindFirst(ClaimTypes.Email)?.Value, principal.FindFirst(ClaimTypes.Role)?.Value);
             revoked = access == ManagerSignInService.AccessCheck.Revoked;
 
             if (access == ManagerSignInService.AccessCheck.Allowed)

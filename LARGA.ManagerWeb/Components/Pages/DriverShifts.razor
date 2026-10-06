@@ -38,7 +38,7 @@ else
 
             <div class="header-actions">
                 <NotificationBell />
-                <MessagesButton />
+                @if (_canManage) { <MessagesButton /> }
                 <ManagerProfileMenu />
             </div>
         </header>
@@ -104,8 +104,8 @@ else
                         </div>
 
                         <div class="clockin-request-actions">
-                            <button class="solid-btn" type="button" disabled="@_isDecidingClockIn" @onclick="() => ApproveClockInAsync(item)">✓ Approve</button>
-                            <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)">✕ Deny</button>
+                            @if (_canManage) { <button class="solid-btn" type="button" disabled="@_isDecidingClockIn" @onclick="() => ApproveClockInAsync(item)">✓ Approve</button> }
+                            @if (_canManage) { <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)">✕ Deny</button> }
                         </div>
                     </article>
                 }
@@ -155,8 +155,8 @@ else
                 <button class="tab-btn @(_activeTab == "logs" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("logs")'>▥ Shift Logs</button>
             </div>
             <div class="tab-actions">
-                <button class="solid-btn" type="button" @onclick="OpenManagerNoteModal">+ Add Manager Note</button>
-                <button class="solid-btn" type="button" @onclick="OpenAddDriverModal">+ Add New Driver</button>
+                @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenManagerNoteModal">+ Add Manager Note</button> }
+                @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenAddDriverModal">+ Add New Driver</button> }
             </div>
         </section>
 
@@ -269,7 +269,7 @@ else
                                             DriverScheduleRow cellRow = row;
                                             <td class="schedule-cell-wrap @(IsToday(cell.Date) ? "schedule-today" : "")">
                                                 <button class="schedule-cell @ScheduleCellCss(cell)" type="button"
-                                                        disabled="@cell.IsLicenseIneligible"
+                                                        disabled="@(cell.IsLicenseIneligible || !_canManage)"
                                                         title="@ScheduleCellTooltip(cellRow, cell)"
                                                         @onclick="() => OnScheduleCellClickedAsync(cellRow, cell)">
                                                     @if (cell.IsLicenseIneligible && cellRow.LicenseStatus == LicenseStatus.NotSet)
@@ -997,6 +997,15 @@ else
 }
 
 @code {
+    // Assistant Managers can view drivers and shifts but can't approve clock-ins, edit the schedule, or add notes/drivers.
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
+    }
+
     // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
     private bool _isLoading = true;
     private string _managerUserId = string.Empty;

@@ -156,10 +156,14 @@ builder.Services
 // the old unauthenticated /auth/signin?uid=... endpoint (those have no role claim).
 builder.Services.AddAuthorization(options =>
 {
+    // Manager and Assistant Manager may open the portal; pages needing a full Manager opt into ManagerOnlyPolicy.
     options.DefaultPolicy = new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
-        .RequireRole(ManagerSignInService.ManagerRole)
+        .RequireRole(ManagerSignInService.ManagerRole, ManagerSignInService.AssistantManagerRole)
         .Build();
+    options.AddPolicy(ManagerSignInService.ManagerOnlyPolicy, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireRole(ManagerSignInService.ManagerRole));
 });
 builder.Services.AddCascadingAuthenticationState();
 // Same 10-minute re-check for open Blazor circuits, which make no new HTTP requests.

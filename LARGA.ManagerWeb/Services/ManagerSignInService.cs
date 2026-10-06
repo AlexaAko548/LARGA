@@ -18,7 +18,7 @@ namespace LARGA.ManagerWeb.Services;
 ///   3. /auth/signin redeems the ticket (once) and issues the cookie.
 ///
 /// After sign-in, access is re-checked server-side every <see cref="RecheckInterval"/> (account
-/// still enabled in Firebase, users/{uid}.role still Manager): on page requests by the cookie's
+/// still enabled in Firebase, users/{uid}.role still the role the session was issued with): on page requests by the cookie's
 /// OnValidatePrincipal (ManagerSessionValidator) and on open Blazor circuits by
 /// ManagerRevalidatingAuthStateProvider. So a manager whose access is removed is signed out
 /// within that interval instead of keeping it until the 8-hour cookie expires.
@@ -26,6 +26,14 @@ namespace LARGA.ManagerWeb.Services;
 public class ManagerSignInService
 {
     public const string ManagerRole = "Manager";
+    public const string AssistantManagerRole = "Assistant Manager";
+
+    /// <summary>Roles that may sign in to the web portal. Pages not limited by <see cref="ManagerOnlyPolicy"/> are open to both.</summary>
+    private static readonly string[] StaffRoles = [ManagerRole, AssistantManagerRole];
+
+    /// <summary>Policy for pages only a full Manager may open (Audit Logs, Inventory).</summary>
+    public const string ManagerOnlyPolicy = "ManagerOnly";
+
     private static readonly TimeSpan TicketLifetime = TimeSpan.FromSeconds(60);
 
     /// <summary>How often a signed-in manager's access is checked again.</summary>
@@ -77,7 +85,8 @@ public class ManagerSignInService
 
         string? email = token.Claims.TryGetValue("email", out var emailClaim) ? emailClaim as string : null;
 
-        if (!await IsManagerAsync(token.Uid, email))
+        string? role = await StaffRoleAsync(token.Uid, email);
+        if (role is null)
         {
             return (null, "This account is not authorized to access the manager portal.");
         }
@@ -87,7 +96,7 @@ public class ManagerSignInService
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, token.Uid),
-            new(ClaimTypes.Role, ManagerRole),
+            new(ClaimTypes.Role, role),
             new(ValidatedAtClaim, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString())
         };
         if (!string.IsNullOrWhiteSpace(email))
@@ -113,23 +122,24 @@ public class ManagerSignInService
         return entry.ExpiresAt > DateTimeOffset.UtcNow ? entry.Principal : null;
     }
 
-    private async Task<bool> IsManagerAsync(string uid, string? email)
+    /// <summary>The portal role (<see cref="ManagerRole"/> or <see cref="AssistantManagerRole"/>), or null if the account has neither.</summary>
+    private async Task<string?> StaffRoleAsync(string uid, string? email)
     {
         try
         {
-            return await LookupIsManagerAsync(uid, email);
+            return await LookupStaffRoleAsync(uid, email);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Manager role lookup failed for uid {Uid}.", uid);
-            return false;
+            return null;
         }
     }
 
     // Same lookup as getManagerRole() in wwwroot/firebase-auth.js: users/{uid}, falling back to a
     // users doc whose email matches (email comes from the verified token, not from the client).
     // Throws when Firestore can't be reached.
-    private async Task<bool> LookupIsManagerAsync(string uid, string? email)
+    private async Task<string?> LookupStaffRoleAsync(string uid, string? email)
     {
         CollectionReference users = _firestore.Value.Collection("users");
         DocumentSnapshot profile = await users.Document(uid).GetSnapshotAsync();
@@ -140,9 +150,11 @@ public class ManagerSignInService
             profile = matches.Documents.FirstOrDefault() ?? profile;
         }
 
-        return profile.Exists
-            && profile.TryGetValue("role", out string role)
-            && string.Equals(role?.Trim(), ManagerRole, StringComparison.OrdinalIgnoreCase);
+        if (!profile.Exists || !profile.TryGetValue("role", out string role))
+        {
+            return null;
+        }
+        return StaffRoles.FirstOrDefault(r => string.Equals(r, role?.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>True when the session's access is due for a re-check (or was never stamped).</summary>
@@ -167,10 +179,11 @@ public class ManagerSignInService
     public bool IsKnownRevoked(string uid) => _revokedUids.ContainsKey(uid);
 
     /// <summary>
-    /// Re-checks a signed-in manager: the Firebase account still exists and isn't disabled, and
-    /// users/{uid}.role is still Manager.
+    /// Re-checks a signed-in staff member: the Firebase account still exists and isn't disabled, and
+    /// users/{uid}.role still equals the role the session was issued with. A role change (e.g. a
+    /// Manager demoted to Assistant Manager) ends the session, so the next sign-in gets the new role.
     /// </summary>
-    public async Task<AccessCheck> CheckAccessAsync(string? uid, string? email)
+    public async Task<AccessCheck> CheckAccessAsync(string? uid, string? email, string? sessionRole)
     {
         if (string.IsNullOrEmpty(uid))
         {
@@ -180,7 +193,8 @@ public class ManagerSignInService
         try
         {
             UserRecord user = await _firebaseAuth.Value.GetUserAsync(uid);
-            if (user.Disabled || !await LookupIsManagerAsync(uid, email))
+            string? currentRole = await LookupStaffRoleAsync(uid, email);
+            if (user.Disabled || currentRole is null || !string.Equals(currentRole, sessionRole, StringComparison.Ordinal))
             {
                 _revokedUids[uid] = DateTimeOffset.UtcNow;
                 _logger.LogInformation("Manager access revoked for uid {Uid}; ending the session.", uid);
