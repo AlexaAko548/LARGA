@@ -10,4 +10,13 @@ public partial class LedgerPage : ContentPage
         InitializeComponent();
         BindingContext = viewModel;
     }
+
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+        if (BindingContext is LedgerViewModel viewModel)
+        {
+            await viewModel.LoadDynamicLedgerDataAsync();
+        }
+    }
 }

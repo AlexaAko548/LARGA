@@ -20,6 +20,7 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
     private readonly IOcrService _ocrService;
     private readonly IPhotoStorageService _photoStorage;
     private readonly IGpsTelemetryService _telemetryService;
+    private readonly IEmergencyMonitor _emergencyMonitor;
     private Dictionary<string, bool> _inspection = new();
     private List<string> _defectReportIds = new();
     private string _assignedTaxiId = string.Empty;
@@ -110,12 +111,13 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
     public ICommand AttachPhotoCommand { get; }
     public ICommand ConfirmStartShiftCommand { get; }
 
-    public PreShiftStep2ViewModel(IShiftManagementService shiftService, IOcrService ocrService, IPhotoStorageService photoStorage, IGpsTelemetryService telemetryService)
+    public PreShiftStep2ViewModel(IShiftManagementService shiftService, IOcrService ocrService, IPhotoStorageService photoStorage, IGpsTelemetryService telemetryService, IEmergencyMonitor emergencyMonitor)
     {
         _shiftService = shiftService;
         _ocrService = ocrService;
         _photoStorage = photoStorage;
         _telemetryService = telemetryService;
+        _emergencyMonitor = emergencyMonitor;
 
         CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Register<PreShiftStep2ViewModel, OdometerScannedData, string>(this, "PreShiftOdometerScanned", (r, data) =>
         {
@@ -410,6 +412,9 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
             // LAR-77 Contextual Auto-Cutoff Protocol: telemetry starts strictly on a
             // successful clock-in, never before.
             _telemetryService.Start(newDocumentId);
+
+            // LAR-86/87: automated emergency detection runs for the length of the shift.
+            _ = _emergencyMonitor.StartAsync(newDocumentId);
 
             StartingOdometer = string.Empty;
             FuelPhoto = null;

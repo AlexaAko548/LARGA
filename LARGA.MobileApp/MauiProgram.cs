@@ -64,6 +64,17 @@ public static class MauiProgram
         builder.Services.AddSingleton<IFuelService, FuelService>();
         builder.Services.AddSingleton<IGpsTelemetryService, GpsTelemetryService>();
 
+        // LAR-86/87: the one writer for emergency_alerts (manual SOS + automated protocols).
+        builder.Services.AddSingleton<IEmergencyAlertService, EmergencyAlertService>();
+        // Shared by the detection service (runs the countdown) and the cancel pop-up (shows it).
+        builder.Services.AddSingleton<EmergencyCountdownCoordinator>();
+#if ANDROID
+        builder.Services.AddSingleton<IEmergencyMonitor, LARGA.MobileApp.Platforms.Android.Emergency.AndroidEmergencyMonitor>();
+#else
+        // Automated detection needs Android sensor/telephony APIs; other platforms keep the manual button.
+        builder.Services.AddSingleton<IEmergencyMonitor, NoOpEmergencyMonitor>();
+#endif
+
 #if ANDROID
         builder.Services.AddSingleton<IOcrService, LARGA.MobileApp.Platforms.Android.Services.AndroidOcrService>();
 #else

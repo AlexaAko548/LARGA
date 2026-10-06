@@ -44,6 +44,10 @@ public partial class ManagerDashboardPage : ContentPage
         _viewModel = new FleetMapViewModel();
         BindingContext = _viewModel;
 
+        // LAR-86/87: make sure this manager's number is one a driver's phone will auto-answer
+        // after an automated SOS. Covers fresh logins and remember-me alike.
+        _ = ManagerAllowlistSync.SyncCurrentManagerAsync();
+
         // SkiaSharp's WinUI native interop (which Mapsui's MapRenderer depends on) is broken
         // in *unpackaged* Windows builds - a known, currently-unresolved upstream limitation
         // (see dotnet/maui#23737, mono/SkiaSharp#2968/#3440), not anything specific to this

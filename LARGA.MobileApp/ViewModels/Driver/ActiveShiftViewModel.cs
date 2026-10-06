@@ -14,12 +14,14 @@ using Plugin.Firebase.Firestore;
 using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
 using LARGA.Shared.Models.Entities;
+using LARGA.MobileApp.Services;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
 public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
 {
     private readonly IShiftManagementService _shiftService;
+    private readonly IEmergencyAlertService _emergencyAlertService;
     private readonly IDispatcherTimer _shiftTimer;
     private TimeSpan _shiftDuration;
     private TimeSpan _timeRemaining;
@@ -118,9 +120,10 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     public ICommand ConfirmPauseCommand { get; }
     public ICommand CancelPauseCommand { get; }
 
-    public ActiveShiftViewModel(IShiftManagementService shiftService)
+    public ActiveShiftViewModel(IShiftManagementService shiftService, IEmergencyAlertService emergencyAlertService)
     {
         _shiftService = shiftService;
+        _emergencyAlertService = emergencyAlertService;
 
         // Timer instantiation remains in the constructor so it exists globally
         _shiftTimer = Application.Current.Dispatcher.CreateTimer();
@@ -175,10 +178,6 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
                 return;
             }
 
-            var user = CrossFirebaseAuth.Current.CurrentUser;
-            string driverId = user?.Uid ?? string.Empty;
-            string driverName = string.IsNullOrWhiteSpace(user?.DisplayName) ? "Unknown Driver" : user.DisplayName;
-
             PermissionStatus status = await Permissions.CheckStatusAsync<Permissions.LocationWhenInUse>();
             if (status != PermissionStatus.Granted)
             {
@@ -199,21 +198,16 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
                 return;
             }
 
-            var alert = new EmergencySosProxy
-            {
-                ShiftId = shiftId,
-                DriverId = driverId,
-                DriverName = driverName,
-                TaxiUnit = TaxiUnit,
-                Latitude = location.Latitude,
-                Longitude = location.Longitude,
-                IsResolved = false,
-                Timestamp = DateTime.UtcNow,
-            };
+            // Shared with the automated LAR-86/87 protocols - one writer for emergency_alerts.
+            // A manual press is the "Standard" trigger type.
+            string? alertId = await _emergencyAlertService.SendAlertAsync(
+                EmergencyAlert.Standard, location.Latitude, location.Longitude);
 
-            await CrossFirebaseFirestore.Current
-                .GetCollection("emergency_alerts")
-                .AddDocumentAsync(alert);
+            if (alertId == null)
+            {
+                await Shell.Current.DisplayAlert("SOS Failed", "Could not send your SOS alert. Please try again.", "OK");
+                return;
+            }
 
             await LARGA.MobileApp.Services.AuditLogWriter.WriteAsync("SosTriggered",
                 $"Triggered SOS for {TaxiUnit} ({driverName}) during shift {shiftId}.");
@@ -229,33 +223,6 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         {
             _isSendingSos = false;
         }
-    }
-
-    private class EmergencySosProxy
-    {
-        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
-        public string ShiftId { get; set; } = string.Empty;
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
-        public string DriverId { get; set; } = string.Empty;
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("driverName")]
-        public string DriverName { get; set; } = string.Empty;
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("taxiUnit")]
-        public string TaxiUnit { get; set; } = string.Empty;
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("latitude")]
-        public double Latitude { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("longitude")]
-        public double Longitude { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("isResolved")]
-        public bool IsResolved { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
-        public DateTime Timestamp { get; set; }
     }
 
     // This method fires every single time the user routes to the Active Shift screen
