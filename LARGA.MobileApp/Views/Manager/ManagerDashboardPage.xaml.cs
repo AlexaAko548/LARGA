@@ -32,18 +32,31 @@ public partial class ManagerDashboardPage : ContentPage
     // to zoom in past the general fleet-overview level to the driver's exact spot.
     private const double CloseUpResolution = 0.6;
 
-    // How long a pin glides from its last known spot to a freshly-refreshed one, instead of
-    // snapping instantly - the write cadence underneath (gps_telemetry every 30s, see
-    // TelemetryServices.cs) stays put; this is a purely visual smoothing layer so a 30s-old
-    // position doesn't look like it's teleporting around the map.
+    // How long a pin glides to *correct* onto a freshly-refreshed real position, instead of
+    // snapping instantly - the write cadence underneath (gps_telemetry + the shift doc's
+    // denormalized currentLatitude/Longitude, see TelemetryServices.cs) stays at 30s; this is
+    // a purely visual smoothing layer. Between real updates, dead reckoning (below) takes over
+    // so the pin doesn't just sit frozen for the other ~28s of the gap.
     private const uint PinGlideDurationMs = 1500;
     private const string PinAnimationName = "FleetPinGlide";
+
+    // How far past a real fix's timestamp dead reckoning is willing to keep projecting the pin
+    // forward before freezing it in place - 1.5x the telemetry cadence, so a brief network hiccup
+    // doesn't visibly stall the pin, but a driver who's actually gone quiet (killed app, lost
+    // signal) doesn't get projected indefinitely further down the road than they really are.
+    private const double MaxDeadReckoningSeconds = 45;
+    private const int DeadReckoningTickMs = 200;
 
     private readonly FleetMapViewModel _viewModel;
     private MapControl? _mapControl;
     private MemoryLayer? _pinsLayer;
     private bool _hasCenteredMap;
-    private readonly Dictionary<string, (double X, double Y)> _lastRenderedPositions = new();
+
+    // Each entry is the last real (not projected) fix for that taxi - the anchor dead
+    // reckoning projects forward from, and the glide animation corrects onto when a newer one
+    // arrives.
+    private readonly Dictionary<string, FleetPin> _liveAnchors = new();
+    private IDispatcherTimer? _deadReckoningTimer;
 
     public ManagerDashboardPage()
     {
@@ -125,77 +138,130 @@ public partial class ManagerDashboardPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
-        _viewModel.LoadFleetCommand.Execute(null);
-        _viewModel.StartAutoRefresh();
+        _viewModel.StartListening();
+
+        if (_mapControl != null)
+        {
+            _deadReckoningTimer ??= Dispatcher.CreateTimer();
+            _deadReckoningTimer.Interval = TimeSpan.FromMilliseconds(DeadReckoningTickMs);
+            _deadReckoningTimer.Tick -= OnDeadReckoningTick;
+            _deadReckoningTimer.Tick += OnDeadReckoningTick;
+            _deadReckoningTimer.Start();
+        }
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
-        _viewModel.StopAutoRefresh();
+        _viewModel.StopListening();
+        _deadReckoningTimer?.Stop();
         this.AbortAnimation(PinAnimationName);
+        _liveAnchors.Clear();
     }
 
     /// <summary>Rebuilds the pin layer from the viewmodel's current Pins. A true data refresh
-    /// (animate: true, from FleetLoaded) glides any pin whose position actually changed from
-    /// its last-rendered spot to the new one; a filter-only change (animate: false, from the
-    /// StatusFilter property) just snaps the now-visible set straight to their real
-    /// positions - there's no "old" position to glide from, the pin was simply hidden.</summary>
+    /// (animate: true, from FleetLoaded) corrects any pin whose real position actually changed
+    /// - gliding from wherever it's currently displayed (which may itself be a dead-reckoned
+    /// guess, not the old real fix - see CurrentDisplayPosition) onto the new real one; a
+    /// filter-only change (animate: false, from the StatusFilter property) just snaps the
+    /// now-visible set straight to their real positions, nothing to glide from.</summary>
     private void RenderPins(bool animate)
     {
         if (_mapControl is null || _pinsLayer is null) return;
 
-        var targets = _viewModel.Pins
-            .Select(pin =>
-            {
-                var (x, y) = SphericalMercator.FromLonLat(pin.Longitude, pin.Latitude);
-                return (Pin: pin, X: x, Y: y);
-            })
-            .ToList();
-
+        var now = DateTime.UtcNow;
         var animating = new Dictionary<string, (double FromX, double FromY, double ToX, double ToY)>();
+
         if (animate)
         {
-            foreach (var target in targets)
+            foreach (var pin in _viewModel.Pins)
             {
-                if (_lastRenderedPositions.TryGetValue(target.Pin.TaxiId, out var prev) &&
-                    (Math.Abs(prev.X - target.X) > 0.01 || Math.Abs(prev.Y - target.Y) > 0.01))
+                if (!_liveAnchors.TryGetValue(pin.TaxiId, out var prevAnchor)) continue;
+                if (prevAnchor.PositionTimestamp == pin.PositionTimestamp) continue; // same fix, nothing changed
+
+                var (fromX, fromY) = CurrentDisplayPosition(prevAnchor, now);
+                var (toX, toY) = AnchorXY(pin);
+                if (Math.Abs(fromX - toX) > 0.01 || Math.Abs(fromY - toY) > 0.01)
                 {
-                    animating[target.Pin.TaxiId] = (prev.X, prev.Y, target.X, target.Y);
+                    animating[pin.TaxiId] = (fromX, fromY, toX, toY);
                 }
             }
         }
+
+        _liveAnchors.Clear();
+        foreach (var pin in _viewModel.Pins) _liveAnchors[pin.TaxiId] = pin;
 
         this.AbortAnimation(PinAnimationName);
 
         if (animating.Count == 0)
         {
-            ApplyPinFeatures(targets);
+            ApplyPinFeatures(_viewModel.Pins.Select(AnchorPosition));
         }
         else
         {
+            var targets = _viewModel.Pins.ToList();
             var anim = new Animation(t =>
             {
-                var frame = targets.Select(target => animating.TryGetValue(target.Pin.TaxiId, out var a)
-                    ? (target.Pin, X: a.FromX + (a.ToX - a.FromX) * t, Y: a.FromY + (a.ToY - a.FromY) * t)
-                    : target);
+                var frame = targets.Select(pin => animating.TryGetValue(pin.TaxiId, out var a)
+                    ? (pin, X: a.FromX + (a.ToX - a.FromX) * t, Y: a.FromY + (a.ToY - a.FromY) * t)
+                    : AnchorPosition(pin));
                 ApplyPinFeatures(frame);
             });
             anim.Commit(this, PinAnimationName, length: PinGlideDurationMs, easing: Easing.CubicInOut);
         }
 
-        _lastRenderedPositions.Clear();
-        foreach (var target in targets)
-        {
-            _lastRenderedPositions[target.Pin.TaxiId] = (target.X, target.Y);
-        }
-
-        if (!_hasCenteredMap && !MapFocusRequest.HasPending && targets.Count > 0)
+        if (!_hasCenteredMap && !MapFocusRequest.HasPending && _viewModel.Pins.Count > 0)
         {
             _hasCenteredMap = true;
-            var first = targets[0];
-            _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(first.X, first.Y), DefaultResolution);
+            var (cx, cy) = AnchorXY(_viewModel.Pins[0]);
+            _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(cx, cy), DefaultResolution);
         }
+    }
+
+    /// <summary>Projects a pin's position forward from its last real fix using its reported
+    /// speed/heading, clamped to MaxDeadReckoningSeconds so a driver who's gone quiet doesn't
+    /// get projected indefinitely further down the road than they really are. A stationary pin
+    /// (speed 0) just returns its real fix unchanged.</summary>
+    private static (double X, double Y) CurrentDisplayPosition(FleetPin pin, DateTime now)
+    {
+        var (anchorX, anchorY) = AnchorXY(pin);
+        if (pin.SpeedKmh <= 0) return (anchorX, anchorY);
+
+        var elapsedSeconds = Math.Clamp((now - pin.PositionTimestamp).TotalSeconds, 0, MaxDeadReckoningSeconds);
+        var distanceMeters = (pin.SpeedKmh / 3.6) * elapsedSeconds;
+        var headingRadians = pin.HeadingDegrees * Math.PI / 180.0;
+
+        // Compass bearing (0deg = north = +Y, 90deg = east = +X) maps directly onto
+        // SphericalMercator's meters-based axes - close enough at city scale that the small
+        // Mercator distortion doesn't matter for a visual approximation like this.
+        return (anchorX + distanceMeters * Math.Sin(headingRadians), anchorY + distanceMeters * Math.Cos(headingRadians));
+    }
+
+    private static (double X, double Y) AnchorXY(FleetPin pin) => SphericalMercator.FromLonLat(pin.Longitude, pin.Latitude);
+
+    private static (FleetPin Pin, double X, double Y) AnchorPosition(FleetPin pin)
+    {
+        var (x, y) = AnchorXY(pin);
+        return (pin, x, y);
+    }
+
+    /// <summary>Ticks every 200ms while the Map tab is visible, nudging each pin forward along
+    /// its last known heading/speed so a moving unit visibly creeps between the ~30s real
+    /// updates instead of sitting frozen - the Foodpanda/Grab-style "live" look. Paused while a
+    /// glide correction (RenderPins) is actively running so the two don't fight over the same
+    /// frame.</summary>
+    private void OnDeadReckoningTick(object? sender, EventArgs e)
+    {
+        if (_mapControl is null || _pinsLayer is null || _liveAnchors.Count == 0) return;
+        if (this.AnimationIsRunning(PinAnimationName)) return;
+
+        var now = DateTime.UtcNow;
+        var frame = _liveAnchors.Values.Select(pin =>
+        {
+            var (x, y) = CurrentDisplayPosition(pin, now);
+            return (pin, x, y);
+        });
+        ApplyPinFeatures(frame);
     }
 
     private void ApplyPinFeatures(IEnumerable<(FleetPin Pin, double X, double Y)> items)

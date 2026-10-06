@@ -31,6 +31,14 @@ public class FleetPin
     public string TaxiId { get; set; } = string.Empty;
     public double Latitude { get; set; }
     public double Longitude { get; set; }
+
+    // Carried along purely so the page can dead-reckon the pin between real updates (project
+    // it forward from this exact fix using speed/heading) instead of it sitting frozen for the
+    // full ~30s gap between writes - see ManagerDashboardPage.CurrentDisplayPosition.
+    public int SpeedKmh { get; set; }
+    public double HeadingDegrees { get; set; }
+    public DateTime PositionTimestamp { get; set; }
+
     public FleetDriverStatus Status { get; set; }
 
     /// <summary>"Unit 01" style callsign derived from the taxi's fixed ID (e.g. "TAXI_001"),
@@ -174,13 +182,23 @@ public class FleetMapViewModel : BindableObject
     private static readonly TimeZoneInfo TalisayTimeZone = ResolveTalisayTimeZone();
     private readonly System.Timers.Timer _clockTimer;
 
-    // Keeps the map's pin positions current while the tab is open, on the same cadence
-    // GpsTelemetryService writes at (TelemetryServices.cs) - no point polling faster than
-    // new data can possibly arrive. Start/Stop are called from the page's OnAppearing/
-    // OnDisappearing so this doesn't keep reading Firestore while the manager is elsewhere
-    // in the app.
-    private readonly System.Timers.Timer _autoRefreshTimer;
-    private bool _isRefreshing;
+    // Live Firestore listeners instead of a client-side poll timer: Firestore pushes a new
+    // snapshot the instant a driver's phone writes (no extra ~30s of poll-cycle lag stacked on
+    // top of the write cadence), and it's billed per changed document rather than re-reading
+    // everything on a schedule - cheaper than the polling this replaced, not more expensive.
+    // Start/Stop are called from the page's OnAppearing/OnDisappearing so this doesn't keep
+    // reading Firestore while the manager is elsewhere in the app.
+    private IDisposable? _shiftsListener;
+    private IDisposable? _sosListener;
+    private Dictionary<string, ShiftProxy> _activeShiftsById = new();
+    private HashSet<string> _sosShiftIds = new();
+
+    // Driver/taxi lookups rarely change, so these persist across rebuilds (cleared on each
+    // StartListening) instead of being refetched every time any single shift's position
+    // updates - a snapshot listener can fire far more often than the old 30s poll did.
+    private readonly Dictionary<string, DriverLookup> _driverCache = new();
+    private readonly Dictionary<string, TaxiLookup> _taxiCache = new();
+    private List<string> _allTaxiIds = new();
 
     private string _currentDateText = string.Empty;
     public string CurrentDateText
@@ -200,7 +218,6 @@ public class FleetMapViewModel : BindableObject
     // zooms in tight on this pin's exact coordinates in response.
     public event EventHandler<FleetPin>? NavigateRequested;
 
-    public ICommand LoadFleetCommand { get; }
     public ICommand SelectPinCommand { get; }
     public ICommand SelectUnitCommand { get; }
     public ICommand CloseDetailCommand { get; }
@@ -211,7 +228,6 @@ public class FleetMapViewModel : BindableObject
 
     public FleetMapViewModel()
     {
-        LoadFleetCommand = new Command(async () => await LoadFleetAsync());
         SelectPinCommand = new Command<FleetPin>(pin => SelectedPin = pin);
         SelectUnitCommand = new Command<UnitChip>(async chip =>
         {
@@ -257,13 +273,74 @@ public class FleetMapViewModel : BindableObject
         _clockTimer = new System.Timers.Timer(60_000);
         _clockTimer.Elapsed += (_, _) => MainThread.BeginInvokeOnMainThread(UpdateCurrentDate);
         _clockTimer.Start();
-
-        _autoRefreshTimer = new System.Timers.Timer(30_000);
-        _autoRefreshTimer.Elapsed += (_, _) => MainThread.BeginInvokeOnMainThread(async () => await LoadFleetAsync());
     }
 
-    public void StartAutoRefresh() => _autoRefreshTimer.Start();
-    public void StopAutoRefresh() => _autoRefreshTimer.Stop();
+    public void StartListening()
+    {
+        if (_shiftsListener != null) return; // already listening
+
+        _driverCache.Clear();
+        _taxiCache.Clear();
+        _ = InitializeStaticDataAsync();
+
+        _shiftsListener = CrossFirebaseFirestore.Current
+            .GetCollection("shifts")
+            .WhereEqualsTo("status", "Active")
+            .AddSnapshotListener<ShiftProxy>(snapshot =>
+            {
+                _activeShiftsById = snapshot.Documents
+                    .Where(d => d.Data != null)
+                    .ToDictionary(d => d.Reference.Id, d => d.Data!);
+                _ = RebuildPinsAsync();
+            });
+
+        _sosListener = CrossFirebaseFirestore.Current
+            .GetCollection("emergency_alerts")
+            .WhereEqualsTo("isResolved", false)
+            .AddSnapshotListener<SosProxy>(snapshot =>
+            {
+                _sosShiftIds = snapshot.Documents
+                    .Where(d => d.Data != null)
+                    .Select(d => d.Data!.ShiftId)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .ToHashSet();
+                _ = RebuildPinsAsync();
+            });
+    }
+
+    public void StopListening()
+    {
+        _shiftsListener?.Dispose();
+        _shiftsListener = null;
+        _sosListener?.Dispose();
+        _sosListener = null;
+    }
+
+    private async Task InitializeStaticDataAsync()
+    {
+        _idleThresholdMinutes = await GetIdleThresholdMinutesAsync();
+
+        try
+        {
+            // Unit shortcuts show every taxi in the fleet, not just the ones with a pin - a
+            // manager should be able to jump to (or find out there's nothing to jump to for)
+            // any unit from this same row. The roster itself changes rarely, so this is a
+            // one-shot fetch per tab-visit rather than something the live listeners need to
+            // track.
+            var allTaxisSnapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("taxis")
+                .GetDocumentsAsync<TaxiLookup>();
+
+            _allTaxiIds = allTaxisSnapshot.Documents
+                .Where(d => d.Data != null)
+                .Select(d => d.Reference.Id)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Taxi roster fetch failed: {ex.Message}");
+        }
+    }
 
     private void UpdateCurrentDate()
     {
@@ -288,69 +365,49 @@ public class FleetMapViewModel : BindableObject
         return TimeZoneInfo.CreateCustomTimeZone("PHT", TimeSpan.FromHours(8), "Philippine Time", "PHT");
     }
 
-    private async Task LoadFleetAsync()
+    /// <summary>Recomputes Pins/UnitChips/stat counts from the two listeners' latest cached
+    /// snapshots (_activeShiftsById, _sosShiftIds). Runs every time either listener fires -
+    /// which, with a live fleet, can be far more often than the old 30s poll (any single
+    /// driver's write re-delivers the whole "shifts" snapshot) - so driver/taxi lookups use
+    /// the persistent instance caches above rather than refetching every call.</summary>
+    private async Task RebuildPinsAsync()
     {
-        // The 30s auto-refresh tick can fire again before a slow previous run (e.g. a big
-        // fleet on a weak connection) has finished - skip rather than stack overlapping runs.
-        if (_isRefreshing) return;
-        _isRefreshing = true;
-
         try
         {
-            // Revisiting the Map tab re-runs this whole method (OnAppearing), so the stat
-            // pills must start from zero each time - otherwise they just keep accumulating
-            // on top of the previous load's counts every time the page is revisited.
+            // Snapshot the dictionaries so a listener firing again mid-rebuild (e.g. two
+            // drivers' writes land close together) can't mutate the collection out from under
+            // the loop below.
+            var activeShifts = _activeShiftsById;
+            var sosShiftIds = _sosShiftIds;
+
             ActiveCount = 0;
             OnBreakCount = 0;
             IdleCount = 0;
             SosCount = 0;
 
-            _idleThresholdMinutes = await GetIdleThresholdMinutesAsync();
-
-            var driverCache = new Dictionary<string, DriverLookup>();
-            var taxiCache = new Dictionary<string, TaxiLookup>();
-
-            var shiftsSnapshot = await CrossFirebaseFirestore.Current
-                .GetCollection("shifts")
-                .WhereEqualsTo("status", "Active")
-                .GetDocumentsAsync<ShiftProxy>();
-
-            var sosSnapshot = await CrossFirebaseFirestore.Current
-                .GetCollection("emergency_alerts")
-                .WhereEqualsTo("isResolved", false)
-                .GetDocumentsAsync<SosProxy>();
-            var sosShiftIds = sosSnapshot.Documents
-                .Where(d => d.Data != null)
-                .Select(d => d.Data.ShiftId)
-                .Where(id => !string.IsNullOrWhiteSpace(id))
-                .ToHashSet();
-
             var pins = new List<FleetPin>();
             var now = DateTime.UtcNow;
 
-            foreach (var doc in shiftsSnapshot.Documents)
+            foreach (var (shiftId, data) in activeShifts)
             {
-                if (doc.Data == null) continue;
-                var shiftId = doc.Reference.Id;
-
-                var driver = await GetDriverAsync(doc.Data.DriverId, driverCache);
-                var taxi = await GetTaxiAsync(doc.Data.TaxiId, taxiCache);
-                var latest = await GetLatestTelemetryAsync(shiftId);
+                var driver = await GetDriverAsync(data.DriverId);
+                var taxi = await GetTaxiAsync(data.TaxiId);
 
                 bool hasSos = sosShiftIds.Contains(shiftId);
 
-                if (latest == null)
+                if (data.CurrentPositionUpdatedAt == default)
                 {
-                    // No known position - still counts toward the stat pills, just has no pin.
-                    Tally(hasSos ? FleetDriverStatus.Sos : doc.Data.IsOnBreak ? FleetDriverStatus.OnBreak : FleetDriverStatus.Idle);
+                    // No known position yet (shift just started, first telemetry tick hasn't
+                    // landed) - still counts toward the stat pills, just has no pin.
+                    Tally(hasSos ? FleetDriverStatus.Sos : data.IsOnBreak ? FleetDriverStatus.OnBreak : FleetDriverStatus.Idle);
                     continue;
                 }
 
-                var latestTimestamp = FirestoreDateTimeFix.Apply(latest.Timestamp);
-                bool recentlyMoving = latest.Speed > 0 && latestTimestamp >= now.AddMinutes(-_idleThresholdMinutes);
+                var positionTimestamp = FirestoreDateTimeFix.Apply(data.CurrentPositionUpdatedAt);
+                bool recentlyMoving = data.CurrentSpeed > 0 && positionTimestamp >= now.AddMinutes(-_idleThresholdMinutes);
 
                 FleetDriverStatus status = hasSos ? FleetDriverStatus.Sos
-                    : doc.Data.IsOnBreak ? FleetDriverStatus.OnBreak
+                    : data.IsOnBreak ? FleetDriverStatus.OnBreak
                     : recentlyMoving ? FleetDriverStatus.Active
                     : FleetDriverStatus.Idle;
 
@@ -359,14 +416,17 @@ public class FleetMapViewModel : BindableObject
                 pins.Add(new FleetPin
                 {
                     ShiftDocId = shiftId,
-                    DriverId = doc.Data.DriverId,
+                    DriverId = data.DriverId,
                     DriverName = string.IsNullOrWhiteSpace(driver?.FullName) ? "Unknown Driver" : driver!.FullName,
                     PhoneNumber = driver?.PhoneNumber?.ToString(),
                     PlateNumber = string.IsNullOrWhiteSpace(taxi?.PlateNumber) ? "—" : taxi!.PlateNumber,
                     UnitDetails = taxi != null ? $"{taxi.YearManufactured} {taxi.Model}".Trim() : string.Empty,
-                    TaxiId = doc.Data.TaxiId,
-                    Latitude = latest.Latitude,
-                    Longitude = latest.Longitude,
+                    TaxiId = data.TaxiId,
+                    Latitude = data.CurrentLatitude,
+                    Longitude = data.CurrentLongitude,
+                    SpeedKmh = data.CurrentSpeed,
+                    HeadingDegrees = data.CurrentHeading,
+                    PositionTimestamp = positionTimestamp,
                     Status = status,
                 });
             }
@@ -375,18 +435,9 @@ public class FleetMapViewModel : BindableObject
             _allPins.AddRange(pins);
             ApplyFilter();
 
-            // Unit shortcuts show every taxi in the fleet, not just the ones with a pin -
-            // a manager should be able to jump to (or find out there's nothing to jump to
-            // for) any unit from this same row.
-            var allTaxisSnapshot = await CrossFirebaseFirestore.Current
-                .GetCollection("taxis")
-                .GetDocumentsAsync<TaxiLookup>();
-
-            var chips = allTaxisSnapshot.Documents
-                .Where(d => d.Data != null)
-                .Select(d =>
+            var chips = _allTaxiIds
+                .Select(taxiId =>
                 {
-                    var taxiId = d.Reference.Id;
                     var matchingPin = pins.FirstOrDefault(p => p.TaxiId == taxiId);
                     var digits = new string(taxiId.Where(char.IsDigit).ToArray());
                     var unitNumber = int.TryParse(digits, out var n) ? n : 0;
@@ -423,11 +474,7 @@ public class FleetMapViewModel : BindableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Load Fleet Error: {ex.Message}");
-        }
-        finally
-        {
-            _isRefreshing = false;
+            System.Diagnostics.Debug.WriteLine($"Rebuild Pins Error: {ex.Message}");
         }
     }
 
@@ -494,10 +541,10 @@ public class FleetMapViewModel : BindableObject
         }
     }
 
-    private async Task<DriverLookup?> GetDriverAsync(string driverId, Dictionary<string, DriverLookup> cache)
+    private async Task<DriverLookup?> GetDriverAsync(string driverId)
     {
         if (string.IsNullOrWhiteSpace(driverId)) return null;
-        if (cache.TryGetValue(driverId, out var cached)) return cached;
+        if (_driverCache.TryGetValue(driverId, out var cached)) return cached;
 
         var doc = await CrossFirebaseFirestore.Current
             .GetCollection("users")
@@ -505,14 +552,14 @@ public class FleetMapViewModel : BindableObject
             .GetDocumentSnapshotAsync<DriverLookup>();
         if (doc?.Data == null) return null;
 
-        cache[driverId] = doc.Data;
+        _driverCache[driverId] = doc.Data;
         return doc.Data;
     }
 
-    private async Task<TaxiLookup?> GetTaxiAsync(string taxiId, Dictionary<string, TaxiLookup> cache)
+    private async Task<TaxiLookup?> GetTaxiAsync(string taxiId)
     {
         if (string.IsNullOrWhiteSpace(taxiId)) return null;
-        if (cache.TryGetValue(taxiId, out var cached)) return cached;
+        if (_taxiCache.TryGetValue(taxiId, out var cached)) return cached;
 
         var doc = await CrossFirebaseFirestore.Current
             .GetCollection("taxis")
@@ -520,28 +567,8 @@ public class FleetMapViewModel : BindableObject
             .GetDocumentSnapshotAsync<TaxiLookup>();
         if (doc?.Data == null) return null;
 
-        cache[taxiId] = doc.Data;
+        _taxiCache[taxiId] = doc.Data;
         return doc.Data;
-    }
-
-    private async Task<TelemetryPoint?> GetLatestTelemetryAsync(string shiftId)
-    {
-        try
-        {
-            var snapshot = await CrossFirebaseFirestore.Current
-                .GetCollection("gps_telemetry")
-                .WhereEqualsTo("shiftId", shiftId)
-                .OrderBy("timestamp", true)
-                .LimitedTo(1)
-                .GetDocumentsAsync<TelemetryPoint>();
-
-            return snapshot.Documents.FirstOrDefault()?.Data;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Telemetry Query Error ({shiftId}): {ex.Message}");
-            return null;
-        }
     }
 
     private class ShiftProxy
@@ -554,6 +581,29 @@ public class FleetMapViewModel : BindableObject
 
         [Plugin.Firebase.Firestore.FirestoreProperty("isOnBreak")]
         public bool IsOnBreak { get; set; }
+
+        // Denormalized by GpsTelemetryService (TelemetryServices.cs) onto the shift doc
+        // itself each tick, so the live "shifts" listener alone is enough to plot the pin -
+        // no separate gps_telemetry query/listener per shift needed. Null until the first
+        // telemetry tick lands after clock-in.
+        [Plugin.Firebase.Firestore.FirestoreProperty("currentLatitude")]
+        public double CurrentLatitude { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("currentLongitude")]
+        public double CurrentLongitude { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("currentSpeed")]
+        public int CurrentSpeed { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("currentHeading")]
+        public double CurrentHeading { get; set; }
+
+        // Plugin.Firebase.Firestore's Android deserializer only handles plain DateTime, not
+        // Nullable<DateTime> (it crashes converting the native DateTimeOffset into one) - so
+        // "no position yet" is signaled by this sitting at its C# default (missing fields are
+        // simply left untouched by the deserializer) rather than by nullability.
+        [Plugin.Firebase.Firestore.FirestoreProperty("currentPositionUpdatedAt")]
+        public DateTime CurrentPositionUpdatedAt { get; set; }
     }
 
     private class SosProxy
@@ -588,20 +638,5 @@ public class FleetMapViewModel : BindableObject
 
         [Plugin.Firebase.Firestore.FirestoreProperty("yearManufactured")]
         public int YearManufactured { get; set; }
-    }
-
-    private class TelemetryPoint
-    {
-        [Plugin.Firebase.Firestore.FirestoreProperty("latitude")]
-        public double Latitude { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("longitude")]
-        public double Longitude { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("speed")]
-        public int Speed { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
-        public DateTime Timestamp { get; set; }
     }
 }

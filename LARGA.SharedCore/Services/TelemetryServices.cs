@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Maui.ApplicationModel;
@@ -126,19 +127,41 @@ public class GpsTelemetryService : IGpsTelemetryService
                 return;
             }
 
+            int speedKmh = (int)Math.Round((location.Speed ?? 0) * 3.6); // m/s -> km/h
+            double headingDegrees = location.Course ?? 0;
+            var now = DateTime.UtcNow;
+
             var point = new GpsTelemetryProxy
             {
                 ShiftId = shiftId,
                 DriverId = driverId,
                 Latitude = location.Latitude,
                 Longitude = location.Longitude,
-                Speed = (int)Math.Round((location.Speed ?? 0) * 3.6), // m/s -> km/h
-                Timestamp = DateTime.UtcNow,
+                Speed = speedKmh,
+                Timestamp = now,
             };
 
             await CrossFirebaseFirestore.Current
                 .GetCollection("gps_telemetry")
                 .AddDocumentAsync(point);
+
+            // Denormalized onto the shift doc itself (separate from the gps_telemetry trail
+            // above, which stays append-only for history/distance calculations) so the Live
+            // Fleet map can hold a single live listener on "shifts" instead of a separate
+            // listener per active shift, or an unbounded listener over all of gps_telemetry.
+            // Heading lets the map dead-reckon the pin between writes instead of it sitting
+            // frozen for the full 30s gap.
+            await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .GetDocument(shiftId)
+                .UpdateDataAsync(new Dictionary<object, object>
+                {
+                    { "currentLatitude", location.Latitude },
+                    { "currentLongitude", location.Longitude },
+                    { "currentSpeed", speedKmh },
+                    { "currentHeading", headingDegrees },
+                    { "currentPositionUpdatedAt", now },
+                });
         }
         catch (OperationCanceledException)
         {
