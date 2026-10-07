@@ -22,11 +22,11 @@ public static class FuelReceiptParser
 {
     // "OR", "O.R.", "0R" (OCR reads O as zero) followed by No/Number/#, or "Official Receipt".
     private static readonly Regex OrLabelPattern = new(
-        @"(?<![A-Z0-9])(?:[O0]\s?\.?\s?R\s?\.?\s*(?:NO|NUMBER|NUM|#)|OFFICIAL\s+RECEIPT(?:\s*(?:NO|NUMBER|NUM|#))?)\s*\.?\s*[:#]?\s*",
+        @"(?<![A-Z0-9])(?:[O0]\s?\.?\s?R\s?\.?\s*(?:NO|NUMBER|NUM|#)|(?<title>OFFICIAL\s+RECEIPT)(?:\s*(?<kw>NO|NUMBER|NUM|#))?)\s*\.?\s*[:#]?\s*",
         RegexOptions.Compiled);
 
     private static readonly Regex FallbackLabelPattern = new(
-        @"(?<![A-Z0-9])(?:S\s?\.?\s?I\s?\.?\s*(?:NO|NUMBER|NUM|#)|SALES\s+INVOICE(?:\s*(?:NO|NUMBER|NUM|#))?|INVOICE\s*(?:NO|NUMBER|NUM|#)|RECEIPT\s*(?:NO|NUMBER|NUM|#)|TRANS(?:ACTION)?\s*\.?\s*(?:NO|NUMBER|NUM|#)|TXN\s*(?:NO|#))\s*\.?\s*[:#]?\s*",
+        @"(?<![A-Z0-9])(?:S\s?\.?\s?I\s?\.?\s*(?:NO|NUMBER|NUM|#)|(?<title>SALES\s+INVOICE)(?:\s*(?<kw>NO|NUMBER|NUM|#))?|INVOICE\s*(?:NO|NUMBER|NUM|#)|RECEIPT\s*(?:NO|NUMBER|NUM|#)|TRANS(?:ACTION)?\s*\.?\s*(?:NO|NUMBER|NUM|#)|TXN\s*(?:NO|#))\s*\.?\s*[:#]?\s*",
         RegexOptions.Compiled);
 
     // Atomic group so "12345.67" (a money amount) fails outright instead of backtracking to
@@ -69,6 +69,14 @@ public static class FuelReceiptParser
         {
             foreach (Match label in labelPattern.Matches(lines[i]))
             {
+                // A bare "OFFICIAL RECEIPT" / "SALES INVOICE" partway along a line is footer text
+                // ("THIS SERVES AS YOUR OFFICIAL RECEIPT"), not a label - the line under it is
+                // usually the address. Only a title that starts its line labels a number.
+                if (label.Groups["title"].Success && !label.Groups["kw"].Success && label.Index > 0)
+                {
+                    continue;
+                }
+
                 string rest = lines[i][(label.Index + label.Length)..];
 
                 // The number is often printed on the line under its label.
