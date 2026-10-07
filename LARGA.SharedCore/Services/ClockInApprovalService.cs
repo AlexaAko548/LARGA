@@ -235,7 +235,7 @@ public class ClockInApprovalService
         var unitJobs = jobs.Documents
             .Select(d => { try { return d.ConvertTo<MaintenanceRecord>(); } catch { return null; } })
             .OfType<MaintenanceRecord>()
-            .Select(m => ((string?)m.Status, m.DateLogged, m.EstimatedCompletionDate, (string?)m.IssueTitle));
+            .Select(m => ((string?)m.Status, WorkOrderRules.ShopStartUtc(m.DateLogged, m.ScheduledDate), m.EstimatedCompletionDate, (string?)m.IssueTitle));
         return ShiftEligibilityRules.UnitBlockReason(taxiId, taxiStatus, unitJobs, todayPh);
     }
 

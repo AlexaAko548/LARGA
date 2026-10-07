@@ -8,7 +8,7 @@
 
 <div class="notification-bell-wrap">
     <button class="icon-btn notification-bell-btn" type="button" aria-label="Notifications" @onclick="ToggleOpen">
-        🔔
+        <Icon Name="bell" />
         @if (UnreadCount > 0)
         {
             <span class="notification-badge">@(UnreadCount > 9 ? "9+" : UnreadCount.ToString())</span>

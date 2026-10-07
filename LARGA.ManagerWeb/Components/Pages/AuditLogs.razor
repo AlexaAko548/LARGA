@@ -55,7 +55,7 @@ else
         <div class="toolbar-right">
             <span class="entry-counter font-mono">@FilteredLogs.Count() entries</span>
             <button class="btn-export" type="button" disabled="@_isExporting" @onclick="ExportLogsAsync">
-                <span class="export-icon">⭳</span> @(_isExporting ? "Exporting..." : "Export")
+                <span class="export-icon"><Icon Name="download" /></span> @(_isExporting ? "Exporting..." : "Export")
             </button>
         </div>
     </div>
@@ -86,7 +86,7 @@ else
                             <td class="col-date font-mono text-muted">@log.Timestamp.ToPhilippineTime().ToString("MMM d, h:mm tt")</td>
                             <td class="col-actor">
                                 <div class="actor-info">
-                                    <span class="actor-icon-bubble">@log.Icon</span>
+                                    <span class="actor-icon-bubble"><Icon Name="@log.Icon" /></span>
                                     <span class="actor-name">@log.Actor</span>
                                 </div>
                             </td>

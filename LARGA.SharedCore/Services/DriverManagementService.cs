@@ -192,7 +192,9 @@ public class DriverManagementService
         List<UserProfile> drivers = await GetDriversAsync();
         List<TaxiUnit> taxis = await GetAllAsync<TaxiUnit>("taxis");
         List<ShiftSchedule> exceptions = await GetBetweenAsync<ShiftSchedule>("shift_schedules", "scheduledStartTime", weekStart, weekEnd.AddTicks(-1));
-        List<MaintenanceRecord> activeJobs = await GetWhereEqualAsync<MaintenanceRecord>("maintenance_logs", "status", "InProgress");
+        // In the shop now, or booked for a coming day - both block the unit on their days.
+        List<MaintenanceRecord> activeJobs = await GetWhereEqualAsync<MaintenanceRecord>("maintenance_logs", "status", WorkOrderRules.InProgress);
+        activeJobs.AddRange(await GetWhereEqualAsync<MaintenanceRecord>("maintenance_logs", "status", WorkOrderRules.Scheduled));
         Func<string, DateTime, string?> maintenanceNote = BuildMaintenanceLookup(taxis, activeJobs, PhilippineTime.Now.Date);
 
         var rows = new List<DriverScheduleRow>();
@@ -274,7 +276,8 @@ public class DriverManagementService
 
     /// <summary>(taxiId, day) -> a short reason if that unit is under maintenance on that
     /// calendar day, else null. Two sources, per the Garage workflow:
-    /// - an In Progress Garage job for the unit, from the day it was reported through its
+    /// - an In Progress or Scheduled Garage job for the unit, from its shop day (the scheduled
+    ///   date, or the day it was logged for an older ticket) through its
     ///   estimated completion date - or through today while it's still open past that date
     ///   (open-ended if the Garage hasn't set one; ShiftEligibilityRules.IsJobInShopOn);
     /// - the taxi's own status set to "Under Maintenance" - a current state with no dates,
@@ -299,7 +302,7 @@ public class DriverManagementService
                 foreach (MaintenanceRecord job in jobs)
                 {
                     DateTime? end = job.EstimatedCompletionDate?.ToPhilippineTime().Date;
-                    if (ShiftEligibilityRules.IsJobInShopOn(job.Status, job.DateLogged, job.EstimatedCompletionDate, date, todayPh))
+                    if (ShiftEligibilityRules.IsJobInShopOn(job.Status, WorkOrderRules.ShopStartUtc(job.DateLogged, job.ScheduledDate), job.EstimatedCompletionDate, date, todayPh))
                     {
                         string title = string.IsNullOrWhiteSpace(job.IssueTitle) ? "Garage job" : job.IssueTitle;
                         return end is null ? $"{title} - no finish date yet"

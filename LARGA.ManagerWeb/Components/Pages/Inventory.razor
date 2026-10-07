@@ -91,7 +91,7 @@ else
                         bool isExpanded = _expandedPartId == item.PartId;
                         <tr class="part-row @(status == "Normal" ? "row-highlighted" : "")" title="Click to show this part's usage history"
                             @onclick="() => TogglePartHistoryAsync(item)">
-                            <td class="col-id font-mono"><span class="part-expander">@(isExpanded ? "▾" : "▸")</span>@ToDisplayPartId(i + 1)</td>
+                            <td class="col-id font-mono"><span class="part-expander"><Icon Name="@(isExpanded ? "chevron-down" : "chevron-right")" /></span>@ToDisplayPartId(i + 1)</td>
                             <td class="col-name fw-bold">@item.PartName</td>
                             <td class="col-qty">
                                 <span class="qty-number">@item.StockQuantity</span>
@@ -107,7 +107,7 @@ else
                             </td>
                             <td class="col-actions" @onclick:stopPropagation="true">
                                 <button class="btn-table-action" type="button" @onclick="() => OpenAdjustStockModal(item, true)">+ Add</button>
-                                <button class="btn-table-action" type="button" @onclick="() => OpenAdjustStockModal(item, false)">− Deduct</button>
+                                <button class="btn-table-action" type="button" @onclick="() => OpenAdjustStockModal(item, false)"><Icon Name="minus" /> Deduct</button>
                             </td>
                         </tr>
                         @if (isExpanded)
@@ -137,7 +137,7 @@ else
 
                                             @if (_history.Entries.Count == 0)
                                             {
-                                                <div class="part-history-empty">No usage recorded yet. Stock taken out with − Deduct is recorded here.</div>
+                                                <div class="part-history-empty">No usage recorded yet. Stock taken out with Deduct is recorded here.</div>
                                             }
                                             else
                                             {
@@ -202,7 +202,7 @@ else
         <div class="modal-card" @onclick:stopPropagation="true">
             <div class="modal-header">
                 <h3>Log New Part</h3>
-                <button class="modal-close-btn" @onclick="() => showAddModal = false">✕</button>
+                <button class="modal-close-btn" aria-label="Close" @onclick="() => showAddModal = false"><Icon Name="x" /></button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -242,7 +242,7 @@ else
         <div class="modal-card" @onclick:stopPropagation="true">
             <div class="modal-header">
                 <h3>@(isAddMode ? "Add Stock" : "Deduct Stock")</h3>
-                <button class="modal-close-btn" @onclick="CloseAdjustStockModal">✕</button>
+                <button class="modal-close-btn" aria-label="Close" @onclick="CloseAdjustStockModal"><Icon Name="x" /></button>
             </div>
             <div class="modal-body">
                 <div class="form-group">

@@ -17,7 +17,7 @@
     <button class="manager-pill manager-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="@_isDropdownOpen" title="@_roleLabel" @onclick="ToggleDropdown">
         <span class="manager-dot"></span>
         <span>@_displayName</span>
-        <span class="caret">▾</span>
+        <span class="caret"><Icon Name="chevron-down" /></span>
     </button>
 
     @if (_isDropdownOpen)

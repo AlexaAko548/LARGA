@@ -23,7 +23,7 @@ namespace LARGA.SharedCore.Services;
 /// </summary>
 public class GarageService
 {
-    /// <summary>Max maintenance jobs (by EstimatedCompletionDate) the shop takes on any one day - used by GetNextAvailableScheduleDateAsync's auto-scheduling.</summary>
+    /// <summary>Max jobs the shop starts on any one day (by shop day: scheduled or in progress) - used by GetNextAvailableScheduleDateAsync's auto-scheduling.</summary>
     private const int DailyScheduleCapacity = 2;
 
     private readonly Lazy<FirestoreDb> _dbLazy;
@@ -63,6 +63,8 @@ public class GarageService
         string ReportedByName(string? driverId) =>
             !string.IsNullOrEmpty(driverId) && driverNames.TryGetValue(driverId, out string? name) ? name : "Unknown";
 
+        await StartDueScheduledJobsAsync(records);
+
         List<DriverReportEntry> pending = records
             .Where(r => r.Status == "Reported")
             .OrderByDescending(r => r.PriorityLevel)
@@ -81,23 +83,34 @@ public class GarageService
             })
             .ToList();
 
+        WorkOrderEntry ToWorkOrder(MaintenanceRecord r) => new()
+        {
+            MaintenanceId = r.MaintenanceId,
+            TaxiId = r.TaxiId,
+            UnitLabel = FormatUnitLabel(r.TaxiId),
+            IssueTitle = r.IssueTitle,
+            IssueDescription = r.IssueDescription,
+            ReportedByName = ReportedByName(r.ReportedByDriverId),
+            DateLogged = r.DateLogged,
+            Priority = r.PriorityLevel,
+            SupportingPhotoUrl = r.SupportingPhotoUrl,
+            MechanicInstructions = r.MechanicInstructions,
+            EstimatedCompletionDate = r.EstimatedCompletionDate,
+            ScheduledDate = r.ScheduledDate,
+        };
+
         List<WorkOrderEntry> active = records
-            .Where(r => r.Status == "InProgress")
-            .OrderBy(r => r.DateLogged)
-            .Select(r => new WorkOrderEntry
-            {
-                MaintenanceId = r.MaintenanceId,
-                TaxiId = r.TaxiId,
-                UnitLabel = FormatUnitLabel(r.TaxiId),
-                IssueTitle = r.IssueTitle,
-                IssueDescription = r.IssueDescription,
-                ReportedByName = ReportedByName(r.ReportedByDriverId),
-                DateLogged = r.DateLogged,
-                Priority = r.PriorityLevel,
-                SupportingPhotoUrl = r.SupportingPhotoUrl,
-                MechanicInstructions = r.MechanicInstructions,
-                EstimatedCompletionDate = r.EstimatedCompletionDate,
-            })
+            .Where(r => r.Status == WorkOrderRules.InProgress)
+            .Select(ToWorkOrder)
+            .OrderBy(w => w.ShopDayPh)
+            .ThenBy(w => w.DateLogged)
+            .ToList();
+
+        List<WorkOrderEntry> scheduled = records
+            .Where(r => r.Status == WorkOrderRules.Scheduled)
+            .Select(ToWorkOrder)
+            .OrderBy(w => w.ShopDayPh)
+            .ThenByDescending(w => w.Priority)
             .ToList();
 
         List<RoutineCheckEntry> upcoming = checks
@@ -126,7 +139,29 @@ public class GarageService
             .ThenBy(c => c.DueInKm ?? int.MaxValue)
             .ToList();
 
-        return new GarageSnapshot { PendingReports = pending, ActiveWorkOrders = active, UpcomingChecks = upcoming };
+        return new GarageSnapshot { PendingReports = pending, ActiveWorkOrders = active, ScheduledWorkOrders = scheduled, UpcomingChecks = upcoming };
+    }
+
+    /// <summary>A Scheduled ticket whose shop day has come is now in the shop. Every eligibility
+    /// check already treats it that way from its day (WorkOrderRules), so this only keeps the
+    /// stored status tidy; a failed write is logged and retried on the next load. Updates the
+    /// in-memory records too, so the page lists them under Active right away.</summary>
+    private async Task StartDueScheduledJobsAsync(List<MaintenanceRecord> records)
+    {
+        DateTime todayPh = PhilippineTime.Now.Date;
+        foreach (MaintenanceRecord record in records.Where(r =>
+                     r.Status == WorkOrderRules.Scheduled && WorkOrderRules.IsInShopNow(r.Status, r.DateLogged, r.ScheduledDate, todayPh)))
+        {
+            try
+            {
+                await Db.Collection("maintenance_logs").Document(record.MaintenanceId).UpdateAsync("status", WorkOrderRules.InProgress);
+                record.Status = WorkOrderRules.InProgress;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to start scheduled job {MaintenanceId}", record.MaintenanceId);
+            }
+        }
     }
 
     public async Task<List<HistoryEntry>> GetHistoryAsync()
@@ -167,13 +202,28 @@ public class GarageService
         }
     }
 
-    public async Task<GarageActionResult> CreateTicketAsync(string maintenanceId, PriorityLevel priority, string mechanicInstructions, DateTime? estimatedCompletionDate)
+    /// <summary>Turns a pending driver report into a work order booked for <paramref name="shopDate"/>
+    /// (a calendar date as midnight UTC, like the date inputs give). Today goes straight into
+    /// the shop (In Progress); a later day waits under Upcoming Work Orders (Scheduled).</summary>
+    public async Task<GarageActionResult> CreateTicketAsync(string maintenanceId, PriorityLevel priority, string mechanicInstructions, DateTime shopDate, DateTime? estimatedCompletionDate)
     {
+        DateTime todayPh = PhilippineTime.Now.Date;
+        if (shopDate.Date < todayPh)
+        {
+            return new GarageActionResult { Ok = false, ErrorMessage = "The shop date can't be in the past." };
+        }
+        if (estimatedCompletionDate.HasValue && estimatedCompletionDate.Value.Date < shopDate.Date)
+        {
+            return new GarageActionResult { Ok = false, ErrorMessage = "The expected finish can't be before the shop date." };
+        }
+
         try
         {
+            bool startsToday = shopDate.Date == todayPh;
             var updates = new Dictionary<string, object>
             {
-                ["status"] = "InProgress",
+                ["status"] = startsToday ? WorkOrderRules.InProgress : WorkOrderRules.Scheduled,
+                ["scheduledDate"] = DateTime.SpecifyKind(shopDate.Date, DateTimeKind.Utc),
                 ["priorityLevel"] = new PriorityLevelConverter().ToFirestore(priority),
                 ["mechanicInstructions"] = mechanicInstructions,
             };
@@ -188,6 +238,50 @@ public class GarageService
         {
             _logger.LogWarning(ex, "Failed to create ticket for {MaintenanceId}", maintenanceId);
             return new GarageActionResult { Ok = false, ErrorMessage = "Could not create this ticket. Please try again." };
+        }
+    }
+
+    /// <summary>Brings a Scheduled ticket into the shop today instead of on its booked day.</summary>
+    public async Task<GarageActionResult> StartScheduledNowAsync(string maintenanceId)
+    {
+        try
+        {
+            await Db.Collection("maintenance_logs").Document(maintenanceId).UpdateAsync(new Dictionary<string, object>
+            {
+                ["status"] = WorkOrderRules.InProgress,
+                ["scheduledDate"] = DateTime.SpecifyKind(PhilippineTime.Now.Date, DateTimeKind.Utc),
+            });
+            return new GarageActionResult { Ok = true };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to start {MaintenanceId} now", maintenanceId);
+            return new GarageActionResult { Ok = false, ErrorMessage = "Could not start this work order. Please try again." };
+        }
+    }
+
+    /// <summary>Cancels a Scheduled ticket's booking: it goes back to Pending Driver Reports, to be
+    /// rebooked or dismissed. A routine-check job (no driver report behind it) is dismissed instead.</summary>
+    public async Task<GarageActionResult> UnscheduleAsync(string maintenanceId)
+    {
+        try
+        {
+            DocumentReference docRef = Db.Collection("maintenance_logs").Document(maintenanceId);
+            DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
+            bool fromDriverReport = snapshot.Exists && snapshot.TryGetValue("reportedByDriverId", out string? driverId) && !string.IsNullOrWhiteSpace(driverId);
+
+            await docRef.UpdateAsync(new Dictionary<string, object>
+            {
+                ["status"] = fromDriverReport ? WorkOrderRules.Reported : "Dismissed",
+                ["scheduledDate"] = FieldValue.Delete,
+                ["estimatedCompletionDate"] = FieldValue.Delete,
+            });
+            return new GarageActionResult { Ok = true };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to unschedule {MaintenanceId}", maintenanceId);
+            return new GarageActionResult { Ok = false, ErrorMessage = "Could not cancel this booking. Please try again." };
         }
     }
 
@@ -252,31 +346,31 @@ public class GarageService
     }
 
     /// <summary>
-    /// Auto-scheduling for "Schedule": starts at tomorrow (never today) and, for each
-    /// candidate day, counts how many "InProgress" MAINTENANCE_RECORD rows already have
-    /// that EstimatedCompletionDate - if it's at or above DailyScheduleCapacity, moves to
-    /// the next day and checks again, until it finds a day under capacity.
+    /// Auto-scheduling ("Next available"): starts at tomorrow (never today) and, for each
+    /// candidate day, counts the work orders already booked to start that day (Scheduled or In
+    /// Progress, by shop day) - at or above DailyScheduleCapacity, it moves to the next day,
+    /// until it finds one under capacity. Returned as that calendar date at midnight UTC.
     /// </summary>
     public async Task<DateTime> GetNextAvailableScheduleDateAsync()
     {
         List<MaintenanceRecord> records = await GetAllAsync<MaintenanceRecord>("maintenance_logs");
         Dictionary<DateTime, int> countsByDay = records
-            .Where(r => r.Status == "InProgress" && r.EstimatedCompletionDate.HasValue)
-            .GroupBy(r => r.EstimatedCompletionDate!.Value.Date)
+            .Where(r => WorkOrderRules.IsShopStatus(r.Status))
+            .GroupBy(r => WorkOrderRules.ShopStartUtc(r.DateLogged, r.ScheduledDate).ToPhilippineTime().Date)
             .ToDictionary(g => g.Key, g => g.Count());
 
-        DateTime candidate = DateTime.UtcNow.Date.AddDays(1);
+        DateTime candidate = PhilippineTime.Now.Date.AddDays(1);
         while (countsByDay.TryGetValue(candidate, out int countThatDay) && countThatDay >= DailyScheduleCapacity)
         {
             candidate = candidate.AddDays(1);
         }
 
-        return candidate;
+        return DateTime.SpecifyKind(candidate, DateTimeKind.Utc);
     }
 
-    /// <summary>Turns an upcoming routine check straight into an active work order (skipping
-    /// the driver-report stage, since it's manager/system-initiated) and removes it from the
-    /// upcoming list.</summary>
+    /// <summary>Turns an upcoming routine check straight into a work order booked for that day
+    /// (skipping the driver-report stage, since it's manager/system-initiated) and removes it
+    /// from the routine-check list. A one-day job: it's expected done the same day.</summary>
     public async Task<GarageActionResult> ScheduleRoutineCheckAsync(string checkId, DateTime scheduledDate)
     {
         try
@@ -295,8 +389,9 @@ public class GarageService
                 IssueTitle = check.CheckName,
                 IssueDescription = $"Scheduled preventive maintenance: {check.CheckName}.",
                 DateLogged = DateTime.UtcNow,
-                Status = "InProgress",
+                Status = scheduledDate.Date <= PhilippineTime.Now.Date ? WorkOrderRules.InProgress : WorkOrderRules.Scheduled,
                 PriorityLevel = PriorityLevel.Low,
+                ScheduledDate = DateTime.SpecifyKind(scheduledDate.Date, DateTimeKind.Utc),
                 EstimatedCompletionDate = scheduledDate,
             };
             await Db.Collection("maintenance_logs").AddAsync(record);

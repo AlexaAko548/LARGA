@@ -377,10 +377,11 @@ public class FleetReportingService
         return byTaxi;
     }
 
-    /// <summary>Garage work orders in progress (the Garage page's Active Work Orders).</summary>
+    /// <summary>Garage work orders in the shop now (the Garage page's Active Work Orders) - a
+    /// Scheduled one counts from its day, even before the Garage page moves it to In Progress.</summary>
     private static List<MaintenanceRecord> OpenWorkOrders(IEnumerable<MaintenanceRecord> maintenance) =>
         maintenance
-            .Where(m => m.DateResolved is null && string.Equals(m.Status, "InProgress", StringComparison.OrdinalIgnoreCase))
+            .Where(m => m.DateResolved is null && WorkOrderRules.IsInShopNow(m.Status, m.DateLogged, m.ScheduledDate, PhilippineTime.Now.Date))
             .ToList();
 
     private static string JobLabel(MaintenanceRecord job)

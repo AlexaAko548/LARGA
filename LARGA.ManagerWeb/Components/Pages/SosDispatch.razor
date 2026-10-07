@@ -74,7 +74,7 @@ else
                    slide into its DOM element and inherit the ticked checkbox. *@
                 <article @key="alert.AlertId" class="sos-card @TriggerCss(alert.TriggerType)">
                     <div class="sos-card-head">
-                        <span class="sos-trigger">@TriggerIcon(alert.TriggerType) @SosDispatchService.TriggerLabel(alert.TriggerType).ToUpperInvariant()</span>
+                        <span class="sos-trigger"><Icon Name="@TriggerIcon(alert.TriggerType)" /> @SosDispatchService.TriggerLabel(alert.TriggerType).ToUpperInvariant()</span>
                         <span class="sos-time" title="@alert.Timestamp.ToPhilippineTime().ToString("MMM d, yyyy h:mm:ss tt")">@alert.Timestamp.ToPhilippineTime().ToString("h:mm tt") · @Ago(alert.Timestamp)</span>
                     </div>
 
@@ -84,7 +84,7 @@ else
                             <div>
                                 <div class="sos-driver-name">@alert.DriverName</div>
                                 <div class="sos-driver-meta">@(string.IsNullOrEmpty(alert.TaxiId) ? "Unit unknown" : alert.TaxiId)@(alert.PlateNumber is null ? "" : $" · {alert.PlateNumber}")</div>
-                                <div class="sos-driver-meta">📞 @(alert.PhoneNumber is null ? "No phone number on file" : InputValidator.FormatPhilippineMobile(alert.PhoneNumber))</div>
+                                <div class="sos-driver-meta"><Icon Name="phone" /> @(alert.PhoneNumber is null ? "No phone number on file" : InputValidator.FormatPhilippineMobile(alert.PhoneNumber))</div>
                             </div>
                         </div>
 
@@ -93,7 +93,7 @@ else
                             @if (alert.HasLocation)
                             {
                                 <div class="sos-coords">@Coordinates(alert)</div>
-                                <button class="profile-btn" type="button" @onclick="() => CopyCoordinatesAsync(alert)">@(_copiedAlertId == alert.AlertId ? "✓ Copied" : "Copy coordinates")</button>
+                                <button class="profile-btn" type="button" @onclick="() => CopyCoordinatesAsync(alert)">@if (_copiedAlertId == alert.AlertId) { <Icon Name="check" /> <text>Copied</text> } else { <text>Copy coordinates</text> }</button>
                             }
                             else
                             {
@@ -105,7 +105,7 @@ else
                     <div class="sos-actions">
                         @if (alert.PhoneNumber is not null)
                         {
-                            <a class="solid-btn sos-call" href="tel:@DialNumber(alert.PhoneNumber)">📞 Call driver</a>
+                            <a class="solid-btn sos-call" href="tel:@DialNumber(alert.PhoneNumber)"><Icon Name="phone" /> Call driver</a>
                         }
                         else
                         {
@@ -114,7 +114,7 @@ else
                         @if (_canManage && !string.IsNullOrEmpty(alert.DriverId))
                         {
                             <button class="solid-btn sos-message" type="button" @onclick="() => OpenChat(alert)">
-                                💬 Message@(_unreadDriverIds.Contains(alert.DriverId) ? " · new" : "")
+                                <Icon Name="message-circle" /> Message@(_unreadDriverIds.Contains(alert.DriverId) ? " · new" : "")
                             </button>
                         }
                         <label class="sos-toggle" title="Mark this emergency as handled">
@@ -325,9 +325,9 @@ else
 
     private static string TriggerIcon(string triggerType) => triggerType switch
     {
-        EmergencyAlert.Hostile => "⚠",
-        EmergencyAlert.Crash => "💥",
-        _ => "🆘",
+        EmergencyAlert.Hostile => "shield-alert",
+        EmergencyAlert.Crash => "car-front",
+        _ => "siren",
     };
 
     private static string Initials(string fullName)

@@ -400,16 +400,17 @@ public class InventoryAuditService
         return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(sb.ToString().ToLowerInvariant());
     }
 
+    // Lucide icon names - ManagerWeb's Audit Logs page draws them with its <Icon> component.
     private static string ActionIcon(string actionType)
     {
         return actionType.Trim().ToLowerInvariant() switch
         {
-            "login" => "👤",
-            "resolvemaintenanceticket" => "🔧",
-            "verifyfuelreceipt" => "⛽",
-            "flagfuelreceipt" => "⚑",
-            "emergencyalerttriggered" => "⚠",
-            _ => "•",
+            "login" => "user",
+            "resolvemaintenanceticket" => "wrench",
+            "verifyfuelreceipt" => "fuel",
+            "flagfuelreceipt" => "flag",
+            "emergencyalerttriggered" => "triangle-alert",
+            _ => "dot",
         };
     }
 

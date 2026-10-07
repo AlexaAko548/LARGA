@@ -379,7 +379,7 @@ public class ShiftManagementService : IShiftManagementService
             .GetDocumentsAsync<EligibilityJobProxy>();
         var unitJobs = jobs.Documents
             .Where(d => d.Data != null)
-            .Select(d => ((string?)d.Data.Status, d.Data.DateLogged.UtcDateTime, d.Data.EstimatedCompletionDate?.UtcDateTime, (string?)d.Data.IssueTitle));
+            .Select(d => ((string?)d.Data.Status, WorkOrderRules.ShopStartUtc(d.Data.DateLogged.UtcDateTime, d.Data.ScheduledDate?.UtcDateTime), d.Data.EstimatedCompletionDate?.UtcDateTime, (string?)d.Data.IssueTitle));
 
         return (ShiftEligibilityRules.UnitBlockReason(taxiId, taxi?.Data?.Status, unitJobs, todayPh), false);
     }
@@ -582,6 +582,9 @@ public class ShiftManagementService : IShiftManagementService
 
         [Plugin.Firebase.Firestore.FirestoreProperty("estimatedCompletionDate")]
         public DateTimeOffset? EstimatedCompletionDate { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("scheduledDate")]
+        public DateTimeOffset? ScheduledDate { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("issueTitle")]
         public string IssueTitle { get; set; }

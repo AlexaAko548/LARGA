@@ -1,5 +1,6 @@
 ﻿using Microsoft.Maui.Storage;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
 using LARGA.MobileApp.Services;
 using Microsoft.Maui.Controls;
@@ -291,7 +292,8 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
 
             MaintenanceRecordProxy active = snapshot.Documents
                 .Select(d => d.Data)
-                .Where(m => m != null && string.Equals(m!.Status, "InProgress", StringComparison.OrdinalIgnoreCase))
+                // In the shop now - a Scheduled job only once its day comes.
+                .Where(m => m != null && WorkOrderRules.IsInShopNow(m!.Status, m.DateLogged.UtcDateTime, m.ScheduledDate?.UtcDateTime, ShiftClock.UtcNow.ToPhilippineTime().Date))
                 .OrderByDescending(m => m!.DateLogged)
                 .FirstOrDefault();
 
@@ -301,11 +303,13 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                 return;
             }
 
-            int currentDay = Math.Max(1, (int)(DateTime.UtcNow.Date - active.DateLogged.UtcDateTime.Date).TotalDays + 1);
+            // Counted from the shop day (the scheduled date), not the day the driver reported it.
+            DateTime shopStart = WorkOrderRules.ShopStartUtc(active.DateLogged.UtcDateTime, active.ScheduledDate?.UtcDateTime);
+            int currentDay = WorkOrderRules.ShopDayNumber(active.DateLogged.UtcDateTime, active.ScheduledDate?.UtcDateTime, ShiftClock.UtcNow.ToPhilippineTime().Date);
 
             if (active.EstimatedCompletionDate.HasValue)
             {
-                int totalDays = Math.Max(currentDay, (int)(active.EstimatedCompletionDate.Value.UtcDateTime.Date - active.DateLogged.UtcDateTime.Date).TotalDays + 1);
+                int totalDays = Math.Max(currentDay, (int)(active.EstimatedCompletionDate.Value.UtcDateTime.Date - shopStart.Date).TotalDays + 1);
                 MaintenanceDayLabel = $"Day {Math.Min(currentDay, totalDays)} of {totalDays}";
             }
             else
@@ -341,6 +345,9 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
 
         [Plugin.Firebase.Firestore.FirestoreProperty("estimatedCompletionDate")]
         public DateTimeOffset? EstimatedCompletionDate { get; set; } // Fixed
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("scheduledDate")]
+        public DateTimeOffset? ScheduledDate { get; set; }
     }
 
     public void ApplyQueryAttributes(IDictionary<string, object> query)
