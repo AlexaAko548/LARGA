@@ -41,6 +41,14 @@ public interface IGpsTelemetryService
 {
     void Start(string shiftId);
     void Stop();
+
+    /// <summary>Whether the last point written showed the unit moving - false before the first
+    /// point. The Fleet Map shows a unit Idle by this same reading (speed 0), so the driver's
+    /// own screen can say so too.</summary>
+    bool IsMoving { get; }
+
+    /// <summary>Raised (on a background thread) when IsMoving changes.</summary>
+    event EventHandler? MovementChanged;
 }
 
 public class GpsTelemetryService : IGpsTelemetryService
@@ -48,8 +56,28 @@ public class GpsTelemetryService : IGpsTelemetryService
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan LocationTimeout = TimeSpan.FromSeconds(15);
 
+    // A fix older than this is the phone repeating a cached position (nothing new came in) -
+    // its speed and heading are from when it was taken, not now.
+    private static readonly TimeSpan StaleFixAge = TimeSpan.FromSeconds(45);
+
+    // Less than this between two fixes ~30s apart counts as stopped: it's within GPS drift
+    // for a parked car, and anything slower than ~3 km/h isn't worth animating on the map.
+    private const double MinMovementMeters = 25;
+
     private CancellationTokenSource? _cts;
     private string? _runningShiftId;
+    private bool _isMoving;
+
+    public bool IsMoving => _isMoving;
+
+    public event EventHandler? MovementChanged;
+
+    private void SetMoving(bool moving)
+    {
+        if (_isMoving == moving) return;
+        _isMoving = moving;
+        MovementChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     public void Start(string shiftId)
     {
@@ -80,20 +108,23 @@ public class GpsTelemetryService : IGpsTelemetryService
         _cts?.Dispose();
         _cts = null;
         _runningShiftId = null;
+        SetMoving(false);
     }
 
-    private static async Task RunAsync(string shiftId, CancellationToken token)
+    private async Task RunAsync(string shiftId, CancellationToken token)
     {
         // First point lands immediately so the Fleet Map gets a pin as soon as the shift
         // starts, instead of waiting a full PollInterval for the initial fix.
-        await CaptureAndWriteAsync(shiftId, token);
+        (Location? previous, bool? moving) = await CaptureAndWriteAsync(shiftId, null, token);
+        if (moving is bool first && !token.IsCancellationRequested) SetMoving(first);
 
         try
         {
             using var timer = new PeriodicTimer(PollInterval);
             while (await timer.WaitForNextTickAsync(token))
             {
-                await CaptureAndWriteAsync(shiftId, token);
+                (previous, moving) = await CaptureAndWriteAsync(shiftId, previous, token);
+                if (moving is bool now && !token.IsCancellationRequested) SetMoving(now);
             }
         }
         catch (OperationCanceledException)
@@ -102,7 +133,10 @@ public class GpsTelemetryService : IGpsTelemetryService
         }
     }
 
-    private static async Task CaptureAndWriteAsync(string shiftId, CancellationToken token)
+    /// <summary>Writes one point and returns the fix it used plus whether it showed the unit
+    /// moving - or (<paramref name="previous"/>, null) when nothing was written - so the next
+    /// tick can tell whether the unit actually moved.</summary>
+    private static async Task<(Location? Fix, bool? Moving)> CaptureAndWriteAsync(string shiftId, Location? previous, CancellationToken token)
     {
         try
         {
@@ -113,7 +147,7 @@ public class GpsTelemetryService : IGpsTelemetryService
             }
             if (status != PermissionStatus.Granted)
             {
-                return;
+                return (previous, null);
             }
 
             // Real device hardware only - never a mocked/simulated fallback per the ticket.
@@ -125,23 +159,25 @@ public class GpsTelemetryService : IGpsTelemetryService
 
             if (location == null)
             {
-                return;
+                return (previous, null);
             }
 
             // firestore.rules only accept a point from the driver who owns the shift.
             string? driverId = CrossFirebaseAuth.Current.CurrentUser?.Uid;
             if (string.IsNullOrEmpty(driverId))
             {
-                return;
+                return (previous, null);
             }
 
-            int speedKmh = (int)Math.Round((location.Speed ?? 0) * 3.6); // m/s -> km/h
+            bool moving = HasMovedSince(location, previous, DateTimeOffset.UtcNow);
+            int speedKmh = moving ? (int)Math.Round(SpeedMetersPerSecond(location, previous) * 3.6) : 0; // m/s -> km/h
             // -1 = "no heading": many fixes (Medium accuracy on Android especially) come back
             // without a course, and 0 would read as due north - the Fleet Map would then
             // dead-reckon the pin north regardless of where the taxi is actually heading.
             // Stored as a sentinel rather than null since the map's Firestore proxy can't
             // deserialize nullable values reliably on Android.
-            double headingDegrees = location.Course is double course && course >= 0 && !double.IsNaN(course)
+            // A stopped unit has no heading either, so the map doesn't project it anywhere.
+            double headingDegrees = speedKmh > 0 && location.Course is double course && course >= 0 && !double.IsNaN(course)
                 ? course
                 : -1;
             var now = DateTime.UtcNow;
@@ -177,6 +213,7 @@ public class GpsTelemetryService : IGpsTelemetryService
                     { "currentHeading", headingDegrees },
                     { "currentPositionUpdatedAt", now },
                 });
+            return (location, speedKmh > 0);
         }
         catch (OperationCanceledException)
         {
@@ -187,8 +224,56 @@ public class GpsTelemetryService : IGpsTelemetryService
             // One bad reading or a transient Firestore hiccup shouldn't end telemetry for
             // the rest of the shift - log and let the next tick try again.
             System.Diagnostics.Debug.WriteLine($"GPS telemetry tick failed: {ex.Message}");
+            return (previous, null);
         }
     }
+
+    /// <summary>
+    /// Whether the unit is really moving. The phone's reported speed alone isn't enough: when no
+    /// new fix comes in (the car stopped indoors, or a route simulation was paused), Android keeps
+    /// handing back the last fix - speed and heading included - so a parked unit would keep
+    /// reporting, say, 40 km/h and the Fleet Map would keep animating it forward and back.
+    /// </summary>
+    private static bool HasMovedSince(Location location, Location? previous, DateTimeOffset nowUtc)
+    {
+        if (nowUtc - location.Timestamp > StaleFixAge)
+        {
+            return false; // a cached fix, not a current one
+        }
+
+        if (previous is null)
+        {
+            return (location.Speed ?? 0) > 0; // first point of the shift: all we have is the phone's word
+        }
+
+        if (location.Timestamp <= previous.Timestamp)
+        {
+            return false; // the same fix again
+        }
+
+        return MetersBetween(previous, location) >= MinMovementMeters;
+    }
+
+    /// <summary>The phone's reported speed, or - when it reports none - the distance covered
+    /// since the previous fix over the time between them.</summary>
+    private static double SpeedMetersPerSecond(Location location, Location? previous)
+    {
+        if (location.Speed is double reported && reported > 0 && !double.IsNaN(reported))
+        {
+            return reported;
+        }
+
+        if (previous is null)
+        {
+            return 0;
+        }
+
+        double seconds = (location.Timestamp - previous.Timestamp).TotalSeconds;
+        return seconds > 0 ? MetersBetween(previous, location) / seconds : 0;
+    }
+
+    private static double MetersBetween(Location a, Location b) =>
+        Location.CalculateDistance(a, b, DistanceUnits.Kilometers) * 1000;
 
     private class GpsTelemetryProxy
     {

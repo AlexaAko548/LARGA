@@ -76,20 +76,24 @@
                 IsVisible="{Binding IsChipsRowVisible}">
             <VerticalStackLayout Spacing="6">
                 <HorizontalStackLayout Spacing="8">
-                    <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="#1E8E5A" />
+                    <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="#1B8B52" />
                     <Label Text="Active" FontSize="12" TextColor="White" VerticalOptions="Center" />
                 </HorizontalStackLayout>
                 <HorizontalStackLayout Spacing="8">
-                    <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="#C97A1B" />
+                    <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="#B05A14" />
                     <Label Text="On Break" FontSize="12" TextColor="White" VerticalOptions="Center" />
                 </HorizontalStackLayout>
                 <HorizontalStackLayout Spacing="8">
-                    <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="{StaticResource LargaDanger}" />
+                    <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="#B53D4A" />
                     <Label Text="SOS" FontSize="12" TextColor="White" VerticalOptions="Center" />
                 </HorizontalStackLayout>
                 <HorizontalStackLayout Spacing="8">
-                    <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="{StaticResource LargaMutedText}" />
+                    <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="#0181AD" />
                     <Label Text="Idle" FontSize="12" TextColor="White" VerticalOptions="Center" />
+                </HorizontalStackLayout>
+                <HorizontalStackLayout Spacing="8">
+                    <Border WidthRequest="10" HeightRequest="10" StrokeThickness="0" StrokeShape="Ellipse" BackgroundColor="#5A7A8A" />
+                    <Label Text="No shift" FontSize="12" TextColor="White" VerticalOptions="Center" />
                 </HorizontalStackLayout>
             </VerticalStackLayout>
         </Border>
