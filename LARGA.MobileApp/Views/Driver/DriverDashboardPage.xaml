@@ -8,86 +8,89 @@
              BackgroundColor="{DynamicResource ThemeSurface}"
              NavigationPage.HasNavigationBar="False">
 
-    <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="6">
-            <!-- Header -->
-            <Label Text="{Binding CurrentDate}" TextColor="{DynamicResource LargaDarkText}" FontSize="14" Margin="0,10,0,0" />
-            <Label Text="{Binding WelcomeMessage}" Style="{StaticResource HeaderTitleStyle}" TextColor="{DynamicResource LargaDarkText}" FontSize="35" LineHeight="1.1" />
+    <!-- Cards scroll; the action buttons are pinned below them, just above the tab bar. -->
+    <Grid RowDefinitions="*, Auto">
+        <ScrollView Grid.Row="0">
+            <VerticalStackLayout Padding="20" Spacing="6">
+                <!-- Header -->
+                <Label Text="{Binding CurrentDate}" TextColor="{DynamicResource LargaDarkText}" FontSize="14" Margin="0,10,0,0" />
+                <Label Text="{Binding WelcomeMessage}" Style="{StaticResource HeaderTitleStyle}" TextColor="{DynamicResource LargaDarkText}" FontSize="35" LineHeight="1.1" />
 
-            <!-- Status Card -->
-            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20">
-                <Grid ColumnDefinitions="Auto, *" RowDefinitions="Auto, Auto">
-                    <Ellipse Grid.Row="0" Grid.Column="0" Fill="{DynamicResource LargaDarkText}" WidthRequest="12" HeightRequest="12" VerticalOptions="Center" Margin="0,0,10,0" />
+                <!-- Status Card -->
+                <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20">
+                    <Grid ColumnDefinitions="Auto, *" RowDefinitions="Auto, Auto">
+                        <Ellipse Grid.Row="0" Grid.Column="0" Fill="{DynamicResource LargaDarkText}" WidthRequest="12" HeightRequest="12" VerticalOptions="Center" Margin="0,0,10,0" />
 
-                    <HorizontalStackLayout Grid.Row="0" Grid.Column="1" Spacing="5">
-                        <Label Text="Status:" FontAttributes="Bold" FontSize="18" TextColor="{DynamicResource LargaDarkText}" />
-                        <Label Text="{Binding StatusText}" Style="{StaticResource StatusDataStyle}" TextColor="{Binding StatusColor}" FontSize="18" />
-                    </HorizontalStackLayout>
+                        <HorizontalStackLayout Grid.Row="0" Grid.Column="1" Spacing="5">
+                            <Label Text="Status:" FontAttributes="Bold" FontSize="18" TextColor="{DynamicResource LargaDarkText}" />
+                            <Label Text="{Binding StatusText}" Style="{StaticResource StatusDataStyle}" TextColor="{Binding StatusColor}" FontSize="18" />
+                        </HorizontalStackLayout>
 
-                    <Label Grid.Row="1" Grid.Column="1" Text="{Binding GpsStatusText}" TextColor="{DynamicResource LargaDarkText}" FontSize="14" Margin="0,5,0,0" />
-                </Grid>
-            </Border>
+                        <Label Grid.Row="1" Grid.Column="1" Text="{Binding GpsStatusText}" TextColor="{DynamicResource LargaDarkText}" FontSize="14" Margin="0,5,0,0" />
+                    </Grid>
+                </Border>
 
-            <!-- Assigned Unit Card -->
-            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20">
-                <VerticalStackLayout Spacing="10">
-                    <Grid ColumnDefinitions="*, Auto">
-                        <VerticalStackLayout Grid.Column="0">
-                            <Label Text="ASSIGNED UNIT" TextColor="{DynamicResource LargaDarkText}" FontSize="12" />
-                            <Label Text="{Binding AssignedUnitPlate, FallbackValue='Loading...'}" Style="{StaticResource HeaderStyle}" TextColor="{DynamicResource LargaDarkText}" FontSize="32" />
+                <!-- Assigned Unit Card -->
+                <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20">
+                    <VerticalStackLayout Spacing="10">
+                        <Grid ColumnDefinitions="*, Auto">
+                            <VerticalStackLayout Grid.Column="0">
+                                <Label Text="ASSIGNED UNIT" TextColor="{DynamicResource LargaDarkText}" FontSize="12" />
+                                <Label Text="{Binding AssignedUnitPlate, FallbackValue='Loading...'}" Style="{StaticResource HeaderStyle}" TextColor="{DynamicResource LargaDarkText}" FontSize="32" />
+                            </VerticalStackLayout>
+                            <Border Grid.Column="1" BackgroundColor="{DynamicResource LargaPrimaryBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" WidthRequest="50" HeightRequest="40">
+                                <Image controls:ThemedIcon.IsEnabled="True" Source="car_icon.png" WidthRequest="24" HeightRequest="24" VerticalOptions="Center" HorizontalOptions="Center" />
+                            </Border>
+                        </Grid>
+
+                        <Label Text="{Binding AssignedUnitDetails}" TextColor="{DynamicResource LargaDarkText}" FontSize="14" />
+                        <BoxView HeightRequest="1" Color="{DynamicResource LargaDarkText}" Margin="0,10" />
+
+                        <Grid ColumnDefinitions="*, Auto">
+                            <Label Grid.Column="0" Text="MAINTENANCE STATUS :" TextColor="{DynamicResource LargaDarkText}" FontSize="12" VerticalOptions="Center" />
+                            <Border Grid.Column="1" BackgroundColor="{DynamicResource LargaPrimaryBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 15" Padding="15,5">
+                                <Label Text="{Binding MaintenanceStatus}" TextColor="{DynamicResource LargaWhite}" FontSize="14" />
+                            </Border>
+                        </Grid>
+
+                        <Label Text="{Binding MaintenanceDayLabel}" TextColor="{DynamicResource LargaDarkText}" FontSize="12" HorizontalTextAlignment="End" IsVisible="{Binding HasMaintenanceDayLabel}" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- License Expiry Alert -->
+                <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20" IsVisible="{Binding HasLicenseAlert}">
+                    <Grid ColumnDefinitions="Auto, *">
+                        <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="20" HeightRequest="20" VerticalOptions="Start" Margin="0,0,10,0" />
+                        <VerticalStackLayout Grid.Column="1" Spacing="5">
+                            <Label Text="License Alert" FontAttributes="Bold" TextColor="{Binding LicenseAlertColor}" FontSize="16" />
+                            <Label Text="{Binding LicenseAlertMessage}" TextColor="{DynamicResource LargaDarkText}" FontSize="14" />
                         </VerticalStackLayout>
-                        <Border Grid.Column="1" BackgroundColor="{DynamicResource LargaPrimaryBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" WidthRequest="50" HeightRequest="40">
-                            <Image controls:ThemedIcon.IsEnabled="True" Source="car_icon.png" WidthRequest="24" HeightRequest="24" VerticalOptions="Center" HorizontalOptions="Center" />
-                        </Border>
                     </Grid>
+                </Border>
 
-                    <Label Text="{Binding AssignedUnitDetails}" TextColor="{DynamicResource LargaDarkText}" FontSize="14" />
-                    <BoxView HeightRequest="1" Color="{DynamicResource LargaDarkText}" Margin="0,10" />
-
-                    <Grid ColumnDefinitions="*, Auto">
-                        <Label Grid.Column="0" Text="MAINTENANCE STATUS :" TextColor="{DynamicResource LargaDarkText}" FontSize="12" VerticalOptions="Center" />
-                        <Border Grid.Column="1" BackgroundColor="{DynamicResource LargaPrimaryBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 15" Padding="15,5">
-                            <Label Text="{Binding MaintenanceStatus}" TextColor="{DynamicResource LargaWhite}" FontSize="14" />
-                        </Border>
+                <!-- Manager Note -->
+                <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20">
+                    <Grid ColumnDefinitions="Auto, *">
+                        <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="20" HeightRequest="20" VerticalOptions="Start" Margin="0,0,10,0" />
+                        <VerticalStackLayout Grid.Column="1" Spacing="5">
+                            <Label Text="Manager Note" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" FontSize="16" />
+                            <Label Text="{Binding ManagerNote}" TextColor="{DynamicResource ThemeTextGray}" FontSize="14" />
+                        </VerticalStackLayout>
                     </Grid>
-
-                    <Label Text="{Binding MaintenanceDayLabel}" TextColor="{DynamicResource LargaDarkText}" FontSize="12" HorizontalTextAlignment="End" IsVisible="{Binding HasMaintenanceDayLabel}" />
-                </VerticalStackLayout>
-            </Border>
-
-            <!-- License Expiry Alert -->
-            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20" IsVisible="{Binding HasLicenseAlert}">
-                <Grid ColumnDefinitions="Auto, *">
-                    <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="20" HeightRequest="20" VerticalOptions="Start" Margin="0,0,10,0" />
-                    <VerticalStackLayout Grid.Column="1" Spacing="5">
-                        <Label Text="License Alert" FontAttributes="Bold" TextColor="{Binding LicenseAlertColor}" FontSize="16" />
-                        <Label Text="{Binding LicenseAlertMessage}" TextColor="{DynamicResource LargaDarkText}" FontSize="14" />
-                    </VerticalStackLayout>
-                </Grid>
-            </Border>
-
-            <!-- Manager Note -->
-            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20">
-                <Grid ColumnDefinitions="Auto, *">
-                    <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="20" HeightRequest="20" VerticalOptions="Start" Margin="0,0,10,0" />
-                    <VerticalStackLayout Grid.Column="1" Spacing="5">
-                        <Label Text="Manager Note" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" FontSize="16" />
-                        <Label Text="{Binding ManagerNote}" TextColor="{DynamicResource ThemeTextGray}" FontSize="14" />
-                    </VerticalStackLayout>
-                </Grid>
-            </Border>
-
-            <!-- Action Buttons -->
-            <VerticalStackLayout Spacing="10" Margin="0,20,0,0">
-                <Button Text="💬 Message Manager" BackgroundColor="{DynamicResource LargaPrimaryBlue}" TextColor="{DynamicResource LargaWhite}" CornerRadius="10" HorizontalOptions="End" Padding="15,10" Command="{Binding MessageManagerCommand}" />
-
-                <VerticalStackLayout Spacing="-3" IsVisible="{Binding IsOffline}">
-                    <Button Text="🕒 CLOCK IN   >" Style="{StaticResource LargaButtonStyle}" HeightRequest="60" FontSize="18" Command="{Binding ToggleShiftCommand}" />
-                    <Label Text="A vehicle checklist is required before your shift begins." TextColor="{DynamicResource LargaDarkText}" FontSize="12" HorizontalTextAlignment="Center" />
-                </VerticalStackLayout>
-
-                <Button Text="ACTIVE SHIFT SCREEN   >" BackgroundColor="{DynamicResource LargaPrimaryBlue}" TextColor="{DynamicResource LargaWhite}" CornerRadius="25" HeightRequest="60" FontSize="18" FontAttributes="Bold" Command="{Binding ActiveShiftCommand}" IsVisible="{Binding IsOnline}" />
+                </Border>
             </VerticalStackLayout>
+        </ScrollView>
+
+        <!-- Action Buttons -->
+        <VerticalStackLayout Grid.Row="1" Spacing="10" Padding="20,10,20,16">
+            <Button Text="💬 Message Manager" BackgroundColor="{DynamicResource LargaPrimaryBlue}" TextColor="{DynamicResource LargaWhite}" CornerRadius="10" HorizontalOptions="End" Padding="15,10" Command="{Binding MessageManagerCommand}" />
+
+            <VerticalStackLayout Spacing="-3" IsVisible="{Binding IsOffline}">
+                <Button Text="🕒 CLOCK IN   >" Style="{StaticResource LargaButtonStyle}" HeightRequest="60" FontSize="18" Command="{Binding ToggleShiftCommand}" />
+                <Label Text="A vehicle checklist is required before your shift begins." TextColor="{DynamicResource LargaDarkText}" FontSize="12" HorizontalTextAlignment="Center" />
+            </VerticalStackLayout>
+
+            <Button Text="ACTIVE SHIFT SCREEN   >" BackgroundColor="{DynamicResource LargaPrimaryBlue}" TextColor="{DynamicResource LargaWhite}" CornerRadius="25" HeightRequest="60" FontSize="18" FontAttributes="Bold" Command="{Binding ActiveShiftCommand}" IsVisible="{Binding IsOnline}" />
         </VerticalStackLayout>
-    </ScrollView>
+    </Grid>
 </ContentPage>
