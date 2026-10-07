@@ -5,12 +5,12 @@
              x:Class="LARGA.MobileApp.Views.Auth.LoginPage"
              x:DataType="vm:LoginViewModel"
              Shell.NavBarIsVisible="False"
-             BackgroundColor="White">
+             BackgroundColor="{DynamicResource ThemeSurface}">
 
     <Grid RowDefinitions="*, Auto">
         <!-- Top Blue Area -->
         <Border Grid.Row="0"
-                BackgroundColor="{StaticResource LargaLightBlue}"
+                BackgroundColor="{DynamicResource LargaLightBlue}"
                 StrokeShape="RoundRectangle 0,0,50,50"
                 StrokeThickness="0">
             <Grid RowDefinitions="Auto, *">
@@ -24,7 +24,7 @@
                     <Label Text="Welcome back!" 
                            Style="{StaticResource HeaderTitleStyle}" 
                            FontSize="40"
-                           TextColor="Black"
+                           TextColor="{DynamicResource ThemeTextBlack}"
                            HorizontalOptions="Center" 
                            Margin="0, 0, 0, 70" />
 
@@ -40,7 +40,7 @@
                     <!-- Remember Me Checkbox (Aligned to Left) -->
                     <HorizontalStackLayout Spacing="10" HorizontalOptions="Start" Margin="0,5,0,0">
                         <CheckBox IsChecked="{Binding RememberMe}" Color="#0099CC" />
-                        <Label Text="Remember Me" VerticalOptions="Center" TextColor="Black" FontSize="14" />
+                        <Label Text="Remember Me" VerticalOptions="Center" TextColor="{DynamicResource ThemeTextBlack}" FontSize="14" />
                     </HorizontalStackLayout>
                 </VerticalStackLayout>
             </Grid>
@@ -56,7 +56,7 @@
 
             <!-- Forgot Password (Moved below Login button and Centered) -->
             <Label Text="Forgot password?" 
-                   TextColor="Black"
+                   TextColor="{DynamicResource ThemeTextBlack}"
                    HorizontalOptions="Center" 
                    TextDecorations="Underline"
                    FontSize="14">
@@ -68,7 +68,7 @@
             <Label Text="Don't have an account?&#10;Please refer to your manager to open your account."
                    HorizontalTextAlignment="Center"
                    FontSize="12"
-                   TextColor="Gray" />
+                   TextColor="{DynamicResource ThemeTextGray}" />
         </VerticalStackLayout>
     </Grid>
 </ContentPage>

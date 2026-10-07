@@ -8,7 +8,7 @@
              x:Name="Root"
              x:DataType="vm:ManagerLedgerViewModel"
              Shell.NavBarIsVisible="False"
-             BackgroundColor="{StaticResource LargaWhite}">
+             BackgroundColor="{DynamicResource ThemeSurface}">
 
     <ContentPage.Resources>
         <ResourceDictionary>
@@ -36,11 +36,11 @@
                     </Border>
                 </Grid>
 
-                <Border IsVisible="{Binding HasError}" Style="{StaticResource Ledger.Row}" BackgroundColor="{StaticResource LargaDangerBg}">
+                <Border IsVisible="{Binding HasError}" Style="{StaticResource Ledger.Row}" BackgroundColor="{DynamicResource LargaDangerBg}">
                     <Label Text="{Binding ErrorMessage}" Style="{StaticResource Ledger.Error}" />
                 </Border>
 
-                <Label Text="{Binding WarningText}" Style="{StaticResource Ledger.Error}" TextColor="{StaticResource LargaWarning}"
+                <Label Text="{Binding WarningText}" Style="{StaticResource Ledger.Error}" TextColor="{DynamicResource LargaWarning}"
                        IsVisible="{Binding HasWarning}" />
 
                 <!-- PENDING: one card per shift that still owes today's boundary -->
@@ -60,7 +60,7 @@
                                         <Label Text="{Binding DriverName}" Style="{StaticResource Ledger.CardTitle}" VerticalOptions="Center" />
                                     </HorizontalStackLayout>
                                     <HorizontalStackLayout Spacing="6">
-                                        <Label Text="&#xe531;" FontFamily="MaterialIcons" FontSize="13" TextColor="{StaticResource LargaMutedText}" VerticalOptions="Center" />
+                                        <Label Text="&#xe531;" FontFamily="MaterialIcons" FontSize="13" TextColor="{DynamicResource LargaMutedText}" VerticalOptions="Center" />
                                         <Label Text="{Binding PlateText}" Style="{StaticResource Ledger.Detail}" VerticalOptions="Center" />
                                     </HorizontalStackLayout>
 
@@ -173,8 +173,8 @@
                                         Placeholder="What is this payment for?"
                                         AutoSize="TextChanges" MinimumHeightRequest="60"
                                         FontFamily="InterRegular" FontSize="14"
-                                        TextColor="{StaticResource LargaDarkText}"
-                                        PlaceholderColor="{StaticResource LargaMutedText}"
+                                        TextColor="{DynamicResource LargaDarkText}"
+                                        PlaceholderColor="{DynamicResource LargaMutedText}"
                                         BackgroundColor="Transparent" />
                             </Border>
                         </VerticalStackLayout>
@@ -213,7 +213,7 @@
                             </Border>
                         </VerticalStackLayout>
 
-                        <Label Text="{Binding RecordPayment.AllocationText}" FontSize="13" TextColor="#4A5568" />
+                        <Label Text="{Binding RecordPayment.AllocationText}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />
                         <Label Text="{Binding RecordPayment.ErrorText}" Style="{StaticResource Ledger.Error}" />
 
                         <Button Text="CONFIRM PAYMENT" Style="{StaticResource Ledger.PrimaryButton}"

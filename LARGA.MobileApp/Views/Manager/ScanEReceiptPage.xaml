@@ -4,14 +4,14 @@
              xmlns:cv="clr-namespace:Camera.MAUI;assembly=Camera.MAUI"
              x:Class="LARGA.MobileApp.Views.Manager.ScanEReceiptPage"
              Shell.NavBarIsVisible="False"
-             BackgroundColor="{StaticResource LargaWhite}">
+             BackgroundColor="{DynamicResource ThemeSurface}">
 
     <Grid RowDefinitions="Auto,*,Auto" Padding="20,15,20,20" RowSpacing="15">
 
         <!-- Header -->
         <Grid Grid.Row="0" ColumnDefinitions="Auto,*" ColumnSpacing="12">
             <Label Grid.Column="0" Text="&#xe5c4;" Style="{StaticResource Ledger.Icon}" FontSize="26"
-                   TextColor="{StaticResource LargaPrimaryBlue}">
+                   TextColor="{DynamicResource LargaPrimaryBlue}">
                 <Label.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnCancelClicked" />
                 </Label.GestureRecognizers>

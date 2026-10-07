@@ -4,7 +4,7 @@
              x:Class="LARGA.MobileApp.Views.Shared.EmergencyCountdownPage"
              NavigationPage.HasNavigationBar="False"
              Shell.NavBarIsVisible="False"
-             BackgroundColor="{StaticResource LargaDanger}">
+             BackgroundColor="{DynamicResource LargaDanger}">
 
     <Grid RowDefinitions="*,Auto" Padding="24,48,24,32">
 
@@ -12,19 +12,19 @@
             <Label x:Name="TitleLabel"
                    FontFamily="BarlowCondensedBold"
                    FontSize="34"
-                   TextColor="{StaticResource LargaWhite}"
+                   TextColor="{DynamicResource LargaWhite}"
                    HorizontalTextAlignment="Center" />
 
             <Label x:Name="MessageLabel"
                    FontFamily="InterRegular"
                    FontSize="16"
-                   TextColor="{StaticResource LargaWhite}"
+                   TextColor="{DynamicResource LargaWhite}"
                    HorizontalTextAlignment="Center" />
 
             <Label x:Name="SecondsLabel"
                    FontFamily="BarlowCondensedBold"
                    FontSize="120"
-                   TextColor="{StaticResource LargaWhite}"
+                   TextColor="{DynamicResource LargaWhite}"
                    HorizontalTextAlignment="Center"
                    Margin="0,24,0,0" />
         </VerticalStackLayout>
@@ -35,8 +35,8 @@
                 FontSize="22"
                 HeightRequest="72"
                 CornerRadius="12"
-                BackgroundColor="{StaticResource LargaWhite}"
-                TextColor="{StaticResource LargaDanger}"
+                BackgroundColor="{DynamicResource ThemeSurface}"
+                TextColor="{DynamicResource LargaDanger}"
                 Clicked="OnCancelClicked" />
     </Grid>
 </ContentPage>

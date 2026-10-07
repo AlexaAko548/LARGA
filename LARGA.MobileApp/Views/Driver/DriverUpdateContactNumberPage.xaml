@@ -5,7 +5,7 @@
              x:Class="LARGA.MobileApp.Views.Driver.DriverUpdateContactNumberPage"
              x:DataType="vm:DriverUpdateContactViewModel"
              NavigationPage.HasNavigationBar="False"
-             BackgroundColor="{StaticResource LargaWhite}">
+             BackgroundColor="{DynamicResource ThemeSurface}">
 
     <ScrollView>
         <VerticalStackLayout Padding="20,0" Spacing="15">
@@ -13,29 +13,29 @@
             <Label Text="Update Contact Number"
                    FontSize="32"
                    Style="{StaticResource HeaderStyle}"
-                   TextColor="{StaticResource LargaDarkText}"
+                   TextColor="{DynamicResource LargaDarkText}"
 				   Margin="0,-10,0,0" />
 
-            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 15" StrokeThickness="0" Padding="20,10">
+            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 15" StrokeThickness="0" Padding="20,10">
                 <Entry Text="{Binding CurrentNumber}" Placeholder="Current Number" Keyboard="Telephone" BackgroundColor="Transparent"
-                       TextColor="{StaticResource LargaDarkText}" PlaceholderColor="#777777" FontSize="16" />
+                       TextColor="{DynamicResource LargaDarkText}" PlaceholderColor="{DynamicResource ThemeTextTertiary}" FontSize="16" />
             </Border>
 
-            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 15" StrokeThickness="0" Padding="20,10">
+            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 15" StrokeThickness="0" Padding="20,10">
                 <Entry Text="{Binding NewNumber}" Placeholder="New Number" Keyboard="Telephone" BackgroundColor="Transparent"
-                       TextColor="{StaticResource LargaDarkText}" PlaceholderColor="#777777" FontSize="16" />
+                       TextColor="{DynamicResource LargaDarkText}" PlaceholderColor="{DynamicResource ThemeTextTertiary}" FontSize="16" />
             </Border>
 
-            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 15" StrokeThickness="0" Padding="20,10">
+            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 15" StrokeThickness="0" Padding="20,10">
                 <Entry Text="{Binding ConfirmNewNumber}" Placeholder="Confirm New Number" Keyboard="Telephone" BackgroundColor="Transparent"
-                       TextColor="{StaticResource LargaDarkText}" PlaceholderColor="#777777" FontSize="16" />
+                       TextColor="{DynamicResource LargaDarkText}" PlaceholderColor="{DynamicResource ThemeTextTertiary}" FontSize="16" />
             </Border>
 
             <Button Text="CONFIRM &amp; SAVE"
                     Command="{Binding SaveCommand}"
                     IsEnabled="{Binding IsNotBusy}"
-                    BackgroundColor="{StaticResource LargaPrimaryBlue}"
-                    TextColor="{StaticResource LargaWhite}"
+                    BackgroundColor="{DynamicResource LargaPrimaryBlue}"
+                    TextColor="{DynamicResource LargaWhite}"
                     CornerRadius="42"
                     HeightRequest="84"
                     FontSize="24"

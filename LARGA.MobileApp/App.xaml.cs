@@ -12,9 +12,12 @@ public partial class App : Application
 	private Page? _countdownPage;
 	private bool _syncingCountdown;
 
-	public App(LARGA.MobileApp.Services.EmergencyCountdownCoordinator countdown)
+	public App(LARGA.MobileApp.Services.EmergencyCountdownCoordinator countdown, LARGA.MobileApp.Services.IThemeService themeService)
 	{
 		InitializeComponent();
+
+		// Saved System / Light / Dark choice, before the first page is built.
+		themeService.Initialize();
 
 		// LAR-86/87: show the cancel pop-up whenever an automated SOS countdown starts, and close
 		// it when the countdown ends (sent or cancelled). Changed can fire from any thread.

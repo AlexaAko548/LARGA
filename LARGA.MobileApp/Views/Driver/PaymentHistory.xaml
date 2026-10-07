@@ -5,28 +5,28 @@
              x:Class="LARGA.MobileApp.Views.Driver.PaymentHistoryPage"
              x:DataType="vm:PaymentHistoryViewModel"
              NavigationPage.HasNavigationBar="False"
-             BackgroundColor="{StaticResource LargaWhite}">
+             BackgroundColor="{DynamicResource ThemeSurface}">
 
     <ScrollView>
         <VerticalStackLayout Padding="20, 0" Spacing="12">
 
             <Grid ColumnDefinitions="*, Auto" VerticalOptions="Center">
-                <Label Grid.Column="0" Text="My Ledger" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaDarkText}" VerticalOptions="Center"/>
-                <Button Grid.Column="1" Text="Export" ImageSource="export_icon.png" Command="{Binding ExportCommand}" BackgroundColor="{StaticResource LargaPrimaryBlue}" TextColor="{StaticResource LargaWhite}" CornerRadius="10" HeightRequest="40" Padding="15,0" VerticalOptions="Center"/>
+                <Label Grid.Column="0" Text="My Ledger" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{DynamicResource LargaDarkText}" VerticalOptions="Center"/>
+                <Button Grid.Column="1" Text="Export" ImageSource="export_icon.png" Command="{Binding ExportCommand}" BackgroundColor="{DynamicResource LargaPrimaryBlue}" TextColor="{DynamicResource LargaWhite}" CornerRadius="10" HeightRequest="40" Padding="15,0" VerticalOptions="Center"/>
             </Grid>
 
             <!-- Payment List Card -->
-            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                 <VerticalStackLayout Spacing="10">
-                    <Label Text="PAYMENT HISTORY" FontSize="14" TextColor="{StaticResource LargaDarkText}" CharacterSpacing="1"/>
-                    <BoxView HeightRequest="1" Color="#80BBD0" Margin="0,5,0,10"/>
+                    <Label Text="PAYMENT HISTORY" FontSize="14" TextColor="{DynamicResource LargaDarkText}" CharacterSpacing="1"/>
+                    <BoxView HeightRequest="1" Color="{DynamicResource ThemeDivider}" Margin="0,5,0,10"/>
 
                     <VerticalStackLayout BindableLayout.ItemsSource="{Binding FullPaymentHistory}" Spacing="15">
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:PaymentRecord">
                                 <VerticalStackLayout Spacing="15">
-                                    <Label Text="{Binding DisplayText}" FontSize="14" TextColor="{StaticResource LargaDarkText}" FontFamily="DMMonoRegular"/>
-                                    <BoxView HeightRequest="1" Color="#80BBD0"/>
+                                    <Label Text="{Binding DisplayText}" FontSize="14" TextColor="{DynamicResource LargaDarkText}" FontFamily="DMMonoRegular"/>
+                                    <BoxView HeightRequest="1" Color="{DynamicResource ThemeDivider}"/>
                                 </VerticalStackLayout>
                             </DataTemplate>
                         </BindableLayout.ItemTemplate>
