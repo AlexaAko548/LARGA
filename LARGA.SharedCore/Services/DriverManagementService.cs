@@ -28,8 +28,10 @@ public record PhotoStorageTarget(Google.Cloud.Storage.V1.StorageClient Client, s
 {
     /// <summary>Stores an image under {folder}/ and returns its download URL - the same URL
     /// shape the mobile app's uploads get (a firebasestorage.googleapis.com link carrying a
-    /// download token), so it opens straight in a browser tab and in the mobile app alike.</summary>
-    public async Task<string> UploadImageAsync(string folder, byte[] image, string contentType)
+    /// download token), so it opens straight in a browser tab and in the mobile app alike.
+    /// <paramref name="namePrefix"/> keeps two images saved to one folder in the same second
+    /// (license photo + face crop) from getting the same name and overwriting each other.</summary>
+    public async Task<string> UploadImageAsync(string folder, byte[] image, string contentType, string namePrefix = "")
     {
         string extension = contentType switch
         {
@@ -37,20 +39,52 @@ public record PhotoStorageTarget(Google.Cloud.Storage.V1.StorageClient Client, s
             "image/webp" => "webp",
             _ => "jpg",
         };
-        string objectName = $"{folder}/{DateTime.UtcNow:yyyyMMddHHmmss}.{extension}";
+        string objectName = $"{folder}/{namePrefix}{DateTime.UtcNow:yyyyMMddHHmmss}.{extension}";
         string token = Guid.NewGuid().ToString();
 
         using var stream = new System.IO.MemoryStream(image);
-        await Client.UploadObjectAsync(new Google.Apis.Storage.v1.Data.Object
+        var uploaded = await Client.UploadObjectAsync(new Google.Apis.Storage.v1.Data.Object
         {
             Bucket = Bucket,
             Name = objectName,
             ContentType = contentType,
-            // The token Firebase's download URLs are checked against.
-            Metadata = new Dictionary<string, string> { ["firebaseStorageDownloadTokens"] = token },
         }, stream);
 
+        // The token Firebase's download URLs are checked against. Set in a separate update: the
+        // metadata sent with the upload itself wasn't being stored (files came back with no
+        // custom metadata, so the URL's token matched nothing and returned 403).
+        uploaded.Metadata = new Dictionary<string, string> { ["firebaseStorageDownloadTokens"] = token };
+        await Client.UpdateObjectAsync(uploaded);
+
         return $"https://firebasestorage.googleapis.com/v0/b/{Bucket}/o/{Uri.EscapeDataString(objectName)}?alt=media&token={token}";
+    }
+
+    /// <summary>Deletes an image by its download URL, but only one stored in this bucket under
+    /// {folder}/ - any other URL (seed data, another bucket, a typo) is left alone.</summary>
+    public async Task DeleteImageAsync(string downloadUrl, string folder)
+    {
+        string? objectName = ObjectNameFromUrl(downloadUrl);
+        if (objectName is null || !objectName.StartsWith(folder + "/", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        await Client.DeleteObjectAsync(Bucket, objectName);
+    }
+
+    // Reverses the URL built in UploadImageAsync (the mobile app's GetDownloadUrlAsync gives the
+    // same shape): .../v0/b/{bucket}/o/{escaped object name}?alt=media&token=...
+    private string? ObjectNameFromUrl(string downloadUrl)
+    {
+        string prefix = $"https://firebasestorage.googleapis.com/v0/b/{Bucket}/o/";
+        if (!downloadUrl.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        string escaped = downloadUrl[prefix.Length..];
+        int query = escaped.IndexOf('?');
+        return Uri.UnescapeDataString(query < 0 ? escaped : escaped[..query]);
     }
 }
 
@@ -625,6 +659,7 @@ public class DriverManagementService
             LicenseStatus = ComputeLicenseStatus(profile.LicenseExpiryDate, now),
             LicenseExpiryDate = profile.LicenseExpiryDate,
             LtoIdPhotoUrl = profile.LtoIdPhotoUrl,
+            ProfileImageUrl = profile.ProfileImageUrl,
             Performance = performance,
             ManagerNote = profile.ManagerNote,
         };
@@ -659,7 +694,8 @@ public class DriverManagementService
         string? licenseRestrictionCode,
         DateTime? licenseExpiryDate,
         string? assignedTaxiId,
-        string? ltoIdPhotoUrl = null)
+        string? ltoIdPhotoUrl = null,
+        string? profileImageUrl = null)
     {
         // Same rules the Edit Details form checks (InputValidator) - refused here too so nothing
         // malformed is ever stored. Phone and license number are saved in one standard format.
@@ -698,13 +734,60 @@ public class DriverManagementService
             updates["ltoIdPhotoUrl"] = ltoIdPhotoUrl;
         }
 
-        await Db.Collection("users").Document(driverId).UpdateAsync(updates);
+        // Same rule for the profile picture: only when a face was cropped from a new scan.
+        if (!string.IsNullOrWhiteSpace(profileImageUrl))
+        {
+            updates["profileImageUrl"] = profileImageUrl;
+        }
+
+        DocumentReference userRef = Db.Collection("users").Document(driverId);
+
+        // A new scan replaces the old license photo / face crop. Note the old URLs first, so those
+        // files can be deleted once the new ones are saved instead of piling up in Storage.
+        UserProfile? previous = null;
+        if (updates.ContainsKey("ltoIdPhotoUrl") || updates.ContainsKey("profileImageUrl"))
+        {
+            DocumentSnapshot snapshot = await userRef.GetSnapshotAsync();
+            previous = snapshot.Exists ? snapshot.ConvertTo<UserProfile>() : null;
+        }
+
+        await userRef.UpdateAsync(updates);
+
+        if (previous is not null)
+        {
+            await DeleteReplacedPhotoAsync(driverId, previous.LtoIdPhotoUrl, ltoIdPhotoUrl);
+            await DeleteReplacedPhotoAsync(driverId, previous.ProfileImageUrl, profileImageUrl);
+        }
+    }
+
+    // Best-effort: the profile is already saved, so a failed delete only leaves an unused file.
+    private async Task DeleteReplacedPhotoAsync(string driverId, string? oldUrl, string? newUrl)
+    {
+        if (string.IsNullOrWhiteSpace(oldUrl) || string.IsNullOrWhiteSpace(newUrl) || oldUrl == newUrl)
+        {
+            return;
+        }
+
+        try
+        {
+            await _storageLazy.Value.DeleteImageAsync(oldUrl, $"lto_ids/{driverId}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to delete replaced photo for driver {DriverId}", driverId);
+        }
     }
 
     /// <summary>Stores a scanned LTO license photo in Firebase Storage and returns its
     /// download URL (for users/{id}.ltoIdPhotoUrl).</summary>
     public Task<string> UploadLtoIdPhotoAsync(string driverId, byte[] photo, string contentType) =>
         _storageLazy.Value.UploadImageAsync($"lto_ids/{driverId}", photo, contentType);
+
+    /// <summary>Stores the face crop from a license scan and returns its download URL (for
+    /// users/{id}.profileImageUrl). Same lto_ids/{driverId} folder as the license photo, named
+    /// face_... like the mobile app's so it can't collide with the license photo saved with it.</summary>
+    public Task<string> UploadProfileFaceAsync(string driverId, byte[] face) =>
+        _storageLazy.Value.UploadImageAsync($"lto_ids/{driverId}", face, "image/jpeg", namePrefix: "face_");
 
     public async Task SetManagerNoteAsync(string driverId, string note)
     {
@@ -876,6 +959,19 @@ public class DriverManagementService
 
         if (string.Equals(current.Email, email, StringComparison.OrdinalIgnoreCase))
         {
+            // The login already uses this address, but users/{id}.email may not (an earlier save
+            // that failed half-way, or a profile written outside the web). Still write it, or the
+            // profile keeps showing the old email and Save looks like it did nothing.
+            try
+            {
+                await Db.Collection("users").Document(driverId).UpdateAsync("email", email);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Profile email write failed for {DriverId}", driverId);
+                return new ResetPasswordResult { Ok = false, ErrorMessage = "Could not save the new email. Please try again." };
+            }
+
             return new ResetPasswordResult { Ok = true };
         }
 
