@@ -1,156 +1,215 @@
-﻿@using LARGA.SharedCore.Models.ManagerProfile
+@using System.Security.Claims
+@using System.Text.Json
+@using LARGA.ManagerWeb.Models
 @using LARGA.ManagerWeb.Services
+@using Microsoft.AspNetCore.Components.Authorization
 @inject IManagerAuthService ManagerAuthService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
 @inject NavigationManager Navigation
 
-<div class="dropdown" style="position: relative; display: inline-block;">
-    <!-- Header Button -->
-    <button class="btn btn-light rounded-pill border px-3 d-flex align-items-center" type="button" @onclick="ToggleDropdown">
-        <span class="text-primary me-2" style="font-size: 0.75rem;">●</span>
-        <span class="fw-bold" style="color: #4a5568;">Manager</span>
-        <span class="ms-2 small" style="color: #a0aec0;">▼</span>
+@* Header profile menu: the same pill the header always showed, now opening Settings
+   (contact number, password) and Logout. Styled with the app's own header/modal classes. *@
+
+<div class="manager-menu">
+    <button class="manager-pill manager-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="@_isDropdownOpen" @onclick="ToggleDropdown">
+        <span class="manager-dot"></span>
+        <span>Manager</span>
+        <span class="caret">▾</span>
     </button>
 
-    <!-- Dropdown Menu -->
-    @if (isDropdownOpen)
+    @if (_isDropdownOpen)
     {
-        <ul class="dropdown-menu show shadow-sm" style="position: absolute; right: 0; top: 110%; display: block; z-index: 1050; min-width: 160px; border-radius: 8px;">
-            <li>
-                <a class="dropdown-item py-2" href="javascript:void(0)" @onclick="OpenSettingsModal">
-                    <span class="oi oi-cog me-2"></span> Settings
-                </a>
-            </li>
-            <li><hr class="dropdown-divider"></li>
-            <li>
-                <a class="dropdown-item text-danger py-2" href="javascript:void(0)" @onclick="HandleLogout">
-                    <span class="oi oi-account-logout me-2"></span> Logout
-                </a>
-            </li>
-        </ul>
+        <div class="manager-menu-backdrop" @onclick="() => _isDropdownOpen = false"></div>
+        <div class="manager-menu-dropdown" role="menu">
+            <button type="button" class="manager-menu-item" role="menuitem" @onclick="OpenSettingsModal">Settings</button>
+            <button type="button" class="manager-menu-item danger" role="menuitem" @onclick="HandleLogoutAsync">Logout</button>
+        </div>
     }
 </div>
 
-<!-- Settings Modal -->
-@if (isSettingsModalOpen)
+@if (_isSettingsModalOpen)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5); z-index: 1060;">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-light border-bottom-0">
-                    <h5 class="modal-title fw-bold" style="color: #2d3748;">Manager Settings</h5>
-                    <button type="button" class="btn-close" @onclick="CloseSettingsModal"></button>
-                </div>
-                <div class="modal-body p-4">
+    <div class="report-overlay" @onclick="CloseSettingsModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Manager Settings</h3>
+                <button type="button" class="close-modal" aria-label="Close" @onclick="CloseSettingsModal">×</button>
+            </div>
 
-                    @if (!string.IsNullOrEmpty(updateError))
+            <div class="report-body">
+                <EditForm Model="_contactModel" FormName="manager-contact" OnValidSubmit="UpdateContactNumberAsync" class="report-section">
+                    <DataAnnotationsValidator />
+                    <label>Update contact number</label>
+
+                    <div class="form-block">
+                        <InputText @bind-Value="_contactModel.CurrentContactNumber" type="tel" maxlength="16" placeholder="Current number" />
+                        <ValidationMessage For="() => _contactModel.CurrentContactNumber" class="field-error" />
+                    </div>
+                    <div class="form-block">
+                        <InputText @bind-Value="_contactModel.NewContactNumber" type="tel" maxlength="16" placeholder="New number, e.g. 0917 123 4567" />
+                        <ValidationMessage For="() => _contactModel.NewContactNumber" class="field-error" />
+                    </div>
+                    <div class="form-block">
+                        <InputText @bind-Value="_contactModel.ConfirmContactNumber" type="tel" maxlength="16" placeholder="Confirm new number" />
+                        <ValidationMessage For="() => _contactModel.ConfirmContactNumber" class="field-error" />
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(_contactMessage))
                     {
-                        <div class="alert alert-danger py-2 px-3 small mb-3">@updateError</div>
+                        <div class="@(_contactSaved ? "field-ok" : "field-error")">@_contactMessage</div>
                     }
 
-                    <!-- Update Contact Number Form -->
-                    <h6 class="fw-bold mb-3" style="color: #4a5568;">Update Contact Number</h6>
-                    <EditForm Model="@contactModel" OnValidSubmit="UpdateContactNumber">
-                        <DataAnnotationsValidator />
-                        <div class="input-group mb-1">
-                            <InputText @bind-Value="contactModel.NewContactNumber" class="form-control bg-light" placeholder="e.g. +639..." />
-                            <button class="btn btn-info text-white fw-bold" type="submit">Update</button>
-                        </div>
-                        <ValidationMessage For="@(() => contactModel.NewContactNumber)" class="text-danger small mb-4" />
-                    </EditForm>
+                    <div class="manager-menu-form-actions">
+                        <button class="download-btn" type="submit" disabled="@_isSavingContact">@(_isSavingContact ? "Saving…" : "Update Number")</button>
+                    </div>
+                </EditForm>
 
-                    <hr class="my-4" />
+                <EditForm Model="_passwordModel" FormName="manager-password" OnValidSubmit="UpdatePasswordAsync" class="report-section">
+                    <DataAnnotationsValidator />
+                    <label>Update password</label>
 
-                    <!-- Update Password Form -->
-                    <h6 class="fw-bold mb-3" style="color: #4a5568;">Update Password</h6>
-                    <EditForm Model="@passwordModel" OnValidSubmit="UpdatePassword">
-                        <DataAnnotationsValidator />
-                        <div class="mb-2">
-                            <InputText @bind-Value="passwordModel.CurrentPassword" type="password" class="form-control bg-light" placeholder="Current Password" />
-                            <ValidationMessage For="@(() => passwordModel.CurrentPassword)" class="text-danger small" />
-                        </div>
-                        <div class="mb-2">
-                            <InputText @bind-Value="passwordModel.NewPassword" type="password" class="form-control bg-light" placeholder="New Password" />
-                            <ValidationMessage For="@(() => passwordModel.NewPassword)" class="text-danger small" />
-                        </div>
-                        <div class="mb-4">
-                            <InputText @bind-Value="passwordModel.ConfirmPassword" type="password" class="form-control bg-light" placeholder="Confirm New Password" />
-                            <ValidationMessage For="@(() => passwordModel.ConfirmPassword)" class="text-danger small" />
-                        </div>
-                        <div class="d-flex justify-content-end">
-                            <button class="btn btn-info text-white fw-bold px-4" type="submit">Save Password</button>
-                        </div>
-                    </EditForm>
+                    <div class="form-block">
+                        <InputText @bind-Value="_passwordModel.CurrentPassword" type="password" maxlength="64" placeholder="Current password" />
+                        <ValidationMessage For="() => _passwordModel.CurrentPassword" class="field-error" />
+                    </div>
+                    <div class="form-block">
+                        <InputText @bind-Value="_passwordModel.NewPassword" type="password" maxlength="64" placeholder="New password" />
+                        <ValidationMessage For="() => _passwordModel.NewPassword" class="field-error" />
+                    </div>
+                    <div class="form-block">
+                        <InputText @bind-Value="_passwordModel.ConfirmPassword" type="password" maxlength="64" placeholder="Confirm new password" />
+                        <ValidationMessage For="() => _passwordModel.ConfirmPassword" class="field-error" />
+                    </div>
 
-                </div>
+                    @if (!string.IsNullOrEmpty(_passwordError))
+                    {
+                        <div class="field-error">@_passwordError</div>
+                    }
+
+                    <div class="manager-menu-form-actions">
+                        <span class="manager-menu-hint">You'll be signed out after changing it.</span>
+                        <button class="download-btn" type="submit" disabled="@_isSavingPassword">@(_isSavingPassword ? "Saving…" : "Save Password")</button>
+                    </div>
+                </EditForm>
+            </div>
+
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="CloseSettingsModal">Close</button>
             </div>
         </div>
     </div>
 }
 
 @code {
-    private bool isDropdownOpen = false;
-    private bool isSettingsModalOpen = false;
-    private string updateError = string.Empty;
+    private bool _isDropdownOpen;
+    private bool _isSettingsModalOpen;
 
-    private UpdateContactModel contactModel = new();
-    private UpdatePasswordModel passwordModel = new();
+    private UpdateContactModel _contactModel = new();
+    private string? _contactMessage;
+    private bool _contactSaved;
+    private bool _isSavingContact;
 
-    private void ToggleDropdown()
-    {
-        isDropdownOpen = !isDropdownOpen;
-        StateHasChanged();
-    }
+    private UpdatePasswordModel _passwordModel = new();
+    private string? _passwordError;
+    private bool _isSavingPassword;
+
+    private IJSObjectReference? _firebaseModule;
+
+    private void ToggleDropdown() => _isDropdownOpen = !_isDropdownOpen;
 
     private void OpenSettingsModal()
     {
-        isSettingsModalOpen = true;
-        isDropdownOpen = false;
-        updateError = string.Empty;
-        StateHasChanged();
+        _isDropdownOpen = false;
+        _isSettingsModalOpen = true;
     }
 
     private void CloseSettingsModal()
     {
-        isSettingsModalOpen = false;
-        contactModel = new();
-        passwordModel = new();
-        updateError = string.Empty;
-        StateHasChanged();
+        _isSettingsModalOpen = false;
+        _contactModel = new();
+        _passwordModel = new();
+        _contactMessage = null;
+        _contactSaved = false;
+        _passwordError = null;
     }
 
-    private async Task UpdateContactNumber()
+    private async Task UpdateContactNumberAsync()
     {
-        updateError = string.Empty;
-        var result = await ManagerAuthService.UpdateContactNumberAsync(contactModel);
-
-        if (result.Success)
+        _isSavingContact = true;
+        _contactMessage = null;
+        try
         {
-            CloseSettingsModal();
+            var (success, error) = await ManagerAuthService.UpdateContactNumberAsync(_contactModel);
+            _contactSaved = success;
+            _contactMessage = success ? "Contact number updated." : error;
+            if (success)
+            {
+                _contactModel = new();
+            }
         }
-        else
+        finally
         {
-            updateError = $"Failed to update contact: {result.ErrorMessage}";
-        }
-    }
-
-    private async Task UpdatePassword()
-    {
-        updateError = string.Empty;
-        var result = await ManagerAuthService.UpdatePasswordAsync(passwordModel);
-
-        if (result.Success)
-        {
-            await HandleLogout(); // Kick user to login page after successful password change
-        }
-        else
-        {
-            // Now, if it fails, the UI will tell you exactly what went wrong
-            updateError = $"Failed to update password: {result.ErrorMessage}";
+            _isSavingContact = false;
         }
     }
 
-    private async Task HandleLogout()
+    // The current password is checked by Firebase itself (sign-in), in the browser - see
+    // largaFirebaseChangePassword. The email is the signed-in manager's, from the server session.
+    private async Task UpdatePasswordAsync()
     {
+        _isSavingPassword = true;
+        _passwordError = null;
+        try
+        {
+            AuthenticationState state = await AuthStateProvider.GetAuthenticationStateAsync();
+            string? email = state.User.FindFirst(ClaimTypes.Email)?.Value;
+            if (string.IsNullOrEmpty(email))
+            {
+                _passwordError = "Couldn't verify your account. Please sign out and back in, then try again.";
+                return;
+            }
+
+            IJSObjectReference module = await GetFirebaseModuleAsync();
+            JsonElement result = await module.InvokeAsync<JsonElement>(
+                "largaFirebaseChangePassword", email, _passwordModel.CurrentPassword, _passwordModel.NewPassword);
+
+            if (result.TryGetProperty("ok", out JsonElement ok) && ok.ValueKind == JsonValueKind.True)
+            {
+                await HandleLogoutAsync();
+                return;
+            }
+
+            _passwordError = result.TryGetProperty("message", out JsonElement message) && message.ValueKind == JsonValueKind.String
+                ? message.GetString()
+                : "Could not update your password. Please try again.";
+        }
+        catch (JSException)
+        {
+            _passwordError = "Could not update your password. Please try again.";
+        }
+        finally
+        {
+            _isSavingPassword = false;
+        }
+    }
+
+    private async Task<IJSObjectReference> GetFirebaseModuleAsync() =>
+        _firebaseModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+
+    // Ends both sessions: the browser's Firebase sign-in, then the server cookie.
+    private async Task HandleLogoutAsync()
+    {
+        try
+        {
+            IJSObjectReference module = await GetFirebaseModuleAsync();
+            await module.InvokeAsync<bool>("largaFirebaseSignOut");
+        }
+        catch (JSException)
+        {
+            // The server sign-out below still ends the portal session.
+        }
+
         Navigation.NavigateTo("/auth/signout", forceLoad: true);
     }
 }

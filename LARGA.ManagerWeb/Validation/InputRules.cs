@@ -32,3 +32,12 @@ public sealed class FullNameAttribute : ValidationAttribute
             ? new ValidationResult(error, new[] { context.MemberName! })
             : ValidationResult.Success;
 }
+
+/// <summary>6-64 characters, no spaces (same rule as account creation and the mobile app).</summary>
+public sealed class PasswordAttribute : ValidationAttribute
+{
+    protected override ValidationResult? IsValid(object? value, ValidationContext context) =>
+        InputValidator.ValidatePassword(value as string) is string error
+            ? new ValidationResult(error, new[] { context.MemberName! })
+            : ValidationResult.Success;
+}

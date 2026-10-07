@@ -6,6 +6,8 @@
 @using LARGA.SharedCore.Models.DriverShifts
 @using LARGA.SharedCore.Services
 @rendermode InteractiveServer
+@using System.Security.Claims
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject DriverManagementService DriverManagement
@@ -14,15 +16,15 @@
 
 <PageTitle>Driver & Shift Management</PageTitle>
 
-@if (_isCheckingAccess)
+@if (_isLoading)
 {
     <div class="auth-page">
         <div class="auth-card">
-            <h2>Checking access...</h2>
+            <h2>Loading...</h2>
         </div>
     </div>
 }
-else if (_isAuthorized)
+else
 {
 <div class="dashboard-shell">
     <DashboardSidebar ActiveItem="DriverShifts" />
@@ -102,7 +104,11 @@ else if (_isAuthorized)
                         </div>
 
                         <div class="clockin-request-actions">
-                            <button class="solid-btn" type="button" disabled="@_isDecidingClockIn" @onclick="() => ApproveClockInAsync(item)">✓ Approve</button>
+                            @if (item.BlockedReason is not null)
+                            {
+                                <div class="field-error">Can't be approved: @item.BlockedReason.</div>
+                            }
+                            <button class="solid-btn" type="button" disabled="@(_isDecidingClockIn || item.BlockedReason is not null)" title="@(item.BlockedReason is null ? null : $"Can't be approved: {item.BlockedReason}")" @onclick="() => ApproveClockInAsync(item)">✓ Approve</button>
                             <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)">✕ Deny</button>
                         </div>
                     </article>
@@ -829,7 +835,7 @@ else if (_isAuthorized)
                         <div class="profile-metric-track"><div class="profile-metric-fill" style="width:@MeterText(perf.PaymentReliabilityPercent)%"></div></div>
                         <small class="receipt-hint">@(perf.BoundariesDue == 0 ? "No boundaries due yet." : $"{perf.BoundariesPaidOnTime} of {perf.BoundariesDue} boundaries paid in full by the next day")</small>
                     </div>
-                    <div class="profile-field">Damage Incidents: <strong>@perf.DamageIncidents</strong> · Boundaries Remitted: <strong>₱ @perf.BoundariesRemitted.ToString("N0")</strong></div>
+                    <div class="profile-field">Incidents: <strong>@perf.Incidents</strong> <span class="field-optional">(@perf.SosAlerts SOS, @perf.DamageIncidents accident)</span> · Boundaries Remitted: <strong>₱ @perf.BoundariesRemitted.ToString("N0")</strong></div>
                 </div>
 
                 @if (!string.IsNullOrWhiteSpace(_selectedProfile.ManagerNote))
@@ -995,9 +1001,9 @@ else if (_isAuthorized)
 }
 
 @code {
-    private bool _isCheckingAccess = true;
-    private bool _isAuthorized;
-    private IJSObjectReference? _firebaseModule;
+    // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
+    private bool _isLoading = true;
+    private string _managerUserId = string.Empty;
 
     private string _activeTab = "roster";
 
@@ -1070,21 +1076,15 @@ else if (_isAuthorized)
             return;
         }
 
-        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
-        var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
-        _isAuthorized = result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True;
-        _isCheckingAccess = false;
-
-        if (!_isAuthorized)
-        {
-            Navigation.NavigateTo("/login", forceLoad: false);
-            return;
-        }
+        // Audit entries are attributed to the signed-in manager, from the server session.
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _managerUserId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
 
         await LoadRosterAsync();
         await LoadClockInRequestsAsync();
         await LoadScheduleAsync(DateTime.UtcNow);
 
+        _isLoading = false;
         StateHasChanged();
 
         _ = AutoRefreshLoopAsync(_refreshCts.Token);
@@ -1542,7 +1542,8 @@ else if (_isAuthorized)
                 InputValidator.NormalizeSpaces(_newDriverName), _newDriverPhone.Trim(),
                 string.IsNullOrWhiteSpace(_newDriverPassword) ? null : _newDriverPassword,
                 _newDriverTaxi,
-                string.IsNullOrWhiteSpace(_newDriverEmail) ? null : _newDriverEmail);
+                string.IsNullOrWhiteSpace(_newDriverEmail) ? null : _newDriverEmail,
+                actorUserId: _managerUserId);
 
             if (!result.Ok)
             {

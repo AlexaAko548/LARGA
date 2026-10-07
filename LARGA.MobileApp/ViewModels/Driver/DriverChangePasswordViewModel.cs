@@ -61,9 +61,10 @@ public class DriverChangePasswordViewModel : BindableObject
             return;
         }
 
-        if (NewPassword.Length < 6)
+        // Same rule as account creation and ManagerWeb (InputValidator): 6-64 characters, no spaces.
+        if (LARGA.SharedCore.InputValidator.ValidatePassword(NewPassword) is string passwordError)
         {
-            await Shell.Current.DisplayAlert("Invalid Password", "Your new password must be at least 6 characters.", "OK");
+            await Shell.Current.DisplayAlert("Invalid Password", passwordError, "OK");
             return;
         }
 

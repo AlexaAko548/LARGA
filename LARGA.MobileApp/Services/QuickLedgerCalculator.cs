@@ -17,9 +17,8 @@ namespace LARGA.MobileApp.Services;
 /// </summary>
 public static class QuickLedgerCalculator
 {
-    // Mirrors FinancialLedgerService's default, used when system_configs/global can't be read
-    // or has no positive defaultBoundaryRate.
-    public const decimal FallbackBoundaryRate = 800m;
+    // Used when system_configs/global can't be read or has no positive defaultBoundaryRate.
+    public const decimal FallbackBoundaryRate = ShiftRules.DefaultBoundaryRate;
 
     public const string CashMethod = "Cash";
     public const string EWalletMethod = "E-Wallet";
@@ -34,6 +33,7 @@ public static class QuickLedgerCalculator
         DateTime dayEndUtc = dayStartUtc.AddDays(1);
         IReadOnlyList<ShiftPaymentState> states = BuildShiftStates(input);
         var stateByShiftDocId = states.ToDictionary(s => s.Shift.DocumentId);
+        CreditView credit = ApplyOverpaymentCredit(states);
 
         // --- Pending & today's totals: every shift that started today --------------------------
         var pending = new List<PendingBoundaryRow>();
@@ -49,6 +49,9 @@ public static class QuickLedgerCalculator
             // shown in Payment Done Today as Partial or Paid.
             if (state.IsCleared || state.TotalPaid > 0) continue;
 
+            // Fully covered by the driver's overpayment credit: the web shows it Cleared too.
+            if (state.IsCharge && !credit.OwedByShift.ContainsKey(state.Shift.DocumentId)) continue;
+
             pending.Add(new PendingBoundaryRow(
                 ShiftKey: state.ShiftKey,
                 DriverId: state.Shift.DriverId,
@@ -57,6 +60,7 @@ public static class QuickLedgerCalculator
                 TaxiPlate: PlateFor(input, state.Shift.TaxiId),
                 ExpectedBoundary: state.ExpectedBoundary,
                 LateFees: state.LateFees,
+                FuelPenalty: state.FuelPenalty,
                 Paid: state.TotalPaid));
         }
 
@@ -85,18 +89,7 @@ public static class QuickLedgerCalculator
             .ToList();
 
         // --- Other Payment: what each driver still owes from earlier shifts + debt adjustments ---
-        var owedByDriver = new Dictionary<string, decimal>();
-        foreach (ShiftPaymentState state in EarlierOutstanding(states, dayStartUtc))
-        {
-            AddTo(owedByDriver, state.Shift.DriverId, state.Remaining);
-        }
-        foreach (DebtAdjustmentRecord adjustment in input.Adjustments)
-        {
-            if (string.IsNullOrEmpty(adjustment.DriverId)) continue;
-            AddTo(owedByDriver, adjustment.DriverId, adjustment.Amount);
-        }
-
-        var otherPayments = owedByDriver
+        var otherPayments = OtherOwedByDriver(input, states, credit, dayStartUtc)
             .Where(kv => kv.Value > 0)
             .Select(kv => new OtherPaymentRow(kv.Key, NameFor(input, kv.Key), kv.Value))
             .OrderByDescending(r => r.AmountOwed)
@@ -112,115 +105,184 @@ public static class QuickLedgerCalculator
     }
 
     /// <summary>
-    /// Plans the write for one payment against a pending shift. Every payment is a new document holding only its own
-    /// amount, so each one shows up separately. The shift's status (Paid or Partial) is decided from the shift total.
+    /// Plans a payment received for a pending shift's boundary (Record Payment). Same allocation as the web's
+    /// FinancialLedgerService.RecordPaymentAsync: this shift's balance first, then the driver's older unpaid shifts
+    /// (oldest first), then their manual debt, and anything above all of that is kept on this shift as advance credit.
     /// </summary>
-    public static BoundaryPaymentWrite PlanBoundaryPayment(
+    public static PaymentPlan PlanBoundaryPayment(
+        QuickLedgerInput input,
         PendingBoundaryRow row,
         decimal amountReceived,
         string paymentMethod,
         PaymentEvidence? evidence,
         DateTime nowUtc)
     {
-        decimal shiftTotal = row.Paid + amountReceived;
+        IReadOnlyList<ShiftPaymentState> states = BuildShiftStates(input);
+        ShiftRecord? shift = new Lookups(input).ShiftFor(row.ShiftKey);
+        ShiftPaymentState? first = shift is null ? null : states.FirstOrDefault(s => s.Shift.DocumentId == shift.DocumentId);
 
-        string documentId = PaymentDocumentId(row.ShiftKey, nowUtc, 0);
-
-        return new BoundaryPaymentWrite(
-            DocumentId: documentId,
-            IsNew: true,
-            ShiftId: row.ShiftKey,
-            ExpectedBoundary: row.ExpectedBoundary,
-            LateFees: row.LateFees,
-            AmountPaid: amountReceived,
-            PaymentStatus: StatusFor(shiftTotal, row.Expected),
-            PaymentMethod: paymentMethod,
-            TransactionId: documentId,
-            Evidence: evidence);
+        return Allocate(input, states, row.DriverId, first, advanceTarget: first, amountReceived, paymentMethod, evidence, nowUtc);
     }
 
     /// <summary>
-    /// A new payment document's ID: {shiftKey}_PAY_{yyyyMMddHHmmssfff}, the convention the earlier design notes used.
-    /// The index keeps IDs unique when two payments are written in the same millisecond.
+    /// Plans a lump-sum payment against a driver's debt (Record Other Payment). Same allocation as the web's
+    /// FinancialLedgerService.SettleDebtAsync: the oldest unpaid shift first, then manual debt, and anything above all
+    /// of it is kept as advance credit on the driver's latest shift. With no shift to hold it, the extra is returned as
+    /// Unallocated so the caller can refuse it.
     /// </summary>
-    private static string PaymentDocumentId(string shiftKey, DateTime nowUtc, int index)
-    {
-        string stamp = nowUtc.ToString("yyyyMMddHHmmssfff", System.Globalization.CultureInfo.InvariantCulture);
-        return index == 0 ? $"{shiftKey}_PAY_{stamp}" : $"{shiftKey}_PAY_{stamp}_{index}";
-    }
-
-    /// <summary>
-    /// Plans a lump-sum settlement against a driver's "Other Payment" amount. Applies the money to the oldest unpaid
-    /// earlier shift first, then to positive manual debt adjustments. Anything left over is returned as Unallocated,
-    /// so the caller can refuse an overpayment.
-    /// </summary>
-    public static DebtSettlementPlan PlanDebtSettlement(
+    public static PaymentPlan PlanDebtSettlement(
         QuickLedgerInput input,
-        DateTime philippineToday,
         string driverId,
         decimal amountReceived,
         string paymentMethod,
         PaymentEvidence? evidence,
         DateTime nowUtc)
     {
-        DateTime dayStartUtc = StartOfPhilippineDayUtc(philippineToday);
         IReadOnlyList<ShiftPaymentState> states = BuildShiftStates(input);
+        ShiftPaymentState? latest = states
+            .Where(s => s.IsCharge && s.Shift.DriverId == driverId)
+            .OrderByDescending(s => s.Shift.StartUtc ?? DateTime.MinValue)
+            .FirstOrDefault();
 
-        string transactionId = $"{driverId}_TXN_{nowUtc:yyyyMMddHHmmssfff}";
-        var updates = new List<BoundaryPaymentWrite>();
-        decimal remaining = amountReceived;
+        return Allocate(input, states, driverId, first: null, advanceTarget: latest, amountReceived, paymentMethod, evidence, nowUtc);
+    }
 
-        foreach (ShiftPaymentState state in EarlierOutstanding(states, dayStartUtc)
-                     .Where(s => s.Shift.DriverId == driverId)
-                     .OrderBy(s => s.Shift.StartUtc))
+    // The web's BookPaymentAsync, step for step. Every part becomes a new payment document holding only that part's
+    // amount, all sharing one transactionId; money for manual debt becomes an automatic credit adjustment.
+    private static PaymentPlan Allocate(
+        QuickLedgerInput input,
+        IReadOnlyList<ShiftPaymentState> states,
+        string driverId,
+        ShiftPaymentState? first,
+        ShiftPaymentState? advanceTarget,
+        decimal amount,
+        string paymentMethod,
+        PaymentEvidence? evidence,
+        DateTime nowUtc)
+    {
+        var applies = new List<(ShiftPaymentState State, decimal Amount)>();
+        decimal remaining = amount;
+
+        decimal toFirst = first is null ? 0m : Math.Min(remaining, first.Remaining);
+        if (toFirst > 0)
+        {
+            applies.Add((first!, toFirst));
+            remaining -= toFirst;
+        }
+
+        // The driver's other unpaid shifts, oldest first, at the balance their records show.
+        decimal toOthers = 0m;
+        foreach (ShiftPaymentState state in states
+                     .Where(s => s.IsCharge && s.Shift.DriverId == driverId && s != first && s.Remaining > 0)
+                     .OrderBy(s => s.Shift.StartUtc ?? DateTime.MinValue))
         {
             if (remaining <= 0) break;
 
             decimal apply = Math.Min(remaining, state.Remaining);
-            if (apply <= 0) continue;
+            applies.Add((state, apply));
+            toOthers += apply;
+            remaining -= apply;
+        }
 
-            // Each allocation is its own payment document, one per shift, all sharing the settlement's transaction ID.
-            updates.Add(new BoundaryPaymentWrite(
-                DocumentId: PaymentDocumentId(state.ShiftKey, nowUtc, updates.Count),
-                IsNew: true,
+        decimal adjustmentDebt = Math.Max(0, input.Adjustments.Where(a => a.DriverId == driverId).Sum(a => a.Amount));
+        decimal toAdjustments = Math.Min(remaining, adjustmentDebt);
+        remaining -= toAdjustments;
+
+        // What's left is advance credit, paid onto the target above its total; the ledger then applies it to the
+        // driver's next unpaid boundary (see ApplyOverpaymentCredit).
+        decimal advance = advanceTarget is null ? 0m : remaining;
+        if (advance > 0)
+        {
+            int at = applies.FindIndex(a => a.State == advanceTarget);
+            if (at >= 0) applies[at] = (advanceTarget!, applies[at].Amount + advance);
+            else applies.Add((advanceTarget!, advance));
+            remaining -= advance;
+        }
+
+        string transactionId = BoundaryPaymentRules.NewTransactionId(driverId, nowUtc);
+        var writes = new List<BoundaryPaymentWrite>();
+        foreach ((ShiftPaymentState state, decimal apply) in applies)
+        {
+            writes.Add(new BoundaryPaymentWrite(
+                DocumentId: BoundaryPaymentRules.NewDocumentId(state.ShiftKey, nowUtc, writes.Count),
                 ShiftId: state.ShiftKey,
+                DriverId: state.Shift.DriverId,
                 ExpectedBoundary: state.ExpectedBoundary,
                 LateFees: state.LateFees,
+                FuelPenalty: state.FuelPenalty,
                 AmountPaid: apply,
                 PaymentStatus: StatusFor(state.TotalPaid + apply, state.Expected),
                 PaymentMethod: paymentMethod,
                 TransactionId: transactionId,
                 Evidence: evidence));
-
-            remaining -= apply;
         }
 
-        decimal adjustmentDebt = Math.Max(0, input.Adjustments
-            .Where(a => a.DriverId == driverId)
-            .Sum(a => a.Amount));
-
-        decimal credit = 0m;
-        if (remaining > 0 && adjustmentDebt > 0)
-        {
-            credit = Math.Min(remaining, adjustmentDebt);
-            remaining -= credit;
-        }
-
-        return new DebtSettlementPlan(updates, credit, Math.Max(0, remaining), evidence);
+        return new PaymentPlan(writes, transactionId, toFirst, toOthers, toAdjustments, advance, Math.Max(0, remaining), evidence);
     }
 
-    /// <summary>What the manager may collect from a driver under "Other Payment": earlier unpaid boundaries plus net
-    /// manual debt, floored at zero. Matches the amount shown on the page.</summary>
+    /// <summary>What the manager may collect from a driver under "Other Payment": earlier unpaid boundaries (after
+    /// overpayment credit) plus net manual debt, floored at zero. Matches the amount shown on the page.</summary>
     public static decimal TotalOwedBy(QuickLedgerInput input, DateTime philippineToday, string driverId)
     {
         DateTime dayStartUtc = StartOfPhilippineDayUtc(philippineToday);
         IReadOnlyList<ShiftPaymentState> states = BuildShiftStates(input);
+        return OtherOwedByDriver(input, states, ApplyOverpaymentCredit(states), dayStartUtc).GetValueOrDefault(driverId);
+    }
 
-        decimal boundaries = EarlierOutstanding(states, dayStartUtc)
-            .Where(s => s.Shift.DriverId == driverId)
-            .Sum(s => s.Remaining);
-        decimal adjustments = input.Adjustments.Where(a => a.DriverId == driverId).Sum(a => a.Amount);
-        return Math.Max(0, boundaries + adjustments);
+    // ---------------------------------------------------------------------
+    // Debt totals - same rules as the web's Master Debt Ledger (FinancialLedgerService.OwedAfterCredit /
+    // TotalOwed), so the phone and the web show the same number.
+    // ---------------------------------------------------------------------
+
+    /// <summary>Per shift: what it still owes once the driver's overpayment credit is used up (shifts that owe
+    /// nothing are left out). Per driver: credit left over after every shift is covered.</summary>
+    private sealed record CreditView(Dictionary<string, decimal> OwedByShift, Dictionary<string, decimal> LeftoverByDriver);
+
+    // Money paid above a shift's total isn't lost: it pays off the driver's oldest unpaid shifts first.
+    private static CreditView ApplyOverpaymentCredit(IReadOnlyList<ShiftPaymentState> states)
+    {
+        var owedByShift = new Dictionary<string, decimal>();
+        var leftoverByDriver = new Dictionary<string, decimal>();
+
+        foreach (IGrouping<string, ShiftPaymentState> driver in states.Where(s => s.IsCharge).GroupBy(s => s.Shift.DriverId))
+        {
+            decimal credit = driver.Sum(s => s.Overpaid);
+            foreach (ShiftPaymentState state in driver.Where(s => s.Remaining > 0).OrderBy(s => s.Shift.StartUtc ?? DateTime.MinValue))
+            {
+                decimal useCredit = Math.Min(credit, state.Remaining);
+                credit -= useCredit;
+                if (state.Remaining - useCredit > 0)
+                {
+                    owedByShift[state.Shift.DocumentId] = state.Remaining - useCredit;
+                }
+            }
+            leftoverByDriver[driver.Key] = credit;
+        }
+
+        return new CreditView(owedByShift, leftoverByDriver);
+    }
+
+    // Earlier shifts' balances after credit, plus net manual adjustments, minus credit left over; floored at zero.
+    // Together with today's Pending balances this equals the web's TotalDebt for the driver.
+    private static Dictionary<string, decimal> OtherOwedByDriver(
+        QuickLedgerInput input, IReadOnlyList<ShiftPaymentState> states, CreditView credit, DateTime dayStartUtc)
+    {
+        var owedByDriver = new Dictionary<string, decimal>();
+        foreach (ShiftPaymentState state in EarlierOutstanding(states, dayStartUtc))
+        {
+            AddTo(owedByDriver, state.Shift.DriverId, credit.OwedByShift.GetValueOrDefault(state.Shift.DocumentId));
+        }
+        foreach (DebtAdjustmentRecord adjustment in input.Adjustments)
+        {
+            if (string.IsNullOrEmpty(adjustment.DriverId)) continue;
+            AddTo(owedByDriver, adjustment.DriverId, adjustment.Amount);
+        }
+        foreach ((string driverId, decimal leftover) in credit.LeftoverByDriver)
+        {
+            if (leftover > 0) AddTo(owedByDriver, driverId, -leftover);
+        }
+
+        return owedByDriver.ToDictionary(kv => kv.Key, kv => Math.Max(0, kv.Value));
     }
 
     // ---------------------------------------------------------------------
@@ -259,18 +321,24 @@ public static class QuickLedgerCalculator
                 .OrderByDescending(p => p.TimestampUtc ?? DateTime.MinValue)
                 .FirstOrDefault();
 
-            // The expected amount comes from the target if it has one, else the default rate.
+            // The expected boundary comes from the target if it has one, else the default rate. Late fee and fuel
+            // penalty come from the shift itself when clock-out set them, else from the target - the web's ExtrasFor.
             decimal expectedBoundary = target is not null && target.ExpectedBoundary > 0
                 ? target.ExpectedBoundary
                 : input.DefaultBoundaryRate;
-            decimal lateFees = target?.LateFees ?? 0m;
-            decimal totalPaid = payments.Sum(p => p.AmountPaid);
+            decimal lateFees = shift.LateFee ?? target?.LateFees ?? 0m;
+            decimal fuelPenalty = shift.FuelPenalty ?? target?.FuelPenalty ?? 0m;
+
+            // Added up the same way as the web, so old running-total documents aren't counted twice.
+            decimal totalPaid = BoundaryPaymentRules.TotalPaid(
+                payments.Select(p => (p.DocumentId, (string?)p.TransactionId, p.AmountPaid)));
 
             states.Add(new ShiftPaymentState(
                 Shift: shift,
-                ShiftKey: string.IsNullOrEmpty(shift.ShiftId) ? shift.DocumentId : shift.ShiftId,
+                ShiftKey: BoundaryPaymentRules.ShiftKey(shift.DocumentId, shift.ShiftId),
                 ExpectedBoundary: expectedBoundary,
                 LateFees: lateFees,
+                FuelPenalty: fuelPenalty,
                 TotalPaid: totalPaid,
                 Target: target,
                 HasPaymentRecord: payments.Count > 0));
@@ -279,12 +347,12 @@ public static class QuickLedgerCalculator
         return states;
     }
 
-    // Unpaid balances from shifts that started before today, and that have a payment record. Today's shortfalls belong
-    // in Pending. Shifts with no record at all are left out, matching the web's debt ledger.
+    // Unpaid balances from shifts that started before today (or have no start time). Today's shortfalls belong in
+    // Pending. An ended shift with no payment record still owes its full amount, matching the web's debt ledger.
     private static IEnumerable<ShiftPaymentState> EarlierOutstanding(IReadOnlyList<ShiftPaymentState> states, DateTime dayStartUtc) =>
         states.Where(s =>
-            s.HasPaymentRecord
-            && s.Shift.StartUtc is DateTime start && start < dayStartUtc
+            s.IsCharge
+            && (s.Shift.StartUtc is not DateTime start || start < dayStartUtc)
             && s.Remaining > 0);
 
     private static ShiftPaymentState? ShiftStateFor(
@@ -313,7 +381,7 @@ public static class QuickLedgerCalculator
         philippineToday.Date - PhilippineTime.Offset;
 
     private static decimal ExpectedFor(BoundaryPaymentRecord payment, decimal defaultRate) =>
-        payment.ExpectedBoundary > 0 ? payment.ExpectedBoundary + payment.LateFees : defaultRate;
+        (payment.ExpectedBoundary > 0 ? payment.ExpectedBoundary : defaultRate) + payment.LateFees + payment.FuelPenalty;
 
     private static string StatusFor(decimal paid, decimal expected) =>
         paid >= expected ? PaidStatus : PartialStatus;
@@ -346,31 +414,58 @@ public static class QuickLedgerCalculator
 
 /// <summary>Everything the rules need about one shift's boundary: the total paid across its documents and the
 /// document new payments go into.</summary>
+/// <remarks>Mirrors the web's ShiftCharge (FinancialLedgerService), so both apps agree on every shift.</remarks>
 public sealed record ShiftPaymentState(
     ShiftRecord Shift,
     string ShiftKey,
     decimal ExpectedBoundary,
     decimal LateFees,
+    decimal FuelPenalty,
     decimal TotalPaid,
     BoundaryPaymentRecord? Target,
     bool HasPaymentRecord)
 {
-    public decimal Expected => ExpectedBoundary + LateFees;
-    public decimal Remaining => Math.Max(0, Expected - TotalPaid);
-    public bool IsCleared => Expected > 0 && TotalPaid >= Expected;
+    public decimal Expected => ExpectedBoundary + LateFees + FuelPenalty;
+
+    /// <summary>The most recent document says the shift is paid (e.g. a manager marked it so).</summary>
+    public bool IsMarkedPaid => string.Equals(Target?.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase);
+
+    public decimal Remaining => IsMarkedPaid ? 0 : Math.Max(0, Expected - TotalPaid);
+
+    /// <summary>Paid above the shift's total - credit toward the driver's other shifts.</summary>
+    public decimal Overpaid => HasPaymentRecord ? Math.Max(0, TotalPaid - Expected) : 0;
+
+    public bool IsCleared => IsMarkedPaid || (TotalPaid > 0 && TotalPaid >= Expected);
+
+    /// <summary>Counts toward the driver's debt: anything already paid on, or an ended shift with a driver. A shift
+    /// still Active isn't owed yet (the boundary is paid at the end of the day). Same as the web's BuildCharges.</summary>
+    public bool IsCharge => HasPaymentRecord
+        || (!string.IsNullOrWhiteSpace(Shift.DriverId) && !string.Equals(Shift.Status, "Active", StringComparison.OrdinalIgnoreCase));
 }
 
 // ---------------------------------------------------------------------
 // Inputs: plain copies of the Firestore documents, so the rules above never see Firebase types.
 // ---------------------------------------------------------------------
 
-public sealed record ShiftRecord(string DocumentId, string ShiftId, string DriverId, string TaxiId, DateTime? StartUtc);
+/// <param name="LateFee">shifts.lateFee, set at clock-out; null when the shift has none.</param>
+/// <param name="FuelPenalty">shifts.fuelPenalty, set at clock-out; null when the shift has none.</param>
+public sealed record ShiftRecord(
+    string DocumentId,
+    string ShiftId,
+    string DriverId,
+    string TaxiId,
+    DateTime? StartUtc,
+    string Status,
+    decimal? LateFee,
+    decimal? FuelPenalty);
 
+/// <param name="TransactionId">Empty on older records, which have none.</param>
 public sealed record BoundaryPaymentRecord(
     string DocumentId,
     string ShiftId,
     decimal ExpectedBoundary,
     decimal LateFees,
+    decimal FuelPenalty,
     decimal AmountPaid,
     string PaymentStatus,
     string PaymentMethod,
@@ -400,9 +495,10 @@ public sealed record PendingBoundaryRow(
     string TaxiPlate,
     decimal ExpectedBoundary,
     decimal LateFees,
+    decimal FuelPenalty,
     decimal Paid)
 {
-    public decimal Expected => ExpectedBoundary + LateFees;
+    public decimal Expected => ExpectedBoundary + LateFees + FuelPenalty;
     public decimal Remaining => Math.Max(0, Expected - Paid);
 }
 
@@ -429,13 +525,14 @@ public sealed record QuickLedgerResult(
 // Write plans: what to save. The service turns these into Firestore writes.
 // ---------------------------------------------------------------------
 
-/// <summary>One boundary_payments document to create or update. AmountPaid is that document's own new amount.</summary>
+/// <summary>One new boundary_payments document. AmountPaid is that document's own amount.</summary>
 public sealed record BoundaryPaymentWrite(
     string DocumentId,
-    bool IsNew,
     string ShiftId,
+    string DriverId,
     decimal ExpectedBoundary,
     decimal LateFees,
+    decimal FuelPenalty,
     decimal AmountPaid,
     string PaymentStatus,
     string PaymentMethod,
@@ -453,8 +550,18 @@ public sealed record PaymentEvidence(
     DateTime? ReceiptDate,
     string? ReceiptPhotoUrl);
 
-public sealed record DebtSettlementPlan(
+/// <summary>
+/// Where one payment goes, mirroring the web's PaymentBooking: <paramref name="ToFirst"/> to the shift being paid,
+/// <paramref name="ToOthers"/> to older unpaid shifts, <paramref name="AdjustmentCredit"/> to manual debt (saved as a
+/// credit adjustment) and <paramref name="Advance"/> kept as credit toward the next boundary.
+/// <paramref name="Unallocated"/> is money with nowhere to go (a driver with no shifts); the caller refuses it.
+/// </summary>
+public sealed record PaymentPlan(
     IReadOnlyList<BoundaryPaymentWrite> PaymentUpdates,
+    string TransactionId,
+    decimal ToFirst,
+    decimal ToOthers,
     decimal AdjustmentCredit,
+    decimal Advance,
     decimal Unallocated,
     PaymentEvidence? Evidence);

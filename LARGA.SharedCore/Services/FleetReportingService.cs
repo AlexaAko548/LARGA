@@ -551,7 +551,7 @@ public class FleetReportingService
         {
             _logger.LogWarning(ex, "Failed to read the default boundary rate");
         }
-        return 800m;
+        return ShiftRules.DefaultBoundaryRate;
     }
 
     // ---------------------------------------------------------------------

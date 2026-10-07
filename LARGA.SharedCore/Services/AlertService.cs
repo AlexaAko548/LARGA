@@ -105,6 +105,28 @@ public class AlertService
         }
     }
 
+    /// <summary>Raises a "LowStock" notification after a deduction leaves a spare part at or below its
+    /// minimum threshold. Called from InventoryAuditService.DeductPartAsync, so every deduction path
+    /// (Inventory page and garage jobs) gets the same alert. Each deduction gets its own alert ID.</summary>
+    public async Task CreateLowStockAlertAsync(SparePart part)
+    {
+        try
+        {
+            var alert = new SystemAlert
+            {
+                Type = "LowStock",
+                Message = $"{part.PartName} is low on stock: {part.StockQuantity} {part.Unit} left (minimum {part.ReorderLevel}).",
+                Timestamp = DateTime.UtcNow,
+                IsRead = false,
+            };
+            await Db.Collection("system_alerts").AddAsync(alert);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to create low-stock alert for part {PartId}", part.PartId);
+        }
+    }
+
     private async Task<List<T>> GetAllAsync<T>(string collection) where T : class
     {
         QuerySnapshot snapshot = await Db.Collection(collection).GetSnapshotAsync();

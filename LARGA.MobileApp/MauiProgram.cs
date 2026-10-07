@@ -76,6 +76,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IOcrService, UnsupportedOcrService>();
 #endif
 
+        // Depends only on IOcrService, so it resolves on every platform (ScanEReceiptPage needs it).
         builder.Services.AddSingleton<LARGA.MobileApp.Services.EReceiptOcrService>();
 
 #if ANDROID

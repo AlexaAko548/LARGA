@@ -647,7 +647,7 @@ public class DriverManagementService
         {
             _logger.LogWarning(ex, "Failed to read the default boundary rate");
         }
-        return 800m;
+        return ShiftRules.DefaultBoundaryRate;
     }
 
     public async Task UpdateDriverProfileAsync(
@@ -720,7 +720,7 @@ public class DriverManagementService
     // Driver account management (manager-provisioned - drivers never self-register)
     // ---------------------------------------------------------------------
 
-    public async Task<CreateDriverResult> CreateDriverAsync(string fullName, string phoneNumber, string? temporaryPassword, string? assignedTaxiId = null, string? email = null)
+    public async Task<CreateDriverResult> CreateDriverAsync(string fullName, string phoneNumber, string? temporaryPassword, string? assignedTaxiId = null, string? email = null, string? actorUserId = null)
     {
         fullName = InputValidator.NormalizeSpaces(fullName);
         string? inputError = InputValidator.ValidateFullName(fullName)
@@ -786,7 +786,22 @@ public class DriverManagementService
 
         try
         {
-            await Db.Collection("users").Document(userRecord.Uid).SetAsync(profile, SetOptions.Overwrite);
+            // Profile and its audit entry commit together; if either fails, the Auth account
+            // is rolled back below, so provisioning is never logged without a profile (or vice versa).
+            DocumentReference profileDoc = Db.Collection("users").Document(userRecord.Uid);
+            DocumentReference auditDoc = Db.Collection("audit_logs").Document();
+            var audit = new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "DriverAccountProvisioned",
+                AuditLogDetails = $"Provisioned driver account for '{fullName}' (driver ID: {userRecord.Uid}).",
+                Timestamp = DateTime.UtcNow,
+            };
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Set(profileDoc, profile, SetOptions.Overwrite);
+            batch.Set(auditDoc, audit);
+            await batch.CommitAsync();
         }
         catch (Exception ex)
         {

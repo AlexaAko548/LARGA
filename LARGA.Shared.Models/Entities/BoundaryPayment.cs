@@ -86,6 +86,11 @@ public class BoundaryPayment
     [FirestoreProperty("shiftId")]
     public string ShiftId { get; set; } = string.Empty;
 
+    /// <summary>The shift's driver. firestore.rules let a driver read only their own payments,
+    /// so every write sets it (older documents are backfilled by ManagerWeb on startup).</summary>
+    [FirestoreProperty("driverId")]
+    public string? DriverId { get; set; }
+
     [FirestoreProperty("expectedBoundary", ConverterType = typeof(DecimalConverter))]
     public decimal ExpectedBoundary { get; set; }
 

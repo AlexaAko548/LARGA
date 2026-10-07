@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using LARGA.SharedCore;
@@ -17,12 +18,12 @@ namespace LARGA.MobileApp.Services;
 /// driver's manual debt_adjustments. A shift still Active
 /// isn't owed yet.
 ///
-/// Reads only what the Firestore rules let a driver read: their own shifts (by driverId),
-/// boundary_payments by shiftId, their own debt_adjustments (by driverId), system_configs.
+/// Reads only what the Firestore rules let a driver read: their own shifts, boundary_payments
+/// and debt_adjustments (each by driverId), and system_configs.
 /// </summary>
 public static class DriverDebtCalculator
 {
-    private const decimal FallbackBoundaryRate = 800m;
+    private const decimal FallbackBoundaryRate = ShiftRules.DefaultBoundaryRate;
 
     public sealed class ShiftEntry
     {
@@ -72,6 +73,13 @@ public static class DriverDebtCalculator
             .WhereEqualsTo("driverId", driverId)
             .GetDocumentsAsync<ShiftProxy>();
 
+        // All of this driver's payment documents in one read. firestore.rules only let a driver
+        // read payments carrying their own driverId (stamped on every write, and backfilled on
+        // older documents by ManagerWeb's PaymentDriverIdBackfillService).
+        var myPayments = await db.GetCollection("boundary_payments")
+            .WhereEqualsTo("driverId", driverId)
+            .GetDocumentsAsync<PaymentProxy>();
+
         foreach (var shiftDoc in shifts.Documents)
         {
             ShiftProxy? shift = shiftDoc.Data;
@@ -86,15 +94,9 @@ public static class DriverDebtCalculator
             // the same way as on the web (BoundaryPaymentRules.TotalPaid), and the most recent one
             // carries the expected boundary and Paid/Partial status.
             var documents = new Dictionary<string, PaymentProxy>();
-            foreach (string id in ids)
+            foreach (var doc in myPayments.Documents)
             {
-                var found = await db.GetCollection("boundary_payments")
-                    .WhereEqualsTo("shiftId", id)
-                    .GetDocumentsAsync<PaymentProxy>();
-                foreach (var doc in found.Documents)
-                {
-                    if (doc.Data != null) documents[doc.Reference.Id] = doc.Data;
-                }
+                if (doc.Data != null && ids.Contains(doc.Data.ShiftId)) documents[doc.Reference.Id] = doc.Data;
             }
 
             PaymentProxy? payment = documents.Values
@@ -106,10 +108,10 @@ public static class DriverDebtCalculator
             bool isActive = shift.Status == "Active";
             if (isActive && payment == null) continue;
 
-            // Charges from the shift itself when it has them (set at clock-out); otherwise
-            // whatever the payment record carries - same as the web's ExtrasFor.
-            decimal lateFee = (decimal)(shift.LateFee > 0 ? shift.LateFee : payment?.LateFees ?? 0);
-            decimal fuelPenalty = (decimal)(shift.FuelPenalty > 0 ? shift.FuelPenalty : payment?.FuelPenalty ?? 0);
+            // Charges from the shift itself when it has them (set at clock-out, even when 0);
+            // otherwise whatever the payment record carries - same as the web's ExtrasFor.
+            decimal lateFee = ToDecimal(shift.LateFee) ?? (decimal)(payment?.LateFees ?? 0);
+            decimal fuelPenalty = ToDecimal(shift.FuelPenalty) ?? (decimal)(payment?.FuelPenalty ?? 0);
             decimal boundary = payment != null && payment.ExpectedBoundary > 0 ? (decimal)payment.ExpectedBoundary : defaultRate;
 
             DateTime start = FirestoreDateTimeFix.Apply(shift.ShiftStart);
@@ -145,6 +147,21 @@ public static class DriverDebtCalculator
         return result;
     }
 
+    // Firestore hands back a whole number as an integer and Plugin.Firebase then fails to fill a
+    // double property (the whole document reads as null), so these fields are object? - see
+    // QuickLedgerService. Null means the shift has no such field.
+    private static decimal? ToDecimal(object? value) => value switch
+    {
+        null => null,
+        double d => (decimal)d,
+        float f => (decimal)f,
+        long l => l,
+        int i => i,
+        decimal m => m,
+        string s when decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal parsed) => parsed,
+        _ => null,
+    };
+
     private static async Task<decimal> GetDefaultBoundaryRateAsync(IFirebaseFirestore db)
     {
         try
@@ -169,8 +186,8 @@ public static class DriverDebtCalculator
         [FirestoreProperty("taxiId")] public string TaxiId { get; set; }
         [FirestoreProperty("status")] public string Status { get; set; }
         [FirestoreProperty("shiftStart")] public DateTime ShiftStart { get; set; }
-        [FirestoreProperty("lateFee")] public double LateFee { get; set; }
-        [FirestoreProperty("fuelPenalty")] public double FuelPenalty { get; set; }
+        [FirestoreProperty("lateFee")] public object? LateFee { get; set; }
+        [FirestoreProperty("fuelPenalty")] public object? FuelPenalty { get; set; }
     }
 
     private class PaymentProxy

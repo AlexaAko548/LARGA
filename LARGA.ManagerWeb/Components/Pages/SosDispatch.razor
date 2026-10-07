@@ -1,4 +1,6 @@
 @page "/sos-dispatch"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 @using System.Text.Json
 @using LARGA.SharedCore
 @using LARGA.SharedCore.Services
@@ -17,15 +19,15 @@
    coordinates as text (no map, per the ticket), the trigger type, call/text buttons and the
    EmergencyAlert.IsResolved toggle. *@
 
-@if (_isCheckingAccess)
+@if (_isLoading)
 {
     <div class="auth-page">
         <div class="auth-card">
-            <h2>Checking access...</h2>
+            <h2>Loading...</h2>
         </div>
     </div>
 }
-else if (_isAuthorized)
+else
 {
 <div class="dashboard-shell">
     <DashboardSidebar ActiveItem="SosDispatch" />
@@ -40,11 +42,7 @@ else if (_isAuthorized)
             <div class="header-actions">
                 <NotificationBell />
                 <MessagesButton />
-                <div class="manager-pill">
-                    <span class="manager-dot"></span>
-                    <span>Manager</span>
-                    <span class="caret">▾</span>
-                </div>
+                <ManagerProfileMenu />
             </div>
         </header>
 
@@ -177,11 +175,10 @@ else if (_isAuthorized)
     // other pages' 20 s refresh.
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(10);
 
-    private bool _isCheckingAccess = true;
-    private bool _isAuthorized;
+    // True until the first data load finishes (LoadAsync clears it). Access itself is enforced
+    // server-side by [Authorize].
     private bool _isLoading = true;
     private string? _loadError;
-    private IJSObjectReference? _firebaseModule;
     private List<SosAlertView> _active = new();
     private List<SosAlertView> _recentlyResolved = new();
     private string? _busyAlertId;
@@ -194,17 +191,6 @@ else if (_isAuthorized)
     {
         if (!firstRender)
         {
-            return;
-        }
-
-        _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
-        JsonElement result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
-        _isAuthorized = result.TryGetProperty("ok", out JsonElement okProp) && okProp.ValueKind == JsonValueKind.True;
-        _isCheckingAccess = false;
-
-        if (!_isAuthorized)
-        {
-            Navigation.NavigateTo("/login", forceLoad: false);
             return;
         }
 

@@ -3169,7 +3169,8 @@ color: #1d1d1d;
 /* Fuel Verification review modal - two-column driver-submission vs system-validation */
 
 .report-modal.review-modal {
-width: min(94vw, 780px);
+    width: min(94vw, 1000px);
+    max-width: none;
 }
 
 /* LAR-63: both Fuel Verification popups (review + resolve) can grow taller than the
@@ -3650,6 +3651,19 @@ grid-template-columns: repeat(3, 1fr);
 .action-text {
     color: #1d1d1d;
     font-size: 0.85rem;
+}
+
+/* Audit table column sizing: keep the date on one line, give actor and action room */
+.audit-table .col-date {
+    white-space: nowrap;
+}
+
+.audit-table .col-actor {
+    min-width: 18rem;
+}
+
+.audit-table .col-action {
+    min-width: 17rem;
 }
 
 /* ---- "Log New Part" modal (matches .report-overlay / .report-modal) ---- */
@@ -5133,4 +5147,74 @@ font-weight: 600;
 color: #5a7a8a;
 letter-spacing: 0.02em;
 text-transform: none;
+}
+
+/* Header profile menu (ManagerProfileMenu) - the manager pill opens a small dropdown in the
+   same style as the notification dropdown; Settings uses the shared report-modal. */
+.manager-menu {
+position: relative;
+display: inline-flex;
+}
+
+.manager-menu-trigger {
+cursor: pointer;
+font-family: inherit;
+}
+
+.manager-menu-trigger:hover {
+background: rgba(1,155,207,0.16);
+}
+
+.manager-menu-backdrop {
+position: fixed;
+inset: 0;
+z-index: 39;
+}
+
+.manager-menu-dropdown {
+position: absolute;
+top: calc(100% + 0.5rem);
+right: 0;
+min-width: 170px;
+background: #fff;
+border: 1px solid rgba(1,155,207,0.28);
+border-radius: 12px;
+box-shadow: 0 12px 28px rgba(1,155,207,0.16);
+padding: 0.35rem;
+z-index: 40;
+display: flex;
+flex-direction: column;
+}
+
+.manager-menu-item {
+border: none;
+background: transparent;
+text-align: left;
+padding: 0.6rem 0.75rem;
+border-radius: 8px;
+font-size: 0.85rem;
+font-weight: 600;
+color: #1d1d1d;
+cursor: pointer;
+}
+
+.manager-menu-item:hover {
+background: rgba(1,155,207,0.1);
+}
+
+.manager-menu-item.danger {
+color: #c62828;
+}
+
+.manager-menu-form-actions {
+display: flex;
+align-items: center;
+justify-content: flex-end;
+gap: 0.75rem;
+}
+
+.manager-menu-hint {
+margin-right: auto;
+color: #5a7a8a;
+font-size: 0.75rem;
 }
