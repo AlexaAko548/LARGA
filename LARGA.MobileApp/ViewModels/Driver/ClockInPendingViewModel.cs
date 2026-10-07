@@ -183,7 +183,8 @@ public class ClockInPendingViewModel : BindableObject
         }
 
         await Shell.Current.DisplayAlert("Shift approved!", "The manager approved your clock-in. Drive safe.", "OK");
-        await Shell.Current.GoToAsync("active-shift");
+        // Replaces the pre-shift steps and this page, so Back from Active Shift returns to the dashboard.
+        await ShiftNavigation.GoToActiveShiftAsync();
     }
 
     private async Task CancelRequestAsync()
