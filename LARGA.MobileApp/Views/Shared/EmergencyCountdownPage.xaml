@@ -1,42 +1,49 @@
 <?xml version="1.0" encoding="utf-8" ?>
+<!-- Deliberately low-key: no red screen or giant numbers, so a Hostile-protocol countdown on
+     the driver's phone doesn't draw the attention of whoever is in the cab. -->
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="LARGA.MobileApp.Views.Shared.EmergencyCountdownPage"
              NavigationPage.HasNavigationBar="False"
              Shell.NavBarIsVisible="False"
-             BackgroundColor="{DynamicResource LargaDanger}">
+             BackgroundColor="{DynamicResource ThemePageBg}">
 
-    <Grid RowDefinitions="*,Auto" Padding="24,48,24,32">
+    <Border BackgroundColor="{DynamicResource ThemeSurface}"
+            Stroke="{DynamicResource LargaCardBorder}"
+            StrokeThickness="1"
+            StrokeShape="RoundRectangle 16"
+            Padding="24"
+            Margin="24,0"
+            VerticalOptions="Center">
 
-        <VerticalStackLayout Grid.Row="0" VerticalOptions="Center" Spacing="16">
+        <VerticalStackLayout Spacing="12">
             <Label x:Name="TitleLabel"
                    FontFamily="BarlowCondensedBold"
-                   FontSize="34"
-                   TextColor="{DynamicResource LargaWhite}"
+                   FontSize="22"
+                   TextColor="{DynamicResource LargaDarkText}"
                    HorizontalTextAlignment="Center" />
 
             <Label x:Name="MessageLabel"
                    FontFamily="InterRegular"
-                   FontSize="16"
-                   TextColor="{DynamicResource LargaWhite}"
+                   FontSize="14"
+                   TextColor="{DynamicResource LargaMutedText}"
                    HorizontalTextAlignment="Center" />
 
             <Label x:Name="SecondsLabel"
                    FontFamily="BarlowCondensedBold"
-                   FontSize="120"
-                   TextColor="{DynamicResource LargaWhite}"
-                   HorizontalTextAlignment="Center"
-                   Margin="0,24,0,0" />
-        </VerticalStackLayout>
+                   FontSize="40"
+                   TextColor="{DynamicResource LargaDarkText}"
+                   HorizontalTextAlignment="Center" />
 
-        <Button Grid.Row="1"
-                Text="CANCEL"
-                FontFamily="InterBold"
-                FontSize="22"
-                HeightRequest="72"
-                CornerRadius="12"
-                BackgroundColor="{DynamicResource ThemeSurface}"
-                TextColor="{DynamicResource LargaDanger}"
-                Clicked="OnCancelClicked" />
-    </Grid>
+            <Button Text="CANCEL"
+                    FontFamily="InterBold"
+                    FontSize="16"
+                    HeightRequest="56"
+                    CornerRadius="12"
+                    Margin="0,8,0,0"
+                    BackgroundColor="{DynamicResource LargaPrimaryBlue}"
+                    TextColor="{DynamicResource LargaWhite}"
+                    Clicked="OnCancelClicked" />
+        </VerticalStackLayout>
+    </Border>
 </ContentPage>
