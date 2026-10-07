@@ -70,7 +70,12 @@ public class FleetReportingService
         List<ShiftLog> activeShifts = await GetWhereEqualAsync<ShiftLog>("shifts", "status", "Active");
         List<ShiftLog> recentShifts = await GetSinceAsync<ShiftLog>("shifts", "shiftStart", twoWeeksAgo);
         List<BoundaryPayment> recentPayments = await GetSinceAsync<BoundaryPayment>("boundary_payments", "timestamp", twoWeeksAgo);
-        List<FuelLog> recentFuelLogs = await GetSinceAsync<FuelLog>("fuel_logs", "receiptTimestamp", twoWeeksAgo);
+        // Every receipt, like the Fuel Verification page - so the Dashboard's fuel chart always
+        // matches its Pending / Verified / Flagged totals. Not windowed by receiptTimestamp: that's
+        // the date printed on the receipt (read by OCR), which can be weeks old by the time it's
+        // verified - or misread entirely - so a 14-day window left most verified receipts out.
+        // One document per refuel, so this stays small.
+        List<FuelLog> fuelLogs = await GetAllAsync<FuelLog>("fuel_logs");
 
         double idleThresholdMinutes = await GetIdleThresholdMinutesAsync();
 
@@ -87,7 +92,7 @@ public class FleetReportingService
             // lifetime), but flagging the semantic change explicitly.
             TopDrivers = await BuildTopDriversAsync(drivers, maintenance, alerts, PhilippineTime.Now.Date.AddDays(1 - StandingsWindowDays), now),
             BoundaryCollections = BuildBoundaryCollections(recentPayments),
-            FuelVerification = BuildFuelVerification(recentFuelLogs),
+            FuelVerification = BuildFuelVerification(fuelLogs),
             FleetMileageByTaxi = BuildFleetMileageByTaxi(recentShifts),
             MaintenanceExpenses = BuildMaintenanceExpenses(maintenance),
             Utilization = BuildUtilization(taxis, activeShifts, recentShifts, OpenWorkOrders(maintenance), now),

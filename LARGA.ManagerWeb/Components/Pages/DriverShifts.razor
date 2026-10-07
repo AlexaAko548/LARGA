@@ -208,6 +208,10 @@ else
                                     <td><span class="status-pill @RosterStatusCss(d)"><span class="dot"></span> @RosterStatusLabel(d)</span></td>
                                     <td>
                                         @(d.AssignedTaxiId ?? "—")
+                                        @if (SharedUnitWith(d) is string other)
+                                        {
+                                            <span class="status-pill small status-danger" title="@($"{d.AssignedTaxiId} is also assigned to {other} - a unit can only have one driver. Open either profile and give one of them another unit.")"><Icon Name="triangle-alert" /> SHARED</span>
+                                        }
                                         @if (d.IsOnShift && DrivingOtherUnit(d.AssignedTaxiId, d.CurrentShiftTaxiId))
                                         {
                                             <div class="unit-note">On shift in @d.CurrentShiftTaxiId</div>
@@ -670,7 +674,7 @@ else
                             <option value="">Unassigned (set later)</option>
                             @foreach (string taxiId in _weekSchedule?.TaxiIds ?? new List<string>())
                             {
-                                <option value="@taxiId">@TaxiOptionLabel(taxiId)</option>
+                                <option value="@taxiId" disabled="@(TaxiHolder(taxiId) is not null)">@TaxiOptionLabel(taxiId)</option>
                             }
                         </select>
                     </div>
@@ -903,7 +907,7 @@ else
                         {
                             @foreach (string taxiId in _weekSchedule.TaxiIds)
                             {
-                                <option value="@taxiId">@TaxiOptionLabel(taxiId, _selectedProfile?.DriverId)</option>
+                                <option value="@taxiId" disabled="@(taxiId != _selectedProfile?.AssignedTaxiId && TaxiHolder(taxiId, _selectedProfile?.DriverId) is not null)">@TaxiOptionLabel(taxiId, _selectedProfile?.DriverId)</option>
                             }
                         }
                     </select>
@@ -938,7 +942,7 @@ else
                                 <span>Document</span>
                                 <strong>@LicenseDocumentLabel(_licenseScan)</strong>
                             </div>
-                            @if (_licenseValidation.LicenseError is not null)
+                            @if (_licenseValidation.LicenseError is not null && !_licenseManualEdit)
                             {
                                 <div class="field-error">@_licenseValidation.LicenseError</div>
                             }
@@ -946,7 +950,7 @@ else
                             @if (_licenseScan.IsPhilippineLicense)
                             {
                                 <div class="license-scan-field"><span>Name on card</span><strong>@(_licenseScan.FullName ?? "—")</strong></div>
-                                @if (_licenseValidation.NameError is not null)
+                                @if (_licenseValidation.NameError is not null && !_licenseManualEdit)
                                 {
                                     <div class="field-error">@_licenseValidation.NameError</div>
                                 }
@@ -956,7 +960,7 @@ else
                                     <span>Date of Birth</span>
                                     <strong>@(_licenseScan.DateOfBirth is DateTime dob ? $"{dob:MMM d, yyyy} (age {_licenseValidation.Age})" : "—")</strong>
                                 </div>
-                                @if (_licenseValidation.DateOfBirthError is not null)
+                                @if (_licenseValidation.DateOfBirthError is not null && !_licenseManualEdit)
                                 {
                                     <div class="field-error">@_licenseValidation.DateOfBirthError</div>
                                 }
@@ -965,38 +969,49 @@ else
                                     <span>Expiration Date</span>
                                     <strong>@(_licenseScan.ExpiryDate is DateTime exp ? exp.ToString("MMM d, yyyy") : "—")</strong>
                                 </div>
-                                @if (_licenseValidation.ExpiryError is not null)
+                                @if (_licenseValidation.ExpiryError is not null && !_licenseManualEdit)
                                 {
                                     <div class="field-error">@_licenseValidation.ExpiryError</div>
                                 }
                             }
 
-                            @if (_licenseValidation.IsValid)
+                            @if (_licenseManualEdit)
+                            {
+                                <div class="field-ok"><Icon Name="pencil" /> Entering the details by hand - the scan's warnings are set aside. Check them against the photo, then Save Changes to keep them and attach the photo.</div>
+                            }
+                            else if (_licenseValidation.IsValid)
                             {
                                 <div class="field-ok"><Icon Name="check" /> Valid license - details filled in below. Save Changes to keep them and attach the photo.</div>
                             }
                             else
                             {
-                                <div class="field-error">Not applied - nothing below was changed and the photo won't be saved. Upload a valid license to continue.</div>
+                                <div class="field-error">Not applied - nothing below was changed and the photo won't be saved. Upload a clearer photo, or use "Edit details manually" below if you can read the license yourself.</div>
                             }
                         </div>
                     }
 
                     <label>License Number</label>
-                    <input class="text-input @InvalidCss(true, EditLicenseNumberError)" maxlength="16" @bind="_editLicenseNumber" @bind:event="oninput" placeholder="A01-23-456789" />
+                    <input class="text-input @InvalidCss(true, EditLicenseNumberError)" disabled="@(!_licenseManualEdit)" maxlength="16" @bind="_editLicenseNumber" @bind:event="oninput" placeholder="A01-23-456789" />
                     <FieldError Show="true" Message="@EditLicenseNumberError" />
                     <label>License Classification (DL codes)</label>
-                    <input class="text-input @InvalidCss(true, EditLicenseClassError)" maxlength="40" @bind="_editLicenseClass" @bind:event="oninput" placeholder="e.g. A, B, B1, B2" />
+                    <input class="text-input @InvalidCss(true, EditLicenseClassError)" disabled="@(!_licenseManualEdit)" maxlength="40" @bind="_editLicenseClass" @bind:event="oninput" placeholder="e.g. A, B, B1, B2" />
                     <FieldError Show="true" Message="@EditLicenseClassError" />
                     <label>License Restriction Code <span class="field-optional">(optional)</span></label>
-                    <input class="text-input @InvalidCss(true, EditRestrictionError)" maxlength="20" @bind="_editLicenseRestriction" @bind:event="oninput" placeholder="e.g. 1, 2 or None" />
+                    <input class="text-input @InvalidCss(true, EditRestrictionError)" disabled="@(!_licenseManualEdit)" maxlength="20" @bind="_editLicenseRestriction" @bind:event="oninput" placeholder="e.g. 1, 2 or None" />
                     <FieldError Show="true" Message="@EditRestrictionError" />
                     <label>License Expiry Date</label>
-                    <input type="date" class="text-input @InvalidCss(true, EditExpiryError)" max="@PhilippineTime.Now.AddYears(10).ToString("yyyy-MM-dd")" @bind="_editLicenseExpiry" />
+                    <input type="date" class="text-input @InvalidCss(true, EditExpiryError)" disabled="@(!_licenseManualEdit)" max="@PhilippineTime.Now.AddYears(10).ToString("yyyy-MM-dd")" @bind="_editLicenseExpiry" />
                     <FieldError Show="true" Message="@EditExpiryError" />
                     @if (!string.IsNullOrWhiteSpace(_editLicenseNumber) && _editLicenseExpiry is null)
                     {
                         <div class="field-error">Add the expiry date too - without it the license status stays NOT SET.</div>
+                    }
+                    @if (!_licenseManualEdit)
+                    {
+                        <div class="license-manual-edit">
+                            <span>Scan misread something, or a detail is smudged?</span>
+                            <button class="link-btn" type="button" @onclick="EnableLicenseManualEdit"><Icon Name="pencil" /> Edit details manually</button>
+                        </div>
                     }
                 </div>
 
@@ -1237,12 +1252,20 @@ else
     // "TAXI_002 · Juan Dela Cruz" when another driver already has that unit, so the manager
     // can see at a glance which units are free. Still selectable - a unit can be shared
     // (e.g. day/night drivers).
-    private string TaxiOptionLabel(string taxiId, string? exceptDriverId = null)
-    {
-        string? holder = _weekSchedule?.Rows
-            .FirstOrDefault(r => r.DefaultTaxiId == taxiId && r.DriverId != exceptDriverId)?.FullName;
-        return holder is null ? taxiId : $"{taxiId} · {holder}";
-    }
+    // One driver per unit: a unit someone else holds is shown with their name and can't be
+    // picked (DriverManagementService refuses it too).
+    private string? TaxiHolder(string taxiId, string? exceptDriverId = null) =>
+        _weekSchedule?.Rows.FirstOrDefault(r => r.DefaultTaxiId == taxiId && r.DriverId != exceptDriverId)?.FullName;
+
+    private string TaxiOptionLabel(string taxiId, string? exceptDriverId = null) =>
+        TaxiHolder(taxiId, exceptDriverId) is string holder ? $"{taxiId} · taken by {holder}" : taxiId;
+
+    /// <summary>Another driver on the roster with the same assigned unit (a clash from before the
+    /// one-driver-per-unit rule), or null.</summary>
+    private string? SharedUnitWith(DriverRosterEntry driver) =>
+        string.IsNullOrEmpty(driver.AssignedTaxiId) ? null
+        : _roster?.Drivers.FirstOrDefault(o => o.DriverId != driver.DriverId
+            && string.Equals(o.AssignedTaxiId, driver.AssignedTaxiId, StringComparison.OrdinalIgnoreCase))?.FullName;
 
     public void Dispose()
     {
@@ -1704,7 +1727,15 @@ else
     private LtoLicenseParser.Result? _licenseScan;
     private LtoLicenseParser.Validation? _licenseValidation;
 
-    // Held until Save Changes, and only when the scanned license was valid.
+    // License fields are filled by a valid scan and locked; "Edit details manually" unlocks them
+    // for when the OCR misreads a detail the manager can read on the photo themselves.
+    private bool _licenseManualEdit;
+
+    // The last scanned photo, valid or not, so manual entry can still attach it.
+    private byte[]? _scannedLicensePhoto;
+    private string _scannedLicensePhotoType = "image/jpeg";
+
+    // Held until Save Changes: after a valid scan, or once the manager enters the details by hand.
     private byte[]? _pendingLicensePhoto;
     private string _pendingLicensePhotoType = "image/jpeg";
     // Face crop from the same valid scan, saved as the driver's profile picture.
@@ -1712,6 +1743,8 @@ else
 
     private async Task OnLicenseSelectedAsync(InputFileChangeEventArgs e)
     {
+        // Already entering details by hand: a new photo stays in that mode.
+        bool wasManualEdit = _licenseManualEdit;
         ResetLicenseScan();
         _isReadingLicense = true;
         StateHasChanged();
@@ -1738,6 +1771,8 @@ else
             }
 
             _licensePreviewUrl = ocr.PreviewUrl;
+            _scannedLicensePhoto = photo;
+            _scannedLicensePhotoType = string.IsNullOrEmpty(e.File.ContentType) ? "image/jpeg" : e.File.ContentType;
             _licenseScan = LtoLicenseParser.ParseBest(ocr.Texts);
             _licenseValidation = LtoLicenseParser.Validate(_licenseScan, PhilippineTime.Now, _selectedProfile?.FullName);
 
@@ -1749,6 +1784,11 @@ else
                 _pendingLicensePhoto = photo;
                 _pendingLicensePhotoType = string.IsNullOrEmpty(e.File.ContentType) ? "image/jpeg" : e.File.ContentType;
                 _pendingProfileFace = await TryCropDriverFaceAsync();
+            }
+
+            if (wasManualEdit)
+            {
+                await EnableLicenseManualEdit();
             }
         }
         catch (Exception ex)
@@ -1791,6 +1831,32 @@ else
         _licenseScanError = null;
         _pendingLicensePhoto = null;
         _pendingProfileFace = null;
+        _scannedLicensePhoto = null;
+        _licenseManualEdit = false;
+    }
+
+    /// <summary>
+    /// Unlocks the license fields. Whatever the scan did read fills the blanks, and the scanned
+    /// photo (if any) is attached even though the scan flagged it - the manager has checked it.
+    /// The usual field checks (number format, expiry) still apply to what they type.
+    /// </summary>
+    private async Task EnableLicenseManualEdit()
+    {
+        _licenseManualEdit = true;
+
+        if (_licenseScan is not null && _licenseValidation is { IsValid: false })
+        {
+            _editLicenseNumber = _licenseScan.LicenseNumber ?? _editLicenseNumber;
+            _editLicenseClass = _licenseScan.Classification ?? _editLicenseClass;
+            _editLicenseExpiry = _licenseScan.ExpiryDate ?? _editLicenseExpiry;
+        }
+
+        if (_pendingLicensePhoto is null && _scannedLicensePhoto is not null)
+        {
+            _pendingLicensePhoto = _scannedLicensePhoto;
+            _pendingLicensePhotoType = _scannedLicensePhotoType;
+            _pendingProfileFace = await TryCropDriverFaceAsync();
+        }
     }
 
     private static string LicenseDocumentLabel(LtoLicenseParser.Result scan) =>

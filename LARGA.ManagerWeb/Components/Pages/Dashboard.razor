@@ -141,7 +141,7 @@
             <article class="stat-card">
                 <div class="stat-icon blue"><Icon Name="triangle-alert" /></div>
                 <div class="stat-body">
-                    <div class="stat-trend @TrendCssClass(_snapshot?.OpenIncidents.TrendAbsolute)">@FormatAbsoluteTrend(_snapshot?.OpenIncidents.TrendAbsolute)</div>
+                    <div class="stat-trend @TrendCssClassLowerIsBetter(_snapshot?.OpenIncidents.TrendAbsolute)">@FormatAbsoluteTrend(_snapshot?.OpenIncidents.TrendAbsolute)</div>
                     <div class="stat-value">@((int)(_snapshot?.OpenIncidents.Value ?? 0))</div>
                     <div class="stat-label">Open Incidents</div>
                 </div>
@@ -228,7 +228,7 @@
             <article class="chart-panel">
                 <div class="panel-header">
                     <span>Fuel Consumption</span>
-                    <strong>Spend by Receipt Status</strong>
+                    <strong>All Receipts by Status</strong>
                     <button type="button" aria-label="Expand Fuel Consumption" title="Expand" @onclick='() => _expandedChart = "fuel"'><Icon Name="maximize-2" /></button>
                 </div>
                 <div class="chart-area">
@@ -247,16 +247,6 @@
                 </div>
             </article>
 
-            <article class="chart-panel">
-                <div class="panel-header">
-                    <span>Maintenance Expenses</span>
-                    <strong>Parts &amp; Repairs</strong>
-                    <button type="button" aria-label="Expand Maintenance Expenses" title="Expand" @onclick='() => _expandedChart = "maintenance"'><Icon Name="maximize-2" /></button>
-                </div>
-                <div class="chart-area">
-                    <DashboardChart Spec="_maintenanceChart" EmptyMessage="No maintenance expense data" AriaLabel="Maintenance spend by job type" />
-                </div>
-            </article>
         </section>
 
         @if (ExpandedChart is (string title, ChartSpec spec, string empty))
@@ -482,7 +472,6 @@
     private ChartSpec? _utilizationChart;
     private ChartSpec? _fuelChart;
     private ChartSpec? _mileageChart;
-    private ChartSpec? _maintenanceChart;
 
     // Which chart the expand button opened in the larger view, if any.
     private string? _expandedChart;
@@ -493,16 +482,14 @@
         _utilizationChart = DashboardCharts.Utilization(_snapshot?.Utilization.DaysWorkedByUnit, FleetUtilization.WindowDays);
         _fuelChart = DashboardCharts.FuelByStatus(_snapshot?.FuelVerification);
         _mileageChart = DashboardCharts.Mileage(_snapshot?.FleetMileageByTaxi);
-        _maintenanceChart = DashboardCharts.MaintenanceByType(_snapshot?.MaintenanceExpenses);
     }
 
     private (string Title, ChartSpec Spec, string Empty)? ExpandedChart => _expandedChart switch
     {
         "collections" when _collectionChart is not null => ("Boundary Collections - Last 7 Days", _collectionChart, "No boundaries due in this period"),
         "utilization" when _utilizationChart is not null => ("Fleet Utilization - Days on the Road per Unit", _utilizationChart, "No shifts in the last 7 days"),
-        "fuel" when _fuelChart is not null => ("Fuel Consumption - Spend by Receipt Status", _fuelChart, "No fuel receipts yet"),
+        "fuel" when _fuelChart is not null => ("Fuel Consumption - All Receipts by Status", _fuelChart, "No fuel receipts yet"),
         "mileage" when _mileageChart is not null => ("Fleet Mileage - Distance Covered", _mileageChart, "No mileage data"),
-        "maintenance" when _maintenanceChart is not null => ("Maintenance Expenses - Parts & Repairs", _maintenanceChart, "No maintenance expense data"),
         _ => null,
     };
 
@@ -556,6 +543,10 @@
 
     private static string TrendCssClass(decimal? value) =>
         value is null or 0 ? string.Empty : value > 0 ? "up" : "down";
+
+    // For counts where a rise is bad news (Open Incidents): more is shown red, fewer green.
+    private static string TrendCssClassLowerIsBetter(decimal? value) =>
+        value is null or 0 ? string.Empty : value > 0 ? "down" : "up";
 
     private void OpenReportModal()
     {

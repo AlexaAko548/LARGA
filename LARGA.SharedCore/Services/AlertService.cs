@@ -66,6 +66,31 @@ public class AlertService
         }
     }
 
+    /// <summary>"Mark all as read" in the notification bell: every unread alert, not just the
+    /// ones in the recent list, in batches of up to 500 (Firestore's batch limit).</summary>
+    public async Task<bool> MarkAllReadAsync()
+    {
+        try
+        {
+            QuerySnapshot unread = await Db.Collection("system_alerts").WhereEqualTo("isRead", false).GetSnapshotAsync();
+            foreach (DocumentSnapshot[] chunk in unread.Documents.Chunk(500))
+            {
+                WriteBatch batch = Db.StartBatch();
+                foreach (DocumentSnapshot doc in chunk)
+                {
+                    batch.Update(doc.Reference, "isRead", true);
+                }
+                await batch.CommitAsync();
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to mark all alerts read");
+            return false;
+        }
+    }
+
     /// <summary>Creates a "driver idle" alert, unless one already exists for this idle episode.
     /// Deterministic ID ({shiftId}_IDLE) makes this idempotent across repeated polling ticks -
     /// once raised for a shift, it won't be raised again even if that shift is still idle on

@@ -101,14 +101,6 @@ public static class DashboardCharts
         Datasets = { new ChartSeries { Label = "Distance", Color = "accent", Data = Values(points) } },
     };
 
-    public static ChartSpec MaintenanceByType(IReadOnlyList<ChartPoint>? points) => new()
-    {
-        Kind = "doughnut",
-        Prefix = "₱",
-        Labels = points?.Select(p => Humanize(p.Label)).ToList() ?? new(),
-        Datasets = { new ChartSeries { Label = "Spend", Data = Values(points) } },
-    };
-
     private static List<double> Values(IReadOnlyList<ChartPoint>? points) =>
         points?.Select(p => (double)p.Value).ToList() ?? new();
 

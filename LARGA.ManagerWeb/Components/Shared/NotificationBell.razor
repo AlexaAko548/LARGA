@@ -23,6 +23,9 @@
                 @if (UnreadCount > 0)
                 {
                     <span class="notification-unread-count">@UnreadCount unread</span>
+                    <button type="button" class="notification-mark-all" disabled="@_isMarkingAll" @onclick="MarkAllReadAsync">
+                        <Icon Name="check" /> @(_isMarkingAll ? "Marking…" : "Mark all as read")
+                    </button>
                 }
             </div>
 
@@ -54,6 +57,7 @@
     private CancellationTokenSource? _timerCts;
 
     private int UnreadCount => _alerts.Count(a => !a.IsRead);
+    private bool _isMarkingAll;
 
     protected override async Task OnInitializedAsync()
     {
@@ -104,6 +108,25 @@
         {
             alert.IsRead = true;
             await AlertService.MarkReadAsync(alert.AlertId);
+        }
+    }
+
+    private async Task MarkAllReadAsync()
+    {
+        _isMarkingAll = true;
+        try
+        {
+            if (await AlertService.MarkAllReadAsync())
+            {
+                foreach (AlertNotice alert in _alerts)
+                {
+                    alert.IsRead = true;
+                }
+            }
+        }
+        finally
+        {
+            _isMarkingAll = false;
         }
     }
 

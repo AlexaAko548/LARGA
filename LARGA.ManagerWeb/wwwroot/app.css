@@ -494,7 +494,7 @@ font-weight: 500;
 
 .auth-card {
 width: min(100%, 430px);
-background: rgba(255, 255, 255, 0.2);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.2);
 border: 1px solid rgba(var(--accent-rgb),0.45);
 border-radius: 18px;
 padding: 1.6rem 1.55rem 1.3rem;
@@ -502,7 +502,7 @@ box-shadow: 0 2px 0 rgba(var(--accent-rgb),0.04);
 }
 
 .register-card {
-background: rgba(255, 255, 255, 0.12);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.12);
 }
 
 .brand-lockup {
@@ -767,17 +767,26 @@ padding: 0.1rem 0.2rem 0.6rem;
 margin-bottom: 0.2rem;
 }
 
+/* The welcome page's taxi logo on a light tile, so the dark-teal drawing stays visible on the
+   dark sidebar too. Small enough for the collapsed (72px) sidebar. */
 .sidebar-logo {
-width: 28px;
-height: 28px;
+width: 46px;
+height: 30px;
+flex-shrink: 0;
 border-radius: var(--radius-sm);
-background: linear-gradient(135deg, var(--accent), var(--accent));
-color: white;
+background: #ffffff;
+border: 1px solid rgba(var(--accent-rgb), 0.3);
 display: grid;
 place-items: center;
-font-size: 0.9rem;
-font-weight: 700;
-box-shadow: inset 0 -2px 0 rgba(0,0,0,0.08);
+padding: 2px 3px;
+box-shadow: var(--shadow-sm);
+}
+
+.sidebar-logo img {
+width: 100%;
+height: 100%;
+object-fit: contain;
+display: block;
 }
 
 .brand-name {
@@ -998,7 +1007,7 @@ width: 2.1rem;
 height: 2.1rem;
 border: 1px solid rgba(var(--accent-rgb),0.38);
 border-radius: var(--radius-md);
-background: rgba(255,255,255,0.15);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.15);
 color: var(--ink);
 font-size: 1rem;
 cursor: pointer;
@@ -1083,6 +1092,26 @@ font-size: 0.85rem;
 font-size: 0.72rem;
 font-weight: 600;
 color: var(--danger, #e5484d);
+margin-left: auto;
+margin-right: 0.6rem;
+}
+
+.notification-mark-all {
+display: inline-flex;
+align-items: center;
+gap: 0.25rem;
+border: 0;
+background: none;
+padding: 0.15rem 0.3rem;
+border-radius: var(--radius-xs);
+color: var(--accent-text, var(--accent));
+font-size: 0.72rem;
+font-weight: 700;
+cursor: pointer;
+}
+
+.notification-mark-all:hover:not(:disabled) {
+background: var(--accent-soft);
 }
 
 .notification-empty {
@@ -1149,7 +1178,7 @@ flex-wrap: wrap;
 align-items: center;
 gap: 0.55rem;
 padding: 0.7rem 0.85rem 0.8rem;
-background: rgba(255,255,255,0.18);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.18);
 border: 1px solid rgba(var(--accent-rgb),0.2);
 border-radius: var(--radius-lg);
 }
@@ -1251,7 +1280,7 @@ display: grid;
 place-items: center;
 font-weight: 800;
 color: var(--accent);
-background: rgba(255,255,255,0.24);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.24);
 border: 1px solid rgba(var(--accent-rgb),0.18);
 }
 
@@ -1332,7 +1361,7 @@ width: 1.8rem;
 height: 1.8rem;
 border-radius: var(--radius-sm);
 border: 1px solid rgba(var(--accent-rgb),0.28);
-background: rgba(255,255,255,0.1);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.1);
 color: var(--ink);
 cursor: pointer;
 }
@@ -1342,7 +1371,7 @@ position: relative;
 flex: 1;
 min-height: 170px;
 border: 1px solid rgba(var(--accent-rgb),0.35);
-background: rgba(255,255,255,0.18);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.18);
 overflow: hidden;
 }
 
@@ -1459,7 +1488,7 @@ font-weight: 800;
 width: 2.1rem;
 height: 2.1rem;
 border-radius: 50%;
-background: rgba(255,255,255,0.14);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.14);
 display: grid;
 place-items: center;
 color: var(--ink);
@@ -1479,7 +1508,7 @@ display: grid;
 grid-template-columns: 52px minmax(130px, 1fr) minmax(260px, 2fr);
 align-items: center;
 gap: 0.9rem;
-background: rgba(255,255,255,0.08);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.08);
 border: 1px solid rgba(var(--accent-rgb),0.22);
 border-radius: var(--radius-lg);
 padding: 0.8rem 0.9rem;
@@ -1655,7 +1684,7 @@ color: var(--muted);
 .date-field input {
 border-radius: var(--radius-sm);
 border: 1px solid rgba(var(--accent-rgb),0.38);
-background: rgba(255,255,255,0.12);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.12);
 height: 2.2rem;
 padding: 0.45rem 0.6rem;
 }
@@ -1677,7 +1706,7 @@ margin-right: auto;
 border-radius: var(--radius-md);
 padding: 0.7rem 0.9rem;
 border: 1px solid rgba(var(--accent-rgb),0.3);
-background: rgba(255,255,255,0.1);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.1);
 color: var(--ink);
 font-weight: 700;
 cursor: pointer;
@@ -1881,7 +1910,7 @@ gap: 0.75rem;
 .tab-group {
 display: flex;
 gap: 0.4rem;
-background: rgba(255,255,255,0.2);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.2);
 border: 1px solid rgba(var(--accent-rgb),0.2);
 border-radius: var(--radius-lg);
 padding: 0.3rem;
@@ -2027,13 +2056,13 @@ font-size: 0.75rem;
 .totals-row td {
 font-weight: 700;
 color: var(--ink);
-background: rgba(255,255,255,0.35);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.35);
 border-top: 2px solid rgba(var(--accent-rgb),0.4);
 }
 
 .profile-btn {
 border: 1px solid rgba(var(--accent-rgb),0.3);
-background: rgba(255,255,255,0.4);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.4);
 border-radius: var(--radius-sm);
 padding: 0.4rem 0.8rem;
 font-size: 0.78rem;
@@ -2079,7 +2108,7 @@ width: 1.7rem;
 height: 1.7rem;
 border-radius: var(--radius-xs);
 border: 1px solid rgba(var(--accent-rgb),0.3);
-background: rgba(255,255,255,0.3);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.3);
 color: var(--ink);
 cursor: pointer;
 }
@@ -2106,7 +2135,7 @@ letter-spacing: 0.05em;
 text-transform: uppercase;
 color: var(--accent);
 text-align: center;
-background: rgba(255,255,255,0.3);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.3);
 }
 
 .schedule-table tfoot td:first-child {
@@ -2123,12 +2152,12 @@ display: inline-flex;
 align-items: center;
 gap: 0.3rem;
 border: 1px solid rgba(var(--accent-rgb),0.3);
-background: rgba(255,255,255,0.45);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.45);
 border-radius: var(--radius-sm);
 padding: 0.4rem 0.6rem;
 font-size: 0.78rem;
 font-weight: 700;
-color: var(--accent);
+color: var(--accent-text, var(--accent));
 cursor: pointer;
 white-space: nowrap;
 }
@@ -2136,7 +2165,7 @@ white-space: nowrap;
 .schedule-cell.off {
 color: var(--muted);
 font-weight: 500;
-background: rgba(255,255,255,0.18);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.18);
 text-decoration: line-through;
 }
 
@@ -2176,7 +2205,8 @@ cursor: not-allowed;
 }
 
 .schedule-cell:disabled {
-opacity: 0.85;
+opacity: 1;
+cursor: not-allowed;
 }
 
 .schedule-today {
@@ -2214,7 +2244,7 @@ position: relative;
 
 .filter-btn {
 border: 1px solid rgba(var(--accent-rgb),0.3);
-background: rgba(255,255,255,0.3);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.3);
 border-radius: var(--radius-sm);
 padding: 0.45rem 0.8rem;
 font-size: 0.78rem;
@@ -2266,7 +2296,7 @@ max-width: 24rem;
 
 .checklist-link {
 border: 1px solid rgba(var(--accent-rgb),0.3);
-background: rgba(255,255,255,0.4);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.4);
 border-radius: var(--radius-sm);
 padding: 0.4rem 0.7rem;
 font-size: 0.75rem;
@@ -2404,7 +2434,7 @@ margin-bottom: 1rem;
 .checklist-photo-slot {
 border: 1px dashed rgba(var(--accent-rgb),0.4);
 border-radius: var(--radius-md);
-background: rgba(255,255,255,0.3);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.3);
 padding: 1.2rem 0.8rem;
 text-align: center;
 display: flex;
@@ -2448,7 +2478,7 @@ border-radius: var(--radius-md);
 padding: 0.6rem 0.8rem;
 font-size: 0.82rem;
 color: var(--ink);
-background: rgba(255,255,255,0.2);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.2);
 }
 
 .checklist-footer {
@@ -2498,7 +2528,7 @@ align-items: center;
 justify-content: space-between;
 font-size: 0.78rem;
 color: var(--ink);
-background: rgba(255,255,255,0.25);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.25);
 border-radius: var(--radius-sm);
 padding: 0.4rem 0.7rem;
 }
@@ -3694,7 +3724,7 @@ grid-template-columns: repeat(3, 1fr);
 
 .btn-table-action {
     border: 1px solid rgba(var(--accent-rgb),0.3);
-    background: rgba(255, 255, 255, 0.4);
+    background: rgba(var(--surface-rgb, 255, 255, 255), 0.4);
     color: var(--ink);
     border-radius: var(--radius-sm);
     padding: 0.4rem 0.75rem;
@@ -3729,6 +3759,20 @@ grid-template-columns: repeat(3, 1fr);
     display: grid;
     place-items: center;
     font-size: 0.9rem;
+}
+
+/* A person: the sidebar user card's filled initials avatar. */
+.actor-icon-bubble.actor-initials {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.action-text .action-icon {
+    color: var(--muted);
+    margin-right: 0.3rem;
 }
 
 .actor-name {
@@ -4687,7 +4731,7 @@ gap: 0.7rem;
 }
 
 .kpi-tile {
-background: rgba(255,255,255,0.45);
+background: rgba(var(--surface-rgb, 255, 255, 255), 0.45);
 border: 1px solid rgba(var(--accent-rgb),0.25);
 border-radius: var(--radius-lg);
 padding: 0.7rem 0.8rem;
@@ -5496,4 +5540,29 @@ animation-delay: var(--rise-delay, 0ms);
   button:active:not(:disabled), .stat-card:hover, .report-card:hover {
     transform: none;
   }
+}
+
+/* Blazor's "Rejoining the server..." box draws a white dialog in its own shadow DOM but no text
+   color, so it inherited the page's - light gray on white in dark mode. Its text color is
+   inherited from this host element, so set it here (the white box itself can't be restyled). */
+#components-reconnect-modal {
+color: #1d1d1d;
+font-family: var(--font-body);
+}
+
+/* Driver profile > Edit Details: license fields locked until "Edit details manually". */
+.license-manual-edit {
+display: flex;
+flex-wrap: wrap;
+align-items: center;
+gap: 0.3rem 0.5rem;
+margin-top: 0.5rem;
+font-size: 0.78rem;
+color: var(--muted);
+}
+
+.text-input:disabled {
+opacity: 0.75;
+cursor: not-allowed;
+background: rgba(var(--accent-rgb), 0.05);
 }

@@ -13,6 +13,7 @@
 @inject NavigationManager Navigation
 @inject GarageService GarageService
 @inject InventoryAuditService InventoryAudit
+@inject DriverNotifier DriverNotifier
 
 <PageTitle>Maintenance Scheduler</PageTitle>
 
@@ -118,7 +119,7 @@ else
                                 <span class="day-badge scheduled">@(s.DaysUntilShop == 1 ? "Tomorrow" : $"In {s.DaysUntilShop} days")</span>
                             </div>
                             <div class="report-card-actions">
-                                @if (_canManage) { <button class="solid-btn" type="button" disabled="@_isBusy" title="Bring the unit into the shop today instead" @onclick="() => StartScheduledNowAsync(s.MaintenanceId)">Start Now</button> }
+                                @if (_canManage) { <button class="solid-btn" type="button" disabled="@_isBusy" title="Bring the unit into the shop today instead" @onclick="() => StartScheduledNowAsync(s)">Start Now</button> }
                                 @if (_canManage) { <button class="cancel-btn" type="button" disabled="@_isBusy" title="Cancel the booking - it goes back to Pending Driver Reports" @onclick="() => UnscheduleAsync(s.MaintenanceId)">Unschedule</button> }
                             </div>
                         </article>
@@ -658,6 +659,10 @@ else
                 return;
             }
 
+            // Tell the unit's driver which day it goes into the shop (chat message + push).
+            DriverReportEntry booked = _ticketReport;
+            _ = DriverNotifier.NotifyUnitBookedForShopAsync(booked.TaxiId, shopDay, _ticketEstimatedDate, booked.IssueTitle);
+
             _showTicketModal = false;
             _ticketReport = null;
             await LoadSnapshotAsync();
@@ -668,8 +673,15 @@ else
         }
     }
 
-    private Task StartScheduledNowAsync(string maintenanceId) =>
-        RunCardActionAsync(() => GarageService.StartScheduledNowAsync(maintenanceId), "Could not start this work order.");
+    private async Task StartScheduledNowAsync(WorkOrderEntry order)
+    {
+        await RunCardActionAsync(() => GarageService.StartScheduledNowAsync(order.MaintenanceId), "Could not start this work order.");
+        if (_actionError is null)
+        {
+            // The shop day moved up to today - let the driver know.
+            _ = DriverNotifier.NotifyUnitBookedForShopAsync(order.TaxiId, PhilippineTime.Now.Date, order.EstimatedCompletionDate, order.IssueTitle);
+        }
+    }
 
     private Task UnscheduleAsync(string maintenanceId) =>
         RunCardActionAsync(() => GarageService.UnscheduleAsync(maintenanceId), "Could not cancel this booking.");
@@ -898,6 +910,8 @@ else
                 _scheduleError = result.ErrorMessage ?? "Could not schedule this check.";
                 return;
             }
+
+            _ = DriverNotifier.NotifyUnitBookedForShopAsync(_scheduleCheck.TaxiId, _scheduleDate.Value.Date, _scheduleDate.Value.Date, _scheduleCheck.CheckName);
 
             _showScheduleModal = false;
             _scheduleCheck = null;
