@@ -22,6 +22,15 @@
     {
         <div class="manager-menu-backdrop" @onclick="() => _isDropdownOpen = false"></div>
         <div class="manager-menu-dropdown" role="menu">
+            <div class="manager-menu-theme">
+                <span class="manager-menu-theme-label">Appearance</span>
+                <div class="theme-switch" role="group" aria-label="Appearance">
+                    @foreach (var (mode, label) in ThemeModes)
+                    {
+                        <button type="button" class="@(_themeMode == mode ? "active" : null)" aria-pressed="@(_themeMode == mode)" @onclick="() => SetThemeAsync(mode)">@label</button>
+                    }
+                </div>
+            </div>
             <button type="button" class="manager-menu-item" role="menuitem" @onclick="OpenSettingsModal">Settings</button>
             <button type="button" class="manager-menu-item danger" role="menuitem" @onclick="HandleLogoutAsync">Logout</button>
         </div>
@@ -115,6 +124,41 @@
     private bool _isSavingPassword;
 
     private IJSObjectReference? _firebaseModule;
+
+    // Saved per browser by window.largaTheme (App.razor); "system" follows the OS setting.
+    private static readonly (string Mode, string Label)[] ThemeModes =
+        [("system", "System"), ("light", "Light"), ("dark", "Dark")];
+    private string _themeMode = "system";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            _themeMode = await JS.InvokeAsync<string>("largaTheme.get");
+            StateHasChanged();
+        }
+        catch (JSException)
+        {
+            // Keep "system"; the switch still works.
+        }
+    }
+
+    private async Task SetThemeAsync(string mode)
+    {
+        _themeMode = mode;
+        try
+        {
+            await JS.InvokeVoidAsync("largaTheme.set", mode);
+        }
+        catch (JSException)
+        {
+        }
+    }
 
     private void ToggleDropdown() => _isDropdownOpen = !_isDropdownOpen;
 

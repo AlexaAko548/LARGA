@@ -5,6 +5,33 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
+    @* Theme (System / Light / Dark, per browser). Runs before the stylesheets so a prerendered
+       page never flashes the wrong theme; ManagerProfileMenu calls largaTheme.get/set. *@
+    <script>
+        (function () {
+            var key = 'larga-theme';
+            var media = window.matchMedia('(prefers-color-scheme: dark)');
+            function read() {
+                try { return localStorage.getItem(key) || 'system'; } catch (e) { return 'system'; }
+            }
+            function apply() {
+                var mode = read();
+                var theme = mode === 'system' ? (media.matches ? 'dark' : 'light') : mode;
+                document.documentElement.setAttribute('data-theme', theme);
+                document.documentElement.setAttribute('data-bs-theme', theme);
+            }
+            window.largaTheme = {
+                get: read,
+                apply: apply,
+                set: function (mode) {
+                    try { localStorage.setItem(key, mode); } catch (e) { }
+                    apply();
+                }
+            };
+            media.addEventListener('change', apply);
+            apply();
+        })();
+    </script>
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["LARGA.ManagerWeb.styles.css"]" />
@@ -16,6 +43,8 @@
 <body>
     <Routes />
     <script src="_framework/blazor.web.js"></script>
+    @* Enhanced navigation can patch <html>'s attributes back to the server's markup. *@
+    <script>Blazor.addEventListener('enhancedload', window.largaTheme.apply);</script>
 </body>
 
 </html>
