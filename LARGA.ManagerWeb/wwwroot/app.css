@@ -1119,8 +1119,11 @@ color: #5a7a8a;
 border-color: rgba(1,155,207,0.2);
 }
 
+/* Idle gets the brand blue (its tint was already blue) so its dot isn't the same grey as
+   Parked - the manager app's Live Fleet map uses the same colour. */
 .status-neutral.idle {
 background: rgba(1,155,207,0.12);
+color: #0181ad;
 }
 
 .generate-btn {
@@ -4518,6 +4521,40 @@ cursor: pointer;
 font-size: 1rem;
 color: #1d1d1d;
 margin: 0 0 0.6rem;
+}
+
+.sos-resolved-count {
+color: #5a7a8a;
+font-weight: 500;
+}
+
+/* Resolved in the last 24 hours: fixed-height rows so exactly 10 fit; more scroll inside the
+   box with the header pinned. Keep ResolvedRowsVisible in SosDispatch.razor in sync. */
+.sos-resolved-scroll {
+--sos-row-height: 3.25rem;
+--sos-head-height: 2.6rem;
+}
+
+.sos-resolved-scroll tbody tr {
+height: var(--sos-row-height);
+}
+
+.sos-resolved-scroll td {
+padding-top: 0;
+padding-bottom: 0;
+white-space: nowrap;
+}
+
+.sos-resolved-scroll.is-scrolling {
+max-height: calc(var(--sos-row-height) * 10 + var(--sos-head-height));
+overflow-y: auto;
+}
+
+.sos-resolved-scroll.is-scrolling thead th {
+position: sticky;
+top: 0;
+z-index: 1;
+background: #ffffff;
 }
 
 .sos-resolved .sos-toggle {

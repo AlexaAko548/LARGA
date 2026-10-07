@@ -69,6 +69,7 @@ public static class DriverDebtCalculator
 
         // Typed proxies, not Dictionary<string, object>: Plugin.Firebase hands back an empty
         // dictionary for the latter, which read every shift as unpaid and every payment as ₱0.
+        // Their fields are object?, not double/DateTime: see the proxy classes below.
         var shifts = await db.GetCollection("shifts")
             .WhereEqualsTo("driverId", driverId)
             .GetDocumentsAsync<ShiftProxy>();
@@ -83,11 +84,15 @@ public static class DriverDebtCalculator
         foreach (var shiftDoc in shifts.Documents)
         {
             ShiftProxy? shift = shiftDoc.Data;
-            if (shift == null) continue;
+            if (shift == null)
+            {
+                System.Diagnostics.Debug.WriteLine($"Driver ledger: shift {shiftDoc.Reference.Id} could not be read");
+                continue;
+            }
 
             // A payment can point at either of the shift's IDs (document ID, or the shiftId
             // field older builds filled with a made-up value) - same matching as the web.
-            var ids = new[] { shiftDoc.Reference.Id, shift.ShiftId }
+            var ids = new[] { shiftDoc.Reference.Id, StringOf(shift.ShiftId) }
                 .Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
 
             // Every payment is its own document, so a shift can have several; they're added up
@@ -96,36 +101,38 @@ public static class DriverDebtCalculator
             var documents = new Dictionary<string, PaymentProxy>();
             foreach (var doc in myPayments.Documents)
             {
-                if (doc.Data != null && ids.Contains(doc.Data.ShiftId)) documents[doc.Reference.Id] = doc.Data;
+                if (doc.Data != null && ids.Contains(StringOf(doc.Data.ShiftId))) documents[doc.Reference.Id] = doc.Data;
             }
 
             PaymentProxy? payment = documents.Values
-                .OrderByDescending(d => FirestoreDateTimeFix.Apply(d.Timestamp))
+                .OrderByDescending(d => PaidAtUtc(d) ?? DateTime.MinValue)
                 .FirstOrDefault();
             decimal totalPaid = BoundaryPaymentRules.TotalPaid(
-                documents.Select(kv => (kv.Key, (string?)kv.Value.TransactionId, (decimal)kv.Value.AmountPaid)));
+                documents.Select(kv => (kv.Key, (string?)StringOf(kv.Value.TransactionId), ToDecimal(kv.Value.AmountPaid) ?? 0m)));
 
-            bool isActive = shift.Status == "Active";
+            bool isActive = StringOf(shift.Status) == "Active";
             if (isActive && payment == null) continue;
 
             // Charges from the shift itself when it has them (set at clock-out, even when 0);
             // otherwise whatever the payment record carries - same as the web's ExtrasFor.
-            decimal lateFee = ToDecimal(shift.LateFee) ?? (decimal)(payment?.LateFees ?? 0);
-            decimal fuelPenalty = ToDecimal(shift.FuelPenalty) ?? (decimal)(payment?.FuelPenalty ?? 0);
-            decimal boundary = payment != null && payment.ExpectedBoundary > 0 ? (decimal)payment.ExpectedBoundary : defaultRate;
+            decimal lateFee = ToDecimal(shift.LateFee) ?? ToDecimal(payment?.LateFees) ?? 0m;
+            decimal fuelPenalty = ToDecimal(shift.FuelPenalty) ?? ToDecimal(payment?.FuelPenalty) ?? 0m;
+            decimal expectedBoundary = ToDecimal(payment?.ExpectedBoundary) ?? 0m;
+            decimal boundary = expectedBoundary > 0 ? expectedBoundary : defaultRate;
 
-            DateTime start = FirestoreDateTimeFix.Apply(shift.ShiftStart);
-            DateTime? paidAt = payment == null || payment.Timestamp == default ? null : FirestoreDateTimeFix.Apply(payment.Timestamp);
+            DateTime? start = ToUtc(shift.ShiftStart);
+            DateTime? paidAt = payment == null ? null : PaidAtUtc(payment);
+            string paymentStatus = StringOf(payment?.PaymentStatus);
 
             result.Shifts.Add(new ShiftEntry
             {
-                ShiftStartUtc = start.Year > 2000 ? start : DateTime.MinValue,
-                TaxiId = shift.TaxiId ?? string.Empty,
+                ShiftStartUtc = start is DateTime s && s.Year > 2000 ? s : DateTime.MinValue,
+                TaxiId = StringOf(shift.TaxiId),
                 IsActive = isActive,
                 Expected = boundary + lateFee + fuelPenalty,
                 Paid = totalPaid,
                 HasPayment = payment != null,
-                PaymentStatus = string.IsNullOrEmpty(payment?.PaymentStatus) ? "Unpaid" : payment.PaymentStatus,
+                PaymentStatus = string.IsNullOrEmpty(paymentStatus) ? "Unpaid" : paymentStatus,
                 PaymentTimestampUtc = paidAt,
             });
         }
@@ -136,11 +143,11 @@ public static class DriverDebtCalculator
         foreach (var doc in adjustments.Documents)
         {
             if (doc.Data == null) continue;
-            DateTime at = FirestoreDateTimeFix.Apply(doc.Data.Timestamp);
+            DateTime? at = ToUtc(doc.Data.Timestamp);
             result.Adjustments.Add(new AdjustmentEntry
             {
-                TimestampUtc = at.Year > 2000 ? at : DateTime.MinValue,
-                Amount = (decimal)doc.Data.Amount,
+                TimestampUtc = at is DateTime a && a.Year > 2000 ? a : DateTime.MinValue,
+                Amount = ToDecimal(doc.Data.Amount) ?? 0m,
             });
         }
 
@@ -148,8 +155,9 @@ public static class DriverDebtCalculator
     }
 
     // Firestore hands back a whole number as an integer and Plugin.Firebase then fails to fill a
-    // double property (the whole document reads as null), so these fields are object? - see
-    // QuickLedgerService. Null means the shift has no such field.
+    // double property (the whole document reads as null, and the shift or payment silently drops
+    // out of the ledger), so every proxy field is object? - see QuickLedgerService. Null means the
+    // document has no such field.
     private static decimal? ToDecimal(object? value) => value switch
     {
         null => null,
@@ -162,15 +170,49 @@ public static class DriverDebtCalculator
         _ => null,
     };
 
+    private static string StringOf(object? value) => value switch
+    {
+        null => string.Empty,
+        string s => s,
+        _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty,
+    };
+
+    /// <summary>
+    /// A Firestore timestamp as UTC. Plugin.Firebase can hand back a DateTimeOffset, a DateTime
+    /// (with the Android 1601 problem, see FirestoreDateTimeFix), or an ISO string.
+    /// </summary>
+    private static DateTime? ToUtc(object? value) => value switch
+    {
+        DateTimeOffset offset => offset.UtcDateTime,
+        DateTime dt => ToUtcKind(FirestoreDateTimeFix.Apply(dt)),
+        string s when DateTime.TryParse(s, CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out DateTime parsed) => parsed,
+        _ => null,
+    };
+
+    private static DateTime ToUtcKind(DateTime value) =>
+        value.Kind == DateTimeKind.Local ? value.ToUniversalTime() : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
+    /// <summary>
+    /// When a payment was made. The Quick Ledger also writes recordedAtUtc as an ISO string because
+    /// its timestamp write wasn't reliable on Android, so that one wins (same as QuickLedgerService).
+    /// </summary>
+    private static DateTime? PaidAtUtc(PaymentProxy payment)
+    {
+        DateTime? at = ToUtc(payment.RecordedAtUtc) ?? ToUtc(payment.Timestamp);
+        return at is DateTime d && d.Year > 2000 ? d : null;
+    }
+
     private static async Task<decimal> GetDefaultBoundaryRateAsync(IFirebaseFirestore db)
     {
         try
         {
             var config = await db.GetCollection("system_configs").GetDocument("global")
                 .GetDocumentSnapshotAsync<ConfigProxy>();
-            if (config?.Data != null && config.Data.DefaultBoundaryRate > 0)
+            decimal rate = ToDecimal(config?.Data?.DefaultBoundaryRate) ?? 0m;
+            if (rate > 0)
             {
-                return (decimal)config.Data.DefaultBoundaryRate;
+                return rate;
             }
         }
         catch (Exception ex)
@@ -182,34 +224,35 @@ public static class DriverDebtCalculator
 
     private class ShiftProxy
     {
-        [FirestoreProperty("shiftId")] public string ShiftId { get; set; }
-        [FirestoreProperty("taxiId")] public string TaxiId { get; set; }
-        [FirestoreProperty("status")] public string Status { get; set; }
-        [FirestoreProperty("shiftStart")] public DateTime ShiftStart { get; set; }
+        [FirestoreProperty("shiftId")] public object? ShiftId { get; set; }
+        [FirestoreProperty("taxiId")] public object? TaxiId { get; set; }
+        [FirestoreProperty("status")] public object? Status { get; set; }
+        [FirestoreProperty("shiftStart")] public object? ShiftStart { get; set; }
         [FirestoreProperty("lateFee")] public object? LateFee { get; set; }
         [FirestoreProperty("fuelPenalty")] public object? FuelPenalty { get; set; }
     }
 
     private class PaymentProxy
     {
-        [FirestoreProperty("shiftId")] public string ShiftId { get; set; }
-        [FirestoreProperty("expectedBoundary")] public double ExpectedBoundary { get; set; }
-        [FirestoreProperty("lateFees")] public double LateFees { get; set; }
-        [FirestoreProperty("fuelPenalty")] public double FuelPenalty { get; set; }
-        [FirestoreProperty("amountPaid")] public double AmountPaid { get; set; }
-        [FirestoreProperty("paymentStatus")] public string PaymentStatus { get; set; }
-        [FirestoreProperty("timestamp")] public DateTime Timestamp { get; set; }
-        [FirestoreProperty("transactionId")] public string TransactionId { get; set; }
+        [FirestoreProperty("shiftId")] public object? ShiftId { get; set; }
+        [FirestoreProperty("expectedBoundary")] public object? ExpectedBoundary { get; set; }
+        [FirestoreProperty("lateFees")] public object? LateFees { get; set; }
+        [FirestoreProperty("fuelPenalty")] public object? FuelPenalty { get; set; }
+        [FirestoreProperty("amountPaid")] public object? AmountPaid { get; set; }
+        [FirestoreProperty("paymentStatus")] public object? PaymentStatus { get; set; }
+        [FirestoreProperty("timestamp")] public object? Timestamp { get; set; }
+        [FirestoreProperty("recordedAtUtc")] public object? RecordedAtUtc { get; set; }
+        [FirestoreProperty("transactionId")] public object? TransactionId { get; set; }
     }
 
     private class AdjustmentProxy
     {
-        [FirestoreProperty("amount")] public double Amount { get; set; }
-        [FirestoreProperty("timestamp")] public DateTime Timestamp { get; set; }
+        [FirestoreProperty("amount")] public object? Amount { get; set; }
+        [FirestoreProperty("timestamp")] public object? Timestamp { get; set; }
     }
 
     private class ConfigProxy
     {
-        [FirestoreProperty("defaultBoundaryRate")] public double DefaultBoundaryRate { get; set; }
+        [FirestoreProperty("defaultBoundaryRate")] public object? DefaultBoundaryRate { get; set; }
     }
 }

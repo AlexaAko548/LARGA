@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Maui.ApplicationModel;
@@ -27,6 +28,14 @@ namespace LARGA.SharedCore.Services;
 /// a persistent notification, so the OS can still suspend it if the app is swiped away or
 /// killed outright. True always-on background tracking is a much larger platform-specific
 /// task; flagged as a follow-up rather than silently claimed here.
+///
+/// Storage: there's no deletion code here on purpose. gps_telemetry has a Firestore TTL
+/// policy (Cloud Console > Firestore > Time-to-live, not Firebase Console - it's a separate
+/// product UI over the same project) on the "timestamp" field, offset 7 days - Firestore
+/// deletes documents past that age in the background at no extra read/write cost. No feature
+/// reads telemetry older than its own shift (FleetReportingService wants only the latest
+/// point, FuelVerificationService only queries within [shiftStart, now]), so a week is just a
+/// buffer for manual review after a shift ends, not something any code depends on.
 /// </summary>
 public interface IGpsTelemetryService
 {
@@ -126,19 +135,48 @@ public class GpsTelemetryService : IGpsTelemetryService
                 return;
             }
 
+            int speedKmh = (int)Math.Round((location.Speed ?? 0) * 3.6); // m/s -> km/h
+            // -1 = "no heading": many fixes (Medium accuracy on Android especially) come back
+            // without a course, and 0 would read as due north - the Fleet Map would then
+            // dead-reckon the pin north regardless of where the taxi is actually heading.
+            // Stored as a sentinel rather than null since the map's Firestore proxy can't
+            // deserialize nullable values reliably on Android.
+            double headingDegrees = location.Course is double course && course >= 0 && !double.IsNaN(course)
+                ? course
+                : -1;
+            var now = DateTime.UtcNow;
+
             var point = new GpsTelemetryProxy
             {
                 ShiftId = shiftId,
                 DriverId = driverId,
                 Latitude = location.Latitude,
                 Longitude = location.Longitude,
-                Speed = (int)Math.Round((location.Speed ?? 0) * 3.6), // m/s -> km/h
-                Timestamp = DateTime.UtcNow,
+                Speed = speedKmh,
+                Timestamp = now,
             };
 
             await CrossFirebaseFirestore.Current
                 .GetCollection("gps_telemetry")
                 .AddDocumentAsync(point);
+
+            // Denormalized onto the shift doc itself (separate from the gps_telemetry trail
+            // above, which stays append-only for history/distance calculations) so the Live
+            // Fleet map can hold a single live listener on "shifts" instead of a separate
+            // listener per active shift, or an unbounded listener over all of gps_telemetry.
+            // Heading lets the map dead-reckon the pin between writes instead of it sitting
+            // frozen for the full 30s gap.
+            await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .GetDocument(shiftId)
+                .UpdateDataAsync(new Dictionary<object, object>
+                {
+                    { "currentLatitude", location.Latitude },
+                    { "currentLongitude", location.Longitude },
+                    { "currentSpeed", speedKmh },
+                    { "currentHeading", headingDegrees },
+                    { "currentPositionUpdatedAt", now },
+                });
         }
         catch (OperationCanceledException)
         {

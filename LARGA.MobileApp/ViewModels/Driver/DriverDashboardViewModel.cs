@@ -1,6 +1,7 @@
 ﻿using Microsoft.Maui.Storage;
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore.Services;
+using LARGA.MobileApp.Services;
 using Microsoft.Maui.Controls;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
@@ -19,6 +20,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     private readonly INotificationService _notificationService;
     private readonly IShiftManagementService _shiftService;
     private readonly IGpsTelemetryService _telemetryService;
+    private readonly IEmergencyMonitor _emergencyMonitor;
     private bool _isOffline = true;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -97,11 +99,12 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     public ICommand ActiveShiftCommand { get; }
     public ICommand MessageManagerCommand { get; }
 
-    public DriverDashboardViewModel(INotificationService notificationService, IShiftManagementService shiftService, IGpsTelemetryService telemetryService)
+    public DriverDashboardViewModel(INotificationService notificationService, IShiftManagementService shiftService, IGpsTelemetryService telemetryService, IEmergencyMonitor emergencyMonitor)
     {
         _notificationService = notificationService;
         _shiftService = shiftService;
         _telemetryService = telemetryService;
+        _emergencyMonitor = emergencyMonitor;
 
         ToggleShiftCommand = new Command(async () =>
         {
@@ -174,11 +177,15 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                 // LAR-77: resumes GPS for a shift that's still open after the app was restarted
                 // (a no-op when it's already running for this shift).
                 _telemetryService.Start(open.DocumentId);
+
+                // LAR-86/87: likewise resume emergency detection for the still-open shift.
+                _ = _emergencyMonitor.StartAsync(open.DocumentId);
             }
             else if (Microsoft.Maui.Storage.Preferences.Get("IsShiftActive", false))
             {
                 // The shift ended elsewhere (e.g. auto-closed at 6:00 AM) - stop sending GPS for it.
                 _telemetryService.Stop();
+                _emergencyMonitor.Stop();
 
                 Microsoft.Maui.Storage.SecureStorage.Remove("ActiveShiftDocumentId");
                 Microsoft.Maui.Storage.Preferences.Remove("CurrentShiftId");

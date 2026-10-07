@@ -368,6 +368,8 @@ public class AlertCenterViewModel : BindableObject
                             ["resolvedAt"] = DateTime.UtcNow,
                         });
                     await MarkSosBellReadAsync(alert.Id);
+                    await AuditLogWriter.WriteAsync("SosResolved",
+                        $"Resolved SOS alert for {alert.TaxiId} ({alert.DriverName}).");
                     break;
 
                 case AlertType.FuelDiscrepancy:

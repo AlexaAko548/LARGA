@@ -99,6 +99,9 @@ public class UpdateContactNumberViewModel : BindableObject
                 .GetDocument(user.Uid)
                 .UpdateDataAsync(updates);
 
+            // LAR-86/87: keep the driver app's SOS auto-answer allowlist on the new number.
+            await LARGA.MobileApp.Services.ManagerAllowlistSync.ReplaceAsync(actualCurrentNumber, NewNumber);
+
             CurrentNumber = string.Empty;
             NewNumber = string.Empty;
             ConfirmNewNumber = string.Empty;

@@ -42,14 +42,19 @@ public class LedgerViewModel : INotifyPropertyChanged
     {
         ViewDebtDetailsCommand = new Command(async () => await Shell.Current.GoToAsync("debt-details"));
         ViewAllHistoryCommand = new Command(async () => await Shell.Current.GoToAsync("payment-history"));
-
-        _ = LoadDynamicLedgerDataAsync();
     }
 
-    private async Task LoadDynamicLedgerDataAsync()
+    private bool _isLoading;
+
+    /// <summary>
+    /// Called by LedgerPage each time the tab appears: Shell keeps the tab page alive, so loading
+    /// once in the constructor would never show payments recorded after the first visit.
+    /// </summary>
+    public async Task LoadDynamicLedgerDataAsync()
     {
         var user = CrossFirebaseAuth.Current.CurrentUser;
-        if (user == null) return;
+        if (user == null || _isLoading) return;
+        _isLoading = true;
 
         try
         {
@@ -88,6 +93,10 @@ public class LedgerViewModel : INotifyPropertyChanged
             System.Diagnostics.Debug.WriteLine($"Ledger Firebase Error: {ex.Message}");
             OutstandingDebtBalance = "₱ 0.00";
             CurrentShiftPayment = "ERROR";
+        }
+        finally
+        {
+            _isLoading = false;
         }
     }
 

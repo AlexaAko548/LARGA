@@ -139,6 +139,8 @@ builder.Services.AddSingleton<ManagerChatService>();
 builder.Services.AddScoped<LARGA.ManagerWeb.Services.ChatDrawerState>();
 builder.Services.AddHostedService<IdleAlertMonitorService>();
 builder.Services.AddHostedService<PaymentDriverIdBackfillService>();
+// LAR-86/87: mirror managers' numbers into the driver app's SOS auto-answer allowlist.
+builder.Services.AddHostedService<ManagerPhoneAllowlistSyncService>();
 builder.Services.AddSingleton<FuelVerificationService>();
 builder.Services.AddScoped<IManagerAuthService, ManagerAuthService>();
 builder.Services.AddSingleton<ManagerSignInService>();
