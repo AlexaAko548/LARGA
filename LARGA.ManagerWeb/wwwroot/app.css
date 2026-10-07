@@ -4615,9 +4615,11 @@ font-weight: 700;
 color: var(--ink);
 }
 
+/* Darker than --muted: the muted grey at this size washed out on the translucent tile. */
 .kpi-detail {
-font-size: 0.7rem;
-color: var(--muted);
+font-size: 0.75rem;
+font-weight: 500;
+color: var(--ink-soft, #3d5866);
 }
 
 .kpi-meter {
