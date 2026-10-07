@@ -264,8 +264,14 @@ public class FleetMapViewModel : BindableObject
 
         MessageCommand = new Command(async () =>
         {
-            // Same gap as Alert Center's Message action - no manager chat inbox yet.
-            await Shell.Current.DisplayAlert("Not Available Yet", "Manager messaging is coming soon.", "OK");
+            if (SelectedPin == null || string.IsNullOrWhiteSpace(SelectedPin.DriverId)) return;
+
+            // Same route/parameters ChatsViewModel.OnOpenChat uses to open a driver's thread.
+            await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+            {
+                { "DriverId", SelectedPin.DriverId },
+                { "DriverName", SelectedPin.DriverName }
+            });
         });
 
         NavigateCommand = new Command(() =>

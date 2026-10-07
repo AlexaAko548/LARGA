@@ -72,10 +72,15 @@ public class AlertCenterViewModel : BindableObject
 
         MessageDriverCommand = new Command<AlertItem>(async (alert) =>
         {
-            // The manager-side chat inbox (list of driver threads) hasn't been built yet -
-            // the existing MessageManagerPage is a driver's single hardcoded thread, not
-            // reusable here. Say so rather than doing nothing on tap.
-            await Shell.Current.DisplayAlert("Not Available Yet", "Manager messaging is coming soon.", "OK");
+            if (alert == null || string.IsNullOrWhiteSpace(alert.DriverId)) return;
+
+            // Same route/parameters ChatsViewModel.OnOpenChat uses to open a driver's thread -
+            // dictionary parameters keep DriverName intact if it has spaces.
+            await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+            {
+                { "DriverId", alert.DriverId },
+                { "DriverName", alert.DriverName }
+            });
         });
 
         ViewLocationCommand = new Command<AlertItem>(async (alert) =>
