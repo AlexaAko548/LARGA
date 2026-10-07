@@ -8,7 +8,7 @@
              BackgroundColor="{DynamicResource ThemeSurface}">
 
     <ScrollView>
-        <VerticalStackLayout Padding="20,0" Spacing="15">
+        <VerticalStackLayout Padding="20,0" Spacing="15" Margin="0,10">
 
             <Label Text="Update Contact Number" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{DynamicResource LargaDarkText}" />
 
