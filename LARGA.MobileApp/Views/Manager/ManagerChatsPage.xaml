@@ -48,7 +48,7 @@
                                     </DataTrigger>
                                 </Label.Triggers>
                             </Label>
-                            <Label Text="{Binding LastMessage}" FontSize="14" MaxLines="1" LineBreakMode="TailTruncation" Margin="0,2,0,0">
+                            <Label Text="{Binding PreviewText}" FontSize="14" MaxLines="1" LineBreakMode="TailTruncation" Margin="0,2,0,0">
                                 <Label.Triggers>
                                     <DataTrigger TargetType="Label" Binding="{Binding IsUnread}" Value="True">
                                         <Setter Property="FontAttributes" Value="Bold" />
@@ -57,6 +57,10 @@
                                     <DataTrigger TargetType="Label" Binding="{Binding IsUnread}" Value="False">
                                         <Setter Property="FontAttributes" Value="None" />
                                         <Setter Property="TextColor" Value="Gray" />
+                                    </DataTrigger>
+                                    <!-- Last so it wins over the IsUnread=False setter: the "Send your first message" nudge. -->
+                                    <DataTrigger TargetType="Label" Binding="{Binding HasConversation}" Value="False">
+                                        <Setter Property="FontAttributes" Value="Italic" />
                                     </DataTrigger>
                                 </Label.Triggers>
                             </Label>
