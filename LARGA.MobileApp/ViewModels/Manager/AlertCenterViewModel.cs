@@ -349,7 +349,7 @@ public class AlertCenterViewModel : BindableObject
                             ["resolvedAt"] = DateTime.UtcNow,
                         });
                     await MarkSosBellReadAsync(alert.Id);
-                    await AuditLogWriter.WriteAsync("SosResolved",
+                    AuditLogWriter.Record("SosResolved",
                         $"Resolved SOS alert for {alert.TaxiId} ({alert.DriverName}).");
                     break;
 
@@ -395,12 +395,12 @@ public class AlertCenterViewModel : BindableObject
 
             if (newStatus == "InProgress")
             {
-                await AuditLogWriter.WriteAsync("VehicleDefectDeniedUnitMaintenance",
+                AuditLogWriter.Record("VehicleDefectDeniedUnitMaintenance",
                     $"Vehicle defect report denied for {alert.TaxiId} ({alert.DriverName}): {alert.FailedItem}. Unit put under maintenance.");
             }
             else
             {
-                await AuditLogWriter.WriteAsync("VehicleDefectApproved",
+                AuditLogWriter.Record("VehicleDefectApproved",
                     $"Vehicle defect report approved for {alert.TaxiId} ({alert.DriverName}): {alert.FailedItem}.");
             }
 
