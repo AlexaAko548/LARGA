@@ -115,6 +115,10 @@ public class EmergencyAlertService : IEmergencyAlertService
             .GetCollection("emergency_alerts")
             .AddDocumentAsync(alert);
 
+        // Logged here so both the manual SOS button and automated detection are audited.
+        await AuditLogWriter.WriteAsync("SosTriggered",
+            $"Triggered {SosDispatchService.TriggerLabel(triggerType)} SOS for {taxiUnit} ({driverName}) during shift {shiftId}.");
+
         return doc.Id;
     }
 

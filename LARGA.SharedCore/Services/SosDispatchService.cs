@@ -71,13 +71,28 @@ public class SosDispatchService
     }
 
     /// <summary>The Resolved toggle (EmergencyAlert.IsResolved). Reopening clears ResolvedAt.</summary>
-    public async Task SetResolvedAsync(string alertId, bool isResolved)
+    public async Task SetResolvedAsync(string alertId, bool isResolved, string? actorUserId = null)
     {
-        await Db.Collection("emergency_alerts").Document(alertId).UpdateAsync(new Dictionary<string, object?>
+        DocumentSnapshot snapshot = await Db.Collection("emergency_alerts").Document(alertId).GetSnapshotAsync();
+        string who = snapshot.Exists && snapshot.TryGetValue("driverName", out string? driverName) ? driverName : "unknown driver";
+        string unit = snapshot.Exists && snapshot.TryGetValue("taxiUnit", out string? taxiUnit) ? taxiUnit : "unknown unit";
+
+        // The SOS update and its audit entry commit together, so a resolve can't land unlogged.
+        DateTime now = DateTime.UtcNow;
+        WriteBatch batch = Db.StartBatch();
+        batch.Update(Db.Collection("emergency_alerts").Document(alertId), new Dictionary<string, object>
         {
             ["isResolved"] = isResolved,
-            ["resolvedAt"] = isResolved ? DateTime.UtcNow : null,
+            ["resolvedAt"] = isResolved ? (object)now : null!,
         });
+        batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+        {
+            UserId = actorUserId ?? string.Empty,
+            ActionType = isResolved ? "SosResolved" : "SosReopened",
+            AuditLogDetails = $"{(isResolved ? "Resolved" : "Reopened")} SOS alert for {unit} ({who}).",
+            Timestamp = now,
+        });
+        await batch.CommitAsync();
 
         if (isResolved)
         {
