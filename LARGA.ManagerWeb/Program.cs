@@ -136,6 +136,7 @@ builder.Services.AddSingleton<ShiftDeadlineService>();
 builder.Services.AddSingleton<ClockInApprovalService>();
 builder.Services.AddSingleton<SosDispatchService>();
 builder.Services.AddSingleton<ManagerChatService>();
+builder.Services.AddSingleton<DriverNotifier>();
 builder.Services.AddScoped<LARGA.ManagerWeb.Services.ChatDrawerState>();
 builder.Services.AddHostedService<IdleAlertMonitorService>();
 builder.Services.AddHostedService<PaymentDriverIdBackfillService>();

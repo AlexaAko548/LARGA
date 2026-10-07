@@ -192,7 +192,9 @@ public class DriverManagementService
         List<UserProfile> drivers = await GetDriversAsync();
         List<TaxiUnit> taxis = await GetAllAsync<TaxiUnit>("taxis");
         List<ShiftSchedule> exceptions = await GetBetweenAsync<ShiftSchedule>("shift_schedules", "scheduledStartTime", weekStart, weekEnd.AddTicks(-1));
-        List<MaintenanceRecord> activeJobs = await GetWhereEqualAsync<MaintenanceRecord>("maintenance_logs", "status", "InProgress");
+        // In the shop now, or booked for a coming day - both block the unit on their days.
+        List<MaintenanceRecord> activeJobs = await GetWhereEqualAsync<MaintenanceRecord>("maintenance_logs", "status", WorkOrderRules.InProgress);
+        activeJobs.AddRange(await GetWhereEqualAsync<MaintenanceRecord>("maintenance_logs", "status", WorkOrderRules.Scheduled));
         Func<string, DateTime, string?> maintenanceNote = BuildMaintenanceLookup(taxis, activeJobs, PhilippineTime.Now.Date);
 
         var rows = new List<DriverScheduleRow>();
@@ -274,7 +276,8 @@ public class DriverManagementService
 
     /// <summary>(taxiId, day) -> a short reason if that unit is under maintenance on that
     /// calendar day, else null. Two sources, per the Garage workflow:
-    /// - an In Progress Garage job for the unit, from the day it was reported through its
+    /// - an In Progress or Scheduled Garage job for the unit, from its shop day (the scheduled
+    ///   date, or the day it was logged for an older ticket) through its
     ///   estimated completion date - or through today while it's still open past that date
     ///   (open-ended if the Garage hasn't set one; ShiftEligibilityRules.IsJobInShopOn);
     /// - the taxi's own status set to "Under Maintenance" - a current state with no dates,
@@ -299,7 +302,7 @@ public class DriverManagementService
                 foreach (MaintenanceRecord job in jobs)
                 {
                     DateTime? end = job.EstimatedCompletionDate?.ToPhilippineTime().Date;
-                    if (ShiftEligibilityRules.IsJobInShopOn(job.Status, job.DateLogged, job.EstimatedCompletionDate, date, todayPh))
+                    if (ShiftEligibilityRules.IsJobInShopOn(job.Status, WorkOrderRules.ShopStartUtc(job.DateLogged, job.ScheduledDate), job.EstimatedCompletionDate, date, todayPh))
                     {
                         string title = string.IsNullOrWhiteSpace(job.IssueTitle) ? "Garage job" : job.IssueTitle;
                         return end is null ? $"{title} - no finish date yet"
@@ -745,6 +748,20 @@ public class DriverManagementService
 
         DocumentReference userRef = Db.Collection("users").Document(driverId);
 
+        // One driver per unit: moving this driver onto a unit someone else holds is refused.
+        // Only checked when the unit changes, so a clash already on file doesn't block saving the
+        // rest of a profile while the manager sorts it out.
+        if (!string.IsNullOrWhiteSpace(assignedTaxiId))
+        {
+            DocumentSnapshot current = await userRef.GetSnapshotAsync();
+            string? currentTaxi = current.Exists && current.TryGetValue("assignedTaxiId", out string? taxi) ? taxi : null;
+            if (!string.Equals(currentTaxi, assignedTaxiId, StringComparison.OrdinalIgnoreCase)
+                && await GetOtherDriverOnUnitAsync(assignedTaxiId, driverId) is string holder)
+            {
+                throw new InvalidOperationException($"{assignedTaxiId} is already assigned to {holder}. Give {holder} another unit first - a unit can only have one driver.");
+            }
+        }
+
         // A new scan replaces the old license photo / face crop. Note the old URLs first, so those
         // files can be deleted once the new ones are saved instead of piling up in Storage.
         UserProfile? previous = null;
@@ -806,6 +823,25 @@ public class DriverManagementService
     // Driver account management (manager-provisioned - drivers never self-register)
     // ---------------------------------------------------------------------
 
+    /// <summary>The name of another driver already assigned to <paramref name="taxiId"/>, or null
+    /// when it's free - a unit has one driver (the Schedule Planner substitutes cover the rest).</summary>
+    public async Task<string?> GetOtherDriverOnUnitAsync(string taxiId, string? exceptDriverId)
+    {
+        if (string.IsNullOrWhiteSpace(taxiId))
+        {
+            return null;
+        }
+
+        QuerySnapshot holders = await Db.Collection("users").WhereEqualTo("assignedTaxiId", taxiId).GetSnapshotAsync();
+        DocumentSnapshot? other = holders.Documents.FirstOrDefault(d => d.Id != exceptDriverId);
+        if (other is null)
+        {
+            return null;
+        }
+
+        return other.TryGetValue("fullName", out string? name) && !string.IsNullOrWhiteSpace(name) ? name : "another driver";
+    }
+
     public async Task<CreateDriverResult> CreateDriverAsync(string fullName, string phoneNumber, string? temporaryPassword, string? assignedTaxiId = null, string? email = null, string? actorUserId = null)
     {
         fullName = InputValidator.NormalizeSpaces(fullName);
@@ -815,6 +851,10 @@ public class DriverManagementService
         if (inputError is not null)
         {
             return new CreateDriverResult { Ok = false, ErrorMessage = inputError };
+        }
+        if (!string.IsNullOrWhiteSpace(assignedTaxiId) && await GetOtherDriverOnUnitAsync(assignedTaxiId, null) is string holder)
+        {
+            return new CreateDriverResult { Ok = false, ErrorMessage = $"{assignedTaxiId} is already assigned to {holder} - pick another unit, or leave it unassigned for now." };
         }
         phoneNumber = InputValidator.NormalizePhilippineMobile(phoneNumber)!;
 

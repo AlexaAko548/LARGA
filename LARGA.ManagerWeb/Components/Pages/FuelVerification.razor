@@ -48,21 +48,21 @@ else
 
         <section class="stats-grid">
             <article class="stat-card">
-                <div class="stat-icon">▤</div>
+                <div class="stat-icon"><Icon Name="receipt" /></div>
                 <div class="stat-body">
                     <div class="stat-value">@(_snapshot?.PendingCount ?? 0)</div>
                     <div class="stat-label">Pending Submissions</div>
                 </div>
             </article>
             <article class="stat-card">
-                <div class="stat-icon">▤</div>
+                <div class="stat-icon"><Icon Name="badge-check" /></div>
                 <div class="stat-body">
                     <div class="stat-value">@(_snapshot?.VerifiedCount ?? 0)</div>
                     <div class="stat-label">Verified Submissions</div>
                 </div>
             </article>
             <article class="stat-card">
-                <div class="stat-icon">▤</div>
+                <div class="stat-icon"><Icon Name="flag" /></div>
                 <div class="stat-body">
                     <div class="stat-value">@(_snapshot?.FlaggedCount ?? 0)</div>
                     <div class="stat-label">Flagged Submissions</div>
@@ -174,7 +174,7 @@ else
                             @if (!string.IsNullOrWhiteSpace(_reviewDetail.ReceiptImageUrl))
                             {
                                 <button type="button" class="review-photo-link" @onclick="() => _showReceiptPhoto = true">
-                                    <span class="photo-icon">🔍</span>
+                                    <span class="photo-icon"><Icon Name="search" /></span>
                                     Click to view receipt photo
                                     @if (!string.IsNullOrWhiteSpace(_reviewDetail.FuelStation) || !string.IsNullOrWhiteSpace(_reviewDetail.ORNumber))
                                     {
@@ -235,7 +235,7 @@ else
                             <div class="review-col-title">System Data &amp; Validation</div>
 
                             <div class="review-status-badge @StatusBadgeCss(_reviewDetail.MatchesExpectedRange)">
-                                <span class="badge-icon">@StatusBadgeIcon(_reviewDetail.MatchesExpectedRange)</span>
+                                <span class="badge-icon"><Icon Name="@StatusBadgeIcon(_reviewDetail.MatchesExpectedRange)" /></span>
                                 <div>
                                     <div class="badge-title">@StatusBadgeTitle(_reviewDetail)</div>
                                     <div class="badge-sub">@StatusBadgeSubtext(_reviewDetail)</div>
@@ -300,8 +300,8 @@ else
                     {
                         <button class="cancel-btn" type="button" disabled="@_isSavingReview" @onclick="() => ResolveAsync(ResolveAction.ResetToPending)">Reset to Pending</button>
                     }
-                    <button class="cancel-btn" type="button" disabled="@(_isSavingReview || FlagReasonError is not null)" title="@(FlagReasonError is null ? "" : "Write a flag reason first")" @onclick="() => ResolveAsync(ResolveAction.Flag)">🚩 Flag Irregularity</button>
-                    <button class="download-btn" type="button" disabled="@_isSavingReview" @onclick="() => ResolveAsync(ResolveAction.Verify)">@(_isSavingReview ? "Saving…" : "✓ Verify & Approve")</button>
+                    <button class="cancel-btn" type="button" disabled="@(_isSavingReview || FlagReasonError is not null)" title="@(FlagReasonError is null ? "" : "Write a flag reason first")" @onclick="() => ResolveAsync(ResolveAction.Flag)"><Icon Name="flag" /> Flag Irregularity</button>
+                    <button class="download-btn" type="button" disabled="@_isSavingReview" @onclick="() => ResolveAsync(ResolveAction.Verify)">@if (_isSavingReview) { <text>Saving…</text> } else { <Icon Name="check" /> <text>Verify &amp; Approve</text> }</button>
                 }
             </div>
         </div>
@@ -336,7 +336,7 @@ else
             </div>
             <div class="report-body">
                 <div class="info-banner warning">
-                    ⚠ @(string.IsNullOrWhiteSpace(_resolveEntry.FuelLogDetails) ? "No reason was recorded when this was flagged." : _resolveEntry.FuelLogDetails)
+                    <Icon Name="triangle-alert" /> @(string.IsNullOrWhiteSpace(_resolveEntry.FuelLogDetails) ? "No reason was recorded when this was flagged." : _resolveEntry.FuelLogDetails)
                 </div>
 
                 <div class="report-section">
@@ -557,9 +557,9 @@ else
 
     private static string StatusBadgeIcon(bool? matches) => matches switch
     {
-        true => "✓",
-        false => "⚠",
-        null => "ⓘ",
+        true => "check",
+        false => "triangle-alert",
+        null => "info",
     };
 
     private static string StatusBadgeTitle(FuelReviewDetail d) => d.MatchesExpectedRange switch

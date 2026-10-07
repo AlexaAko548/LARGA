@@ -199,14 +199,14 @@ public static class DriverPerformanceCalculator
     private static bool IsLicenseInvalidOn(DateTime? expiry, DateTime dayPh) =>
         expiry is null || expiry.Value.Date < dayPh;
 
-    /// <summary>A Garage job on the unit covered that day: from when it was logged until it was
-    /// resolved (or, if still open, its estimated finish - open-ended without one).</summary>
+    /// <summary>A Garage job on the unit covered that day: from its shop day (WorkOrderRules.ShopStartUtc)
+    /// until it was resolved (or, if still open, its estimated finish - open-ended without one).</summary>
     private static bool IsUnitInShop(IReadOnlyList<MaintenanceRecord> maintenance, string taxiId, DateTime dayPh, DateTime todayPh) =>
         maintenance.Any(m =>
             string.Equals(m.TaxiId, taxiId, StringComparison.OrdinalIgnoreCase)
-            && (string.Equals(m.Status, "InProgress", StringComparison.OrdinalIgnoreCase)
+            && (WorkOrderRules.IsShopStatus(m.Status)
                 || string.Equals(m.Status, "Resolved", StringComparison.OrdinalIgnoreCase))
-            && dayPh >= m.DateLogged.ToPhilippineTime().Date
+            && dayPh >= WorkOrderRules.ShopStartUtc(m.DateLogged, m.ScheduledDate).ToPhilippineTime().Date
             && dayPh <= (m.DateResolved?.ToPhilippineTime().Date
                 ?? m.EstimatedCompletionDate?.ToPhilippineTime().Date
                 ?? todayPh));

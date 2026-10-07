@@ -39,20 +39,21 @@ public static class ShiftEligibilityRules
     }
 
     /// <summary>
-    /// A work order in the shop ("InProgress") covers the days from when it was logged to its
+    /// A work order in the shop ("InProgress", or "Scheduled" once its day comes) covers the days
+    /// from its shop start (WorkOrderRules.ShopStartUtc - pass that, not the report date) to its
     /// estimated completion - and, while it's still open, every day up to today, since a job
     /// past its estimate is still in the shop until the Garage resolves it. Open-ended without
     /// an estimate. Days are Philippine calendar days; the dates are UTC instants.
     /// </summary>
-    public static bool IsJobInShopOn(string? jobStatus, DateTime loggedUtc, DateTime? estimatedCompletionUtc, DateTime dayPh, DateTime todayPh)
+    public static bool IsJobInShopOn(string? jobStatus, DateTime shopStartUtc, DateTime? estimatedCompletionUtc, DateTime dayPh, DateTime todayPh)
     {
-        if (!string.Equals(jobStatus, "InProgress", StringComparison.OrdinalIgnoreCase))
+        if (!WorkOrderRules.IsShopStatus(jobStatus))
         {
             return false;
         }
 
         DateTime day = dayPh.Date;
-        if (day < loggedUtc.ToPhilippineTime().Date)
+        if (day < shopStartUtc.ToPhilippineTime().Date)
         {
             return false;
         }
@@ -65,10 +66,10 @@ public static class ShiftEligibilityRules
     public static string? UnitBlockReason(
         string taxiId,
         string? taxiStatus,
-        IEnumerable<(string? Status, DateTime LoggedUtc, DateTime? EstimatedCompletionUtc, string? Title)> unitJobs,
+        IEnumerable<(string? Status, DateTime ShopStartUtc, DateTime? EstimatedCompletionUtc, string? Title)> unitJobs,
         DateTime todayPh)
     {
-        var inShop = unitJobs.FirstOrDefault(j => IsJobInShopOn(j.Status, j.LoggedUtc, j.EstimatedCompletionUtc, todayPh, todayPh));
+        var inShop = unitJobs.FirstOrDefault(j => IsJobInShopOn(j.Status, j.ShopStartUtc, j.EstimatedCompletionUtc, todayPh, todayPh));
         if (inShop.Status is not null)
         {
             string title = string.IsNullOrWhiteSpace(inShop.Title) ? "a Garage work order" : $"\"{inShop.Title.Trim()}\"";

@@ -57,7 +57,7 @@
                     </button>
                 }
             }
-            @if (_canManage) { <button class="generate-btn" type="button" @onclick="OpenReportModal">✦ Generate Reports</button> }
+            @if (_canManage) { <button class="generate-btn" type="button" @onclick="OpenReportModal"><Icon Name="file-chart-column" /> Generate Reports</button> }
         </div>
 
         @if (_snapshot is not null && _openStatus is not null)
@@ -97,11 +97,11 @@
                                 }
                                 @if (u.DriverPhone is not null && u.Status is not (FleetUnitStatus.ParkedStatus or FleetUnitStatus.MaintenanceStatus))
                                 {
-                                    <a class="outline-btn" href="tel:@u.DriverPhone">📞 Call</a>
+                                    <a class="outline-btn" href="tel:@u.DriverPhone"><Icon Name="phone" /> Call</a>
                                 }
                                 @if (u.DriverId is not null && u.DriverName is not null && _canManage && u.Status is not (FleetUnitStatus.ParkedStatus or FleetUnitStatus.MaintenanceStatus))
                                 {
-                                    <button type="button" class="outline-btn" @onclick="() => ChatDrawer.OpenChat(u.DriverId!, u.DriverName!, u.TaxiId, isEmergency: u.Status == FleetUnitStatus.SosStatus)">💬 Message</button>
+                                    <button type="button" class="outline-btn" @onclick="() => ChatDrawer.OpenChat(u.DriverId!, u.DriverName!, u.TaxiId, isEmergency: u.Status == FleetUnitStatus.SosStatus)"><Icon Name="message-circle" /> Message</button>
                                 }
                             </div>
                         </div>
@@ -112,7 +112,7 @@
 
         <section class="stats-grid">
             <article class="stat-card">
-                <div class="stat-icon blue">P</div>
+                <div class="stat-icon blue"><Icon Name="banknote" /></div>
                 <div class="stat-body">
                     <div class="stat-trend @TrendCssClass(_snapshot?.WeeklyRevenue.TrendPercent)">@FormatPercentTrend(_snapshot?.WeeklyRevenue.TrendPercent)</div>
                     <div class="stat-value">₱ @((_snapshot?.WeeklyRevenue.Value ?? 0).ToString("#,##0.00"))</div>
@@ -121,7 +121,7 @@
             </article>
 
             <article class="stat-card">
-                <div class="stat-icon blue">A</div>
+                <div class="stat-icon blue"><Icon Name="users" /></div>
                 <div class="stat-body">
                     <div class="stat-trend">@(_snapshot is null ? "No data" : $"{_snapshot.ActiveDrivers.RatioPercent:0}%")</div>
                     <div class="stat-value">@(_snapshot?.ActiveDrivers.ActiveCount ?? 0) / @(_snapshot?.ActiveDrivers.TotalDrivers ?? 0)</div>
@@ -130,7 +130,7 @@
             </article>
 
             <article class="stat-card">
-                <div class="stat-icon blue">C</div>
+                <div class="stat-icon blue"><Icon Name="route" /></div>
                 <div class="stat-body">
                     <div class="stat-trend @TrendCssClass(_snapshot?.FleetMileage.TrendPercent)">@FormatPercentTrend(_snapshot?.FleetMileage.TrendPercent)</div>
                     <div class="stat-value">@((_snapshot?.FleetMileage.Value ?? 0).ToString("#,##0")) km</div>
@@ -139,9 +139,9 @@
             </article>
 
             <article class="stat-card">
-                <div class="stat-icon blue">△</div>
+                <div class="stat-icon blue"><Icon Name="triangle-alert" /></div>
                 <div class="stat-body">
-                    <div class="stat-trend @TrendCssClass(_snapshot?.OpenIncidents.TrendAbsolute)">@FormatAbsoluteTrend(_snapshot?.OpenIncidents.TrendAbsolute)</div>
+                    <div class="stat-trend @TrendCssClassLowerIsBetter(_snapshot?.OpenIncidents.TrendAbsolute)">@FormatAbsoluteTrend(_snapshot?.OpenIncidents.TrendAbsolute)</div>
                     <div class="stat-value">@((int)(_snapshot?.OpenIncidents.Value ?? 0))</div>
                     <div class="stat-label">Open Incidents</div>
                 </div>
@@ -200,7 +200,7 @@
                 <div class="panel-header">
                     <span>Boundary Collections</span>
                     <strong>Last 7 Days</strong>
-                    <span class="chart-legend"><i class="legend-collected"></i>Collected <i class="legend-outstanding"></i>Outstanding</span>
+                    <button type="button" aria-label="Expand Boundary Collections" title="Expand" @onclick='() => _expandedChart = "collections"'><Icon Name="maximize-2" /></button>
                 </div>
                 <div class="chart-area">
                     @if (_collectionError is not null)
@@ -209,7 +209,7 @@
                     }
                     else
                     {
-                        <CollectionTrendChart Days="_collection" />
+                        <DashboardChart Spec="_collectionChart" EmptyMessage="No boundaries due in this period" AriaLabel="Boundary collections per day, last 7 days" />
                     }
                 </div>
             </article>
@@ -218,20 +218,21 @@
                 <div class="panel-header">
                     <span>Fleet Utilization</span>
                     <strong>Days on the Road per Unit</strong>
+                    <button type="button" aria-label="Expand Fleet Utilization" title="Expand" @onclick='() => _expandedChart = "utilization"'><Icon Name="maximize-2" /></button>
                 </div>
                 <div class="chart-area">
-                    <SimpleBarChart Data="_snapshot?.Utilization.DaysWorkedByUnit" ValueFormat="0 'd'" EmptyMessage="No shifts in the last 7 days" />
+                    <DashboardChart Spec="_utilizationChart" EmptyMessage="No shifts in the last 7 days" AriaLabel="Days on the road per unit, last 7 days" />
                 </div>
             </article>
 
             <article class="chart-panel">
                 <div class="panel-header">
                     <span>Fuel Consumption</span>
-                    <strong>Verified Receipts</strong>
-                    <button type="button" aria-label="Expand">↗</button>
+                    <strong>All Receipts by Status</strong>
+                    <button type="button" aria-label="Expand Fuel Consumption" title="Expand" @onclick='() => _expandedChart = "fuel"'><Icon Name="maximize-2" /></button>
                 </div>
                 <div class="chart-area">
-                    <SimpleBarChart Data="_snapshot?.FuelVerification" ValuePrefix="₱" EmptyMessage="No verified fuel data" />
+                    <DashboardChart Spec="_fuelChart" EmptyMessage="No fuel receipts yet" AriaLabel="Fuel spend by receipt status" />
                 </div>
             </article>
 
@@ -239,29 +240,36 @@
                 <div class="panel-header">
                     <span>Fleet Mileage</span>
                     <strong>Distance Covered</strong>
-                    <button type="button" aria-label="Expand">↗</button>
+                    <button type="button" aria-label="Expand Fleet Mileage" title="Expand" @onclick='() => _expandedChart = "mileage"'><Icon Name="maximize-2" /></button>
                 </div>
                 <div class="chart-area">
-                    <SimpleBarChart Data="_snapshot?.FleetMileageByTaxi" ValueFormat="#,##0 km" EmptyMessage="No mileage data" />
+                    <DashboardChart Spec="_mileageChart" EmptyMessage="No mileage data" AriaLabel="Distance covered per unit" />
                 </div>
             </article>
 
-            <article class="chart-panel">
-                <div class="panel-header">
-                    <span>Maintenance Expenses</span>
-                    <strong>Parts &amp; Repairs</strong>
-                    <button type="button" aria-label="Expand">↗</button>
-                </div>
-                <div class="chart-area">
-                    <SimpleBarChart Data="_snapshot?.MaintenanceExpenses" ValuePrefix="₱" EmptyMessage="No maintenance expense data" />
-                </div>
-            </article>
         </section>
+
+        @if (ExpandedChart is (string title, ChartSpec spec, string empty))
+        {
+            <div class="report-overlay" @onclick="() => _expandedChart = null">
+                <div class="report-modal chart-expanded-modal" @onclick:stopPropagation="true">
+                    <div class="report-header">
+                        <h3>@title</h3>
+                        <button type="button" class="close-modal" aria-label="Close" @onclick="() => _expandedChart = null"><Icon Name="x" /></button>
+                    </div>
+                    <div class="report-body">
+                        <div class="chart-area chart-area-expanded">
+                            <DashboardChart Spec="spec" EmptyMessage="@empty" AriaLabel="@title" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
 
         <section class="leaderboard-panel">
             <div class="leaderboard-header">
                 <div class="leaderboard-title">Top Driver Standings <span class="leaderboard-window">· last @FleetReportingService.StandingsWindowDays days</span></div>
-                <div class="leaderboard-crest">◈</div>
+                <div class="leaderboard-crest"><Icon Name="trophy" /></div>
             </div>
 
             <div class="leaderboard-list">
@@ -437,6 +445,7 @@
             _collectionError = ex.Message;
         }
 
+        BuildCharts();
         StateHasChanged();
     }
 
@@ -457,6 +466,32 @@
 
     private List<CollectionDay> _collection = new();
     private string? _collectionError;
+
+    // Built once per data load (not per render), so a re-render doesn't redraw the charts.
+    private ChartSpec? _collectionChart;
+    private ChartSpec? _utilizationChart;
+    private ChartSpec? _fuelChart;
+    private ChartSpec? _mileageChart;
+
+    // Which chart the expand button opened in the larger view, if any.
+    private string? _expandedChart;
+
+    private void BuildCharts()
+    {
+        _collectionChart = DashboardCharts.Collections(_collection);
+        _utilizationChart = DashboardCharts.Utilization(_snapshot?.Utilization.DaysWorkedByUnit, FleetUtilization.WindowDays);
+        _fuelChart = DashboardCharts.FuelByStatus(_snapshot?.FuelVerification);
+        _mileageChart = DashboardCharts.Mileage(_snapshot?.FleetMileageByTaxi);
+    }
+
+    private (string Title, ChartSpec Spec, string Empty)? ExpandedChart => _expandedChart switch
+    {
+        "collections" when _collectionChart is not null => ("Boundary Collections - Last 7 Days", _collectionChart, "No boundaries due in this period"),
+        "utilization" when _utilizationChart is not null => ("Fleet Utilization - Days on the Road per Unit", _utilizationChart, "No shifts in the last 7 days"),
+        "fuel" when _fuelChart is not null => ("Fuel Consumption - All Receipts by Status", _fuelChart, "No fuel receipts yet"),
+        "mileage" when _mileageChart is not null => ("Fleet Mileage - Distance Covered", _mileageChart, "No mileage data"),
+        _ => null,
+    };
 
     private double? CollectionPercent()
     {
@@ -508,6 +543,10 @@
 
     private static string TrendCssClass(decimal? value) =>
         value is null or 0 ? string.Empty : value > 0 ? "up" : "down";
+
+    // For counts where a rise is bad news (Open Incidents): more is shown red, fewer green.
+    private static string TrendCssClassLowerIsBetter(decimal? value) =>
+        value is null or 0 ? string.Empty : value > 0 ? "down" : "up";
 
     private void OpenReportModal()
     {

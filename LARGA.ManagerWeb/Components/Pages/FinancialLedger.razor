@@ -55,12 +55,12 @@ else
 
         <section class="tab-bar">
             <div class="tab-group">
-                <button class="tab-btn @(_activeTab == "daily" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("daily")'>▦ Daily Settlements</button>
-                <button class="tab-btn @(_activeTab == "master" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("master")'>▥ Master Debt Ledger</button>
+                <button class="tab-btn @(_activeTab == "daily" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("daily")'><Icon Name="calendar-check" /> Daily Settlements</button>
+                <button class="tab-btn @(_activeTab == "master" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("master")'><Icon Name="notebook-text" /> Master Debt Ledger</button>
             </div>
             <div class="tab-actions">
                 @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenAdjustmentModal">+ Adjustment</button> }
-                @if (_canManage) { <button class="outline-btn" type="button" disabled="@_isExportingCsv" @onclick="ExportCsvAsync">@(_isExportingCsv ? "Exporting…" : "⬇ Export")</button> }
+                @if (_canManage) { <button class="outline-btn" type="button" disabled="@_isExportingCsv" @onclick="ExportCsvAsync">@if (_isExportingCsv) { <text>Exporting…</text> } else { <Icon Name="download" /> <text>Export</text> }</button> }
             </div>
         </section>
 
@@ -82,9 +82,9 @@ else
                     <div>
                         <div class="settlement-summary-title">@(IsSettlementToday ? "TODAY'S SUMMARY" : "DAY SUMMARY")</div>
                         <div class="settlement-day-nav">
-                            <button type="button" class="settlement-day-btn" title="Previous day" disabled="@_isLoadingSettlement" @onclick="() => ShiftSettlementDayAsync(-1)">‹</button>
+                            <button type="button" class="settlement-day-btn" title="Previous day" disabled="@_isLoadingSettlement" @onclick="() => ShiftSettlementDayAsync(-1)" aria-label="Previous day"><Icon Name="chevron-left" /></button>
                             <input type="date" class="settlement-day-input" value="@_settlementDay.ToString("yyyy-MM-dd")" max="@PhilippineTime.Now.ToString("yyyy-MM-dd")" @onchange="OnSettlementDayPickedAsync" />
-                            <button type="button" class="settlement-day-btn" title="Next day" disabled="@(_isLoadingSettlement || IsSettlementToday)" @onclick="() => ShiftSettlementDayAsync(1)">›</button>
+                            <button type="button" class="settlement-day-btn" title="Next day" disabled="@(_isLoadingSettlement || IsSettlementToday)" @onclick="() => ShiftSettlementDayAsync(1)" aria-label="Next day"><Icon Name="chevron-right" /></button>
                             @if (!IsSettlementToday)
                             {
                                 <button type="button" class="settlement-today-link" @onclick="() => ShiftSettlementDayAsync(0)">Today</button>
@@ -158,7 +158,7 @@ else
                                             <span>@(row.AmountPaid > 0 ? $"₱ {row.AmountPaid:N0}" : "–")</span>
                                             @if (row.Status == SettlementStatus.Cleared)
                                             {
-                                                <span class="settlement-check">✓</span>
+                                                <span class="settlement-check"><Icon Name="check" /></span>
                                             }
                                             @if (row.CreditApplied > 0)
                                             {
@@ -216,21 +216,21 @@ else
             {
                 <section class="stats-grid">
                     <article class="stat-card">
-                        <div class="stat-icon">☺</div>
+                        <div class="stat-icon"><Icon Name="users" /></div>
                         <div class="stat-body">
                             <div class="stat-value">@_ledgerSnapshot.DriversWithDebtCount</div>
                             <div class="stat-label">Drivers With Debt</div>
                         </div>
                     </article>
                     <article class="stat-card">
-                        <div class="stat-icon">₱</div>
+                        <div class="stat-icon"><Icon Name="wallet" /></div>
                         <div class="stat-body">
                             <div class="stat-value">₱ @_ledgerSnapshot.TotalOutstandingDebt.ToString("N0")</div>
                             <div class="stat-label">Total Outstanding Debt</div>
                         </div>
                     </article>
                     <article class="stat-card">
-                        <div class="stat-icon">✓</div>
+                        <div class="stat-icon"><Icon Name="badge-check" /></div>
                         <div class="stat-body">
                             <div class="stat-value">@_ledgerSnapshot.DebtFreeDriverCount</div>
                             <div class="stat-label">Debt-Free Drivers</div>
@@ -266,7 +266,7 @@ else
                                             <span>@row.DriverName</span>
                                             @if (row.IsDebtFlagged)
                                             {
-                                                <span class="status-pill small status-danger" title="Balance unpaid for @row.DaysUnpaid days - flagged for review">⚑ FLAGGED</span>
+                                                <span class="status-pill small status-danger" title="Balance unpaid for @row.DaysUnpaid days - flagged for review"><Icon Name="flag" /> FLAGGED</span>
                                             }
                                         </td>
                                         <td>@(row.TaxiId ?? "–")</td>
@@ -555,7 +555,7 @@ else
                                 <option value="0">All Time</option>
                             </select>
                         </label>
-                        @if (_canManage) { <button class="outline-btn" type="button" @onclick="ExportHistoryCsv">⬇ Export</button> }
+                        @if (_canManage) { <button class="outline-btn" type="button" @onclick="ExportHistoryCsv"><Icon Name="download" /> Export</button> }
                     </div>
 
                     <div class="data-table-wrap">
@@ -949,7 +949,7 @@ else
     private RenderFragment ReceiptScanSection => @<text>
         <div class="receipt-scan-row">
             <label class="receipt-scan-btn @(_isReadingReceipt ? "busy" : "")" for="gcash-receipt-input">
-                <span aria-hidden="true">📷</span> @(_isReadingReceipt ? "Reading receipt…" : _receiptPreviewUrl is null ? "Scan receipt" : "Scan another")
+                <Icon Name="camera" /> @(_isReadingReceipt ? "Reading receipt…" : _receiptPreviewUrl is null ? "Scan receipt" : "Scan another")
             </label>
             <InputFile id="gcash-receipt-input" class="receipt-file-input" accept="image/*"
                        disabled="@_isReadingReceipt" OnChange="OnReceiptSelectedAsync" @ref="_receiptInput" />

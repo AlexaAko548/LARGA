@@ -110,8 +110,8 @@ else
                                 {
                                     <div class="field-error">Can't be approved: @item.BlockedReason.</div>
                                 }
-                                <button class="solid-btn" type="button" disabled="@(_isDecidingClockIn || item.BlockedReason is not null)" title="@(item.BlockedReason is null ? null : $"Can't be approved: {item.BlockedReason}")" @onclick="() => ApproveClockInAsync(item)">✓ Approve</button>
-                                <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)">✕ Deny</button>
+                                <button class="solid-btn" type="button" disabled="@(_isDecidingClockIn || item.BlockedReason is not null)" title="@(item.BlockedReason is null ? null : $"Can't be approved: {item.BlockedReason}")" @onclick="() => ApproveClockInAsync(item)"><Icon Name="check" /> Approve</button>
+                                <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)"><Icon Name="x" /> Deny</button>
                             }
                         </div>
                     </article>
@@ -126,28 +126,28 @@ else
 
         <section class="stats-grid">
             <article class="stat-card">
-                <div class="stat-icon">☺</div>
+                <div class="stat-icon"><Icon Name="users" /></div>
                 <div class="stat-body">
                     <div class="stat-value">@(_roster?.TotalDrivers ?? 0)</div>
                     <div class="stat-label">Total Drivers</div>
                 </div>
             </article>
             <article class="stat-card">
-                <div class="stat-icon">◇</div>
+                <div class="stat-icon"><Icon Name="car-taxi-front" /></div>
                 <div class="stat-body">
                     <div class="stat-value">@(_roster?.OnShiftCount ?? 0)</div>
                     <div class="stat-label">On Shift</div>
                 </div>
             </article>
             <article class="stat-card">
-                <div class="stat-icon">▭</div>
+                <div class="stat-icon"><Icon Name="moon" /></div>
                 <div class="stat-body">
                     <div class="stat-value">@(_roster?.OffDutyCount ?? 0)</div>
                     <div class="stat-label">Off Duty</div>
                 </div>
             </article>
             <article class="stat-card">
-                <div class="stat-icon">△</div>
+                <div class="stat-icon"><Icon Name="id-card" /></div>
                 <div class="stat-body">
                     <div class="stat-value">@(_roster?.ExpiredLicenseCount ?? 0)</div>
                     <div class="stat-label">Expired License</div>
@@ -157,9 +157,9 @@ else
 
         <section class="tab-bar">
             <div class="tab-group">
-                <button class="tab-btn @(_activeTab == "roster" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("roster")'>⌇ Live Roster</button>
-                <button class="tab-btn @(_activeTab == "schedule" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("schedule")'>▤ Schedule Planner</button>
-                <button class="tab-btn @(_activeTab == "logs" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("logs")'>▥ Shift Logs</button>
+                <button class="tab-btn @(_activeTab == "roster" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("roster")'><Icon Name="activity" /> Live Roster</button>
+                <button class="tab-btn @(_activeTab == "schedule" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("schedule")'><Icon Name="calendar-days" /> Schedule Planner</button>
+                <button class="tab-btn @(_activeTab == "logs" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("logs")'><Icon Name="list" /> Shift Logs</button>
             </div>
             <div class="tab-actions">
                 @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenManagerNoteModal">+ Add Manager Note</button> }
@@ -200,7 +200,7 @@ else
                                         <span>@d.FullName</span>
                                         @if (d.IsDebtFlagged)
                                         {
-                                            <span class="status-pill small status-danger" title="Balance unpaid for 3+ days - see the Financial Ledger">⚑ DEBT</span>
+                                            <span class="status-pill small status-danger" title="Balance unpaid for 3+ days - see the Financial Ledger"><Icon Name="flag" /> DEBT</span>
                                         }
                                     </td>
                                     <td>@ShortId(d.DriverId)</td>
@@ -208,6 +208,10 @@ else
                                     <td><span class="status-pill @RosterStatusCss(d)"><span class="dot"></span> @RosterStatusLabel(d)</span></td>
                                     <td>
                                         @(d.AssignedTaxiId ?? "—")
+                                        @if (SharedUnitWith(d) is string other)
+                                        {
+                                            <span class="status-pill small status-danger" title="@($"{d.AssignedTaxiId} is also assigned to {other} - a unit can only have one driver. Open either profile and give one of them another unit.")"><Icon Name="triangle-alert" /> SHARED</span>
+                                        }
                                         @if (d.IsOnShift && DrivingOtherUnit(d.AssignedTaxiId, d.CurrentShiftTaxiId))
                                         {
                                             <div class="unit-note">On shift in @d.CurrentShiftTaxiId</div>
@@ -230,9 +234,9 @@ else
                 }
                 <div class="schedule-toolbar">
                     <div class="schedule-week-label">
-                        <button class="week-nav" type="button" @onclick="() => ChangeWeekAsync(-1)">◀</button>
+                        <button class="week-nav" type="button" @onclick="() => ChangeWeekAsync(-1)" aria-label="Previous week"><Icon Name="chevron-left" /></button>
                         <span>WEEK OF @WeekLabel()</span>
-                        <button class="week-nav" type="button" @onclick="() => ChangeWeekAsync(1)">▶</button>
+                        <button class="week-nav" type="button" @onclick="() => ChangeWeekAsync(1)" aria-label="Next week"><Icon Name="chevron-right" /></button>
                     </div>
                     <div class="schedule-hint">Every day defaults to working - click a cell to toggle it to a day off</div>
                 </div>
@@ -281,31 +285,31 @@ else
                                                         @onclick="() => OnScheduleCellClickedAsync(cellRow, cell)">
                                                     @if (cell.IsLicenseIneligible && cellRow.LicenseStatus == LicenseStatus.NotSet)
                                                     {
-                                                        <span>🚫 NO LICENSE</span>
+                                                        <span><Icon Name="ban" /> NO LICENSE</span>
                                                     }
                                                     else if (cell.IsLicenseIneligible)
                                                     {
-                                                        <span>🚫 INELIGIBLE</span>
+                                                        <span><Icon Name="ban" /> INELIGIBLE</span>
                                                     }
                                                     else if (cell.IsDayOff)
                                                     {
-                                                        <span>✕ DAY OFF</span>
+                                                        <span><Icon Name="x" /> DAY OFF</span>
                                                     }
                                                     else if (cell.SubstituteTaxiId is not null)
                                                     {
-                                                        <span>↺ @cell.SubstituteTaxiId</span>
+                                                        <span><Icon Name="repeat" /> @cell.SubstituteTaxiId</span>
                                                     }
                                                     else if (cell.IsOwnUnitUnderMaintenance)
                                                     {
-                                                        <span>🔧 @cellRow.DefaultTaxiId IN SHOP</span>
+                                                        <span><Icon Name="wrench" /> @cellRow.DefaultTaxiId IN SHOP</span>
                                                     }
                                                     else if (cell.TaxiId is null)
                                                     {
-                                                        <span>⚠ NO UNIT</span>
+                                                        <span><Icon Name="triangle-alert" /> NO UNIT</span>
                                                     }
                                                     else
                                                     {
-                                                        <span>✓ @cell.TaxiId</span>
+                                                        <span><Icon Name="check" /> @cell.TaxiId</span>
                                                     }
                                                 </button>
                                             </td>
@@ -338,7 +342,7 @@ else
 
                 <div class="logs-filters">
                     <div class="filter-dropdown">
-                        <button class="filter-btn" type="button" @onclick="() => _showDateFilterMenu = !_showDateFilterMenu">📅 @_logDateFilter</button>
+                        <button class="filter-btn" type="button" @onclick="() => _showDateFilterMenu = !_showDateFilterMenu"><Icon Name="calendar" /> @_logDateFilter</button>
                         @if (_showDateFilterMenu)
                         {
                             <div class="filter-menu">
@@ -350,7 +354,7 @@ else
                     </div>
 
                     <div class="filter-dropdown">
-                        <button class="filter-btn" type="button" @onclick="() => _showDriverFilterMenu = !_showDriverFilterMenu">☺ @_logDriverFilter</button>
+                        <button class="filter-btn" type="button" @onclick="() => _showDriverFilterMenu = !_showDriverFilterMenu"><Icon Name="user" /> @_logDriverFilter</button>
                         @if (_showDriverFilterMenu)
                         {
                             <div class="filter-menu">
@@ -364,7 +368,7 @@ else
                     </div>
 
                     <div class="filter-dropdown">
-                        <button class="filter-btn" type="button" @onclick="() => _showUnitFilterMenu = !_showUnitFilterMenu">◌ @_logUnitFilter</button>
+                        <button class="filter-btn" type="button" @onclick="() => _showUnitFilterMenu = !_showUnitFilterMenu"><Icon Name="car-front" /> @_logUnitFilter</button>
                         @if (_showUnitFilterMenu)
                         {
                             <div class="filter-menu">
@@ -378,7 +382,7 @@ else
                     </div>
 
                     <div class="filter-dropdown">
-                        <button class="filter-btn" type="button" @onclick="() => _showStatusFilterMenu = !_showStatusFilterMenu">◇ @_logStatusFilter</button>
+                        <button class="filter-btn" type="button" @onclick="() => _showStatusFilterMenu = !_showStatusFilterMenu"><Icon Name="circle-dot" /> @_logStatusFilter</button>
                         @if (_showStatusFilterMenu)
                         {
                             <div class="filter-menu">
@@ -582,7 +586,7 @@ else
                 <div class="settlement-modal-subject">@_subRow.FullName · @_subCell.Date.ToString("dddd, MMM d")</div>
 
                 <div class="info-banner">
-                    🔧 <strong>@_subRow.DefaultTaxiId</strong> is under maintenance: @_subCell.MaintenanceNote.
+                    <Icon Name="wrench" /> <strong>@_subRow.DefaultTaxiId</strong> is under maintenance: @_subCell.MaintenanceNote.
                     A substitute applies to this day only - the driver goes back to @_subRow.DefaultTaxiId once the Garage finishes.
                 </div>
 
@@ -670,7 +674,7 @@ else
                             <option value="">Unassigned (set later)</option>
                             @foreach (string taxiId in _weekSchedule?.TaxiIds ?? new List<string>())
                             {
-                                <option value="@taxiId">@TaxiOptionLabel(taxiId)</option>
+                                <option value="@taxiId" disabled="@(TaxiHolder(taxiId) is not null)">@TaxiOptionLabel(taxiId)</option>
                             }
                         </select>
                     </div>
@@ -793,9 +797,9 @@ else
             {
                 <div class="profile-section">
                     <div class="profile-section-label">Contact Information</div>
-                    <div class="profile-field" title="Mobile app login email">✉ @(string.IsNullOrEmpty(_selectedProfile.Email) ? "No login email" : _selectedProfile.Email)</div>
-                    <div class="profile-field">📞 @(string.IsNullOrEmpty(_selectedProfile.PhoneNumber) ? "Not set" : InputValidator.FormatPhilippineMobile(_selectedProfile.PhoneNumber))</div>
-                    <div class="profile-field">📍 @(string.IsNullOrEmpty(_selectedProfile.Address) ? "Not set" : _selectedProfile.Address)</div>
+                    <div class="profile-field" title="Mobile app login email"><Icon Name="mail" /> @(string.IsNullOrEmpty(_selectedProfile.Email) ? "No login email" : _selectedProfile.Email)</div>
+                    <div class="profile-field"><Icon Name="phone" /> @(string.IsNullOrEmpty(_selectedProfile.PhoneNumber) ? "Not set" : InputValidator.FormatPhilippineMobile(_selectedProfile.PhoneNumber))</div>
+                    <div class="profile-field"><Icon Name="map-pin" /> @(string.IsNullOrEmpty(_selectedProfile.Address) ? "Not set" : _selectedProfile.Address)</div>
                 </div>
 
                 <div class="profile-section">
@@ -807,16 +811,16 @@ else
                         </div>
                         <span class="status-pill small @LicenseStatusCss(_selectedProfile.LicenseStatus)">@LicenseStatusLabel(_selectedProfile.LicenseStatus)</span>
                     </div>
-                    <div class="profile-field">📅 @(_selectedProfile.LicenseExpiryDate is { } exp ? $"Expires {exp:MMM d, yyyy}" : "No expiry date set")</div>
+                    <div class="profile-field"><Icon Name="calendar" /> @(_selectedProfile.LicenseExpiryDate is { } exp ? $"Expires {exp:MMM d, yyyy}" : "No expiry date set")</div>
                     @if (string.IsNullOrEmpty(_selectedProfile.LtoIdPhotoUrl))
                     {
                         @if (_selectedProfile.LicenseExpiryDate is not null || !string.IsNullOrEmpty(_selectedProfile.LicenseNumber))
                         {
-                            <div class="field-error">⚠ License details are on file but no photo of the license - re-scan it (Edit Details here, or the manager app) to attach one.</div>
+                            <div class="field-error"><Icon Name="triangle-alert" /> License details are on file but no photo of the license - re-scan it (Edit Details here, or the manager app) to attach one.</div>
                         }
                         else
                         {
-                            <div class="profile-field">🖼 No LTO ID photo attached - upload one under Edit Details.</div>
+                            <div class="profile-field"><Icon Name="image" /> No LTO ID photo attached - upload one under Edit Details.</div>
                         }
                     }
                     else
@@ -903,7 +907,7 @@ else
                         {
                             @foreach (string taxiId in _weekSchedule.TaxiIds)
                             {
-                                <option value="@taxiId">@TaxiOptionLabel(taxiId, _selectedProfile?.DriverId)</option>
+                                <option value="@taxiId" disabled="@(taxiId != _selectedProfile?.AssignedTaxiId && TaxiHolder(taxiId, _selectedProfile?.DriverId) is not null)">@TaxiOptionLabel(taxiId, _selectedProfile?.DriverId)</option>
                             }
                         }
                     </select>
@@ -913,7 +917,7 @@ else
                     <div class="profile-section-label">Scan LTO Driver's License</div>
                     <div class="receipt-scan-row license-scan-row">
                         <label class="receipt-scan-btn @(_isReadingLicense ? "busy" : "")" for="lto-license-input">
-                            <span aria-hidden="true">📷</span> @(_isReadingLicense ? "Reading license…" : _licensePreviewUrl is null ? "Upload license photo" : "Upload another")
+                            <Icon Name="camera" /> @(_isReadingLicense ? "Reading license…" : _licensePreviewUrl is null ? "Upload license photo" : "Upload another")
                         </label>
                         <InputFile id="lto-license-input" class="receipt-file-input" accept="image/*"
                                    disabled="@_isReadingLicense" OnChange="OnLicenseSelectedAsync" @ref="_licenseInput" />
@@ -938,7 +942,7 @@ else
                                 <span>Document</span>
                                 <strong>@LicenseDocumentLabel(_licenseScan)</strong>
                             </div>
-                            @if (_licenseValidation.LicenseError is not null)
+                            @if (_licenseValidation.LicenseError is not null && !_licenseManualEdit)
                             {
                                 <div class="field-error">@_licenseValidation.LicenseError</div>
                             }
@@ -946,7 +950,7 @@ else
                             @if (_licenseScan.IsPhilippineLicense)
                             {
                                 <div class="license-scan-field"><span>Name on card</span><strong>@(_licenseScan.FullName ?? "—")</strong></div>
-                                @if (_licenseValidation.NameError is not null)
+                                @if (_licenseValidation.NameError is not null && !_licenseManualEdit)
                                 {
                                     <div class="field-error">@_licenseValidation.NameError</div>
                                 }
@@ -956,7 +960,7 @@ else
                                     <span>Date of Birth</span>
                                     <strong>@(_licenseScan.DateOfBirth is DateTime dob ? $"{dob:MMM d, yyyy} (age {_licenseValidation.Age})" : "—")</strong>
                                 </div>
-                                @if (_licenseValidation.DateOfBirthError is not null)
+                                @if (_licenseValidation.DateOfBirthError is not null && !_licenseManualEdit)
                                 {
                                     <div class="field-error">@_licenseValidation.DateOfBirthError</div>
                                 }
@@ -965,38 +969,49 @@ else
                                     <span>Expiration Date</span>
                                     <strong>@(_licenseScan.ExpiryDate is DateTime exp ? exp.ToString("MMM d, yyyy") : "—")</strong>
                                 </div>
-                                @if (_licenseValidation.ExpiryError is not null)
+                                @if (_licenseValidation.ExpiryError is not null && !_licenseManualEdit)
                                 {
                                     <div class="field-error">@_licenseValidation.ExpiryError</div>
                                 }
                             }
 
-                            @if (_licenseValidation.IsValid)
+                            @if (_licenseManualEdit)
                             {
-                                <div class="field-ok">✓ Valid license - details filled in below. Save Changes to keep them and attach the photo.</div>
+                                <div class="field-ok"><Icon Name="pencil" /> Entering the details by hand - the scan's warnings are set aside. Check them against the photo, then Save Changes to keep them and attach the photo.</div>
+                            }
+                            else if (_licenseValidation.IsValid)
+                            {
+                                <div class="field-ok"><Icon Name="check" /> Valid license - details filled in below. Save Changes to keep them and attach the photo.</div>
                             }
                             else
                             {
-                                <div class="field-error">Not applied - nothing below was changed and the photo won't be saved. Upload a valid license to continue.</div>
+                                <div class="field-error">Not applied - nothing below was changed and the photo won't be saved. Upload a clearer photo, or use "Edit details manually" below if you can read the license yourself.</div>
                             }
                         </div>
                     }
 
                     <label>License Number</label>
-                    <input class="text-input @InvalidCss(true, EditLicenseNumberError)" maxlength="16" @bind="_editLicenseNumber" @bind:event="oninput" placeholder="A01-23-456789" />
+                    <input class="text-input @InvalidCss(true, EditLicenseNumberError)" disabled="@(!_licenseManualEdit)" maxlength="16" @bind="_editLicenseNumber" @bind:event="oninput" placeholder="A01-23-456789" />
                     <FieldError Show="true" Message="@EditLicenseNumberError" />
                     <label>License Classification (DL codes)</label>
-                    <input class="text-input @InvalidCss(true, EditLicenseClassError)" maxlength="40" @bind="_editLicenseClass" @bind:event="oninput" placeholder="e.g. A, B, B1, B2" />
+                    <input class="text-input @InvalidCss(true, EditLicenseClassError)" disabled="@(!_licenseManualEdit)" maxlength="40" @bind="_editLicenseClass" @bind:event="oninput" placeholder="e.g. A, B, B1, B2" />
                     <FieldError Show="true" Message="@EditLicenseClassError" />
                     <label>License Restriction Code <span class="field-optional">(optional)</span></label>
-                    <input class="text-input @InvalidCss(true, EditRestrictionError)" maxlength="20" @bind="_editLicenseRestriction" @bind:event="oninput" placeholder="e.g. 1, 2 or None" />
+                    <input class="text-input @InvalidCss(true, EditRestrictionError)" disabled="@(!_licenseManualEdit)" maxlength="20" @bind="_editLicenseRestriction" @bind:event="oninput" placeholder="e.g. 1, 2 or None" />
                     <FieldError Show="true" Message="@EditRestrictionError" />
                     <label>License Expiry Date</label>
-                    <input type="date" class="text-input @InvalidCss(true, EditExpiryError)" max="@PhilippineTime.Now.AddYears(10).ToString("yyyy-MM-dd")" @bind="_editLicenseExpiry" />
+                    <input type="date" class="text-input @InvalidCss(true, EditExpiryError)" disabled="@(!_licenseManualEdit)" max="@PhilippineTime.Now.AddYears(10).ToString("yyyy-MM-dd")" @bind="_editLicenseExpiry" />
                     <FieldError Show="true" Message="@EditExpiryError" />
                     @if (!string.IsNullOrWhiteSpace(_editLicenseNumber) && _editLicenseExpiry is null)
                     {
                         <div class="field-error">Add the expiry date too - without it the license status stays NOT SET.</div>
+                    }
+                    @if (!_licenseManualEdit)
+                    {
+                        <div class="license-manual-edit">
+                            <span>Scan misread something, or a detail is smudged?</span>
+                            <button class="link-btn" type="button" @onclick="EnableLicenseManualEdit"><Icon Name="pencil" /> Edit details manually</button>
+                        </div>
                     }
                 </div>
 
@@ -1237,12 +1252,20 @@ else
     // "TAXI_002 · Juan Dela Cruz" when another driver already has that unit, so the manager
     // can see at a glance which units are free. Still selectable - a unit can be shared
     // (e.g. day/night drivers).
-    private string TaxiOptionLabel(string taxiId, string? exceptDriverId = null)
-    {
-        string? holder = _weekSchedule?.Rows
-            .FirstOrDefault(r => r.DefaultTaxiId == taxiId && r.DriverId != exceptDriverId)?.FullName;
-        return holder is null ? taxiId : $"{taxiId} · {holder}";
-    }
+    // One driver per unit: a unit someone else holds is shown with their name and can't be
+    // picked (DriverManagementService refuses it too).
+    private string? TaxiHolder(string taxiId, string? exceptDriverId = null) =>
+        _weekSchedule?.Rows.FirstOrDefault(r => r.DefaultTaxiId == taxiId && r.DriverId != exceptDriverId)?.FullName;
+
+    private string TaxiOptionLabel(string taxiId, string? exceptDriverId = null) =>
+        TaxiHolder(taxiId, exceptDriverId) is string holder ? $"{taxiId} · taken by {holder}" : taxiId;
+
+    /// <summary>Another driver on the roster with the same assigned unit (a clash from before the
+    /// one-driver-per-unit rule), or null.</summary>
+    private string? SharedUnitWith(DriverRosterEntry driver) =>
+        string.IsNullOrEmpty(driver.AssignedTaxiId) ? null
+        : _roster?.Drivers.FirstOrDefault(o => o.DriverId != driver.DriverId
+            && string.Equals(o.AssignedTaxiId, driver.AssignedTaxiId, StringComparison.OrdinalIgnoreCase))?.FullName;
 
     public void Dispose()
     {
@@ -1704,7 +1727,15 @@ else
     private LtoLicenseParser.Result? _licenseScan;
     private LtoLicenseParser.Validation? _licenseValidation;
 
-    // Held until Save Changes, and only when the scanned license was valid.
+    // License fields are filled by a valid scan and locked; "Edit details manually" unlocks them
+    // for when the OCR misreads a detail the manager can read on the photo themselves.
+    private bool _licenseManualEdit;
+
+    // The last scanned photo, valid or not, so manual entry can still attach it.
+    private byte[]? _scannedLicensePhoto;
+    private string _scannedLicensePhotoType = "image/jpeg";
+
+    // Held until Save Changes: after a valid scan, or once the manager enters the details by hand.
     private byte[]? _pendingLicensePhoto;
     private string _pendingLicensePhotoType = "image/jpeg";
     // Face crop from the same valid scan, saved as the driver's profile picture.
@@ -1712,6 +1743,8 @@ else
 
     private async Task OnLicenseSelectedAsync(InputFileChangeEventArgs e)
     {
+        // Already entering details by hand: a new photo stays in that mode.
+        bool wasManualEdit = _licenseManualEdit;
         ResetLicenseScan();
         _isReadingLicense = true;
         StateHasChanged();
@@ -1738,6 +1771,8 @@ else
             }
 
             _licensePreviewUrl = ocr.PreviewUrl;
+            _scannedLicensePhoto = photo;
+            _scannedLicensePhotoType = string.IsNullOrEmpty(e.File.ContentType) ? "image/jpeg" : e.File.ContentType;
             _licenseScan = LtoLicenseParser.ParseBest(ocr.Texts);
             _licenseValidation = LtoLicenseParser.Validate(_licenseScan, PhilippineTime.Now, _selectedProfile?.FullName);
 
@@ -1749,6 +1784,11 @@ else
                 _pendingLicensePhoto = photo;
                 _pendingLicensePhotoType = string.IsNullOrEmpty(e.File.ContentType) ? "image/jpeg" : e.File.ContentType;
                 _pendingProfileFace = await TryCropDriverFaceAsync();
+            }
+
+            if (wasManualEdit)
+            {
+                await EnableLicenseManualEdit();
             }
         }
         catch (Exception ex)
@@ -1791,6 +1831,32 @@ else
         _licenseScanError = null;
         _pendingLicensePhoto = null;
         _pendingProfileFace = null;
+        _scannedLicensePhoto = null;
+        _licenseManualEdit = false;
+    }
+
+    /// <summary>
+    /// Unlocks the license fields. Whatever the scan did read fills the blanks, and the scanned
+    /// photo (if any) is attached even though the scan flagged it - the manager has checked it.
+    /// The usual field checks (number format, expiry) still apply to what they type.
+    /// </summary>
+    private async Task EnableLicenseManualEdit()
+    {
+        _licenseManualEdit = true;
+
+        if (_licenseScan is not null && _licenseValidation is { IsValid: false })
+        {
+            _editLicenseNumber = _licenseScan.LicenseNumber ?? _editLicenseNumber;
+            _editLicenseClass = _licenseScan.Classification ?? _editLicenseClass;
+            _editLicenseExpiry = _licenseScan.ExpiryDate ?? _editLicenseExpiry;
+        }
+
+        if (_pendingLicensePhoto is null && _scannedLicensePhoto is not null)
+        {
+            _pendingLicensePhoto = _scannedLicensePhoto;
+            _pendingLicensePhotoType = _scannedLicensePhotoType;
+            _pendingProfileFace = await TryCropDriverFaceAsync();
+        }
     }
 
     private static string LicenseDocumentLabel(LtoLicenseParser.Result scan) =>
@@ -1822,6 +1888,16 @@ else
 
         try
         {
+            // One driver per unit: refuse a taken unit before anything (email, photos) is saved.
+            // UpdateDriverProfileAsync checks it again, but only after those steps.
+            if (!string.IsNullOrWhiteSpace(_editAssignedTaxi)
+                && !string.Equals(_editAssignedTaxi, _selectedProfile.AssignedTaxiId, StringComparison.OrdinalIgnoreCase)
+                && await DriverManagement.GetOtherDriverOnUnitAsync(_editAssignedTaxi, _selectedProfile.DriverId) is string holder)
+            {
+                _profileError = $"{_editAssignedTaxi} is already assigned to {holder}. Give {holder} another unit first - a unit can only have one driver.";
+                return;
+            }
+
             // Login email first: it's the step most likely to be refused (bad format, or the
             // address belongs to another account), and nothing else should be saved if it is.
             if (!string.Equals(_editEmail.Trim(), _selectedProfile.Email, StringComparison.OrdinalIgnoreCase))

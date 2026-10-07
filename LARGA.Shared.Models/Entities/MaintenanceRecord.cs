@@ -128,8 +128,8 @@ public class MaintenanceRecord
     [FirestoreProperty("reportedByDriverId")]
     public string? ReportedByDriverId { get; set; }
 
-    /// <summary>"Reported" (driver flagged it, no ticket yet) / "InProgress" (ticket created,
-    /// in the shop) / "Resolved" / "Dismissed". Plain string, same convention as
+    /// <summary>"Reported" (driver flagged it, no ticket yet) / "Scheduled" (ticket booked for a
+    /// later shop day - ScheduledDate) / "InProgress" (in the shop) / "Resolved" / "Dismissed". Plain string, same convention as
     /// ShiftLog.Status/TaxiUnit.Status elsewhere in this codebase - not stored redundantly
     /// with DateResolved, since "Dismissed" needs its own state DateResolved can't express.</summary>
     [FirestoreProperty("status")]
@@ -141,4 +141,10 @@ public class MaintenanceRecord
 
     [FirestoreProperty("estimatedCompletionDate")]
     public DateTime? EstimatedCompletionDate { get; set; }
+
+    /// <summary>The day the unit goes into the shop, set when the Garage creates the ticket
+    /// (midnight UTC of that calendar day, like EstimatedCompletionDate). Null on tickets made
+    /// before scheduling existed - those count from DateLogged.</summary>
+    [FirestoreProperty("scheduledDate")]
+    public DateTime? ScheduledDate { get; set; }
 }

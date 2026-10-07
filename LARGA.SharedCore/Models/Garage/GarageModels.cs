@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore;
 
 namespace LARGA.SharedCore.Models.Garage;
 
@@ -31,8 +32,20 @@ public class WorkOrderEntry
     public string? MechanicInstructions { get; set; }
     public DateTime? EstimatedCompletionDate { get; set; }
 
-    /// <summary>Day 1 = ticket created today. Computed from DateLogged, not stored.</summary>
-    public int DayNumber => Math.Max(1, (int)(DateTime.UtcNow.Date - DateLogged.Date).TotalDays + 1);
+    /// <summary>Booked from Upcoming Routine Checks (no driver report behind it).</summary>
+    public bool IsRoutineCheck { get; set; }
+
+    /// <summary>The booked shop day; null on tickets made before scheduling existed.</summary>
+    public DateTime? ScheduledDate { get; set; }
+
+    /// <summary>The shop day as a Philippine calendar date.</summary>
+    public DateTime ShopDayPh => WorkOrderRules.ShopStartUtc(DateLogged, ScheduledDate).ToPhilippineTime().Date;
+
+    /// <summary>Day 1 = its first day in the shop. Computed, not stored.</summary>
+    public int DayNumber => WorkOrderRules.ShopDayNumber(DateLogged, ScheduledDate, PhilippineTime.Now.Date);
+
+    /// <summary>Whole days until a Scheduled ticket's shop day (0 = today).</summary>
+    public int DaysUntilShop => Math.Max(0, (int)(ShopDayPh - PhilippineTime.Now.Date).TotalDays);
 }
 
 public class RoutineCheckEntry
@@ -66,6 +79,9 @@ public class GarageSnapshot
 {
     public List<DriverReportEntry> PendingReports { get; set; } = new();
     public List<WorkOrderEntry> ActiveWorkOrders { get; set; } = new();
+
+    /// <summary>Tickets booked for a later shop day ("Scheduled"), soonest first.</summary>
+    public List<WorkOrderEntry> ScheduledWorkOrders { get; set; } = new();
     public List<RoutineCheckEntry> UpcomingChecks { get; set; } = new();
 }
 
