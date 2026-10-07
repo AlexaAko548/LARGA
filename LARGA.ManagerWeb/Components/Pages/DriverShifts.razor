@@ -843,11 +843,11 @@ else
                 }
 
                 <div class="profile-section">
-                    <div class="profile-section-label">Account Settings</div>
-                    <button class="profile-action-btn" type="button" @onclick="StartEditProfile">Edit Details</button>
+                    @if (_canManage) { <div class="profile-section-label">Account Settings</div> }
+                    @if (_canManage) { <button class="profile-action-btn" type="button" @onclick="StartEditProfile">Edit Details</button> }
                     @if (!_showPasswordForm)
                     {
-                        <button class="profile-action-btn" type="button" @onclick="OpenPasswordForm">Change Mobile App Password</button>
+                        @if (_canManage) { <button class="profile-action-btn" type="button" @onclick="OpenPasswordForm">Change Mobile App Password</button> }
                     }
                     else
                     {

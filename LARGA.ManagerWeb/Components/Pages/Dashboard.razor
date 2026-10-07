@@ -57,7 +57,7 @@
                     </button>
                 }
             }
-            <button class="generate-btn" type="button" @onclick="OpenReportModal">✦ Generate Reports</button>
+            @if (_canManage) { <button class="generate-btn" type="button" @onclick="OpenReportModal">✦ Generate Reports</button> }
         </div>
 
         @if (_snapshot is not null && _openStatus is not null)

@@ -60,7 +60,7 @@ else
             </div>
             <div class="tab-actions">
                 @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenAdjustmentModal">+ Adjustment</button> }
-                <button class="outline-btn" type="button" disabled="@_isExportingCsv" @onclick="ExportCsvAsync">@(_isExportingCsv ? "Exporting…" : "⬇ Export")</button>
+                @if (_canManage) { <button class="outline-btn" type="button" disabled="@_isExportingCsv" @onclick="ExportCsvAsync">@(_isExportingCsv ? "Exporting…" : "⬇ Export")</button> }
             </div>
         </section>
 
@@ -555,7 +555,7 @@ else
                                 <option value="0">All Time</option>
                             </select>
                         </label>
-                        <button class="outline-btn" type="button" @onclick="ExportHistoryCsv">⬇ Export</button>
+                        @if (_canManage) { <button class="outline-btn" type="button" @onclick="ExportHistoryCsv">⬇ Export</button> }
                     </div>
 
                     <div class="data-table-wrap">
