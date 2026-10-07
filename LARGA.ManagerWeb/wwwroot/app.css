@@ -1151,7 +1151,7 @@ border-color: rgba(1,155,207,0.2);
    Parked - the manager app's Live Fleet map uses the same colour. */
 .status-neutral.idle {
 background: rgba(1,155,207,0.12);
-color: #0181ad;
+color: var(--accent-text, #0181ad);
 }
 
 .generate-btn {
@@ -4558,7 +4558,7 @@ margin: 0 0 0.6rem;
 }
 
 .sos-resolved-count {
-color: #5a7a8a;
+color: var(--muted);
 font-weight: 500;
 }
 
@@ -4588,7 +4588,7 @@ overflow-y: auto;
 position: sticky;
 top: 0;
 z-index: 1;
-background: #ffffff;
+background: var(--surface, #ffffff);
 }
 
 .sos-resolved .sos-toggle {

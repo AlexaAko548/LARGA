@@ -78,9 +78,6 @@ public class FleetPin
     public Color CallAccentColor => Status == FleetDriverStatus.Active ? StatusColor : Color.FromArgb("#019BCF");
 }
 
-/// <summary>One always-visible "jump to this taxi" shortcut at the bottom of the map, for
-/// every taxi in the fleet - not just the ones with a plotted pin. Tapping a unit with no
-/// pin (no active shift / no telemetry yet) has nothing to jump to, so it just says so.</summary>
 /// <summary>Live Fleet status colours - the same as ManagerWeb's dashboard Fleet Status pills
 /// (app.css: status-success / status-warning alt / status-danger / status-neutral idle /
 /// status-parked), so a status looks the same on the web and the phone. Shared by the pins,
@@ -104,6 +101,9 @@ public static class FleetStatusColors
     };
 }
 
+/// <summary>One always-visible "jump to this taxi" shortcut at the bottom of the map, for
+/// every taxi in the fleet - not just the ones with a plotted pin. Tapping a unit with no
+/// pin (no active shift / no telemetry yet) has nothing to jump to, so it just says so.</summary>
 public class UnitChip : BindableObject
 {
     public string TaxiId { get; set; } = string.Empty;
