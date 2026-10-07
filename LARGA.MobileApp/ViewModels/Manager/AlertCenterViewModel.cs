@@ -74,8 +74,11 @@ public class AlertCenterViewModel : BindableObject
         {
             if (alert == null || string.IsNullOrWhiteSpace(alert.DriverId)) return;
 
-            // Same route/parameters ChatsViewModel.OnOpenChat uses to open a driver's thread -
-            // dictionary parameters keep DriverName intact if it has spaces.
+            // Switch to the Chats tab first so the bottom bar reflects where the user lands,
+            // then push the thread onto it - same route/parameters ChatsViewModel.OnOpenChat
+            // uses to open a driver's thread (dictionary parameters keep DriverName intact if
+            // it has spaces).
+            await Shell.Current.GoToAsync("//manager-dashboard/chats");
             await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
             {
                 { "DriverId", alert.DriverId },

@@ -266,7 +266,10 @@ public class FleetMapViewModel : BindableObject
         {
             if (SelectedPin == null || string.IsNullOrWhiteSpace(SelectedPin.DriverId)) return;
 
-            // Same route/parameters ChatsViewModel.OnOpenChat uses to open a driver's thread.
+            // Switch to the Chats tab first so the bottom bar reflects where the user lands,
+            // then push the thread onto it - same route/parameters ChatsViewModel.OnOpenChat
+            // uses to open a driver's thread.
+            await Shell.Current.GoToAsync("//manager-dashboard/chats");
             await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
             {
                 { "DriverId", SelectedPin.DriverId },
