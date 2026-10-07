@@ -28,7 +28,8 @@ public class ManagerRevalidatingAuthStateProvider : RevalidatingServerAuthentica
         ClaimsPrincipal user = authenticationState.User;
         string? uid = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-        ManagerSignInService.AccessCheck access = await _signIn.CheckAccessAsync(uid, user.FindFirst(ClaimTypes.Email)?.Value);
+        ManagerSignInService.AccessCheck access = await _signIn.CheckAccessAsync(
+            uid, user.FindFirst(ClaimTypes.Email)?.Value, user.FindFirst(ClaimTypes.Role)?.Value);
         // Unknown (Firebase unreachable) keeps the session; it's checked again next interval.
         return access != ManagerSignInService.AccessCheck.Revoked;
     }

@@ -3,8 +3,10 @@
 @using LARGA.ManagerWeb.Models
 @using LARGA.ManagerWeb.Services
 @using Microsoft.AspNetCore.Components.Authorization
+@using Google.Cloud.Firestore
 @inject IManagerAuthService ManagerAuthService
 @inject AuthenticationStateProvider AuthStateProvider
+@inject Lazy<FirestoreDb> FirestoreDb
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 
@@ -12,9 +14,9 @@
    (contact number, password) and Logout. Styled with the app's own header/modal classes. *@
 
 <div class="manager-menu">
-    <button class="manager-pill manager-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="@_isDropdownOpen" @onclick="ToggleDropdown">
+    <button class="manager-pill manager-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="@_isDropdownOpen" title="@_roleLabel" @onclick="ToggleDropdown">
         <span class="manager-dot"></span>
-        <span>Manager</span>
+        <span>@_displayName</span>
         <span class="caret">▾</span>
     </button>
 
@@ -115,6 +117,40 @@
     private bool _isSavingPassword;
 
     private IJSObjectReference? _firebaseModule;
+
+    // Whoever is signed in: name from users/{uid}, falling back to the account's email. The role
+    // comes from the session itself, so it's the same role the pages enforce.
+    private string _displayName = "Manager";
+    private string _roleLabel = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            string? uid = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            string? email = authState.User.FindFirst(ClaimTypes.Email)?.Value;
+            _roleLabel = authState.User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(email))
+            {
+                _displayName = email;
+            }
+
+            if (!string.IsNullOrEmpty(uid))
+            {
+                DocumentSnapshot profile = await FirestoreDb.Value.Collection("users").Document(uid).GetSnapshotAsync();
+                if (profile.Exists && profile.TryGetValue("fullName", out string fullName) && !string.IsNullOrWhiteSpace(fullName))
+                {
+                    _displayName = fullName;
+                }
+            }
+        }
+        catch
+        {
+            // Keep the fallback name if the lookup fails; the header shouldn't break the page.
+        }
+    }
 
     private void ToggleDropdown() => _isDropdownOpen = !_isDropdownOpen;
 
