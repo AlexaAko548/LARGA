@@ -47,6 +47,19 @@ public interface IEmergencyMonitor
 }
 
 /// <summary>
+/// Driver-facing feedback for SOS presses and alerts: vibration, and the crash alarm sound.
+/// Hostile alerts stay silent on purpose, so only vibration is used for them.
+/// </summary>
+public interface IEmergencyFeedback
+{
+    /// <summary>Short pulse once a manual SOS press completes, so the driver knows to let go.</summary>
+    void ButtonHeld();
+
+    /// <summary>Heads-up that an SOS was written, whatever started it. Crash also sounds the alarm.</summary>
+    void AlertSent(string triggerType);
+}
+
+/// <summary>
 /// Automated emergency detection needs Android's sensor, foreground-service and telephony APIs;
 /// on other platforms the driver still has the manual SOS button.
 /// </summary>
@@ -59,9 +72,21 @@ public class NoOpEmergencyMonitor : IEmergencyMonitor
     }
 }
 
+public class NoOpEmergencyFeedback : IEmergencyFeedback
+{
+    public void ButtonHeld()
+    {
+    }
+
+    public void AlertSent(string triggerType)
+    {
+    }
+}
+
 public class EmergencyAlertService : IEmergencyAlertService
 {
     private readonly IShiftManagementService _shiftService;
+    private readonly IEmergencyFeedback _feedback;
 
     // The taxi unit is looked up once per shift: an automated alert fires from a background
     // service, where shaving Firestore round trips off the write matters.
@@ -69,9 +94,10 @@ public class EmergencyAlertService : IEmergencyAlertService
     private string? _cachedTaxiUnit;
     private string? _cachedDriverName;
 
-    public EmergencyAlertService(IShiftManagementService shiftService)
+    public EmergencyAlertService(IShiftManagementService shiftService, IEmergencyFeedback feedback)
     {
         _shiftService = shiftService;
+        _feedback = feedback;
     }
 
     public async Task<string?> SendAlertAsync(string triggerType, double? latitude = null, double? longitude = null)
@@ -118,6 +144,9 @@ public class EmergencyAlertService : IEmergencyAlertService
         // Logged here so both the manual SOS button and automated detection are audited.
         await AuditLogWriter.WriteAsync("SosTriggered",
             $"Triggered {SosDispatchService.TriggerLabel(triggerType)} SOS for {taxiUnit} ({driverName}) during shift {shiftId}.");
+
+        // Every source passes through here, so the heads-up covers the button, Hostile and Crash.
+        _feedback.AlertSent(triggerType);
 
         return doc.Id;
     }

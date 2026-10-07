@@ -22,6 +22,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
 {
     private readonly IShiftManagementService _shiftService;
     private readonly IEmergencyAlertService _emergencyAlertService;
+    private readonly IEmergencyFeedback _emergencyFeedback;
     private readonly IDispatcherTimer _shiftTimer;
     private TimeSpan _shiftDuration;
     private TimeSpan _timeRemaining;
@@ -120,10 +121,11 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     public ICommand ConfirmPauseCommand { get; }
     public ICommand CancelPauseCommand { get; }
 
-    public ActiveShiftViewModel(IShiftManagementService shiftService, IEmergencyAlertService emergencyAlertService)
+    public ActiveShiftViewModel(IShiftManagementService shiftService, IEmergencyAlertService emergencyAlertService, IEmergencyFeedback emergencyFeedback)
     {
         _shiftService = shiftService;
         _emergencyAlertService = emergencyAlertService;
+        _emergencyFeedback = emergencyFeedback;
 
         // Timer instantiation remains in the constructor so it exists globally
         _shiftTimer = Application.Current.Dispatcher.CreateTimer();
@@ -168,6 +170,9 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     {
         if (_isSendingSos) return;
         _isSendingSos = true;
+
+        // The 3-second hold has completed: buzz now so the driver knows to let go.
+        _emergencyFeedback.ButtonHeld();
 
         try
         {
