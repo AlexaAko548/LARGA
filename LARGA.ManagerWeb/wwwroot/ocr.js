@@ -145,14 +145,14 @@ export async function cropDriverFace(input) {
 
         const detections = await faceapi.detectAllFaces(
             source,
-            new faceapi.TinyFaceDetectorOptions({ inputSize: 608, scoreThreshold: 0.4 }));
+            new faceapi.TinyFaceDetectorOptions({ inputSize: 608, scoreThreshold: 0.5 }));
         if (detections.length === 0) {
             return null;
         }
 
-        // A license has one face; if the detector finds more, the largest is the holder.
-        const { box } = detections.reduce((best, d) =>
-            d.box.width * d.box.height > best.box.width * best.box.height ? d : best);
+        // A license has one face. Pick the most confident detection, not the largest: the LTO
+        // seal on the card can be a bigger box than the small photo, so "largest" picked the seal.
+        const { box } = detections.reduce((best, d) => (d.score > best.score ? d : best));
 
         const side = Math.min(
             Math.max(box.width, box.height) * FACE_CONTEXT_SCALE,
