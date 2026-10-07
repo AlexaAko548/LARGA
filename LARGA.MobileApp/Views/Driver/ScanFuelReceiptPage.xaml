@@ -55,6 +55,12 @@
                     <Label Grid.Column="0" Text="Date" TextColor="Gray"/>
                     <Label Grid.Column="1" x:Name="LblDate" Text="--" HorizontalOptions="End" FontAttributes="Bold" TextColor="Black"/>
                 </Grid>
+                <BoxView HeightRequest="1" Color="LightGray"/>
+
+                <Grid ColumnDefinitions="*,*">
+                    <Label Grid.Column="0" Text="OR Number" TextColor="Gray"/>
+                    <Label Grid.Column="1" x:Name="LblOrNumber" Text="--" HorizontalOptions="End" FontAttributes="Bold" TextColor="Black"/>
+                </Grid>
 
                 <Grid ColumnDefinitions="*,*,*" ColumnSpacing="15" Margin="0,15,0,0">
                     <Button Grid.Column="0" Text="Cancel" Clicked="OnCancelClicked" BackgroundColor="Transparent" TextColor="Gray" BorderColor="Gray" BorderWidth="1" CornerRadius="25"/>

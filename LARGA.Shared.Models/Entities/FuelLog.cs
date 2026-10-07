@@ -99,6 +99,9 @@ public class FuelLog
     [FirestoreProperty("isReceiptDateManuallyEdited")]
     public bool IsReceiptDateManuallyEdited { get; set; }
 
+    [FirestoreProperty("isOrNumberManuallyEdited")]
+    public bool IsOrNumberManuallyEdited { get; set; }
+
     [FirestoreProperty("isAnyFieldManuallyEdited")]
     public bool IsAnyFieldManuallyEdited { get; set; }
 }

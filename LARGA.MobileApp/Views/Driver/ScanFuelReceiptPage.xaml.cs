@@ -1,6 +1,7 @@
 ﻿using CommunityToolkit.Mvvm.Messaging;
 using LARGA.MobileApp.Services;
 using LARGA.MobileApp.ViewModels.Driver;
+using LARGA.SharedCore.Services;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Storage;
 using System;
@@ -23,6 +24,7 @@ public partial class ScanFuelReceiptPage : ContentPage
     private bool _isQuantityUncertain;
     private bool _isVendorUncertain;
     private bool _isDateUncertain;
+    private bool _isOrNumberUncertain;
     private int _retakeCount;
     private bool _isRetakeLocked;
     private bool _isScanned = false;
@@ -129,6 +131,9 @@ public partial class ScanFuelReceiptPage : ContentPage
                 var amount = TryParseAmount(fullText, lines);
                 var quantity = TryParseLiters(fullText, lines);
                 var receiptDate = TryParseReceiptDate(fullText, lines);
+                // OR Number is optional on the report, so it's left out of BuildParsingWarning:
+                // a receipt without one shouldn't push the driver into retakes.
+                var orNumber = FuelReceiptParser.TryParseOrNumber(lines, out var orNumberUncertain);
                 var parsingWarning = BuildParsingWarning(vendor, amount, quantity, receiptDate);
                 var parsingUncertain = !string.IsNullOrWhiteSpace(parsingWarning);
                 var currentScan = new ReceiptScanSnapshot
@@ -137,12 +142,14 @@ public partial class ScanFuelReceiptPage : ContentPage
                     Quantity = quantity?.ToString("0.##", CultureInfo.InvariantCulture) ?? "--",
                     Vendor = vendor ?? "UNKNOWN",
                     ReceiptDate = receiptDate,
+                    OrNumber = orNumber ?? "--",
                     ParsingWarning = parsingWarning,
                     ParsingUncertain = parsingUncertain,
                     IsCostUncertain = !amount.HasValue || amount.Value <= 0,
                     IsQuantityUncertain = !quantity.HasValue || quantity.Value <= 0,
                     IsVendorUncertain = string.IsNullOrWhiteSpace(vendor) || vendor.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase),
                     IsDateUncertain = !receiptDate.HasValue,
+                    IsOrNumberUncertain = orNumberUncertain,
                     PhotoFilePath = _capturedImagePath // THE FIX: Assign path property
                 };
 
@@ -188,12 +195,14 @@ public partial class ScanFuelReceiptPage : ContentPage
                     Quantity = LblQuantity.Text == "--" ? string.Empty : LblQuantity.Text,
                     Vendor = LblVendor.Text == "--" ? string.Empty : LblVendor.Text,
                     ReceiptDate = _capturedReceiptDate,
+                    OrNumber = LblOrNumber.Text == "--" ? string.Empty : LblOrNumber.Text,
                     ParsingWarning = payloadWarning,
                     ParsingUncertain = !string.IsNullOrWhiteSpace(payloadWarning),
                     IsCostUncertain = _isCostUncertain || IsZeroValue(LblAmount.Text),
                     IsQuantityUncertain = _isQuantityUncertain || IsZeroValue(LblQuantity.Text),
                     IsVendorUncertain = _isVendorUncertain,
                     IsDateUncertain = _isDateUncertain,
+                    IsOrNumberUncertain = _isOrNumberUncertain,
                     PhotoFilePath = _capturedImagePath // THE FIX: Assign path property
                 };
 
@@ -223,10 +232,12 @@ public partial class ScanFuelReceiptPage : ContentPage
         _isQuantityUncertain = false;
         _isVendorUncertain = false;
         _isDateUncertain = false;
+        _isOrNumberUncertain = false;
 
         LblVendor.Text = "--";
         LblAmount.Text = "--";
         LblQuantity.Text = "--";
+        LblOrNumber.Text = "--";
         if (ReceiptDateLabel != null)
         {
             ReceiptDateLabel.Text = "--";
@@ -276,10 +287,12 @@ public partial class ScanFuelReceiptPage : ContentPage
         _isQuantityUncertain = scan.IsQuantityUncertain;
         _isVendorUncertain = scan.IsVendorUncertain;
         _isDateUncertain = scan.IsDateUncertain;
+        _isOrNumberUncertain = scan.IsOrNumberUncertain;
 
         LblVendor.Text = scan.Vendor;
         LblAmount.Text = scan.Amount;
         LblQuantity.Text = scan.Quantity;
+        LblOrNumber.Text = scan.OrNumber;
         if (ReceiptDateLabel != null)
         {
             ReceiptDateLabel.Text = scan.ReceiptDate?.ToString("MMM dd, yyyy", CultureInfo.InvariantCulture) ?? "--";
@@ -557,12 +570,14 @@ public partial class ScanFuelReceiptPage : ContentPage
         public string Quantity { get; init; } = "--";
         public string Vendor { get; init; } = "UNKNOWN";
         public DateTime? ReceiptDate { get; init; }
+        public string OrNumber { get; init; } = "--";
         public string ParsingWarning { get; init; } = string.Empty;
         public bool ParsingUncertain { get; init; }
         public bool IsCostUncertain { get; init; }
         public bool IsQuantityUncertain { get; init; }
         public bool IsVendorUncertain { get; init; }
         public bool IsDateUncertain { get; init; }
+        public bool IsOrNumberUncertain { get; init; }
 
         // THE FIX: Change property to accept file path instead of bytes
         public string PhotoFilePath { get; init; } = string.Empty;

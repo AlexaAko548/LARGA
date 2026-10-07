@@ -90,6 +90,7 @@ public class FuelReviewDetail
     public bool IsQuantityManuallyEdited { get; set; }
     public bool IsFuelStationManuallyEdited { get; set; }
     public bool IsReceiptDateManuallyEdited { get; set; }
+    public bool IsOrNumberManuallyEdited { get; set; }
 
     public int? PreviousOdometerReading { get; set; }
     public string PreviousOdometerLabel { get; set; } = string.Empty;
