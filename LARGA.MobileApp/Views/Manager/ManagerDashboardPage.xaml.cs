@@ -49,6 +49,10 @@ public partial class ManagerDashboardPage : ContentPage
     private const double StaleReturnSeconds = 5;
     private const int DeadReckoningTickMs = 200;
 
+    // Below this, a reported speed is GPS drift or a crawl - the pin stays on its real fix
+    // rather than being nudged forward (and then glided back when the next fix lands).
+    private const int MinDeadReckoningSpeedKmh = 5;
+
     private readonly FleetMapViewModel _viewModel;
     private MapControl? _mapControl;
     private MemoryLayer? _pinsLayer;
@@ -273,7 +277,7 @@ public partial class ManagerDashboardPage : ContentPage
     private static (double X, double Y) CurrentDisplayPosition(FleetPin pin, DateTime now)
     {
         var (anchorX, anchorY) = AnchorXY(pin);
-        if (pin.SpeedKmh <= 0 || pin.HeadingDegrees < 0) return (anchorX, anchorY);
+        if (pin.SpeedKmh < MinDeadReckoningSpeedKmh || pin.HeadingDegrees < 0) return (anchorX, anchorY);
 
         var rawElapsedSeconds = (now - pin.PositionTimestamp).TotalSeconds;
         var elapsedSeconds = Math.Clamp(rawElapsedSeconds, 0, MaxDeadReckoningSeconds);
@@ -459,9 +463,10 @@ public partial class ManagerDashboardPage : ContentPage
 
     private static MColor StatusColor(FleetDriverStatus status) => status switch
     {
-        FleetDriverStatus.Active => new MColor(30, 142, 90),
-        FleetDriverStatus.OnBreak => new MColor(201, 122, 27),
-        FleetDriverStatus.Sos => new MColor(211, 63, 63),
-        _ => new MColor(107, 128, 138),
+        // Same as FleetStatusColors / the web's Fleet Status pills.
+        FleetDriverStatus.Active => new MColor(27, 139, 82),
+        FleetDriverStatus.OnBreak => new MColor(176, 90, 20),
+        FleetDriverStatus.Sos => new MColor(181, 61, 74),
+        _ => new MColor(1, 129, 173), // Idle
     };
 }

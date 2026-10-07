@@ -85,7 +85,7 @@ public class FleetReportingService
             // all-time one - a deliberate side effect of no longer fetching full shift/
             // payment history. Arguably more useful anyway (recent performance vs.
             // lifetime), but flagging the semantic change explicitly.
-            TopDrivers = await BuildTopDriversAsync(drivers, maintenance, PhilippineTime.Now.Date.AddDays(1 - StandingsWindowDays), now),
+            TopDrivers = await BuildTopDriversAsync(drivers, maintenance, alerts, PhilippineTime.Now.Date.AddDays(1 - StandingsWindowDays), now),
             BoundaryCollections = BuildBoundaryCollections(recentPayments),
             FuelVerification = BuildFuelVerification(recentFuelLogs),
             FleetMileageByTaxi = BuildFleetMileageByTaxi(recentShifts),
@@ -495,7 +495,7 @@ public class FleetReportingService
     /// on-time returns, boundaries paid on time, damage incidents - ranked by the average of
     /// the three percentages, then by boundaries remitted.
     /// </summary>
-    private async Task<List<DriverStanding>> BuildTopDriversAsync(List<UserProfile> drivers, List<MaintenanceRecord> maintenance, DateTime fromPh, DateTime nowUtc)
+    private async Task<List<DriverStanding>> BuildTopDriversAsync(List<UserProfile> drivers, List<MaintenanceRecord> maintenance, List<EmergencyAlert> alerts, DateTime fromPh, DateTime nowUtc)
     {
         DateTime fromUtc = fromPh.Date - PhilippineTime.Offset;
         List<ShiftLog> shifts = await GetSinceAsync<ShiftLog>("shifts", "shiftStart", fromUtc);
@@ -511,7 +511,7 @@ public class FleetReportingService
             HashSet<string> ids = driverShifts.SelectMany(s => new[] { s.DocumentId, s.ShiftId }).Where(id => !string.IsNullOrEmpty(id)).ToHashSet();
             DriverPerformance performance = DriverPerformanceCalculator.Calculate(
                 driver, driverShifts, exceptions.Where(e => e.DriverId == driver.UserId).ToList(), maintenance,
-                payments.Where(p => ids.Contains(p.ShiftId)).ToList(), defaultRate, fromPh, nowUtc);
+                payments.Where(p => ids.Contains(p.ShiftId)).ToList(), alerts, defaultRate, fromPh, nowUtc);
 
             return new DriverStanding
             {
@@ -519,7 +519,7 @@ public class FleetReportingService
                 FullName = driver.FullName,
                 TaxiId = driver.AssignedTaxiId,
                 PunctualPercent = performance.PunctualityPercent ?? 0,
-                IncidentCount = performance.DamageIncidents,
+                IncidentCount = performance.Incidents,
                 BoundariesRemitted = performance.BoundariesRemitted,
                 Performance = performance,
             };
@@ -672,20 +672,21 @@ public class FleetReportingService
             .Where(u => string.Equals(u.Role, "Driver", StringComparison.OrdinalIgnoreCase))
             .ToList();
         List<MaintenanceRecord> maintenance = await GetAllAsync<MaintenanceRecord>("maintenance_logs");
+        List<EmergencyAlert> alerts = await GetAllAsync<EmergencyAlert>("emergency_alerts");
         DateTime until = toUtc < DateTime.UtcNow ? toUtc : DateTime.UtcNow;
-        List<DriverStanding> standings = await BuildTopDriversAsync(drivers, maintenance, fromUtc.ToPhilippineTime().Date, until);
+        List<DriverStanding> standings = await BuildTopDriversAsync(drivers, maintenance, alerts, fromUtc.ToPhilippineTime().Date, until);
 
         static string Pct(double? p) => p is double v ? v.ToString("0.0", CultureInfo.InvariantCulture) : "";
         return BuildCsv(
             new[] { "Rank", "DriverName", "TaxiId", "ExpectedDays", "DaysWorked", "MissedDays", "AttendancePercent",
                     "ShiftsCompleted", "LateReturns", "PunctualityPercent", "BoundariesDue", "PaidOnTime",
-                    "PaymentReliabilityPercent", "DamageIncidents", "BoundariesRemitted" },
+                    "PaymentReliabilityPercent", "SosAlerts", "DamageIncidents", "BoundariesRemitted" },
             standings.Select(d => new object?[]
             {
                 d.Rank, d.FullName, d.TaxiId, d.Performance.ExpectedDays, d.Performance.DaysWorked, d.Performance.MissedDays,
                 Pct(d.Performance.AttendancePercent), d.Performance.ShiftsCompleted, d.Performance.LateReturns,
                 Pct(d.Performance.PunctualityPercent), d.Performance.BoundariesDue, d.Performance.BoundariesPaidOnTime,
-                Pct(d.Performance.PaymentReliabilityPercent), d.Performance.DamageIncidents, d.BoundariesRemitted,
+                Pct(d.Performance.PaymentReliabilityPercent), d.Performance.SosAlerts, d.Performance.DamageIncidents, d.BoundariesRemitted,
             }));
     }
 

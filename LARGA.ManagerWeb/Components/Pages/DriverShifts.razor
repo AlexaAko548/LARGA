@@ -104,8 +104,15 @@ else
                         </div>
 
                         <div class="clockin-request-actions">
-                            @if (_canManage) { <button class="solid-btn" type="button" disabled="@_isDecidingClockIn" @onclick="() => ApproveClockInAsync(item)">✓ Approve</button> }
-                            @if (_canManage) { <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)">✕ Deny</button> }
+                            @if (_canManage)
+                            {
+                                @if (item.BlockedReason is not null)
+                                {
+                                    <div class="field-error">Can't be approved: @item.BlockedReason.</div>
+                                }
+                                <button class="solid-btn" type="button" disabled="@(_isDecidingClockIn || item.BlockedReason is not null)" title="@(item.BlockedReason is null ? null : $"Can't be approved: {item.BlockedReason}")" @onclick="() => ApproveClockInAsync(item)">✓ Approve</button>
+                                <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)">✕ Deny</button>
+                            }
                         </div>
                     </article>
                 }
@@ -838,7 +845,7 @@ else
                         <div class="profile-metric-track"><div class="profile-metric-fill" style="width:@MeterText(perf.PaymentReliabilityPercent)%"></div></div>
                         <small class="receipt-hint">@(perf.BoundariesDue == 0 ? "No boundaries due yet." : $"{perf.BoundariesPaidOnTime} of {perf.BoundariesDue} boundaries paid in full by the next day")</small>
                     </div>
-                    <div class="profile-field">Damage Incidents: <strong>@perf.DamageIncidents</strong> · Boundaries Remitted: <strong>₱ @perf.BoundariesRemitted.ToString("N0")</strong></div>
+                    <div class="profile-field">Incidents: <strong>@perf.Incidents</strong> <span class="field-optional">(@perf.SosAlerts SOS, @perf.DamageIncidents accident)</span> · Boundaries Remitted: <strong>₱ @perf.BoundariesRemitted.ToString("N0")</strong></div>
                 </div>
 
                 @if (!string.IsNullOrWhiteSpace(_selectedProfile.ManagerNote))

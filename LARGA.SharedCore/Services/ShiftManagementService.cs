@@ -21,6 +21,11 @@ public interface IShiftManagementService
     /// for today (while their own unit is under maintenance), else their permanent unit.</summary>
     Task<string?> GetTodaysTaxiIdAsync(string? permanentTaxiId = null);
     Task<string> ClockInAsync(string taxiId, int startMileage);
+
+    /// <summary>Why the signed-in driver can't start a shift on this unit today - no valid
+    /// license (LAR-97) or the unit is under maintenance (LAR-98), per ShiftEligibilityRules -
+    /// as a driver-facing sentence, or null when they can.</summary>
+    Task<string?> GetClockInBlockReasonAsync(string taxiId);
     Task<ShiftEndCharges> ClockOutAsync(string shiftDocumentId, int endMileage, bool fuelBelowHalf, string managerNote = "");
     Task<DriverShiftSummary?> GetMyOpenShiftAsync();
     Task SetOnBreakAsync(string shiftDocumentId, bool isOnBreak);
@@ -261,6 +266,11 @@ public class ShiftManagementService : IShiftManagementService
             throw new InvalidOperationException("Shifts start at 6:00 AM. You can clock in from 6:00 AM onwards.");
         }
 
+        if (await GetClockInBlockReasonAsync(taxiId) is string blocked)
+        {
+            throw new InvalidOperationException(blocked);
+        }
+
         foreach (DriverShiftSummary previous in await GetMyShiftsAsync(user.Uid))
         {
             bool stillOpen = previous.Status == "Active";
@@ -319,6 +329,59 @@ public class ShiftManagementService : IShiftManagementService
         }
 
         return documentReference.Id;
+    }
+
+    public async Task<string?> GetClockInBlockReasonAsync(string taxiId)
+    {
+        var user = CrossFirebaseAuth.Current.CurrentUser;
+        if (user == null) throw new Exception("No authenticated driver found.");
+
+        await RefreshTestClockAsync();
+        DateTime todayPh = ShiftClock.UtcNow.ToPhilippineTime().Date;
+
+        (string? reason, bool isLicense) = await GetBlockReasonAsync(user.Uid, taxiId, todayPh);
+        return reason is null ? null
+            : isLicense ? $"You can't start a shift: {reason}. Please have your manager update your license."
+            : $"You can't start a shift: {reason}. Please ask your manager for a substitute unit.";
+    }
+
+    /// <summary>
+    /// ShiftEligibilityRules for any driver and unit, read with the client SDK - the driver's own
+    /// clock-in and the manager app's clock-in approval both use it (ManagerWeb's
+    /// ClockInApprovalService does the same with the Admin SDK). Returns a short phrase such as
+    /// "no driver's license is on file", and whether it's the license (vs the unit).
+    /// </summary>
+    public static async Task<(string? Reason, bool IsLicense)> GetBlockReasonAsync(string driverId, string taxiId, DateTime todayPh)
+    {
+        var profile = await CrossFirebaseFirestore.Current
+            .GetCollection("users")
+            .GetDocument(driverId)
+            .GetDocumentSnapshotAsync<EligibilityUserProxy>();
+        DateTime? licenseExpiry = profile?.Data?.LicenseExpiryDate?.UtcDateTime;
+        if (ShiftEligibilityRules.LicenseBlockReason(licenseExpiry, todayPh) is string licenseReason)
+        {
+            return (licenseReason, true);
+        }
+
+        if (string.IsNullOrWhiteSpace(taxiId))
+        {
+            return (null, false);
+        }
+
+        var taxi = await CrossFirebaseFirestore.Current
+            .GetCollection("taxis")
+            .GetDocument(taxiId)
+            .GetDocumentSnapshotAsync<TaxiUnitProxy>();
+        // Single equality filter on taxiId (no composite index), the rest client-side.
+        var jobs = await CrossFirebaseFirestore.Current
+            .GetCollection("maintenance_logs")
+            .WhereEqualsTo("taxiId", taxiId)
+            .GetDocumentsAsync<EligibilityJobProxy>();
+        var unitJobs = jobs.Documents
+            .Where(d => d.Data != null)
+            .Select(d => ((string?)d.Data.Status, d.Data.DateLogged.UtcDateTime, d.Data.EstimatedCompletionDate?.UtcDateTime, (string?)d.Data.IssueTitle));
+
+        return (ShiftEligibilityRules.UnitBlockReason(taxiId, taxi?.Data?.Status, unitJobs, todayPh), false);
     }
 
     public async Task SetOnBreakAsync(string shiftDocumentId, bool isOnBreak)
@@ -503,6 +566,27 @@ public class ShiftManagementService : IShiftManagementService
         public int YearManufactured { get; set; }
     }
 
+    private class EligibilityUserProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("licenseExpiryDate")]
+        public DateTimeOffset? LicenseExpiryDate { get; set; }
+    }
+
+    private class EligibilityJobProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
+        public string Status { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("dateLogged")]
+        public DateTimeOffset DateLogged { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("estimatedCompletionDate")]
+        public DateTimeOffset? EstimatedCompletionDate { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("issueTitle")]
+        public string IssueTitle { get; set; }
+    }
+
     private class UserProfileProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("assignedTaxiId")]
@@ -539,6 +623,12 @@ public class ShiftManagementService : IShiftManagementService
     {
         var user = CrossFirebaseAuth.Current.CurrentUser;
         if (user == null) throw new Exception("No authenticated driver found.");
+
+        // No point asking the manager to approve a shift the rules wouldn't allow anyway.
+        if (await GetClockInBlockReasonAsync(request.TaxiId) is string blocked)
+        {
+            throw new InvalidOperationException(blocked);
+        }
 
         bool Passed(string item) => request.Inspection.TryGetValue(item, out bool ok) && ok;
         var proxy = new ClockInRequestProxy

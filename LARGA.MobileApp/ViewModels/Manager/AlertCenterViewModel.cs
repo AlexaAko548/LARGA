@@ -57,8 +57,8 @@ public class AlertCenterViewModel : BindableObject
         LoadAlertsCommand = new Command(StartListening);
 
         DismissAlertCommand = new Command<AlertItem>(async (alert) => await DismissAsync(alert));
-        ApproveShiftCommand = new Command<AlertItem>(async (alert) => await ResolveDefectAsync(alert, "Dismissed"));
-        DenyShiftCommand = new Command<AlertItem>(async (alert) => await ResolveDefectAsync(alert, "InProgress"));
+        ApproveShiftCommand = new Command<AlertItem>(async (alert) => await ApproveClockInAsync(alert));
+        DenyShiftCommand = new Command<AlertItem>(async (alert) => await DenyClockInAsync(alert));
         ResolveFuelCommand = new Command<AlertItem>(async (alert) => await ResolveFuelFlagAsync(alert));
 
         CallDriverCommand = new Command<AlertItem>((alert) =>
@@ -182,28 +182,55 @@ public class AlertCenterViewModel : BindableObject
                 MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
             });
 
+        // LAR-99: same trigger as ManagerWeb's Driver & Shifts approvals - a clock-in request the
+        // driver sent after finishing a flagged pre-shift inspection (clockin_requests, Pending),
+        // not each defect report on its own. Defects are shown as part of the request.
         _defectListener = CrossFirebaseFirestore.Current
-            .GetCollection("maintenance_logs")
-            .WhereEqualsTo("status", "Reported")
-            .AddSnapshotListener<MaintenanceLogProxy>(async snapshot =>
+            .GetCollection("clockin_requests")
+            .WhereEqualsTo("status", "Pending")
+            .AddSnapshotListener<ClockInRequestAlertProxy>(async snapshot =>
             {
                 var items = new List<AlertItem>();
                 foreach (var doc in snapshot.Documents)
                 {
                     if (doc.Data == null) continue;
-                    var driver = await GetDriverAsync(doc.Data.ReportedByDriverId ?? string.Empty);
+                    var driver = await GetDriverAsync(doc.Data.DriverId ?? string.Empty);
+                    DateTime createdAt = FirestoreDateTimeFix.Apply(doc.Data.CreatedAt);
+
+                    var defects = new List<string>();
+                    foreach (string defectId in SplitIds(doc.Data.DefectReportIds))
+                    {
+                        try
+                        {
+                            var defect = await CrossFirebaseFirestore.Current
+                                .GetCollection("maintenance_logs")
+                                .GetDocument(defectId)
+                                .GetDocumentSnapshotAsync<MaintenanceLogProxy>();
+                            if (defect?.Data == null) continue;
+                            string line = $"• {defect.Data.IssueTitle} ({defect.Data.PriorityLevel})";
+                            defects.Add(string.IsNullOrWhiteSpace(defect.Data.IssueDescription) ? line : $"{line}: {defect.Data.IssueDescription}");
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Clock-in defect read error ({defectId}): {ex.Message}");
+                        }
+                    }
 
                     items.Add(new AlertItem
                     {
                         Id = doc.Reference.Id,
                         Type = AlertType.ShiftApproval,
+                        DriverId = doc.Data.DriverId,
                         TaxiId = doc.Data.TaxiId,
                         DriverName = BuildDriverLabel(driver, null, doc.Data.TaxiId),
-                        SortTime = FirestoreDateTimeFix.Apply(doc.Data.DateLogged),
-                        Timestamp = FormatAlertTime(FirestoreDateTimeFix.Apply(doc.Data.DateLogged)),
-                        FailedItem = doc.Data.IssueTitle,
-                        Priority = doc.Data.PriorityLevel,
-                        DriverDescription = doc.Data.IssueDescription,
+                        SortTime = createdAt,
+                        Timestamp = FormatAlertTime(createdAt),
+                        FailedItem = string.Join("\n", (doc.Data.FlagReasons ?? string.Empty)
+                            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
+                        DriverDescription = defects.Count == 0 ? "No defect report filed." : string.Join("\n", defects),
+                        HasFailedItems = !(doc.Data.TireCondition && doc.Data.UnderTheHood && doc.Data.LightsCondition
+                            && doc.Data.InteriorCleanliness && doc.Data.ExteriorCondition),
+                        DefectReportIds = doc.Data.DefectReportIds,
                         PhoneNumber = driver?.PhoneNumber?.ToString()
                     });
                 }
@@ -376,19 +403,116 @@ public class AlertCenterViewModel : BindableObject
         }
     }
 
-    private async Task ResolveDefectAsync(AlertItem? alert, string newStatus)
+    /// <summary>
+    /// Same as ManagerWeb's ClockInApprovalService.ApproveAsync: refused when the driver has no
+    /// valid license or the unit is under maintenance (ShiftEligibilityRules), otherwise the
+    /// request becomes Approved and the driver's phone clocks in.
+    /// </summary>
+    private async Task ApproveClockInAsync(AlertItem? alert)
     {
         if (alert == null || alert.Type != AlertType.ShiftApproval) return;
 
         try
         {
-            await CrossFirebaseFirestore.Current
-                .GetCollection("maintenance_logs")
-                .GetDocument(alert.Id)
-                .UpdateDataAsync(new Dictionary<object, object> { ["status"] = newStatus });
+            var (blocked, _) = await LARGA.SharedCore.Services.ShiftManagementService.GetBlockReasonAsync(
+                alert.DriverId ?? string.Empty, alert.TaxiId ?? string.Empty, LARGA.SharedCore.PhilippineTime.Now.Date);
+            if (blocked != null)
+            {
+                await Shell.Current.DisplayAlert("Can't approve", $"Can't approve: {blocked}. Deny it instead, or fix that first.", "OK");
+                return;
+            }
 
-            // "Deny & Send to Garage" means the taxi itself is now unavailable.
-            if (newStatus == "InProgress" && !string.IsNullOrWhiteSpace(alert.TaxiId))
+            var request = CrossFirebaseFirestore.Current.GetCollection("clockin_requests").GetDocument(alert.Id);
+            if (!await IsStillPendingAsync(request))
+            {
+                await Shell.Current.DisplayAlert("Already decided", "This clock-in was already approved, denied or withdrawn.", "OK");
+                return;
+            }
+
+            await request.UpdateDataAsync(new Dictionary<object, object>
+            {
+                ["status"] = "Approved",
+                ["decidedAt"] = DateTime.UtcNow,
+                ["managerNote"] = string.Empty,
+            });
+            await MarkBellReadAsync($"{alert.Id}_CLOCKIN");
+            AuditLogWriter.Record("ClockInApproved",
+                $"Clock-in approved for {alert.DriverName} on {alert.TaxiId} despite: {alert.FailedItem?.Replace("\n", "; ")}.");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Approve Clock-in Error: {ex.Message}");
+            await Shell.Current.DisplayAlert("Error", "Could not save the approval. Please try again.", "OK");
+        }
+    }
+
+    /// <summary>
+    /// Same as ManagerWeb's ClockInApprovalService.DenyAsync: a note for the driver is required;
+    /// the driver's defect reports go to the Garage queue at High priority (failed checklist items
+    /// with no report get one created); optionally the unit is marked Under Maintenance.
+    /// </summary>
+    private async Task DenyClockInAsync(AlertItem? alert)
+    {
+        if (alert == null || alert.Type != AlertType.ShiftApproval) return;
+
+        string? note = await Shell.Current.DisplayPromptAsync(
+            "Deny clock-in", "Tell the driver why (required).", "Next", "Cancel",
+            placeholder: "e.g. Bring the unit to the garage first", maxLength: 300);
+        if (note is null) return; // cancelled
+        note = note.Trim();
+        if (note.Length == 0)
+        {
+            await Shell.Current.DisplayAlert("Note required", "Tell the driver why - a note is required when denying.", "OK");
+            return;
+        }
+
+        List<string> defectIds = SplitIds(alert.DefectReportIds);
+        bool markUnderMaintenance = false;
+        if (!string.IsNullOrWhiteSpace(alert.TaxiId))
+        {
+            string suggestion = alert.HasFailedItems || defectIds.Count > 0 ? "" : " (only fuel was flagged)";
+            markUnderMaintenance = await Shell.Current.DisplayAlert(
+                "Send unit to the Garage?",
+                $"Mark {alert.TaxiId} as Under Maintenance{suggestion}? The Shift Scheduler then offers a substitute unit.",
+                "Mark Under Maintenance", "No");
+        }
+
+        try
+        {
+            var request = CrossFirebaseFirestore.Current.GetCollection("clockin_requests").GetDocument(alert.Id);
+            if (!await IsStillPendingAsync(request))
+            {
+                await Shell.Current.DisplayAlert("Already decided", "This clock-in was already approved, denied or withdrawn.", "OK");
+                return;
+            }
+
+            DateTime now = DateTime.UtcNow;
+            foreach (string defectId in defectIds)
+            {
+                await CrossFirebaseFirestore.Current
+                    .GetCollection("maintenance_logs")
+                    .GetDocument(defectId)
+                    .UpdateDataAsync(new Dictionary<object, object> { ["priorityLevel"] = "High" });
+            }
+
+            if (defectIds.Count == 0 && alert.HasFailedItems)
+            {
+                await CrossFirebaseFirestore.Current
+                    .GetCollection("maintenance_logs")
+                    .AddDocumentAsync(new MaintenanceReportCreateProxy
+                    {
+                        TaxiId = alert.TaxiId ?? string.Empty,
+                        MaintenanceType = "Breakdown Repair",
+                        IssueTitle = "Failed pre-shift inspection",
+                        IssueDescription = $"Clock-in denied. Flagged: {alert.FailedItem?.Replace("\n", "; ")}. Manager: {note}",
+                        DateLogged = now,
+                        PriorityLevel = "High",
+                        ReportedByDriverId = alert.DriverId ?? string.Empty,
+                        Status = "Reported",
+                    });
+            }
+
+            if (markUnderMaintenance && !string.IsNullOrWhiteSpace(alert.TaxiId))
             {
                 await CrossFirebaseFirestore.Current
                     .GetCollection("taxis")
@@ -396,35 +520,43 @@ public class AlertCenterViewModel : BindableObject
                     .UpdateDataAsync(new Dictionary<object, object> { ["status"] = LARGA.SharedCore.TaxiStatusRules.UnderMaintenance });
             }
 
-            if (newStatus == "InProgress")
+            await request.UpdateDataAsync(new Dictionary<object, object>
             {
-                AuditLogWriter.Record("VehicleDefectDeniedUnitMaintenance",
-                    $"Vehicle defect report denied for {alert.TaxiId} ({alert.DriverName}): {alert.FailedItem}. Unit put under maintenance.");
-            }
-            else
-            {
-                AuditLogWriter.Record("VehicleDefectApproved",
-                    $"Vehicle defect report approved for {alert.TaxiId} ({alert.DriverName}): {alert.FailedItem}.");
-            }
+                ["status"] = "Denied",
+                ["decidedAt"] = now,
+                ["managerNote"] = note,
+            });
+            await MarkBellReadAsync($"{alert.Id}_CLOCKIN");
+            AuditLogWriter.Record("ClockInDenied",
+                $"Clock-in denied for {alert.DriverName} on {alert.TaxiId}: {note}." + (markUnderMaintenance ? " Unit put under maintenance." : ""));
 
-            if (newStatus == "InProgress")
-            {
-                await Shell.Current.DisplayAlert("Sent to Garage", $"{alert.DriverName}'s report has been sent to the garage for a work order. {alert.TaxiId} is now marked under maintenance.", "OK");
-            }
+            await Shell.Current.DisplayAlert("Clock-in denied",
+                markUnderMaintenance
+                    ? $"{alert.DriverName} has been told why. {alert.TaxiId} is marked Under Maintenance and the report is in the Garage queue."
+                    : $"{alert.DriverName} has been told why.", "OK");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Resolve Defect Error: {ex.Message}");
-            await Shell.Current.DisplayAlert("Error", "Could not send this report to the garage. Please try again.", "OK");
+            System.Diagnostics.Debug.WriteLine($"Deny Clock-in Error: {ex.Message}");
+            await Shell.Current.DisplayAlert("Error", "Could not save the decision. Please try again.", "OK");
         }
     }
 
-    /// <summary>The bell entry ManagerWeb raised for this SOS ({alertId}_SOS), if any.</summary>
-    private static async Task MarkSosBellReadAsync(string alertId)
+    private static async Task<bool> IsStillPendingAsync(IDocumentReference request)
+    {
+        var snapshot = await request.GetDocumentSnapshotAsync<ClockInRequestAlertProxy>();
+        return snapshot?.Data != null && snapshot.Data.Status == "Pending";
+    }
+
+    private static List<string> SplitIds(string? ids) =>
+        (ids ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    /// <summary>Marks a ManagerWeb bell entry (system_alerts/{docId}) read, if there is one.</summary>
+    private static async Task MarkBellReadAsync(string docId)
     {
         try
         {
-            var bell = CrossFirebaseFirestore.Current.GetCollection("system_alerts").GetDocument($"{alertId}_SOS");
+            var bell = CrossFirebaseFirestore.Current.GetCollection("system_alerts").GetDocument(docId);
             var snapshot = await bell.GetDocumentSnapshotAsync<BellProxy>();
             if (snapshot?.Data != null)
             {
@@ -433,9 +565,40 @@ public class AlertCenterViewModel : BindableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"SOS bell update error: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Bell update error ({docId}): {ex.Message}");
         }
     }
+
+    private class ClockInRequestAlertProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")] public string? DriverId { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")] public string? TaxiId { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")] public string? Status { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("flagReasons")] public string? FlagReasons { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("defectReportIds")] public string? DefectReportIds { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("tireCondition")] public bool TireCondition { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("underTheHood")] public bool UnderTheHood { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("lightsCondition")] public bool LightsCondition { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("interiorCleanliness")] public bool InteriorCleanliness { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("exteriorCondition")] public bool ExteriorCondition { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("createdAt")] public DateTime CreatedAt { get; set; }
+    }
+
+    /// <summary>A new driver report in the Garage queue - same fields ManagerWeb's DenyAsync writes.</summary>
+    private class MaintenanceReportCreateProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")] public string TaxiId { get; set; } = string.Empty;
+        [Plugin.Firebase.Firestore.FirestoreProperty("maintenanceType")] public string MaintenanceType { get; set; } = string.Empty;
+        [Plugin.Firebase.Firestore.FirestoreProperty("issueTitle")] public string IssueTitle { get; set; } = string.Empty;
+        [Plugin.Firebase.Firestore.FirestoreProperty("issueDescription")] public string IssueDescription { get; set; } = string.Empty;
+        [Plugin.Firebase.Firestore.FirestoreProperty("dateLogged")] public DateTime DateLogged { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("priorityLevel")] public string PriorityLevel { get; set; } = string.Empty;
+        [Plugin.Firebase.Firestore.FirestoreProperty("reportedByDriverId")] public string ReportedByDriverId { get; set; } = string.Empty;
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")] public string Status { get; set; } = string.Empty;
+    }
+
+    /// <summary>The bell entry ManagerWeb raised for this SOS ({alertId}_SOS), if any.</summary>
+    private static Task MarkSosBellReadAsync(string alertId) => MarkBellReadAsync($"{alertId}_SOS");
 
     /// <summary>
     /// Resolves a flagged fuel log the same way as the web's Fuel Verification
@@ -641,6 +804,12 @@ public class AlertItem
     public string? FailedItem { get; set; }
     public string? Priority { get; set; }
     public string? DriverDescription { get; set; }
+
+    // Clock-in approvals: a checklist item failed (vs. only low fuel), and the driver's defect
+    // reports (maintenance_logs IDs, comma-separated).
+    public bool HasFailedItems { get; set; }
+    public string? DefectReportIds { get; set; }
+
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public string? PhoneNumber { get; set; }

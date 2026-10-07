@@ -25,7 +25,16 @@ public class DriverPerformance
     public int BoundariesDue { get; set; }
     public int BoundariesPaidOnTime { get; set; }
 
+    /// <summary>Accident / damage reports from their shifts.</summary>
     public int DamageIncidents { get; set; }
+
+    /// <summary>SOS alerts they raised in the period (resolved or not).</summary>
+    public int SosAlerts { get; set; }
+
+    /// <summary>Everything shown as "Incidents": SOS alerts plus accident / damage reports.
+    /// Informational only - it isn't part of the ranking score, since an SOS (a robbery, a
+    /// medical emergency) isn't necessarily the driver's fault.</summary>
+    public int Incidents => SosAlerts + DamageIncidents;
     public decimal BoundariesRemitted { get; set; }
 
     /// <summary>Worked days / expected days; null when no day was expected.</summary>
@@ -65,8 +74,9 @@ public class DriverPerformance
 ///    show up for counts as not punctual.
 ///  - Payment reliability: the shift's boundary (plus its extra charges) was paid in full by
 ///    the end of the next day, counting every payment document (BoundaryPaymentRules).
-///  - Damage incidents: accident / damage reports from their shifts. SOS alerts and routine
-///    defect reports don't count against a driver.
+///  - Incidents: SOS alerts the driver raised in the period, plus accident / damage reports
+///    from their shifts. Routine defect reports aren't incidents. Incidents are shown, not
+///    scored.
 /// Today only counts once the driver has driven today - the day isn't over.
 /// </summary>
 public static class DriverPerformanceCalculator
@@ -77,6 +87,7 @@ public static class DriverPerformanceCalculator
         IReadOnlyList<ShiftSchedule> driverExceptions,
         IReadOnlyList<MaintenanceRecord> maintenance,
         IReadOnlyList<BoundaryPayment> payments,
+        IReadOnlyList<EmergencyAlert> alerts,
         decimal defaultBoundaryRate,
         DateTime fromPh,
         DateTime nowUtc)
@@ -167,6 +178,12 @@ public static class DriverPerformanceCalculator
         result.DamageIncidents = maintenance.Count(m => m.MaintenanceType == MaintenanceType.AccidentCorrection
             && m.ShiftId is not null && shiftIds.Contains(m.ShiftId)
             && !string.Equals(m.Status, "Dismissed", StringComparison.OrdinalIgnoreCase));
+
+        // SOS alerts: matched by driver, or by one of their shifts (older alerts may lack driverId).
+        DateTime startUtc = startPh - PhilippineTime.Offset;
+        result.SosAlerts = alerts.Count(a => a.Timestamp >= startUtc && a.Timestamp <= nowUtc
+            && ((!string.IsNullOrEmpty(a.DriverId) && a.DriverId == driver.UserId)
+                || (!string.IsNullOrEmpty(a.ShiftId) && shiftIds.Contains(a.ShiftId))));
 
         return result;
     }

@@ -41,12 +41,22 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
             _isPaused = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsActive));
-            OnPropertyChanged(nameof(StatusBannerText));
-            OnPropertyChanged(nameof(StatusBannerColor));
-            OnPropertyChanged(nameof(ShiftStatus));
+            RaiseStatusChanged();
         }
     }
     public bool IsActive => !IsPaused;
+
+    /// <summary>On shift, not on break, but the last GPS point showed the unit not moving -
+    /// the same reading the manager's Live Fleet map shows as Idle.</summary>
+    public bool IsIdle => !IsPaused && !_telemetryService.IsMoving;
+
+    private void RaiseStatusChanged()
+    {
+        OnPropertyChanged(nameof(IsIdle));
+        OnPropertyChanged(nameof(StatusBannerText));
+        OnPropertyChanged(nameof(StatusBannerColor));
+        OnPropertyChanged(nameof(ShiftStatus));
+    }
 
     private bool _isSosAlertVisible;
     public bool IsSosAlertVisible
@@ -129,9 +139,17 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         set { _isPauseAlertVisible = value; OnPropertyChanged(); }
     }
 
-    public string StatusBannerText => IsPaused ? "On Break - GPS Tracking On" : "Active Shift - GPS Tracking On";
-    public Color StatusBannerColor => IsPaused ? Colors.Yellow : Colors.Lime;
-    public string ShiftStatus => IsPaused ? "Shift Paused." : "On the Road.";
+    public string StatusBannerText => IsPaused ? "On Break - GPS Tracking On"
+        : IsIdle ? "Idle - GPS Tracking On"
+        : "Active Shift - GPS Tracking On";
+
+    // Lime / yellow / blue - Idle is the blue the manager's Live Fleet map and the web's Fleet
+    // Status use, lightened to read on this dark banner.
+    public Color StatusBannerColor => IsPaused ? Colors.Yellow
+        : IsIdle ? Color.FromArgb("#4FC3F7")
+        : Colors.Lime;
+
+    public string ShiftStatus => IsPaused ? "Shift Paused." : IsIdle ? "Not Moving." : "On the Road.";
 
     private string _taxiUnit = "Loading...";
     public string TaxiUnit
@@ -197,6 +215,8 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         _emergencyAlertService = emergencyAlertService;
         _telemetryService = telemetryService;
         _emergencyFeedback = emergencyFeedback;
+        // Each GPS point (every ~30s) may flip the unit between moving and Idle.
+        _telemetryService.MovementChanged += (_, _) => MainThread.BeginInvokeOnMainThread(RaiseStatusChanged);
 
         // Event rather than the 1s timer tick: the timer stops while on break, but the taxi
         // can still be moved (and GPS keeps tracking) during one.

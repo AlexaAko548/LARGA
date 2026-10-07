@@ -60,20 +60,15 @@ public class FleetPin
         _ => "ACTIVE",
     };
 
-    public Color StatusColor => Status switch
-    {
-        FleetDriverStatus.Sos => Color.FromArgb("#D33F3F"),
-        FleetDriverStatus.OnBreak => Color.FromArgb("#C97A1B"),
-        FleetDriverStatus.Idle => Color.FromArgb("#6B808A"),
-        _ => Color.FromArgb("#1E8E5A"),
-    };
+    public Color StatusColor => FleetStatusColors.For(Status);
 
+    // The web pills' tinted backgrounds (app.css status-*), flattened onto white.
     public Color StatusBgColor => Status switch
     {
-        FleetDriverStatus.Sos => Color.FromArgb("#FBEAEA"),
-        FleetDriverStatus.OnBreak => Color.FromArgb("#FBF0E0"),
-        FleetDriverStatus.Idle => Color.FromArgb("#EEF2F4"),
-        _ => Color.FromArgb("#E3F5EC"),
+        FleetDriverStatus.Sos => Color.FromArgb("#FDEBEC"),
+        FleetDriverStatus.OnBreak => Color.FromArgb("#FDF3E9"),
+        FleetDriverStatus.Idle => Color.FromArgb("#E1F3F9"),
+        _ => Color.FromArgb("#E9F8EF"),
     };
 
     public bool IsSos => Status == FleetDriverStatus.Sos;
@@ -81,6 +76,29 @@ public class FleetPin
     /// <summary>Call button accent - green for an Active unit (easy to reach, on the road),
     /// the usual blue for every other status.</summary>
     public Color CallAccentColor => Status == FleetDriverStatus.Active ? StatusColor : Color.FromArgb("#019BCF");
+}
+
+/// <summary>Live Fleet status colours - the same as ManagerWeb's dashboard Fleet Status pills
+/// (app.css: status-success / status-warning alt / status-danger / status-neutral idle /
+/// status-parked), so a status looks the same on the web and the phone. Shared by the pins,
+/// unit chips and detail sheet; ManagerDashboardPage.xaml repeats the hex values in its legend.</summary>
+public static class FleetStatusColors
+{
+    public static readonly Color Active = Color.FromArgb("#1B8B52");
+    public static readonly Color OnBreak = Color.FromArgb("#B05A14");
+    public static readonly Color Idle = Color.FromArgb("#0181AD");
+    public static readonly Color Sos = Color.FromArgb("#B53D4A");
+
+    /// <summary>No driver on shift - the web's Parked.</summary>
+    public static readonly Color OffShift = Color.FromArgb("#5A7A8A");
+
+    public static Color For(FleetDriverStatus status) => status switch
+    {
+        FleetDriverStatus.Sos => Sos,
+        FleetDriverStatus.OnBreak => OnBreak,
+        FleetDriverStatus.Idle => Idle,
+        _ => Active,
+    };
 }
 
 /// <summary>One always-visible "jump to this taxi" shortcut at the bottom of the map, for
@@ -93,13 +111,9 @@ public class UnitChip : BindableObject
     public FleetDriverStatus Status { get; set; }
     public bool HasPin { get; set; }
 
-    public Color StatusColor => Status switch
-    {
-        FleetDriverStatus.Sos => Color.FromArgb("#D33F3F"),
-        FleetDriverStatus.OnBreak => Color.FromArgb("#C97A1B"),
-        FleetDriverStatus.Idle => Color.FromArgb("#6B808A"),
-        _ => Color.FromArgb("#1E8E5A"),
-    };
+    /// <summary>A unit with no pin has no driver on shift (or no GPS yet) - light grey, so it
+    /// can't be mistaken for Idle (on shift, not moving).</summary>
+    public Color StatusColor => HasPin ? FleetStatusColors.For(Status) : FleetStatusColors.OffShift;
 
     private bool _isSelected;
     public bool IsSelected

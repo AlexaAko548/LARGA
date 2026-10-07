@@ -70,7 +70,9 @@ else
             @foreach (SosAlertView sos in _active)
             {
                 SosAlertView alert = sos;
-                <article class="sos-card @TriggerCss(alert.TriggerType)">
+                @* @key ties each card to its alert: without it, resolving a card made the next one
+                   slide into its DOM element and inherit the ticked checkbox. *@
+                <article @key="alert.AlertId" class="sos-card @TriggerCss(alert.TriggerType)">
                     <div class="sos-card-head">
                         <span class="sos-trigger">@TriggerIcon(alert.TriggerType) @SosDispatchService.TriggerLabel(alert.TriggerType).ToUpperInvariant()</span>
                         <span class="sos-time" title="@alert.Timestamp.ToPhilippineTime().ToString("MMM d, yyyy h:mm:ss tt")">@alert.Timestamp.ToPhilippineTime().ToString("h:mm tt") · @Ago(alert.Timestamp)</span>
@@ -128,8 +130,10 @@ else
         @if (_recentlyResolved.Count > 0)
         {
             <section class="sos-resolved">
-                <h2>Resolved in the last 24 hours</h2>
-                <div class="data-table-wrap">
+                <h2>Resolved in the last 24 hours <span class="sos-resolved-count">· @_recentlyResolved.Count</span></h2>
+                @* Shows up to 10 rows; past that the table scrolls inside its box (header stays put)
+                   instead of pushing the page longer with every resolved alert. *@
+                <div class="data-table-wrap sos-resolved-scroll @(_recentlyResolved.Count > ResolvedRowsVisible ? "is-scrolling" : "")">
                     <table class="data-table">
                         <thead>
                             <tr>
@@ -146,7 +150,7 @@ else
                             @foreach (SosAlertView sos in _recentlyResolved)
                             {
                                 SosAlertView alert = sos;
-                                <tr>
+                                <tr @key="alert.AlertId">
                                     <td><span class="status-pill small status-neutral">@SosDispatchService.TriggerLabel(alert.TriggerType)</span></td>
                                     <td>@alert.DriverName</td>
                                     <td>@alert.TaxiId</td>
@@ -185,6 +189,9 @@ else
     // SOS is time-critical: the page re-reads emergency_alerts far more often than the
     // other pages' 20 s refresh.
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(10);
+
+    // Resolved-in-24h rows shown before the table scrolls (app.css .sos-resolved-scroll).
+    private const int ResolvedRowsVisible = 10;
 
     // True until the first data load finishes (LoadAsync clears it). Access itself is enforced
     // server-side by [Authorize].

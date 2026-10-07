@@ -106,7 +106,9 @@ service cloud.firestore {
 
     match /maintenance_logs/{maintenanceId} {
       allow read: if isStaff() || isDriver();
-      allow create: if isDriver();
+      // Managers too: denying a flagged clock-in from the manager app files a Garage report for
+      // failed checklist items the driver didn't report (LAR-99, same as ManagerWeb).
+      allow create: if isDriver() || isManager();
       allow update: if isManager();
     }
 
@@ -139,6 +141,10 @@ service cloud.firestore {
 
     match /audit_logs/{logId} {
       allow read, write: if isManager();
+      // Drivers log only their own SOS and defect reports (EmergencyAlertService, VehicleDefectViewModel).
+      allow create: if isDriver()
+         && request.resource.data.userId == request.auth.uid
+         && request.resource.data.actionType in ['SosTriggered', 'VehicleDefectReported'];
     }
 
     match /handover_checklists/{checklistId} {

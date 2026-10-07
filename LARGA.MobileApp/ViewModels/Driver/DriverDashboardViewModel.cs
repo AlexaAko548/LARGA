@@ -124,6 +124,26 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                 await Shell.Current.DisplayAlert("Too early", "Shifts start at 6:00 AM. You can clock in and do your pre-shift checklist from 6:00 AM onwards.", "OK");
                 return;
             }
+
+            // No license, no shift; no shift on a unit under maintenance - checked here so the
+            // driver isn't sent through the whole checklist first. ClockInAsync and the
+            // approval request enforce the same rule.
+            try
+            {
+                var unit = await _shiftService.GetCurrentUserAssignedTaxiAsync();
+                string? taxiId = string.IsNullOrWhiteSpace(unit?.TaxiId) ? unit?.DocumentId : unit.TaxiId;
+                if (await _shiftService.GetClockInBlockReasonAsync(taxiId ?? string.Empty) is string blocked)
+                {
+                    await Shell.Current.DisplayAlert("Can't start a shift", blocked, "OK");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Couldn't check (e.g. offline) - clock-in itself checks again before starting.
+                System.Diagnostics.Debug.WriteLine($"Clock-in Eligibility Error: {ex.Message}");
+            }
+
             await Shell.Current.GoToAsync("pre-shift-step1");
         });
         ActiveShiftCommand = new Command(async () => await Shell.Current.GoToAsync("active-shift"));
