@@ -13,7 +13,7 @@ using Xamarin.Google.MLKit.Vision.Common;
 namespace LARGA.MobileApp.Platforms.Android.Services;
 
 /// <summary>
-/// Detects the largest face on the license photo with ML Kit (on-device) and crops a square
+/// Detects the driver's face on the license photo with ML Kit (on-device) and crops a square
 /// around it. The crop is taken from the upright, full-resolution photo so the face keeps its
 /// detail, then scaled down for the profile avatar.
 /// </summary>
@@ -34,7 +34,7 @@ public class AndroidFaceCropService : IFaceCropService
         if (upright is null)
             return null;
 
-        var faceBox = await FindLargestFaceBoxAsync(upright);
+        var faceBox = await FindDriverFaceBoxAsync(upright);
         if (faceBox is null)
             return null;
 
@@ -77,10 +77,12 @@ public class AndroidFaceCropService : IFaceCropService
         return rotated;
     }
 
-    private static async Task<global::Android.Graphics.Rect?> FindLargestFaceBoxAsync(global::Android.Graphics.Bitmap upright)
+    private static async Task<global::Android.Graphics.Rect?> FindDriverFaceBoxAsync(global::Android.Graphics.Bitmap upright)
     {
         var options = new FaceDetectorOptions.Builder()
             .SetPerformanceMode(FaceDetectorOptions.PerformanceModeAccurate)
+            // Eye landmarks tell the real face apart from face-like shapes (see EyeCount).
+            .SetLandmarkMode(FaceDetectorOptions.LandmarkModeAll)
             // A license photo is small: the face is a modest share of the frame, so the
             // detector needs to accept smaller faces than its default.
             .SetMinFaceSize(0.05f)
@@ -92,17 +94,26 @@ public class AndroidFaceCropService : IFaceCropService
             using var image = InputImage.FromBitmap(upright, 0);
             var faces = (Java.Util.IList)await detector.Process(image);
 
-            global::Android.Graphics.Rect? largest = null;
+            // A license has one face. Prefer the detection with the most eyes found, then the
+            // larger one: the LTO seal on the card can be a bigger box than the small photo, so
+            // "largest" alone picked the seal (ManagerWeb's face-api.js hit the same thing; it
+            // picks by score, but ML Kit gives no score, so eye landmarks stand in for it).
+            global::Android.Graphics.Rect? best = null;
+            int bestEyes = -1;
             for (int i = 0; i < faces.Size(); i++)
             {
-                var box = FaceBoundingBox(faces.Get(i));
-                if (box is not null && (largest is null || Area(box) > Area(largest)))
+                if (faces.Get(i) is not { } face || FaceBoundingBox(face) is not { } box)
+                    continue;
+
+                int eyes = EyeCount(face);
+                if (best is null || eyes > bestEyes || (eyes == bestEyes && Area(box) > Area(best)))
                 {
-                    largest = box;
+                    best = box;
+                    bestEyes = eyes;
                 }
             }
 
-            return largest;
+            return best;
         }
         finally
         {
@@ -110,8 +121,8 @@ public class AndroidFaceCropService : IFaceCropService
         }
     }
 
-    // The NuGet binding doesn't expose ML Kit's Face class, so getBoundingBox() is called
-    // directly through JNI on the detected face object.
+    // The NuGet binding doesn't expose ML Kit's Face class, so its getters are called directly
+    // through JNI on the detected face object.
     private static global::Android.Graphics.Rect? FaceBoundingBox(Java.Lang.Object face)
     {
         IntPtr faceClass = JNIEnv.GetObjectClass(face.Handle);
@@ -120,6 +131,34 @@ public class AndroidFaceCropService : IFaceCropService
             IntPtr method = JNIEnv.GetMethodID(faceClass, "getBoundingBox", "()Landroid/graphics/Rect;");
             IntPtr rectHandle = JNIEnv.CallObjectMethod(face.Handle, method);
             return Java.Lang.Object.GetObject<global::Android.Graphics.Rect>(rectHandle, JniHandleOwnership.TransferLocalRef);
+        }
+        finally
+        {
+            JNIEnv.DeleteLocalRef(faceClass);
+        }
+    }
+
+    // ML Kit's FaceLandmark.LEFT_EYE / RIGHT_EYE. getLandmark returns null when the eye wasn't found.
+    private const int LeftEyeLandmark = 4;
+    private const int RightEyeLandmark = 10;
+
+    private static int EyeCount(Java.Lang.Object face)
+    {
+        IntPtr faceClass = JNIEnv.GetObjectClass(face.Handle);
+        try
+        {
+            IntPtr method = JNIEnv.GetMethodID(faceClass, "getLandmark", "(I)Lcom/google/mlkit/vision/face/FaceLandmark;");
+            int count = 0;
+            foreach (int landmark in new[] { LeftEyeLandmark, RightEyeLandmark })
+            {
+                IntPtr found = JNIEnv.CallObjectMethod(face.Handle, method, new JValue(landmark));
+                if (found != IntPtr.Zero)
+                {
+                    count++;
+                    JNIEnv.DeleteLocalRef(found);
+                }
+            }
+            return count;
         }
         finally
         {

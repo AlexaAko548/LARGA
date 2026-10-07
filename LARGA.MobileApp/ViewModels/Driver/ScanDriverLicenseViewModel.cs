@@ -257,10 +257,26 @@ public class ScanDriverLicenseViewModel : BindableObject
                 updates["profileImageUrl"] = profileImageUrl;
             }
 
-            await CrossFirebaseFirestore.Current
+            var userDoc = CrossFirebaseFirestore.Current
                 .GetCollection("users")
-                .GetDocument(_targetUserId)
-                .UpdateDataAsync(updates);
+                .GetDocument(_targetUserId);
+
+            // Note the photos this scan replaces, so they can be deleted after the save instead of
+            // piling up in Storage (same cleanup as ManagerWeb's UpdateDriverProfileAsync).
+            StoredPhotosProxy? previous = null;
+            try
+            {
+                previous = (await userDoc.GetDocumentSnapshotAsync<StoredPhotosProxy>())?.Data;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Previous Photos Read Error: {ex.Message}");
+            }
+
+            await userDoc.UpdateDataAsync(updates);
+
+            await DeleteReplacedPhotoAsync(previous?.LtoIdPhotoUrl, photoUrl);
+            await DeleteReplacedPhotoAsync(previous?.ProfileImageUrl, profileImageUrl);
 
             await ClosePageAsync();
         }
@@ -311,6 +327,33 @@ public class ScanDriverLicenseViewModel : BindableObject
         {
             TryDeleteCachedFile(facePath);
         }
+    }
+
+    /// <summary>Deletes a photo this scan replaced. Only files in this driver's own
+    /// lto_ids/{driverId}/ folder are touched, and a failure is ignored: the license is already
+    /// saved, so a failed delete only leaves an unused file behind.</summary>
+    private async Task DeleteReplacedPhotoAsync(string? oldUrl, string? newUrl)
+    {
+        if (string.IsNullOrWhiteSpace(oldUrl) || string.IsNullOrWhiteSpace(newUrl) || oldUrl == newUrl) return;
+        if (!oldUrl.Contains($"/o/{Uri.EscapeDataString($"lto_ids/{_targetUserId}/")}", StringComparison.Ordinal)) return;
+
+        try
+        {
+            await CrossFirebaseStorage.Current.GetReferenceFromUrl(oldUrl).DeleteAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Replaced Photo Delete Error: {ex.Message}");
+        }
+    }
+
+    private class StoredPhotosProxy
+    {
+        [FirestoreProperty("ltoIdPhotoUrl")]
+        public string? LtoIdPhotoUrl { get; set; }
+
+        [FirestoreProperty("profileImageUrl")]
+        public string? ProfileImageUrl { get; set; }
     }
 
     private async Task ClosePageAsync()

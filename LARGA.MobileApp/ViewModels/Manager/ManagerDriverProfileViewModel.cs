@@ -190,7 +190,8 @@ public class ManagerDriverProfileViewModel : BindableObject
 
             FullName = string.IsNullOrWhiteSpace(doc.Data.FullName) ? "(Unnamed driver)" : doc.Data.FullName;
             ProfileImageUrl = doc.Data.ProfileImageUrl ?? string.Empty;
-            Initials = MakeInitials(FullName);
+            // From the stored name, not FullName: "(Unnamed driver)" would give "(D".
+            Initials = MakeInitials(doc.Data.FullName ?? string.Empty);
             (StatusText, StatusColor) = LicenseStatusHelper.Describe(doc.Data.LicenseExpiryDate);
 
             LicenseNumberDisplay = doc.Data.LicenseNumber ?? string.Empty;
@@ -209,11 +210,12 @@ public class ManagerDriverProfileViewModel : BindableObject
         }
     }
 
+    // Same rules as ManagerWeb's DriverShifts Initials(), so both apps show the same avatar.
     private static string MakeInitials(string fullName)
     {
         var parts = fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0) return string.Empty;
-        if (parts.Length == 1) return parts[0][..1].ToUpperInvariant();
+        if (parts.Length == 0) return "?";
+        if (parts.Length == 1) return parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant();
         return $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant();
     }
 
