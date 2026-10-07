@@ -23,6 +23,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     private readonly IShiftManagementService _shiftService;
     private readonly IEmergencyAlertService _emergencyAlertService;
     private readonly IGpsTelemetryService _telemetryService;
+    private readonly IEmergencyFeedback _emergencyFeedback;
     private readonly IDispatcherTimer _shiftTimer;
     private TimeSpan _shiftDuration;
     private TimeSpan _timeRemaining;
@@ -62,6 +63,66 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     {
         get => _isSosAlertVisible;
         set { _isSosAlertVisible = value; OnPropertyChanged(); }
+    }
+
+    private const string SosSentBody = "Your emergency alert and live location have been instantly sent to the manager. Please prioritize your safety.";
+
+    private string _sosAlertTitle = string.Empty;
+    public string SosAlertTitle
+    {
+        get => _sosAlertTitle;
+        set { _sosAlertTitle = value; OnPropertyChanged(); }
+    }
+
+    private string _sosAlertBody = string.Empty;
+    public string SosAlertBody
+    {
+        get => _sosAlertBody;
+        set { _sosAlertBody = value; OnPropertyChanged(); }
+    }
+
+    // The OK button is hidden while the alert is still going out, so the driver can't dismiss
+    // the overlay before it's known whether the manager was reached.
+    private bool _isSosDismissable;
+    public bool IsSosDismissable
+    {
+        get => _isSosDismissable;
+        set { _isSosDismissable = value; OnPropertyChanged(); }
+    }
+
+    private void ShowSosSending()
+    {
+        SosAlertTitle = "SENDING SOS...";
+        SosAlertBody = "Sending your emergency alert to the manager.";
+        IsSosDismissable = false;
+        IsSosAlertVisible = true;
+    }
+
+    private void ShowSosSent()
+    {
+        SosAlertTitle = "SOS ALERT SENT";
+        SosAlertBody = SosSentBody;
+        IsSosDismissable = true;
+    }
+
+    private void HideSosOverlay() => IsSosAlertVisible = false;
+
+    // A fix from the last 30 seconds is used as it is. Waiting for a fresh GPS fix can take many
+    // seconds, and the manager needs the alert before that. Only when nothing recent exists do we
+    // wait for a new fix, falling back to an older one if the fresh fix fails.
+    private static readonly TimeSpan RecentFixAge = TimeSpan.FromSeconds(30);
+
+    private static async Task<Location?> GetSosLocationAsync()
+    {
+        Location? lastKnown = await Geolocation.Default.GetLastKnownLocationAsync();
+        if (lastKnown != null && DateTimeOffset.UtcNow - lastKnown.Timestamp <= RecentFixAge)
+        {
+            return lastKnown;
+        }
+
+        Location? fresh = await Geolocation.Default.GetLocationAsync(
+            new GeolocationRequest(GeolocationAccuracy.Best, TimeSpan.FromSeconds(15)));
+        return fresh ?? lastKnown;
     }
 
     private bool _isClockOutAlertVisible;
@@ -139,10 +200,11 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     public ICommand ConfirmPauseCommand { get; }
     public ICommand CancelPauseCommand { get; }
 
-    public ActiveShiftViewModel(IShiftManagementService shiftService, IEmergencyAlertService emergencyAlertService, IGpsTelemetryService telemetryService)
+    public ActiveShiftViewModel(IShiftManagementService shiftService, IEmergencyAlertService emergencyAlertService, IEmergencyFeedback emergencyFeedback, IGpsTelemetryService telemetryService)
     {
         _shiftService = shiftService;
         _emergencyAlertService = emergencyAlertService;
+        _emergencyFeedback = emergencyFeedback;
         _telemetryService = telemetryService;
         // Each GPS point (every ~30s) may flip the unit between moving and Idle.
         _telemetryService.MovementChanged += (_, _) => MainThread.BeginInvokeOnMainThread(RaiseStatusChanged);
@@ -191,11 +253,18 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         if (_isSendingSos) return;
         _isSendingSos = true;
 
+        // The 3-second hold has completed: buzz now so the driver knows to let go.
+        _emergencyFeedback.ButtonHeld();
+
+        // Show the overlay straight away; the GPS fix and the write can take a few seconds.
+        ShowSosSending();
+
         try
         {
             string shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
             if (string.IsNullOrWhiteSpace(shiftId))
             {
+                HideSosOverlay();
                 await Shell.Current.DisplayAlert("SOS Failed", "No active shift found. Please clock in first.", "OK");
                 return;
             }
@@ -209,13 +278,12 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
             Location? location = null;
             if (status == PermissionStatus.Granted)
             {
-                location = await Geolocation.Default.GetLocationAsync(
-                    new GeolocationRequest(GeolocationAccuracy.Best, TimeSpan.FromSeconds(15)));
-                location ??= await Geolocation.Default.GetLastKnownLocationAsync();
+                location = await GetSosLocationAsync();
             }
 
             if (location == null)
             {
+                HideSosOverlay();
                 await Shell.Current.DisplayAlert("SOS Failed", "Unable to get your location. Please enable location services and try again.", "OK");
                 return;
             }
@@ -227,15 +295,17 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
 
             if (alertId == null)
             {
+                HideSosOverlay();
                 await Shell.Current.DisplayAlert("SOS Failed", "Could not send your SOS alert. Please try again.", "OK");
                 return;
             }
 
-            IsSosAlertVisible = true;
+            ShowSosSent();
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"SOS send failed: {ex.Message}");
+            HideSosOverlay();
             await Shell.Current.DisplayAlert("SOS Failed", "Could not send your SOS alert. Please try again.", "OK");
         }
         finally

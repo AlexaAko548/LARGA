@@ -10,6 +10,7 @@
 @inject FleetReportingService FleetReporting
 @inject FinancialLedgerService Ledger
 @inject LARGA.ManagerWeb.Services.ChatDrawerState ChatDrawer
+@inject AuthenticationStateProvider AuthStateProvider
 
 <PageTitle>Executive Dashboard</PageTitle>
 
@@ -25,7 +26,7 @@
 
             <div class="header-actions">
                 <NotificationBell />
-                <MessagesButton />
+                @if (_canManage) { <MessagesButton /> }
                 <ManagerProfileMenu />
             </div>
         </header>
@@ -56,7 +57,7 @@
                     </button>
                 }
             }
-            <button class="generate-btn" type="button" @onclick="OpenReportModal">✦ Generate Reports</button>
+            @if (_canManage) { <button class="generate-btn" type="button" @onclick="OpenReportModal">✦ Generate Reports</button> }
         </div>
 
         @if (_snapshot is not null && _openStatus is not null)
@@ -98,7 +99,7 @@
                                 {
                                     <a class="outline-btn" href="tel:@u.DriverPhone">📞 Call</a>
                                 }
-                                @if (u.DriverId is not null && u.DriverName is not null && u.Status is not (FleetUnitStatus.ParkedStatus or FleetUnitStatus.MaintenanceStatus))
+                                @if (u.DriverId is not null && u.DriverName is not null && _canManage && u.Status is not (FleetUnitStatus.ParkedStatus or FleetUnitStatus.MaintenanceStatus))
                                 {
                                     <button type="button" class="outline-btn" @onclick="() => ChatDrawer.OpenChat(u.DriverId!, u.DriverName!, u.TaxiId, isEmergency: u.Status == FleetUnitStatus.SosStatus)">💬 Message</button>
                                 }
@@ -371,6 +372,9 @@
 @code {
     private const string CsvFormat = "CSV File";
 
+    // Assistant Managers can view the dashboard, but can't open driver chats from it.
+    private bool _canManage;
+
     private IJSObjectReference? _fileDownloadModule;
     private bool _showReportModal;
     private string _selectedReportType = "Financial Summary";
@@ -402,6 +406,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
+
         try
         {
             _snapshot = await FleetReporting.GetDashboardSnapshotAsync();

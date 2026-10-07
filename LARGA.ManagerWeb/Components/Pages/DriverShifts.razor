@@ -38,7 +38,7 @@ else
 
             <div class="header-actions">
                 <NotificationBell />
-                <MessagesButton />
+                @if (_canManage) { <MessagesButton /> }
                 <ManagerProfileMenu />
             </div>
         </header>
@@ -104,12 +104,15 @@ else
                         </div>
 
                         <div class="clockin-request-actions">
-                            @if (item.BlockedReason is not null)
+                            @if (_canManage)
                             {
-                                <div class="field-error">Can't be approved: @item.BlockedReason.</div>
+                                @if (item.BlockedReason is not null)
+                                {
+                                    <div class="field-error">Can't be approved: @item.BlockedReason.</div>
+                                }
+                                <button class="solid-btn" type="button" disabled="@(_isDecidingClockIn || item.BlockedReason is not null)" title="@(item.BlockedReason is null ? null : $"Can't be approved: {item.BlockedReason}")" @onclick="() => ApproveClockInAsync(item)">✓ Approve</button>
+                                <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)">✕ Deny</button>
                             }
-                            <button class="solid-btn" type="button" disabled="@(_isDecidingClockIn || item.BlockedReason is not null)" title="@(item.BlockedReason is null ? null : $"Can't be approved: {item.BlockedReason}")" @onclick="() => ApproveClockInAsync(item)">✓ Approve</button>
-                            <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)">✕ Deny</button>
                         </div>
                     </article>
                 }
@@ -159,8 +162,8 @@ else
                 <button class="tab-btn @(_activeTab == "logs" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("logs")'>▥ Shift Logs</button>
             </div>
             <div class="tab-actions">
-                <button class="solid-btn" type="button" @onclick="OpenManagerNoteModal">+ Add Manager Note</button>
-                <button class="solid-btn" type="button" @onclick="OpenAddDriverModal">+ Add New Driver</button>
+                @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenManagerNoteModal">+ Add Manager Note</button> }
+                @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenAddDriverModal">+ Add New Driver</button> }
             </div>
         </section>
 
@@ -273,7 +276,7 @@ else
                                             DriverScheduleRow cellRow = row;
                                             <td class="schedule-cell-wrap @(IsToday(cell.Date) ? "schedule-today" : "")">
                                                 <button class="schedule-cell @ScheduleCellCss(cell)" type="button"
-                                                        disabled="@cell.IsLicenseIneligible"
+                                                        disabled="@(cell.IsLicenseIneligible || !_canManage)"
                                                         title="@ScheduleCellTooltip(cellRow, cell)"
                                                         @onclick="() => OnScheduleCellClickedAsync(cellRow, cell)">
                                                     @if (cell.IsLicenseIneligible && cellRow.LicenseStatus == LicenseStatus.NotSet)
@@ -749,7 +752,14 @@ else
             </div>
 
             <div class="profile-hero">
-                <div class="table-avatar large">@Initials(_selectedProfile.FullName)</div>
+                @if (!string.IsNullOrEmpty(_selectedProfile.ProfileImageUrl))
+                {
+                    <img class="table-avatar large profile-avatar-photo" src="@_selectedProfile.ProfileImageUrl" alt="@_selectedProfile.FullName" />
+                }
+                else
+                {
+                    <div class="table-avatar large">@Initials(_selectedProfile.FullName)</div>
+                }
                 <div>
                     <div class="profile-name">@_selectedProfile.FullName</div>
                     <div class="profile-meta">@(_selectedProfile.DateJoined is { } joined ? $"Since {joined:MMM yyyy}" : "Join date not set")</div>
@@ -847,11 +857,11 @@ else
                 }
 
                 <div class="profile-section">
-                    <div class="profile-section-label">Account Settings</div>
-                    <button class="profile-action-btn" type="button" @onclick="StartEditProfile">Edit Details</button>
+                    @if (_canManage) { <div class="profile-section-label">Account Settings</div> }
+                    @if (_canManage) { <button class="profile-action-btn" type="button" @onclick="StartEditProfile">Edit Details</button> }
                     @if (!_showPasswordForm)
                     {
-                        <button class="profile-action-btn" type="button" @onclick="OpenPasswordForm">Change Mobile App Password</button>
+                        @if (_canManage) { <button class="profile-action-btn" type="button" @onclick="OpenPasswordForm">Change Mobile App Password</button> }
                     }
                     else
                     {
@@ -1001,6 +1011,15 @@ else
 }
 
 @code {
+    // Assistant Managers can view drivers and shifts but can't approve clock-ins, edit the schedule, or add notes/drivers.
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
+    }
+
     // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
     private bool _isLoading = true;
     private string _managerUserId = string.Empty;
@@ -1688,6 +1707,8 @@ else
     // Held until Save Changes, and only when the scanned license was valid.
     private byte[]? _pendingLicensePhoto;
     private string _pendingLicensePhotoType = "image/jpeg";
+    // Face crop from the same valid scan, saved as the driver's profile picture.
+    private byte[]? _pendingProfileFace;
 
     private async Task OnLicenseSelectedAsync(InputFileChangeEventArgs e)
     {
@@ -1727,6 +1748,7 @@ else
                 _editLicenseExpiry = _licenseScan.ExpiryDate;
                 _pendingLicensePhoto = photo;
                 _pendingLicensePhotoType = string.IsNullOrEmpty(e.File.ContentType) ? "image/jpeg" : e.File.ContentType;
+                _pendingProfileFace = await TryCropDriverFaceAsync();
             }
         }
         catch (Exception ex)
@@ -1736,6 +1758,23 @@ else
         finally
         {
             _isReadingLicense = false;
+        }
+    }
+
+    // The profile picture is optional: if no face is found (or the detector can't load), the
+    // license still saves and the driver keeps their initials avatar.
+    private async Task<byte[]?> TryCropDriverFaceAsync()
+    {
+        try
+        {
+            string? dataUrl = await _ocrModule!.InvokeAsync<string?>(
+                "cropDriverFace", TimeSpan.FromMinutes(3), _licenseInput!.Element);
+            int comma = dataUrl?.IndexOf(',') ?? -1;
+            return comma < 0 ? null : Convert.FromBase64String(dataUrl![(comma + 1)..]);
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 
@@ -1751,6 +1790,7 @@ else
         _licenseValidation = null;
         _licenseScanError = null;
         _pendingLicensePhoto = null;
+        _pendingProfileFace = null;
     }
 
     private static string LicenseDocumentLabel(LtoLicenseParser.Result scan) =>
@@ -1798,13 +1838,28 @@ else
                 ? null
                 : await DriverManagement.UploadLtoIdPhotoAsync(_selectedProfile.DriverId, _pendingLicensePhoto, _pendingLicensePhotoType);
 
+            // Best-effort, like the mobile scan: a failed face upload shouldn't block the license save.
+            string? profileImageUrl = null;
+            if (_pendingProfileFace is not null)
+            {
+                try
+                {
+                    profileImageUrl = await DriverManagement.UploadProfileFaceAsync(_selectedProfile.DriverId, _pendingProfileFace);
+                }
+                catch (Exception)
+                {
+                    profileImageUrl = null;
+                }
+            }
+
             await DriverManagement.UpdateDriverProfileAsync(
                 _selectedProfile.DriverId,
                 _editPhone, _editAddress,
                 _editLicenseNumber, _editLicenseClass, _editLicenseRestriction,
                 _editLicenseExpiry,
                 _editAssignedTaxi,
-                ltoIdPhotoUrl);
+                ltoIdPhotoUrl,
+                profileImageUrl);
 
             ResetLicenseScan();
             _isEditingProfile = false;

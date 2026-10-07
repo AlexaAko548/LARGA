@@ -38,7 +38,7 @@ else
 
             <div class="header-actions">
                 <NotificationBell />
-                <MessagesButton />
+                @if (_canManage) { <MessagesButton /> }
                 <ManagerProfileMenu />
             </div>
         </header>
@@ -84,8 +84,8 @@ else
                                 <button class="link-btn" type="button" @onclick="() => OpenEvidenceModal(r.IssueTitle, r.ReportedByName, r.IssueDescription, r.SupportingPhotoUrl)">↗ View Evidence</button>
                             </div>
                             <div class="report-card-actions">
-                                <button class="solid-btn" type="button" @onclick="() => OpenCreateTicketModal(r)">+ Create Ticket</button>
-                                <button class="cancel-btn" type="button" disabled="@_isBusy" @onclick="() => DismissAsync(r.MaintenanceId)">Dismiss</button>
+                                @if (_canManage) { <button class="solid-btn" type="button" @onclick="() => OpenCreateTicketModal(r)">+ Create Ticket</button> }
+                                @if (_canManage) { <button class="cancel-btn" type="button" disabled="@_isBusy" @onclick="() => DismissAsync(r.MaintenanceId)">Dismiss</button> }
                             </div>
                         </article>
                     }
@@ -118,8 +118,8 @@ else
                                 <span class="day-badge">Day @w.DayNumber</span>
                             </div>
                             <div class="report-card-actions">
-                                <button class="outline-btn" type="button" disabled="@_isBusy" @onclick="() => OpenPartsModalAsync(w)">+ Log Parts</button>
-                                <button class="solid-btn" type="button" disabled="@_isBusy" @onclick="() => MarkResolvedAsync(w.MaintenanceId)">Mark as Resolved</button>
+                                @if (_canManage) { <button class="outline-btn" type="button" disabled="@_isBusy" @onclick="() => OpenPartsModalAsync(w)">+ Log Parts</button> }
+                                @if (_canManage) { <button class="solid-btn" type="button" disabled="@_isBusy" @onclick="() => MarkResolvedAsync(w.MaintenanceId)">Mark as Resolved</button> }
                             </div>
                         </article>
                     }
@@ -143,7 +143,7 @@ else
                                 <span class="routine-check-due @(!c.DueDate.HasValue && c.DueInKm <= 0 ? "overdue" : "")">
                                     @(c.DueDate.HasValue ? $"Expires {c.DueDate.Value:MMM d, yyyy}" : c.DueInKm <= 0 ? "Overdue" : $"Due in {c.DueInKm} km")
                                 </span>
-                                <button class="profile-btn" type="button" disabled="@_isBusy" @onclick="() => OpenScheduleModal(c)">Schedule</button>
+                                @if (_canManage) { <button class="profile-btn" type="button" disabled="@_isBusy" @onclick="() => OpenScheduleModal(c)">Schedule</button> }
                             </div>
                         }
                     </div>
@@ -404,6 +404,15 @@ else
 }
 
 @code {
+    // Assistant Managers can view the garage but can't create, schedule, or log work on units.
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
+    }
+
     // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
     private bool _isLoading = true;
 

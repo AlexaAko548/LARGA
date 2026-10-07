@@ -152,7 +152,7 @@ public class VehicleDefectViewModel : BindableObject
                 return;
             }
 
-            await LARGA.MobileApp.Services.AuditLogWriter.WriteAsync("VehicleDefectReported",
+            LARGA.MobileApp.Services.AuditLogWriter.Record("VehicleDefectReported",
                 $"Vehicle defect report submitted for {taxiId}: {record.IssueTitle}.");
 
             await Shell.Current.GoToAsync($"..?defectSubmitted=true&reportId={recordId}");

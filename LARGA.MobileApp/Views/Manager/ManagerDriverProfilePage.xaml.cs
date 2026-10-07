@@ -7,10 +7,10 @@ public partial class ManagerDriverProfilePage : ContentPage
 {
     private readonly ManagerDriverProfileViewModel _viewModel;
 
-    public ManagerDriverProfilePage(IOcrService ocrService)
+    public ManagerDriverProfilePage(IOcrService ocrService, IFaceCropService faceCropService)
     {
         InitializeComponent();
-        _viewModel = new ManagerDriverProfileViewModel(ocrService);
+        _viewModel = new ManagerDriverProfileViewModel(ocrService, faceCropService);
         BindingContext = _viewModel;
     }
 

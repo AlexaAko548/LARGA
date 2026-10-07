@@ -6,7 +6,6 @@ using Android.Content;
 using Android.Content.PM;
 using Android.Hardware;
 using Android.Locations;
-using Android.Media;
 using Android.OS;
 using Android.Runtime;
 using AndroidX.Core.App;
@@ -47,10 +46,12 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
     // Silent on purpose: a Hostile countdown must not chime in front of the passenger. Haptics
     // are driven by the service itself.
     private const string CountdownChannelId = "emergency_countdown_channel";
-    private const string CrashAlarmChannelId = "emergency_crash_alarm_channel";
-    // Created by an earlier build with the default notification sound (channel sounds can't be
-    // changed afterwards), so it's removed in favour of the two channels above.
+    // Silent: the crash alarm is played by AndroidEmergencyFeedback, so the channel doesn't add a second one.
+    private const string CrashAlertChannelId = "emergency_crash_alert_channel";
+    // Created by earlier builds with a sound (channel sounds can't be changed afterwards), so they're
+    // removed in favour of the channels above.
     private const string LegacyAlertChannelId = "emergency_alert_channel";
+    private const string LegacyCrashAlarmChannelId = "emergency_crash_alarm_channel";
 
     private const int MonitorNotificationId = 8601;
     private const int CountdownNotificationId = 8602;
@@ -488,7 +489,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
     private void ShowCrashNotification(bool sent)
     {
-        var builder = new NotificationCompat.Builder(this, CrashAlarmChannelId);
+        var builder = new NotificationCompat.Builder(this, CrashAlertChannelId);
         builder.SetContentTitle("Accident alert");
         builder.SetContentText(sent
             ? "A crash alert has been sent to your manager."
@@ -564,6 +565,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         if (manager == null) return;
 
         manager.DeleteNotificationChannel(LegacyAlertChannelId);
+        manager.DeleteNotificationChannel(LegacyCrashAlarmChannelId);
 
         var monitor = new NotificationChannel(MonitorChannelId, "Safety Monitor", NotificationImportance.Low)
         {
@@ -578,19 +580,17 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         countdown.EnableVibration(false);
         countdown.LockscreenVisibility = NotificationVisibility.Public;
 
-        var alarm = new NotificationChannel(CrashAlarmChannelId, "Accident Alarm", NotificationImportance.High)
+        var alert = new NotificationChannel(CrashAlertChannelId, "Accident Alert", NotificationImportance.High)
         {
-            Description = "Loud alarm after an accident alert is sent.",
+            Description = "Shown after an accident alert is sent.",
         };
-        alarm.SetSound(
-            RingtoneManager.GetDefaultUri(RingtoneType.Alarm),
-            new AudioAttributes.Builder()!.SetUsage(AudioUsageKind.Alarm)!.Build());
-        alarm.EnableVibration(true);
-        alarm.LockscreenVisibility = NotificationVisibility.Public;
+        alert.SetSound(null, null);
+        alert.EnableVibration(false); // vibration and the alarm come from AndroidEmergencyFeedback
+        alert.LockscreenVisibility = NotificationVisibility.Public;
 
         manager.CreateNotificationChannel(monitor);
         manager.CreateNotificationChannel(countdown);
-        manager.CreateNotificationChannel(alarm);
+        manager.CreateNotificationChannel(alert);
     }
 
     // ---- Teardown -----------------------------------------------------------

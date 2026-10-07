@@ -70,9 +70,11 @@ public static class MauiProgram
         builder.Services.AddSingleton<EmergencyCountdownCoordinator>();
 #if ANDROID
         builder.Services.AddSingleton<IEmergencyMonitor, LARGA.MobileApp.Platforms.Android.Emergency.AndroidEmergencyMonitor>();
+        builder.Services.AddSingleton<IEmergencyFeedback, LARGA.MobileApp.Platforms.Android.Emergency.AndroidEmergencyFeedback>();
 #else
         // Automated detection needs Android sensor/telephony APIs; other platforms keep the manual button.
         builder.Services.AddSingleton<IEmergencyMonitor, NoOpEmergencyMonitor>();
+        builder.Services.AddSingleton<IEmergencyFeedback, NoOpEmergencyFeedback>();
 #endif
 
 #if ANDROID
@@ -89,6 +91,13 @@ public static class MauiProgram
 
         // Depends only on IOcrService, so it resolves on every platform (ScanEReceiptPage needs it).
         builder.Services.AddSingleton<LARGA.MobileApp.Services.EReceiptOcrService>();
+
+#if ANDROID
+        // Crops the driver's face from the license photo for the profile avatar (ML Kit, on-device).
+        builder.Services.AddSingleton<IFaceCropService, LARGA.MobileApp.Platforms.Android.Services.AndroidFaceCropService>();
+#else
+        builder.Services.AddSingleton<IFaceCropService, UnsupportedFaceCropService>();
+#endif
 
 #if ANDROID
         // Removes the platform underline from Quick Ledger entries only (see LedgerEntry).

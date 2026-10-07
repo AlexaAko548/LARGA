@@ -368,7 +368,7 @@ public class AlertCenterViewModel : BindableObject
                             ["resolvedAt"] = DateTime.UtcNow,
                         });
                     await MarkSosBellReadAsync(alert.Id);
-                    await AuditLogWriter.WriteAsync("SosResolved",
+                    AuditLogWriter.Record("SosResolved",
                         $"Resolved SOS alert for {alert.TaxiId} ({alert.DriverName}).");
                     break;
 
@@ -425,7 +425,7 @@ public class AlertCenterViewModel : BindableObject
                 ["managerNote"] = string.Empty,
             });
             await MarkBellReadAsync($"{alert.Id}_CLOCKIN");
-            await AuditLogWriter.WriteAsync("ClockInApproved",
+            AuditLogWriter.Record("ClockInApproved",
                 $"Clock-in approved for {alert.DriverName} on {alert.TaxiId} despite: {alert.FailedItem?.Replace("\n", "; ")}.");
         }
         catch (Exception ex)
@@ -516,7 +516,7 @@ public class AlertCenterViewModel : BindableObject
                 ["managerNote"] = note,
             });
             await MarkBellReadAsync($"{alert.Id}_CLOCKIN");
-            await AuditLogWriter.WriteAsync("ClockInDenied",
+            AuditLogWriter.Record("ClockInDenied",
                 $"Clock-in denied for {alert.DriverName} on {alert.TaxiId}: {note}." + (markUnderMaintenance ? " Unit put under maintenance." : ""));
 
             await Shell.Current.DisplayAlert("Clock-in denied",
