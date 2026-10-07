@@ -56,6 +56,8 @@ public partial class ManagerDashboardPage : ContentPage
     private readonly FleetMapViewModel _viewModel;
     private MapControl? _mapControl;
     private MemoryLayer? _pinsLayer;
+    private TileLayer? _tileLayer;
+    private bool _mapIsDark;
     private bool _hasCenteredMap;
 
     // Each entry is the last real (not projected) fix for that taxi - the anchor dead
@@ -89,11 +91,7 @@ public partial class ManagerDashboardPage : ContentPage
             _mapControl = new MapControl();
             MapHost.Content = _mapControl;
 
-            var tileSource = new HttpTileSource(
-                new GlobalSphericalMercator(),
-                $"https://api.maptiler.com/maps/streets-v2/{{z}}/{{x}}/{{y}}.png?key={MapTilerConfig.ApiKey}",
-                name: "MapTiler");
-            _mapControl.Map.Layers.Add(new TileLayer(tileSource));
+            ApplyMapTheme();
 
             _pinsLayer = new MemoryLayer("FleetPins") { Features = [] };
             _mapControl.Map.Layers.Add(_pinsLayer);
@@ -134,6 +132,39 @@ public partial class ManagerDashboardPage : ContentPage
         HeaderStack.SizeChanged += OnHeaderSizeChanged;
     }
 
+    private void OnRequestedThemeChanged(object? sender, AppThemeChangedEventArgs e) =>
+        Dispatcher.Dispatch(ApplyMapTheme);
+
+    /// <summary>MapTiler's dark street style when the app theme is dark (Dark, or System on
+    /// a dark phone - Application.RequestedTheme), the regular one otherwise.</summary>
+    private void ApplyMapTheme()
+    {
+        if (_mapControl == null) return;
+
+        bool dark = Application.Current?.RequestedTheme == AppTheme.Dark;
+        if (_tileLayer != null && dark == _mapIsDark) return;
+
+        var tileSource = new HttpTileSource(
+            new GlobalSphericalMercator(),
+            $"https://api.maptiler.com/maps/{(dark ? "streets-v2-dark" : "streets-v2")}/{{z}}/{{x}}/{{y}}.png?key={MapTilerConfig.ApiKey}",
+            name: dark ? "MapTiler Dark" : "MapTiler");
+        var tileLayer = new TileLayer(tileSource);
+
+        if (_tileLayer != null)
+        {
+            _mapControl.Map.Layers.Remove(_tileLayer);
+        }
+        // Bottom of the stack, so the FleetPins layer stays drawn on top.
+        _mapControl.Map.Layers.Insert(0, tileLayer);
+        _tileLayer = tileLayer;
+        _mapIsDark = dark;
+
+        // Ground under tiles that haven't loaded yet: the page color (ThemePageBg), so the dark
+        // map doesn't flash white while it fills in.
+        _mapControl.Map.BackColor = dark ? new MColor(15, 26, 33) : MColor.White;
+        _mapControl.Map.RefreshGraphics();
+    }
+
     private void OnHeaderSizeChanged(object? sender, EventArgs e)
     {
         if (HeaderStack.Height <= 0) return;
@@ -148,6 +179,15 @@ public partial class ManagerDashboardPage : ContentPage
 
         if (_mapControl != null)
         {
+            // The theme is switched from the Profile tab while this tab's page stays alive, so
+            // re-check on every visit; the event covers an OS dark-mode flip while it's open.
+            ApplyMapTheme();
+            if (Application.Current != null)
+            {
+                Application.Current.RequestedThemeChanged -= OnRequestedThemeChanged;
+                Application.Current.RequestedThemeChanged += OnRequestedThemeChanged;
+            }
+
             _deadReckoningTimer ??= Dispatcher.CreateTimer();
             _deadReckoningTimer.Interval = TimeSpan.FromMilliseconds(DeadReckoningTickMs);
             _deadReckoningTimer.Tick -= OnDeadReckoningTick;
@@ -160,6 +200,10 @@ public partial class ManagerDashboardPage : ContentPage
     {
         base.OnDisappearing();
         _viewModel.StopListening();
+        if (Application.Current != null)
+        {
+            Application.Current.RequestedThemeChanged -= OnRequestedThemeChanged;
+        }
         _deadReckoningTimer?.Stop();
         this.AbortAnimation(PinAnimationName);
         _liveAnchors.Clear();

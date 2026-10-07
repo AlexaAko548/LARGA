@@ -172,7 +172,16 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         set { _shiftEndsAt = value; OnPropertyChanged(); }
     }
 
-    public string Distance { get; set; } = "0";
+    // Live GPS distance from IGpsTelemetryService. It was a plain auto-property stuck at "0"
+    // before - nothing computed it and the binding never got a change notification.
+    private string _distance = "0.00";
+    public string Distance
+    {
+        get => _distance;
+        set { _distance = value; OnPropertyChanged(); }
+    }
+
+
     public string BoundaryStatus { get; set; } = "Pending";
 
     private string _durationDisplay = "00:00:00";
@@ -200,14 +209,19 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     public ICommand ConfirmPauseCommand { get; }
     public ICommand CancelPauseCommand { get; }
 
-    public ActiveShiftViewModel(IShiftManagementService shiftService, IEmergencyAlertService emergencyAlertService, IEmergencyFeedback emergencyFeedback, IGpsTelemetryService telemetryService)
+    public ActiveShiftViewModel(IShiftManagementService shiftService, IEmergencyAlertService emergencyAlertService, IGpsTelemetryService telemetryService, IEmergencyFeedback emergencyFeedback)
     {
         _shiftService = shiftService;
         _emergencyAlertService = emergencyAlertService;
-        _emergencyFeedback = emergencyFeedback;
         _telemetryService = telemetryService;
+        _emergencyFeedback = emergencyFeedback;
         // Each GPS point (every ~30s) may flip the unit between moving and Idle.
         _telemetryService.MovementChanged += (_, _) => MainThread.BeginInvokeOnMainThread(RaiseStatusChanged);
+
+        // Event rather than the 1s timer tick: the timer stops while on break, but the taxi
+        // can still be moved (and GPS keeps tracking) during one.
+        _telemetryService.DistanceChanged += (_, km) =>
+            MainThread.BeginInvokeOnMainThread(() => Distance = FormatKm(km));
 
         // Timer instantiation remains in the constructor so it exists globally
         _shiftTimer = Application.Current.Dispatcher.CreateTimer();
@@ -337,6 +351,8 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
 
             ShiftStartTimeDisplay = _shiftStartTime.ToString("hh:mm tt");
             ShiftEndsAt = ReturnDeadlineDisplay();
+            // Singleton VM: pick up the current shift's total (0 for a fresh one) on every visit.
+            Distance = FormatKm(_telemetryService.CurrentDistanceKm);
 
             // Force the timer to restart if it was stopped during a previous clock-out
             if (!_shiftTimer.IsRunning)
@@ -444,6 +460,8 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
                 : $"LATE {late.Minutes}m · no fee until 10:30 PM";
         }
     }
+
+    private static string FormatKm(double km) => km.ToString("0.00");
 
     // Unit return time, shown in the phone's local time (the fleet runs on PH time, so for
     // drivers this reads "10:00 PM").

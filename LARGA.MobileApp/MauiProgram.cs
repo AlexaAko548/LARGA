@@ -68,6 +68,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IEmergencyAlertService, EmergencyAlertService>();
         // Shared by the detection service (runs the countdown) and the cancel pop-up (shows it).
         builder.Services.AddSingleton<EmergencyCountdownCoordinator>();
+        builder.Services.AddSingleton<IThemeService, ThemeService>();
 #if ANDROID
         builder.Services.AddSingleton<IEmergencyMonitor, LARGA.MobileApp.Platforms.Android.Emergency.AndroidEmergencyMonitor>();
         builder.Services.AddSingleton<IEmergencyFeedback, LARGA.MobileApp.Platforms.Android.Emergency.AndroidEmergencyFeedback>();

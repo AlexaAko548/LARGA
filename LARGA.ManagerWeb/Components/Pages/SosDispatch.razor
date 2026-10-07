@@ -1,11 +1,12 @@
 @page "/sos-dispatch"
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
-@using System.Text.Json
+@using System.Security.Claims
 @using LARGA.SharedCore
 @using LARGA.SharedCore.Services
 @using LARGA.Shared.Models.Entities
 @rendermode InteractiveServer
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject SosDispatchService Dispatch
@@ -213,13 +214,11 @@ else
             return;
         }
 
-        // Read the signed-in manager's UID for the audit log entry on each resolve.
-        IJSObjectReference firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
-        JsonElement access = await firebaseModule.InvokeAsync<JsonElement>("largaFirebaseCheckManagerAccess");
-        if (access.TryGetProperty("uid", out JsonElement uidProp) && uidProp.ValueKind == JsonValueKind.String)
-        {
-            _managerUserId = uidProp.GetString() ?? string.Empty;
-        }
+        // Read the signed-in manager's UID for the audit log entry on each resolve - from the
+        // server session, like the other pages (the old browser-side largaFirebaseCheckManagerAccess
+        // no longer exists, and calling it left this page stuck on Loading).
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _managerUserId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
 
         await LoadAsync();
         StateHasChanged();

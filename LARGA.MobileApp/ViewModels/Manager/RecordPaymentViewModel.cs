@@ -25,8 +25,9 @@ namespace LARGA.MobileApp.ViewModels.Manager;
 public class RecordPaymentViewModel : BindableObject
 {
     private static readonly Color PrimaryBlue = Color.FromArgb("#019BCF");
-    private static readonly Color LightBlue = Color.FromArgb("#A6DCEE");
-    private static readonly Color DarkText = Color.FromArgb("#1D1D1D");
+    // Unselected toggle colors follow the light/dark palette (read when the toggle repaints).
+    private static Color LightBlue => ThemeColors.Get("LargaLightBlue", Color.FromArgb("#A6DCEE"));
+    private static Color DarkText => ThemeColors.Get("LargaDarkText", Color.FromArgb("#1D1D1D"));
     private static readonly Color White = Color.FromArgb("#FFFFFF");
 
     private readonly QuickLedgerService _service;

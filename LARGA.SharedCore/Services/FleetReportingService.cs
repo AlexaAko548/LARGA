@@ -650,11 +650,11 @@ public class FleetReportingService
         var sb = new StringBuilder();
         sb.AppendLine("Fuel Logs");
         sb.Append(BuildCsv(
-            new[] { "ReceiptTimestamp", "ShiftId", "FuelStation", "LitersRefueled", "FuelCost", "VerificationStatus", "OdometerReading" },
+            new[] { "ReceiptTimestamp", "ShiftId", "FuelStation", "ORNumber", "LitersRefueled", "FuelCost", "VerificationStatus", "OdometerReading" },
             fuelLogs.OrderBy(f => f.ReceiptTimestamp).Select(f => new object?[]
             {
                 f.ReceiptTimestamp.ToPhilippineTime()?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? string.Empty,
-                f.ShiftId, f.FuelStation, f.LitersRefueled, f.FuelCost, f.VerificationStatus, f.OdometerReading,
+                f.ShiftId, f.FuelStation, f.ORNumber, f.LitersRefueled, f.FuelCost, f.VerificationStatus, f.OdometerReading,
             })));
 
         sb.AppendLine();

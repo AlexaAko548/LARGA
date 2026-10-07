@@ -42,6 +42,16 @@ public interface IGpsTelemetryService
     void Start(string shiftId);
     void Stop();
 
+    /// <summary>
+    /// GPS distance covered so far in the running shift, in km (0 when no shift is tracked).
+    /// Summed from the same 30s fixes written to gps_telemetry, so it reads a little under the
+    /// odometer on winding routes - it's a live indicator, endMileage stays the billing figure.
+    /// </summary>
+    double CurrentDistanceKm { get; }
+
+    /// <summary>Raised (off the UI thread) with the new total in km after a fix adds distance.</summary>
+    event EventHandler<double>? DistanceChanged;
+
     /// <summary>Whether the last point written showed the unit moving - false before the first
     /// point. The Fleet Map shows a unit Idle by this same reading (speed 0), so the driver's
     /// own screen can say so too.</summary>
@@ -56,6 +66,12 @@ public class GpsTelemetryService : IGpsTelemetryService
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan LocationTimeout = TimeSpan.FromSeconds(15);
 
+    // Distance filters: a fix worse than MaxAccuracyMeters is still written for the Fleet Map
+    // but not trusted for distance, and hops under MinSegmentMeters are treated as GPS jitter
+    // (a parked taxi otherwise "drives" a few hundred meters an hour).
+    private const double MaxAccuracyMeters = 50;
+    private const double MinSegmentMeters = 20;
+
     // A fix older than this is the phone repeating a cached position (nothing new came in) -
     // its speed and heading are from when it was taken, not now.
     private static readonly TimeSpan StaleFixAge = TimeSpan.FromSeconds(45);
@@ -66,6 +82,14 @@ public class GpsTelemetryService : IGpsTelemetryService
 
     private CancellationTokenSource? _cts;
     private string? _runningShiftId;
+    // Per-run state, swapped on Start/Stop, so a cancelled loop's in-flight tick can't add
+    // distance into the next shift's total.
+    private DistanceTracker? _tracker;
+
+    public double CurrentDistanceKm => (_tracker?.Meters ?? 0) / 1000.0;
+
+    public event EventHandler<double>? DistanceChanged;
+
     private bool _isMoving;
 
     public bool IsMoving => _isMoving;
@@ -97,9 +121,11 @@ public class GpsTelemetryService : IGpsTelemetryService
         }
 
         var cts = new CancellationTokenSource();
+        var tracker = new DistanceTracker();
         _cts = cts;
         _runningShiftId = shiftId;
-        _ = RunAsync(shiftId, cts.Token);
+        _tracker = tracker;
+        _ = RunAsync(shiftId, tracker, cts.Token);
     }
 
     public void Stop()
@@ -108,23 +134,26 @@ public class GpsTelemetryService : IGpsTelemetryService
         _cts?.Dispose();
         _cts = null;
         _runningShiftId = null;
+        _tracker = null;
         SetMoving(false);
     }
 
-    private async Task RunAsync(string shiftId, CancellationToken token)
+    private async Task RunAsync(string shiftId, DistanceTracker tracker, CancellationToken token)
     {
-        // First point lands immediately so the Fleet Map gets a pin as soon as the shift
-        // starts, instead of waiting a full PollInterval for the initial fix.
-        (Location? previous, bool? moving) = await CaptureAndWriteAsync(shiftId, null, token);
-        if (moving is bool first && !token.IsCancellationRequested) SetMoving(first);
+        // Resume the total already saved on the shift doc, so restarting the app mid-shift
+        // (the dashboard calls Start again) doesn't reset the driver's distance to 0.
+        await SeedDistanceAsync(shiftId, tracker);
 
         try
         {
+            // First point lands immediately so the Fleet Map gets a pin as soon as the shift
+            // starts, instead of waiting a full PollInterval for the initial fix.
+            ReportMoving(await CaptureAndWriteAsync(shiftId, tracker, token), tracker);
+
             using var timer = new PeriodicTimer(PollInterval);
             while (await timer.WaitForNextTickAsync(token))
             {
-                (previous, moving) = await CaptureAndWriteAsync(shiftId, previous, token);
-                if (moving is bool now && !token.IsCancellationRequested) SetMoving(now);
+                ReportMoving(await CaptureAndWriteAsync(shiftId, tracker, token), tracker);
             }
         }
         catch (OperationCanceledException)
@@ -133,10 +162,43 @@ public class GpsTelemetryService : IGpsTelemetryService
         }
     }
 
-    /// <summary>Writes one point and returns the fix it used plus whether it showed the unit
-    /// moving - or (<paramref name="previous"/>, null) when nothing was written - so the next
-    /// tick can tell whether the unit actually moved.</summary>
-    private static async Task<(Location? Fix, bool? Moving)> CaptureAndWriteAsync(string shiftId, Location? previous, CancellationToken token)
+    private void ReportMoving(bool? moving, DistanceTracker tracker)
+    {
+        if (moving is bool value && ReferenceEquals(tracker, _tracker))
+        {
+            SetMoving(value);
+        }
+    }
+
+    private async Task SeedDistanceAsync(string shiftId, DistanceTracker tracker)
+    {
+        try
+        {
+            var snapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .GetDocument(shiftId)
+                .GetDocumentSnapshotAsync<ShiftDistanceProxy>();
+
+            double savedKm = snapshot?.Data?.DistanceKm ?? 0;
+            if (savedKm > 0 && tracker.Meters == 0)
+            {
+                tracker.Meters = savedKm * 1000;
+                if (ReferenceEquals(tracker, _tracker))
+                {
+                    DistanceChanged?.Invoke(this, savedKm);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Not fatal: the shift just counts from 0 again.
+            System.Diagnostics.Debug.WriteLine($"GPS distance seed failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Writes one point and returns whether it showed the unit moving - or null when
+    /// nothing was written.</summary>
+    private async Task<bool?> CaptureAndWriteAsync(string shiftId, DistanceTracker tracker, CancellationToken token)
     {
         try
         {
@@ -147,7 +209,7 @@ public class GpsTelemetryService : IGpsTelemetryService
             }
             if (status != PermissionStatus.Granted)
             {
-                return (previous, null);
+                return null;
             }
 
             // Real device hardware only - never a mocked/simulated fallback per the ticket.
@@ -159,16 +221,17 @@ public class GpsTelemetryService : IGpsTelemetryService
 
             if (location == null)
             {
-                return (previous, null);
+                return null;
             }
 
             // firestore.rules only accept a point from the driver who owns the shift.
             string? driverId = CrossFirebaseAuth.Current.CurrentUser?.Uid;
             if (string.IsNullOrEmpty(driverId))
             {
-                return (previous, null);
+                return null;
             }
 
+            Location? previous = tracker.LastWrittenFix;
             bool moving = HasMovedSince(location, previous, DateTimeOffset.UtcNow);
             int speedKmh = moving ? (int)Math.Round(SpeedMetersPerSecond(location, previous) * 3.6) : 0; // m/s -> km/h
             // -1 = "no heading": many fixes (Medium accuracy on Android especially) come back
@@ -202,6 +265,10 @@ public class GpsTelemetryService : IGpsTelemetryService
             // listener per active shift, or an unbounded listener over all of gps_telemetry.
             // Heading lets the map dead-reckon the pin between writes instead of it sitting
             // frozen for the full 30s gap.
+            bool distanceChanged = tracker.Add(location);
+
+            // distanceKm rides along on the same update - the live total for the Active Shift
+            // screen, and what SeedDistanceAsync resumes from after an app restart.
             await CrossFirebaseFirestore.Current
                 .GetCollection("shifts")
                 .GetDocument(shiftId)
@@ -212,8 +279,16 @@ public class GpsTelemetryService : IGpsTelemetryService
                     { "currentSpeed", speedKmh },
                     { "currentHeading", headingDegrees },
                     { "currentPositionUpdatedAt", now },
+                    { "distanceKm", Math.Round(tracker.Meters / 1000.0, 2) },
                 });
-            return (location, speedKmh > 0);
+
+            if (distanceChanged && ReferenceEquals(tracker, _tracker))
+            {
+                DistanceChanged?.Invoke(this, tracker.Meters / 1000.0);
+            }
+
+            tracker.LastWrittenFix = location;
+            return speedKmh > 0;
         }
         catch (OperationCanceledException)
         {
@@ -224,7 +299,7 @@ public class GpsTelemetryService : IGpsTelemetryService
             // One bad reading or a transient Firestore hiccup shouldn't end telemetry for
             // the rest of the shift - log and let the next tick try again.
             System.Diagnostics.Debug.WriteLine($"GPS telemetry tick failed: {ex.Message}");
-            return (previous, null);
+            return null;
         }
     }
 
@@ -274,6 +349,61 @@ public class GpsTelemetryService : IGpsTelemetryService
 
     private static double MetersBetween(Location a, Location b) =>
         Location.CalculateDistance(a, b, DistanceUnits.Kilometers) * 1000;
+
+
+    /// <summary>
+    /// Running GPS distance for one shift: sums haversine hops between accepted fixes.
+    /// Only touched from that shift's RunAsync loop, which awaits each tick in turn.
+    /// </summary>
+    private sealed class DistanceTracker
+    {
+        private Location? _lastFix;
+
+        public double Meters { get; set; }
+
+        /// <summary>The fix behind the last point written - what the next tick compares
+        /// against to tell whether the unit actually moved.</summary>
+        public Location? LastWrittenFix { get; set; }
+
+        /// <returns>true when this fix added distance.</returns>
+        public bool Add(Location fix)
+        {
+            if (fix.Accuracy is double accuracy && accuracy > MaxAccuracyMeters)
+            {
+                return false;
+            }
+
+            // GetLastKnownLocationAsync can hand back the same fix twice.
+            if (_lastFix != null && _lastFix.Timestamp == fix.Timestamp)
+            {
+                return false;
+            }
+
+            if (_lastFix == null)
+            {
+                _lastFix = fix;
+                return false;
+            }
+
+            double hop = ShiftRules.DistanceMeters(
+                _lastFix.Latitude, _lastFix.Longitude, fix.Latitude, fix.Longitude);
+            if (hop < MinSegmentMeters)
+            {
+                // Keep the old anchor so slow creeping still adds up once it passes 20 m.
+                return false;
+            }
+
+            Meters += hop;
+            _lastFix = fix;
+            return true;
+        }
+    }
+
+    private class ShiftDistanceProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("distanceKm")]
+        public double DistanceKm { get; set; }
+    }
 
     private class GpsTelemetryProxy
     {
