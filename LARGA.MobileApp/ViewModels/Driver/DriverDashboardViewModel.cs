@@ -1,4 +1,4 @@
-using Microsoft.Maui.Storage;
+﻿using Microsoft.Maui.Storage;
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore.Services;
 using Microsoft.Maui.Controls;
@@ -121,6 +121,26 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                 await Shell.Current.DisplayAlert("Too early", "Shifts start at 6:00 AM. You can clock in and do your pre-shift checklist from 6:00 AM onwards.", "OK");
                 return;
             }
+
+            // No license, no shift; no shift on a unit under maintenance - checked here so the
+            // driver isn't sent through the whole checklist first. ClockInAsync and the
+            // approval request enforce the same rule.
+            try
+            {
+                var unit = await _shiftService.GetCurrentUserAssignedTaxiAsync();
+                string? taxiId = string.IsNullOrWhiteSpace(unit?.TaxiId) ? unit?.DocumentId : unit.TaxiId;
+                if (await _shiftService.GetClockInBlockReasonAsync(taxiId ?? string.Empty) is string blocked)
+                {
+                    await Shell.Current.DisplayAlert("Can't start a shift", blocked, "OK");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Couldn't check (e.g. offline) - clock-in itself checks again before starting.
+                System.Diagnostics.Debug.WriteLine($"Clock-in Eligibility Error: {ex.Message}");
+            }
+
             await Shell.Current.GoToAsync("pre-shift-step1");
         });
         ActiveShiftCommand = new Command(async () => await Shell.Current.GoToAsync("active-shift"));
@@ -134,7 +154,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     /// The phone remembers the current shift locally (SecureStorage/Preferences), but Firestore
     /// is the source of truth. Re-align the two so the driver is never stuck:
     /// - an open shift the phone lost track of (reinstall, cleared data, another phone) is put
-    ///   back, so the dashboard offers Active Shift → Clock Out and the shift can end normally;
+    ///   back, so the dashboard offers Active Shift â†’ Clock Out and the shift can end normally;
     /// - a shift the phone still thinks is active but that has since ended (e.g. auto-closed
     ///   at 6:00 AM as a missed clock-out) is cleared, so a new shift can start.
     /// A network error leaves the local state untouched.
@@ -206,7 +226,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                     var taxi = await _shiftService.GetTaxiUnitAsync(dynamicTaxiId);
                     if (taxi != null)
                     {
-                        AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber) ? taxi.Model : taxi.PlateNumber.Replace("-", " • ");
+                        AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber) ? taxi.Model : taxi.PlateNumber.Replace("-", " â€¢ ");
                         AssignedUnitDetails = $"{taxi.YearManufactured} {taxi.Model}";
                         MaintenanceStatus = taxi.Status;
 

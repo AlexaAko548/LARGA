@@ -155,7 +155,9 @@ public class GarageService
     {
         try
         {
-            await Db.Collection("maintenance_logs").Document(maintenanceId).UpdateAsync("status", "Dismissed");
+            DocumentReference docRef = Db.Collection("maintenance_logs").Document(maintenanceId);
+            await docRef.UpdateAsync("status", "Dismissed");
+            await ReturnUnitToServiceIfDoneAsync(docRef);
             return new GarageActionResult { Ok = true };
         }
         catch (Exception ex)
@@ -198,13 +200,54 @@ public class GarageService
                 ["status"] = "Resolved",
                 ["dateResolved"] = DateTime.UtcNow,
             };
-            await Db.Collection("maintenance_logs").Document(maintenanceId).UpdateAsync(updates);
+            DocumentReference docRef = Db.Collection("maintenance_logs").Document(maintenanceId);
+            await docRef.UpdateAsync(updates);
+            await ReturnUnitToServiceIfDoneAsync(docRef);
             return new GarageActionResult { Ok = true };
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to mark {MaintenanceId} resolved", maintenanceId);
             return new GarageActionResult { Ok = false, ErrorMessage = "Could not mark this resolved. Please try again." };
+        }
+    }
+
+    /// <summary>
+    /// A unit is marked Under Maintenance when a clock-in is denied (web or the manager app's
+    /// "Deny &amp; Send to Garage") - always alongside a driver report or work order. Once the
+    /// unit's last open job is resolved or dismissed, it goes back in service; while another
+    /// pending report or work order is still open, it stays in maintenance. A failure here
+    /// doesn't undo the job update - it's logged, and the next close retries it.
+    /// </summary>
+    private async Task ReturnUnitToServiceIfDoneAsync(DocumentReference closedJob)
+    {
+        try
+        {
+            DocumentSnapshot job = await closedJob.GetSnapshotAsync();
+            string? taxiId = job.Exists && job.TryGetValue("taxiId", out string? id) ? id : null;
+            if (string.IsNullOrWhiteSpace(taxiId))
+            {
+                return;
+            }
+
+            QuerySnapshot unitJobs = await Db.Collection("maintenance_logs").WhereEqualTo("taxiId", taxiId).GetSnapshotAsync();
+            bool stillOpen = unitJobs.Documents.Any(d =>
+                d.Id != closedJob.Id && d.TryGetValue("status", out string? s) && TaxiStatusRules.IsOpenJob(s));
+            if (stillOpen)
+            {
+                return;
+            }
+
+            DocumentReference taxiRef = Db.Collection("taxis").Document(taxiId);
+            DocumentSnapshot taxi = await taxiRef.GetSnapshotAsync();
+            if (taxi.Exists && taxi.TryGetValue("status", out string? status) && TaxiStatusRules.IsUnderMaintenance(status))
+            {
+                await taxiRef.UpdateAsync("status", TaxiStatusRules.ActiveUnit);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to return the unit of job {MaintenanceId} to service", closedJob.Id);
         }
     }
 

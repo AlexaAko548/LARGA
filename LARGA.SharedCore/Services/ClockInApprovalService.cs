@@ -76,6 +76,7 @@ public class ClockInApprovalService
                 FuelPhotoUrl = string.IsNullOrWhiteSpace(request.FuelDashboardUrl) ? null : request.FuelDashboardUrl,
                 OdometerPhotoUrl = string.IsNullOrWhiteSpace(request.OdometerPhotoUrl) ? null : request.OdometerPhotoUrl,
                 Defects = await GetDefectsAsync(request),
+                BlockedReason = await GetBlockReasonAsync(request.DriverId, request.TaxiId),
             });
         }
 
@@ -92,6 +93,12 @@ public class ClockInApprovalService
             if (request is null)
             {
                 return new ClockInDecisionResult { Ok = false, ErrorMessage = "This request was already decided or withdrawn." };
+            }
+
+            // No license, no shift (LAR-97); no shift on a unit under maintenance (LAR-98).
+            if (await GetBlockReasonAsync(request.DriverId, request.TaxiId) is string blocked)
+            {
+                return new ClockInDecisionResult { Ok = false, ErrorMessage = $"Can't approve: {blocked}. Deny it instead, or fix that first." };
             }
 
             await docRef.UpdateAsync(new Dictionary<string, object>
@@ -203,6 +210,33 @@ public class ClockInApprovalService
                 IsRead = false,
             });
         }
+    }
+
+    /// <summary>Why this driver can't start a shift on this unit today (ShiftEligibilityRules), or null.</summary>
+    private async Task<string?> GetBlockReasonAsync(string driverId, string taxiId)
+    {
+        DateTime todayPh = PhilippineTime.Now.Date;
+
+        DocumentSnapshot driverDoc = await Db.Collection("users").Document(driverId).GetSnapshotAsync();
+        DateTime? licenseExpiry = driverDoc.Exists ? driverDoc.ConvertTo<UserProfile>().LicenseExpiryDate : null;
+        if (ShiftEligibilityRules.LicenseBlockReason(licenseExpiry, todayPh) is string licenseReason)
+        {
+            return licenseReason;
+        }
+
+        if (string.IsNullOrWhiteSpace(taxiId))
+        {
+            return null;
+        }
+
+        DocumentSnapshot taxiDoc = await Db.Collection("taxis").Document(taxiId).GetSnapshotAsync();
+        string? taxiStatus = taxiDoc.Exists && taxiDoc.TryGetValue("status", out string? s) ? s : null;
+        QuerySnapshot jobs = await Db.Collection("maintenance_logs").WhereEqualTo("taxiId", taxiId).GetSnapshotAsync();
+        var unitJobs = jobs.Documents
+            .Select(d => { try { return d.ConvertTo<MaintenanceRecord>(); } catch { return null; } })
+            .OfType<MaintenanceRecord>()
+            .Select(m => ((string?)m.Status, m.DateLogged, m.EstimatedCompletionDate, (string?)m.IssueTitle));
+        return ShiftEligibilityRules.UnitBlockReason(taxiId, taxiStatus, unitJobs, todayPh);
     }
 
     private static async Task<ClockInRequest?> GetPendingRequestAsync(DocumentReference docRef)

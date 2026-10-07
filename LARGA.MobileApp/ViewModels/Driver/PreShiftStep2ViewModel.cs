@@ -327,6 +327,11 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
 
             await Shell.Current.GoToAsync("clockin-pending");
         }
+        catch (InvalidOperationException rule)
+        {
+            // No valid license, or the unit is under maintenance - written for the driver.
+            await SafeDisplayAlert("Can't start shift", rule.Message);
+        }
         catch (Exception ex)
         {
             await SafeDisplayAlert("Error", $"Couldn't send your inspection to the manager: {ex.Message}");

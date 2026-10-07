@@ -259,6 +259,10 @@ public class ClockInApprovalItem
     public string? FuelPhotoUrl { get; set; }
     public string? OdometerPhotoUrl { get; set; }
     public List<ClockInDefect> Defects { get; set; } = new();
+
+    /// <summary>Why this clock-in can't be approved (no valid license, or the unit is under
+    /// maintenance - ShiftEligibilityRules), or null when it can.</summary>
+    public string? BlockedReason { get; set; }
 }
 
 public class ClockInDefect

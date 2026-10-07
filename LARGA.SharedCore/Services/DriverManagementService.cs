@@ -241,7 +241,8 @@ public class DriverManagementService
     /// <summary>(taxiId, day) -> a short reason if that unit is under maintenance on that
     /// calendar day, else null. Two sources, per the Garage workflow:
     /// - an In Progress Garage job for the unit, from the day it was reported through its
-    ///   estimated completion date (open-ended if the Garage hasn't set one);
+    ///   estimated completion date - or through today while it's still open past that date
+    ///   (open-ended if the Garage hasn't set one; ShiftEligibilityRules.IsJobInShopOn);
     /// - the taxi's own status set to "Under Maintenance" - a current state with no dates,
     ///   so it applies from today onward, not to past days.
     /// Dates are compared as Philippine calendar days.</summary>
@@ -263,12 +264,13 @@ public class DriverManagementService
             {
                 foreach (MaintenanceRecord job in jobs)
                 {
-                    DateTime start = job.DateLogged.ToPhilippineTime().Date;
                     DateTime? end = job.EstimatedCompletionDate?.ToPhilippineTime().Date;
-                    if (date >= start && (end is null || date <= end.Value))
+                    if (ShiftEligibilityRules.IsJobInShopOn(job.Status, job.DateLogged, job.EstimatedCompletionDate, date, todayPh))
                     {
                         string title = string.IsNullOrWhiteSpace(job.IssueTitle) ? "Garage job" : job.IssueTitle;
-                        return end is null ? $"{title} - no finish date yet" : $"{title} - until {end:MMM d}";
+                        return end is null ? $"{title} - no finish date yet"
+                            : date > end.Value ? $"{title} - still in the shop (was due {end:MMM d})"
+                            : $"{title} - until {end:MMM d}";
                     }
                 }
             }
@@ -295,7 +297,7 @@ public class DriverManagementService
     /// not even by the planner's default of every day on their own unit - until the manager
     /// records a valid license in their profile.</summary>
     private static bool IsLicenseIneligibleOn(DateTime? licenseExpiry, DateTime date) =>
-        !licenseExpiry.HasValue || date.Date >= licenseExpiry.Value.AddMonths(-1).Date;
+        ShiftEligibilityRules.IsLicenseIneligibleOn(licenseExpiry, date);
 
     /// <summary>Server-side backstop for the same rule the Schedule Planner UI enforces by
     /// disabling the cell - looked up fresh rather than trusting a value the caller might pass
@@ -596,10 +598,11 @@ public class DriverManagementService
 
         List<BoundaryPayment> allPayments = await GetAllAsync<BoundaryPayment>("boundary_payments");
         List<MaintenanceRecord> allMaintenance = await GetAllAsync<MaintenanceRecord>("maintenance_logs");
+        List<EmergencyAlert> allAlerts = await GetAllAsync<EmergencyAlert>("emergency_alerts");
 
         List<ShiftSchedule> exceptions = await GetWhereEqualAsync<ShiftSchedule>("shift_schedules", "driverId", driverId);
         DriverPerformance performance = DriverPerformanceCalculator.Calculate(
-            profile, driverShifts, exceptions, allMaintenance, allPayments.Where(p => shiftIds.Contains(p.ShiftId)).ToList(),
+            profile, driverShifts, exceptions, allMaintenance, allPayments.Where(p => shiftIds.Contains(p.ShiftId)).ToList(), allAlerts,
             await GetDefaultBoundaryRateAsync(), PhilippineTime.Now.Date.AddDays(1 - PerformanceWindowDays), DateTime.UtcNow);
 
         ShiftLog? activeShift = driverShifts.FirstOrDefault(s => s.Status == "Active");

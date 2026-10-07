@@ -97,7 +97,9 @@ service cloud.firestore {
 
     match /maintenance_logs/{maintenanceId} {
       allow read: if isManager() || isDriver();
-      allow create: if isDriver();
+      // Managers too: denying a flagged clock-in from the manager app files a Garage report for
+      // failed checklist items the driver didn't report (LAR-99, same as ManagerWeb).
+      allow create: if isDriver() || isManager();
       allow update: if isManager();
     }
 
