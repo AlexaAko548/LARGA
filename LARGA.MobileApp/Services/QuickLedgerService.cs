@@ -38,12 +38,12 @@ public class QuickLedgerService
         IReadOnlyList<ShiftRecord> shifts = await Timed(ReadShiftsAsync(warnings), "Reading shifts");
         IReadOnlyList<BoundaryPaymentRecord> payments = await Timed(ReadPaymentsAsync(warnings), "Reading boundary payments");
         IReadOnlyList<DebtAdjustmentRecord> adjustments = await Timed(ReadAdjustmentsAsync(warnings), "Reading debt adjustments");
-        IReadOnlyDictionary<string, string> driverNames = await Timed(ReadUserNamesAsync(), "Reading drivers");
+        UserDirectory users = await Timed(ReadUsersAsync(), "Reading users");
         decimal defaultRate = await Timed(ReadDefaultBoundaryRateAsync(), "Reading boundary rate");
 
         IReadOnlyDictionary<string, string> taxiPlates = await Timed(ReadTaxiPlatesAsync(), "Reading taxis");
 
-        var input = new QuickLedgerInput(shifts, payments, adjustments, driverNames, taxiPlates, defaultRate);
+        var input = new QuickLedgerInput(shifts, payments, adjustments, users.Names, users.DriverIds, taxiPlates, defaultRate);
         QuickLedgerResult result = QuickLedgerCalculator.Build(input, PhilippineTime.Now);
 
         foreach (string warning in warnings)
@@ -276,16 +276,33 @@ public class QuickLedgerService
         return records;
     }
 
-    private static async Task<IReadOnlyDictionary<string, string>> ReadUserNamesAsync()
+    /// <summary>
+    /// Every user in the users collection. The Other Payment list is every user with role "Driver" (the same filter the
+    /// web's driver roster uses), so a driver with no debt can still be picked.
+    /// </summary>
+    private static async Task<UserDirectory> ReadUsersAsync()
     {
         var snapshot = await CrossFirebaseFirestore.Current
             .GetCollection("users")
             .GetDocumentsAsync<UserProxy>();
 
-        return snapshot.Documents
-            .Where(d => d.Data != null)
-            .ToDictionary(d => d.Reference.Id, d => StringOf(d.Data!.FullName));
+        var names = new Dictionary<string, string>();
+        var driverIds = new List<string>();
+        foreach (var doc in snapshot.Documents)
+        {
+            if (doc.Data is null) continue;
+
+            string userId = doc.Reference.Id;
+            names[userId] = StringOf(doc.Data.FullName);
+            if (string.Equals(StringOf(doc.Data.Role), DriverRole, StringComparison.OrdinalIgnoreCase)) driverIds.Add(userId);
+        }
+
+        return new UserDirectory(names, driverIds);
     }
+
+    private const string DriverRole = "Driver";
+
+    private sealed record UserDirectory(IReadOnlyDictionary<string, string> Names, IReadOnlyList<string> DriverIds);
 
     /// <summary>
     /// Plate numbers keyed by taxi ID. Each taxi is keyed by its document ID and by its taxiId field, since shifts store
@@ -488,6 +505,9 @@ public class QuickLedgerService
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("fullName")]
         public object? FullName { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("role")]
+        public object? Role { get; set; }
     }
 
     public class TaxiProxy

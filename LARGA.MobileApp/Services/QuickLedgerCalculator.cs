@@ -88,10 +88,12 @@ public static class QuickLedgerCalculator
             .OrderByDescending(r => r.TimestampUtc)
             .ToList();
 
-        // --- Other Payment: what each driver still owes from earlier shifts + debt adjustments ---
-        var otherPayments = OtherOwedByDriver(input, states, credit, dayStartUtc)
-            .Where(kv => kv.Value > 0)
-            .Select(kv => new OtherPaymentRow(kv.Key, NameFor(input, kv.Key), kv.Value))
+        // --- Other Payment: every driver in users, with what each still owes from earlier shifts + debt adjustments.
+        // Drivers with no debt are listed too (AmountOwed 0), so a manager can take money from any driver. Debtors
+        // come first.
+        Dictionary<string, decimal> owedByDriver = OtherOwedByDriver(input, states, credit, dayStartUtc);
+        var otherPayments = input.DriverIds
+            .Select(driverId => new OtherPaymentRow(driverId, NameFor(input, driverId), owedByDriver.GetValueOrDefault(driverId)))
             .OrderByDescending(r => r.AmountOwed)
             .ThenBy(r => r.DriverName)
             .ToList();
@@ -474,11 +476,14 @@ public sealed record BoundaryPaymentRecord(
 
 public sealed record DebtAdjustmentRecord(string DriverId, decimal Amount);
 
+/// <param name="DriverNames">Full name by user ID, for every user document.</param>
+/// <param name="DriverIds">User IDs with role "Driver". The Other Payment list is built from these, so it matches the web's roster.</param>
 public sealed record QuickLedgerInput(
     IReadOnlyList<ShiftRecord> Shifts,
     IReadOnlyList<BoundaryPaymentRecord> Payments,
     IReadOnlyList<DebtAdjustmentRecord> Adjustments,
     IReadOnlyDictionary<string, string> DriverNames,
+    IReadOnlyList<string> DriverIds,
     IReadOnlyDictionary<string, string> TaxiPlates,
     decimal DefaultBoundaryRate);
 
@@ -514,6 +519,7 @@ public sealed record PaymentDoneRow(
 
 public sealed record OtherPaymentRow(string DriverId, string DriverName, decimal AmountOwed);
 
+/// <param name="OtherPayments">Every driver, debtors first. AmountOwed is 0 for a driver who owes nothing.</param>
 public sealed record QuickLedgerResult(
     IReadOnlyList<PendingBoundaryRow> Pending,
     IReadOnlyList<PaymentDoneRow> PaymentsDone,
