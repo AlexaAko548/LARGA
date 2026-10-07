@@ -1,4 +1,4 @@
-﻿using Microsoft.Maui.Storage;
+using Microsoft.Maui.Storage;
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
@@ -158,7 +158,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     /// The phone remembers the current shift locally (SecureStorage/Preferences), but Firestore
     /// is the source of truth. Re-align the two so the driver is never stuck:
     /// - an open shift the phone lost track of (reinstall, cleared data, another phone) is put
-    ///   back, so the dashboard offers Active Shift â†’ Clock Out and the shift can end normally;
+    ///   back, so the dashboard offers Active Shift → Clock Out and the shift can end normally;
     /// - a shift the phone still thinks is active but that has since ended (e.g. auto-closed
     ///   at 6:00 AM as a missed clock-out) is cleared, so a new shift can start.
     /// A network error leaves the local state untouched.
@@ -234,7 +234,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                     var taxi = await _shiftService.GetTaxiUnitAsync(dynamicTaxiId);
                     if (taxi != null)
                     {
-                        AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber) ? taxi.Model : taxi.PlateNumber.Replace("-", " â€¢ ");
+                        AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber) ? taxi.Model : taxi.PlateNumber.Replace("-", " • ");
                         AssignedUnitDetails = $"{taxi.YearManufactured} {taxi.Model}";
                         MaintenanceStatus = taxi.Status;
 

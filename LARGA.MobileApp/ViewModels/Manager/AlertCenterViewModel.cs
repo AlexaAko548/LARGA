@@ -72,10 +72,20 @@ public class AlertCenterViewModel : BindableObject
 
         MessageDriverCommand = new Command<AlertItem>(async (alert) =>
         {
-            // The manager-side chat inbox (list of driver threads) hasn't been built yet -
-            // the existing MessageManagerPage is a driver's single hardcoded thread, not
-            // reusable here. Say so rather than doing nothing on tap.
-            await Shell.Current.DisplayAlert("Not Available Yet", "Manager messaging is coming soon.", "OK");
+            if (alert == null || string.IsNullOrWhiteSpace(alert.DriverId)) return;
+
+            // Switch to the Chats tab first so the bottom bar reflects where the user lands,
+            // then push the thread onto it - same route/parameters ChatsViewModel.OnOpenChat
+            // uses to open a driver's thread (dictionary parameters keep DriverName intact if
+            // it has spaces).
+            await Shell.Current.GoToAsync("//manager-dashboard/chats");
+            await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+            {
+                { "DriverId", alert.DriverId },
+                // Plain name, not the "Name · TX-01" card label - ChatService writes it to
+                // chats/{driverId}.driverName, which the web inbox displays.
+                { "DriverName", alert.ChatDriverName }
+            });
         });
 
         ViewLocationCommand = new Command<AlertItem>(async (alert) =>
@@ -120,6 +130,7 @@ public class AlertCenterViewModel : BindableObject
                         Type = AlertType.Sos,
                         DriverId = shift?.DriverId,
                         DriverName = BuildDriverLabel(driver, shift),
+                        ChatDriverName = string.IsNullOrWhiteSpace(driver?.FullName) ? "Unknown Driver" : driver!.FullName,
                         Subtitle = $"Location: {doc.Data.Latitude:F5}, {doc.Data.Longitude:F5}",
                         SortTime = FirestoreDateTimeFix.Apply(doc.Data.Timestamp),
                         Timestamp = FormatAlertTime(FirestoreDateTimeFix.Apply(doc.Data.Timestamp)),
@@ -783,6 +794,8 @@ public class AlertItem
     public string? DriverId { get; set; }
     public string? TaxiId { get; set; }
     public string DriverName { get; set; } = string.Empty;
+    // Driver's full name alone (DriverName is the card label and may carry " · <unit>").
+    public string ChatDriverName { get; set; } = string.Empty;
     public string Subtitle { get; set; } = string.Empty;
     public string Timestamp { get; set; } = string.Empty;
     // Real UTC moment the alert happened. Drives newest-first ordering and date sections;

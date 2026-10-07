@@ -41,7 +41,7 @@
         <Tab Route="home" Title="Map" Icon="car.png">
             <ShellContent ContentTemplate="{DataTemplate manager:ManagerDashboardPage}" />
         </Tab>
-        <Tab Title="Chats" Icon="send_icon.png">
+        <Tab Route="chats" Title="Chats" Icon="send_icon.png">
             <ShellContent ContentTemplate="{DataTemplate manager:ManagerChatsPage}" />
         </Tab>
         <Tab Title="Ledger" Icon="ledger.png">

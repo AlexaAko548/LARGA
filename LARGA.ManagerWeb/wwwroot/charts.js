@@ -49,7 +49,25 @@ function formatValue(spec, value) {
     return `${spec.prefix ?? ''}${number}${spec.suffix ?? ''}`;
 }
 
-function buildConfig(spec) {
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+// Bars grow in one after another (a short stagger), doughnuts sweep round; eased out so they
+// settle gently. Only on first draw - hover and theme redraws don't replay the stagger.
+function chartAnimation(isDoughnut) {
+    if (reduceMotion.matches) return false;
+    let played = false;
+    return {
+        duration: isDoughnut ? 900 : 700,
+        easing: 'easeOutQuart',
+        delay: ctx => {
+            if (played || ctx.type !== 'data' || ctx.mode !== 'default') return 0;
+            return ctx.dataIndex * 45 + ctx.datasetIndex * 90;
+        },
+        onComplete: () => { played = true; },
+    };
+}
+
+function buildConfig(spec, animate = true) {
     const ink = token('ink');
     const muted = token('muted');
     const grid = withAlpha(token('accent'), 0.14);
@@ -99,7 +117,7 @@ function buildConfig(spec) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            animation: { duration: 500 },
+            animation: animate ? chartAnimation(isDoughnut) : false,
             indexAxis: horizontal ? 'y' : 'x',
             cutout: isDoughnut ? '62%' : undefined,
             layout: { padding: 4 },
@@ -153,7 +171,8 @@ new MutationObserver(() => {
     for (const [canvas, { chart, spec }] of [...charts]) {
         chart.destroy();
         if (canvas.isConnected) {
-            charts.set(canvas, { chart: new window.Chart(canvas, buildConfig(spec)), spec });
+            // No replayed entrance animation - just the new colors.
+            charts.set(canvas, { chart: new window.Chart(canvas, buildConfig(spec, false)), spec });
         } else {
             charts.delete(canvas);
         }

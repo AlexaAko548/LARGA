@@ -78,9 +78,6 @@ public class FleetPin
     public Color CallAccentColor => Status == FleetDriverStatus.Active ? StatusColor : Color.FromArgb("#019BCF");
 }
 
-/// <summary>One always-visible "jump to this taxi" shortcut at the bottom of the map, for
-/// every taxi in the fleet - not just the ones with a plotted pin. Tapping a unit with no
-/// pin (no active shift / no telemetry yet) has nothing to jump to, so it just says so.</summary>
 /// <summary>Live Fleet status colours - the same as ManagerWeb's dashboard Fleet Status pills
 /// (app.css: status-success / status-warning alt / status-danger / status-neutral idle /
 /// status-parked), so a status looks the same on the web and the phone. Shared by the pins,
@@ -104,6 +101,9 @@ public static class FleetStatusColors
     };
 }
 
+/// <summary>One always-visible "jump to this taxi" shortcut at the bottom of the map, for
+/// every taxi in the fleet - not just the ones with a plotted pin. Tapping a unit with no
+/// pin (no active shift / no telemetry yet) has nothing to jump to, so it just says so.</summary>
 public class UnitChip : BindableObject
 {
     public string TaxiId { get; set; } = string.Empty;
@@ -278,8 +278,17 @@ public class FleetMapViewModel : BindableObject
 
         MessageCommand = new Command(async () =>
         {
-            // Same gap as Alert Center's Message action - no manager chat inbox yet.
-            await Shell.Current.DisplayAlert("Not Available Yet", "Manager messaging is coming soon.", "OK");
+            if (SelectedPin == null || string.IsNullOrWhiteSpace(SelectedPin.DriverId)) return;
+
+            // Switch to the Chats tab first so the bottom bar reflects where the user lands,
+            // then push the thread onto it - same route/parameters ChatsViewModel.OnOpenChat
+            // uses to open a driver's thread.
+            await Shell.Current.GoToAsync("//manager-dashboard/chats");
+            await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+            {
+                { "DriverId", SelectedPin.DriverId },
+                { "DriverName", SelectedPin.DriverName }
+            });
         });
 
         NavigateCommand = new Command(() =>

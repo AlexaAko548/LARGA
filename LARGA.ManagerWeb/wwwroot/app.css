@@ -4610,7 +4610,7 @@ margin: 0 0 0.6rem;
 }
 
 .sos-resolved-count {
-color: #5a7a8a;
+color: var(--muted);
 font-weight: 500;
 }
 
@@ -4640,7 +4640,7 @@ overflow-y: auto;
 position: sticky;
 top: 0;
 z-index: 1;
-background: #ffffff;
+background: var(--surface, #ffffff);
 }
 
 .sos-resolved .sos-toggle {
@@ -4996,6 +4996,11 @@ overflow: hidden;
 text-overflow: ellipsis;
 }
 
+.chat-session-preview.new {
+font-style: italic;
+color: var(--muted, #5a7a8a);
+}
+
 .chat-session.unread .chat-session-name,
 .chat-session.unread .chat-session-preview {
 font-weight: 800;
@@ -5348,4 +5353,147 @@ cursor: pointer;
 background: var(--surface, #fff);
 color: var(--accent);
 box-shadow: 0 1px 3px rgba(var(--accent-rgb),0.25);
+}
+
+/* =====================================================================
+   Motion - one place for how the site moves. Short and eased-out so it
+   feels responsive, never slow; switched off for "reduce motion" users.
+   ===================================================================== */
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-press: 70ms;
+  --dur-fast: 140ms;
+  --dur-base: 200ms;
+  --dur-slow: 280ms;
+}
+
+/* Buttons and button-like links: colors, borders and shadows ease instead of snapping. */
+button,
+.primary-btn, .secondary-btn, .solid-btn, .outline-btn, .link-btn,
+.filter-pill, .receipt-scan-btn, .manager-menu-item, .nav-item {
+transition:
+    background-color var(--dur-base) var(--ease-standard),
+    border-color var(--dur-base) var(--ease-standard),
+    color var(--dur-base) var(--ease-standard),
+    box-shadow var(--dur-base) var(--ease-standard),
+    opacity var(--dur-base) var(--ease-standard),
+    filter var(--dur-base) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+/* Hover: a touch brighter. */
+button:hover:not(:disabled),
+.primary-btn:hover, .secondary-btn:hover, .solid-btn:hover, .outline-btn:hover {
+filter: brightness(1.06);
+}
+
+/* Press: a quick, soft squeeze that springs back on release. */
+button:active:not(:disabled),
+.primary-btn:active, .secondary-btn:active, .solid-btn:active, .outline-btn:active,
+.link-btn:active, .filter-pill:active, .receipt-scan-btn:active, .manager-menu-item:active {
+transform: scale(0.96);
+filter: brightness(0.96);
+transition-duration: var(--dur-press);
+}
+
+.nav-item:active {
+transform: scale(0.98);
+transition-duration: var(--dur-press);
+}
+
+button:disabled {
+cursor: not-allowed;
+}
+
+/* Cards respond to the pointer. */
+.stat-card, .report-card, .chart-panel, .sos-card {
+transition:
+    border-color var(--dur-base) var(--ease-standard),
+    box-shadow var(--dur-base) var(--ease-standard),
+    transform var(--dur-base) var(--ease-out);
+}
+
+.stat-card:hover, .report-card:hover {
+transform: translateY(-2px);
+box-shadow: var(--shadow-sm);
+}
+
+/* Table rows highlight under the pointer. */
+.data-table tbody tr {
+transition: background-color var(--dur-fast) var(--ease-standard);
+}
+
+.data-table tbody tr:hover {
+background: rgba(var(--accent-rgb), 0.14);
+}
+
+/* Opening things. Each of these is added to the page when it opens, so the animation plays on
+   open only - not on every update. */
+@keyframes larga-fade-in {
+from { opacity: 0; }
+}
+
+@keyframes larga-pop-in {
+from { opacity: 0; transform: translateY(10px) scale(0.98); }
+}
+
+@keyframes larga-drop-in {
+from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+}
+
+@keyframes larga-slide-in-right {
+from { transform: translateX(100%); }
+}
+
+@keyframes larga-rise-in {
+from { opacity: 0; transform: translateY(8px); }
+}
+
+.report-overlay, .modal-overlay, .profile-overlay, .chat-drawer-backdrop {
+animation: larga-fade-in var(--dur-base) var(--ease-standard);
+}
+
+.report-modal, .modal-card, .history-modal, .payment-modal, .photo-modal {
+animation: larga-pop-in var(--dur-slow) var(--ease-out);
+}
+
+.profile-panel, .chat-drawer {
+animation: larga-slide-in-right var(--dur-slow) var(--ease-out);
+}
+
+.notification-dropdown, .manager-menu-dropdown {
+transform-origin: top right;
+animation: larga-drop-in var(--dur-base) var(--ease-out);
+}
+
+.filter-menu {
+transform-origin: top left;
+animation: larga-drop-in var(--dur-base) var(--ease-out);
+}
+
+/* Page sections ease in, one after another, when a page first shows. "backwards" leaves no
+   transform behind once it ends - a lingering one would trap pop-ups (position: fixed) inside
+   the section. The pop-up overlays themselves keep their own fade. */
+.dashboard-main > :not(.report-overlay):not(.modal-overlay):not(.profile-overlay) {
+animation: larga-rise-in var(--dur-slow) var(--ease-out) backwards;
+animation-delay: var(--rise-delay, 0ms);
+}
+
+.dashboard-main > :nth-child(2) { --rise-delay: 30ms; }
+.dashboard-main > :nth-child(3) { --rise-delay: 60ms; }
+.dashboard-main > :nth-child(4) { --rise-delay: 90ms; }
+.dashboard-main > :nth-child(5) { --rise-delay: 120ms; }
+.dashboard-main > :nth-child(n + 6) { --rise-delay: 150ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  button:active:not(:disabled), .stat-card:hover, .report-card:hover {
+    transform: none;
+  }
 }
