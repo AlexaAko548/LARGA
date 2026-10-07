@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:controls="clr-namespace:LARGA.MobileApp.Controls"
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Auth"
              x:Class="LARGA.MobileApp.Views.Auth.LoginPage"
              x:DataType="vm:LoginViewModel"
@@ -16,7 +17,7 @@
             <Grid RowDefinitions="Auto, *">
                 <!-- Header -->
                 <Grid Padding="15,15" ColumnDefinitions="Auto, *, Auto">
-                    <ImageButton Grid.Column="0" Source="back_icon.png" WidthRequest="32" Margin="-10,-10,0,0" HeightRequest="32" Aspect="AspectFit" Padding="10" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
+                    <ImageButton controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="back_icon.png" WidthRequest="32" Margin="-10,-10,0,0" HeightRequest="32" Aspect="AspectFit" Padding="10" BackgroundColor="Transparent" Clicked="OnBackButtonClicked" />
                 </Grid>
 
                 <!-- Content Inside Blue Area -->

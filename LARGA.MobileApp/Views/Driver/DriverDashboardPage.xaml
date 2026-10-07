@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:controls="clr-namespace:LARGA.MobileApp.Controls"
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
              x:Class="LARGA.MobileApp.Views.Driver.DriverDashboardPage"
              x:DataType="vm:DriverDashboardViewModel"
@@ -36,7 +37,7 @@
                             <Label Text="{Binding AssignedUnitPlate, FallbackValue='Loading...'}" Style="{StaticResource HeaderStyle}" TextColor="{DynamicResource LargaDarkText}" FontSize="32" />
                         </VerticalStackLayout>
                         <Border Grid.Column="1" BackgroundColor="{DynamicResource LargaPrimaryBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" WidthRequest="50" HeightRequest="40">
-                            <Image Source="car_icon.png" WidthRequest="24" HeightRequest="24" VerticalOptions="Center" HorizontalOptions="Center" />
+                            <Image controls:ThemedIcon.IsEnabled="True" Source="car_icon.png" WidthRequest="24" HeightRequest="24" VerticalOptions="Center" HorizontalOptions="Center" />
                         </Border>
                     </Grid>
 
@@ -57,7 +58,7 @@
             <!-- License Expiry Alert -->
             <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20" IsVisible="{Binding HasLicenseAlert}">
                 <Grid ColumnDefinitions="Auto, *">
-                    <Image Grid.Column="0" Source="warning_icon.png" WidthRequest="20" HeightRequest="20" VerticalOptions="Start" Margin="0,0,10,0" />
+                    <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="20" HeightRequest="20" VerticalOptions="Start" Margin="0,0,10,0" />
                     <VerticalStackLayout Grid.Column="1" Spacing="5">
                         <Label Text="License Alert" FontAttributes="Bold" TextColor="{Binding LicenseAlertColor}" FontSize="16" />
                         <Label Text="{Binding LicenseAlertMessage}" TextColor="{DynamicResource LargaDarkText}" FontSize="14" />
@@ -68,7 +69,7 @@
             <!-- Manager Note -->
             <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="20">
                 <Grid ColumnDefinitions="Auto, *">
-                    <Image Grid.Column="0" Source="warning_icon.png" WidthRequest="20" HeightRequest="20" VerticalOptions="Start" Margin="0,0,10,0" />
+                    <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="20" HeightRequest="20" VerticalOptions="Start" Margin="0,0,10,0" />
                     <VerticalStackLayout Grid.Column="1" Spacing="5">
                         <Label Text="Manager Note" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" FontSize="16" />
                         <Label Text="{Binding ManagerNote}" TextColor="{DynamicResource ThemeTextGray}" FontSize="14" />

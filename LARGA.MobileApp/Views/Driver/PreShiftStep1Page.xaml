@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:controls="clr-namespace:LARGA.MobileApp.Controls"
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
              x:Class="LARGA.MobileApp.Views.Driver.PreShiftStep1Page"
              x:DataType="vm:PreShiftStep1ViewModel"
@@ -25,9 +26,9 @@
                         <Label Text="Tire Condition" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
                         <Label Text="All 4 tires inspected + Spare tire in trunk." FontSize="12" TextColor="{DynamicResource ThemeTextBlack}" />
                     </VerticalStackLayout>
-                    <ImageButton Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
+                    <ImageButton controls:ThemedIcon.IsEnabled="True" Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
                                  Command="{Binding PassItemCommand}" CommandParameter="Tires" IsVisible="{Binding TiresCheckVisible}" VerticalOptions="Center" />
-                    <ImageButton Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
+                    <ImageButton controls:ThemedIcon.IsEnabled="True" Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
                                  Command="{Binding ReportDefectCommand}" CommandParameter="Tires" IsVisible="{Binding TiresCloseVisible}" VerticalOptions="Center" />
                 </Grid>
             </Border>
@@ -39,9 +40,9 @@
                         <Label Text="Under the Hood" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
                         <Label Text="Oil level (dipstick) + Coolant/Water OK." FontSize="12" TextColor="{DynamicResource ThemeTextBlack}" />
                     </VerticalStackLayout>
-                    <ImageButton Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
+                    <ImageButton controls:ThemedIcon.IsEnabled="True" Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
                                  Command="{Binding PassItemCommand}" CommandParameter="Hood" IsVisible="{Binding HoodCheckVisible}" VerticalOptions="Center" />
-                    <ImageButton Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
+                    <ImageButton controls:ThemedIcon.IsEnabled="True" Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
                                  Command="{Binding ReportDefectCommand}" CommandParameter="Hood" IsVisible="{Binding HoodCloseVisible}" VerticalOptions="Center" />
                 </Grid>
             </Border>
@@ -53,9 +54,9 @@
                         <Label Text="Lights &amp; Electronics" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
                         <Label Text="Headlights, signals, and horn are working. No dashboard warning lights." FontSize="12" TextColor="{DynamicResource ThemeTextBlack}" />
                     </VerticalStackLayout>
-                    <ImageButton Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
+                    <ImageButton controls:ThemedIcon.IsEnabled="True" Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
                                  Command="{Binding PassItemCommand}" CommandParameter="Lights" IsVisible="{Binding LightsCheckVisible}" VerticalOptions="Center" />
-                    <ImageButton Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
+                    <ImageButton controls:ThemedIcon.IsEnabled="True" Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
                                  Command="{Binding ReportDefectCommand}" CommandParameter="Lights" IsVisible="{Binding LightsCloseVisible}" VerticalOptions="Center" />
                 </Grid>
             </Border>
@@ -67,9 +68,9 @@
                         <Label Text="Interior &amp; Comfort" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
                         <Label Text="Seats/floors clean + AC is cooling." FontSize="12" TextColor="{DynamicResource ThemeTextBlack}" />
                     </VerticalStackLayout>
-                    <ImageButton Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
+                    <ImageButton controls:ThemedIcon.IsEnabled="True" Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
                                  Command="{Binding PassItemCommand}" CommandParameter="Interior" IsVisible="{Binding InteriorCheckVisible}" VerticalOptions="Center" />
-                    <ImageButton Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
+                    <ImageButton controls:ThemedIcon.IsEnabled="True" Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
                                  Command="{Binding ReportDefectCommand}" CommandParameter="Interior" IsVisible="{Binding InteriorCloseVisible}" VerticalOptions="Center" />
                 </Grid>
             </Border>
@@ -81,9 +82,9 @@
                         <Label Text="Exterior Scratches / Dents" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
                         <Label Text="Walk-around completed" FontSize="12" TextColor="{DynamicResource ThemeTextBlack}" />
                     </VerticalStackLayout>
-                    <ImageButton Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
+                    <ImageButton controls:ThemedIcon.IsEnabled="True" Grid.Column="1" Source="check_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
                                  Command="{Binding PassItemCommand}" CommandParameter="Exterior" IsVisible="{Binding ExteriorCheckVisible}" VerticalOptions="Center" />
-                    <ImageButton Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
+                    <ImageButton controls:ThemedIcon.IsEnabled="True" Grid.Column="2" Source="close_icon.png" WidthRequest="32" HeightRequest="32" Aspect="AspectFit" Padding="6" BackgroundColor="Transparent" 
                                  Command="{Binding ReportDefectCommand}" CommandParameter="Exterior" IsVisible="{Binding ExteriorCloseVisible}" VerticalOptions="Center" />
                 </Grid>
             </Border>

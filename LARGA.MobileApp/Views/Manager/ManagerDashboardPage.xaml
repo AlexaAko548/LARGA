@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:controls="clr-namespace:LARGA.MobileApp.Controls"
              xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Manager"
              x:Class="LARGA.MobileApp.Views.Manager.ManagerDashboardPage"
@@ -133,7 +134,7 @@
                         <Grid.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding CloseDetailCommand}" />
                         </Grid.GestureRecognizers>
-                        <Image Source="close_icon.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                        <Image controls:ThemedIcon.IsEnabled="True" Source="close_icon.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                     </Grid>
                 </Grid>
 
@@ -180,14 +181,14 @@
                         <HorizontalStackLayout.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding MessageCommand}" />
                         </HorizontalStackLayout.GestureRecognizers>
-                        <Image Source="send_icon.svg" WidthRequest="15" HeightRequest="15" />
+                        <Image controls:ThemedIcon.IsEnabled="True" Source="send_icon.svg" WidthRequest="15" HeightRequest="15" />
                         <Label Text="Message" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource LargaPrimaryBlue}" VerticalOptions="Center" />
                     </HorizontalStackLayout>
                     <HorizontalStackLayout Grid.Column="2" Spacing="6" HorizontalOptions="Center" VerticalOptions="Center">
                         <HorizontalStackLayout.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding NavigateCommand}" />
                         </HorizontalStackLayout.GestureRecognizers>
-                        <Image Source="car.svg" WidthRequest="15" HeightRequest="15" />
+                        <Image controls:ThemedIcon.IsEnabled="True" Source="car.svg" WidthRequest="15" HeightRequest="15" />
                         <Label Text="Navigate" FontSize="13" FontAttributes="Bold" TextColor="{DynamicResource LargaPrimaryBlue}" VerticalOptions="Center" />
                     </HorizontalStackLayout>
                 </Grid>

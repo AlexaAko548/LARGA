@@ -18,7 +18,8 @@
                 VerticalOptions="Fill">
 
             <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="0">
-                <Image Source="larga_logo.webp" WidthRequest="300" Aspect="AspectFit" />
+                <!-- Same 555x246 artwork for both, so the size never changes; follows Dark, or System + dark OS. -->
+                <Image Source="{AppThemeBinding Light=larga_logo.webp, Dark=larga_logo_light.png}" WidthRequest="300" Aspect="AspectFit" />
                 <Label Text="LARGA" 
                        Style="{StaticResource LogoTitleStyle}" 
                        HorizontalOptions="Center" 

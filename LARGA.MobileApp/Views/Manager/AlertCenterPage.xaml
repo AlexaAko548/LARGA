@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:controls="clr-namespace:LARGA.MobileApp.Controls"
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Manager"
              xmlns:local="clr-namespace:LARGA.MobileApp.Views.Manager"
              x:Class="LARGA.MobileApp.Views.Manager.AlertCenterPage"
@@ -17,7 +18,7 @@
                 <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
                     <VerticalStackLayout Spacing="8">
                         <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Image Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
+                            <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
                             <Label Grid.Column="1" Text="EMERGENCY SOS ALERT" FontAttributes="Bold" FontSize="13"
                                    TextColor="#D32F2F" Margin="8,0,0,0" VerticalOptions="Center" />
                             <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
@@ -25,7 +26,7 @@
                                     <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
                                                            CommandParameter="{Binding .}" />
                                 </Grid.GestureRecognizers>
-                                <Image Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                                <Image controls:ThemedIcon.IsEnabled="True" Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                             </Grid>
                         </Grid>
                         <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
@@ -38,21 +39,21 @@
                                     <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.ViewLocationCommand}"
                                                            CommandParameter="{Binding .}" />
                                 </Border.GestureRecognizers>
-                                <Image Source="car.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                                <Image controls:ThemedIcon.IsEnabled="True" Source="car.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                             </Border>
                             <Border Grid.Column="1" BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="46">
                                 <Border.GestureRecognizers>
                                     <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.CallDriverCommand}"
                                                            CommandParameter="{Binding .}" />
                                 </Border.GestureRecognizers>
-                                <Image Source="phone.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                                <Image controls:ThemedIcon.IsEnabled="True" Source="phone.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                             </Border>
                             <Border Grid.Column="2" BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="46">
                                 <Border.GestureRecognizers>
                                     <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.MessageDriverCommand}"
                                                            CommandParameter="{Binding .}" />
                                 </Border.GestureRecognizers>
-                                <Image Source="send_icon.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                                <Image controls:ThemedIcon.IsEnabled="True" Source="send_icon.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                             </Border>
                         </Grid>
                     </VerticalStackLayout>
@@ -64,7 +65,7 @@
                 <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
                     <VerticalStackLayout Spacing="8">
                         <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Image Grid.Column="0" Source="report.svg" WidthRequest="18" HeightRequest="18" />
+                            <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="report.svg" WidthRequest="18" HeightRequest="18" />
                             <Label Grid.Column="1" Text="FUEL DISCREPANCY" FontAttributes="Bold" FontSize="13"
                                    TextColor="#E53935" Margin="8,0,0,0" VerticalOptions="Center" />
                             <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
@@ -72,7 +73,7 @@
                                     <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
                                                            CommandParameter="{Binding .}" />
                                 </Grid.GestureRecognizers>
-                                <Image Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                                <Image controls:ThemedIcon.IsEnabled="True" Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                             </Grid>
                         </Grid>
                         <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
@@ -93,7 +94,7 @@
                 <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
                     <VerticalStackLayout Spacing="8">
                         <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Image Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
+                            <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
                             <Label Grid.Column="1" Text="SHIFT APPROVAL REQUIRED" FontAttributes="Bold" FontSize="13"
                                    TextColor="#D32F2F" Margin="8,0,0,0" VerticalOptions="Center" />
                             <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
@@ -101,7 +102,7 @@
                                     <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
                                                            CommandParameter="{Binding .}" />
                                 </Grid.GestureRecognizers>
-                                <Image Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                                <Image controls:ThemedIcon.IsEnabled="True" Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                             </Grid>
                         </Grid>
                         <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
@@ -144,7 +145,7 @@
                 <Border BackgroundColor="{DynamicResource ThemeWarningSoft}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
                     <VerticalStackLayout Spacing="8">
                         <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Image Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
+                            <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
                             <Label Grid.Column="1" Text="DRIVER IDLE" FontAttributes="Bold" FontSize="13"
                                    TextColor="{DynamicResource ThemeWarningText}" Margin="8,0,0,0" VerticalOptions="Center" />
                             <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
@@ -152,7 +153,7 @@
                                     <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
                                CommandParameter="{Binding .}" />
                                 </Grid.GestureRecognizers>
-                                <Image Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                                <Image controls:ThemedIcon.IsEnabled="True" Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                             </Grid>
                         </Grid>
                         <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="18" TextColor="{DynamicResource ThemeTextBlack}" />
@@ -173,7 +174,7 @@
                 <Border BackgroundColor="{DynamicResource ThemeOrangeSoft}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
                     <VerticalStackLayout Spacing="8">
                         <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Image Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
+                            <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
                             <Label Grid.Column="1" Text="LOW STOCK" FontAttributes="Bold" FontSize="13"
                                    TextColor="{DynamicResource ThemeOrangeText}" Margin="8,0,0,0" VerticalOptions="Center" />
                             <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
@@ -181,7 +182,7 @@
                                     <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
                                                            CommandParameter="{Binding .}" />
                                 </Grid.GestureRecognizers>
-                                <Image Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                                <Image controls:ThemedIcon.IsEnabled="True" Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                             </Grid>
                         </Grid>
                         <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
