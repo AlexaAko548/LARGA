@@ -33,7 +33,7 @@ public class RecordPaymentViewModel : BindableObject
     private readonly QuickLedgerService _service;
     private QuickLedgerSnapshot? _snapshot;
     private PendingBoundaryRow? _boundaryRow;
-    private IReadOnlyList<OtherPaymentRow> _debtors = Array.Empty<OtherPaymentRow>();
+    private IReadOnlyList<OtherPaymentRow> _drivers = Array.Empty<OtherPaymentRow>();
     private EReceiptScanResult? _receipt;
 
     private bool _isOpen;
@@ -152,7 +152,7 @@ public class RecordPaymentViewModel : BindableObject
     {
         _snapshot = snapshot;
         _boundaryRow = row;
-        _debtors = Array.Empty<OtherPaymentRow>();
+        _drivers = Array.Empty<OtherPaymentRow>();
         IsOtherMode = false;
 
         Title = "Record Payment";
@@ -168,17 +168,18 @@ public class RecordPaymentViewModel : BindableObject
     {
         _snapshot = snapshot;
         _boundaryRow = null;
-        _debtors = snapshot.Result.OtherPayments;
+        // Every driver in users, not only those who owe money. Each one's expected amount is their current debt (0 if none).
+        _drivers = snapshot.Result.OtherPayments;
         IsOtherMode = true;
 
         Title = "Record Other Payment";
         DriverOptions.Clear();
-        foreach (OtherPaymentRow debtor in _debtors)
+        foreach (OtherPaymentRow driver in _drivers)
         {
-            DriverOptions.Add(debtor.DriverName);
+            DriverOptions.Add(driver.DriverName);
         }
 
-        int index = driverId is null ? -1 : IndexOfDebtor(driverId);
+        int index = driverId is null ? -1 : IndexOfDriver(driverId);
         _selectedDriverIndex = index >= 0 ? index : 0;
         OnPropertyChanged(nameof(SelectedDriverIndex));
 
@@ -187,31 +188,31 @@ public class RecordPaymentViewModel : BindableObject
         IsOpen = true;
     }
 
-    private int IndexOfDebtor(string driverId)
+    private int IndexOfDriver(string driverId)
     {
-        for (int i = 0; i < _debtors.Count; i++)
+        for (int i = 0; i < _drivers.Count; i++)
         {
-            if (_debtors[i].DriverId == driverId) return i;
+            if (_drivers[i].DriverId == driverId) return i;
         }
         return -1;
     }
 
-    private OtherPaymentRow? SelectedDebtor =>
-        SelectedDriverIndex >= 0 && SelectedDriverIndex < _debtors.Count ? _debtors[SelectedDriverIndex] : null;
+    private OtherPaymentRow? SelectedDriver =>
+        SelectedDriverIndex >= 0 && SelectedDriverIndex < _drivers.Count ? _drivers[SelectedDriverIndex] : null;
 
     private void RefreshOtherSelection()
     {
-        if (_snapshot is null || SelectedDebtor is null)
+        if (_snapshot is null || SelectedDriver is null)
         {
             DriverName = string.Empty;
-            PlateText = "No drivers owe payment";
+            PlateText = "No drivers found";
             ExpectedText = Money(0m);
             return;
         }
 
-        DriverName = SelectedDebtor.DriverName;
-        PlateText = "Debt";
-        ExpectedText = Money(QuickLedgerCalculator.TotalOwedBy(_snapshot.Input, PhilippineTime.Now, SelectedDebtor.DriverId));
+        DriverName = SelectedDriver.DriverName;
+        PlateText = SelectedDriver.AmountOwed > 0 ? "Debt" : "No outstanding debt";
+        ExpectedText = Money(QuickLedgerCalculator.TotalOwedBy(_snapshot.Input, PhilippineTime.Now, SelectedDriver.DriverId));
         RefreshAllocation();
     }
 
@@ -222,9 +223,9 @@ public class RecordPaymentViewModel : BindableObject
 
         if (IsOtherMode)
         {
-            return SelectedDebtor is null
+            return SelectedDriver is null
                 ? null
-                : QuickLedgerCalculator.PlanDebtSettlement(_snapshot.Input, SelectedDebtor.DriverId, amount, method, evidence, nowUtc);
+                : QuickLedgerCalculator.PlanDebtSettlement(_snapshot.Input, SelectedDriver.DriverId, amount, method, evidence, nowUtc);
         }
 
         return _boundaryRow is null
@@ -329,7 +330,7 @@ public class RecordPaymentViewModel : BindableObject
 
             if (IsOtherMode)
             {
-                OtherPaymentRow? debtor = SelectedDebtor;
+                OtherPaymentRow? debtor = SelectedDriver;
                 if (debtor is null)
                 {
                     ErrorText = "Select a driver.";

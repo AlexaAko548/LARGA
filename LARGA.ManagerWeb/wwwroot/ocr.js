@@ -85,3 +85,90 @@ export function releasePreview(url) {
         URL.revokeObjectURL(url);
     }
 }
+
+// -- Driver face crop (profile picture) ----------------------------------
+// Same idea as the OCR above: face-api.js runs in the manager's browser, so the license photo
+// isn't sent anywhere to find the face. Loaded lazily, on the first license scan only.
+
+const FACE_API_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
+const FACE_WEIGHTS_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights";
+
+// Crop width as a multiple of the face's larger side, so the avatar keeps hair and shoulders.
+const FACE_CONTEXT_SCALE = 1.8;
+const FACE_OUTPUT_PX = 256;
+
+let faceApiLoading = null;
+
+function loadFaceApi() {
+    if (window.faceapi?.nets?.tinyFaceDetector?.isLoaded) {
+        return Promise.resolve(window.faceapi);
+    }
+
+    faceApiLoading ??= new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = FACE_API_URL;
+        script.onload = async () => {
+            try {
+                await window.faceapi.nets.tinyFaceDetector.loadFromUri(FACE_WEIGHTS_URL);
+                resolve(window.faceapi);
+            } catch (err) {
+                faceApiLoading = null;
+                reject(err);
+            }
+        };
+        script.onerror = () => {
+            faceApiLoading = null;
+            reject(new Error("Could not load the face detector - check the internet connection."));
+        };
+        document.head.appendChild(script);
+    });
+
+    return faceApiLoading;
+}
+
+// Finds the largest face in the file selected in `input` and returns a square, face-centred
+// JPEG as a data URL, or null when no face is found. EXIF rotation is applied by
+// createImageBitmap, so the detected box matches the upright photo.
+export async function cropDriverFace(input) {
+    const file = input?.files?.[0];
+    if (!file) {
+        return null;
+    }
+
+    const faceapi = await loadFaceApi();
+    const bitmap = await createImageBitmap(file);
+    try {
+        const source = document.createElement("canvas");
+        source.width = bitmap.width;
+        source.height = bitmap.height;
+        source.getContext("2d").drawImage(bitmap, 0, 0);
+
+        const detections = await faceapi.detectAllFaces(
+            source,
+            new faceapi.TinyFaceDetectorOptions({ inputSize: 608, scoreThreshold: 0.5 }));
+        if (detections.length === 0) {
+            return null;
+        }
+
+        // A license has one face. Pick the most confident detection, not the largest: the LTO
+        // seal on the card can be a bigger box than the small photo, so "largest" picked the seal.
+        const { box } = detections.reduce((best, d) => (d.score > best.score ? d : best));
+
+        const side = Math.min(
+            Math.max(box.width, box.height) * FACE_CONTEXT_SCALE,
+            bitmap.width,
+            bitmap.height);
+        const x = Math.min(Math.max(box.x + box.width / 2 - side / 2, 0), bitmap.width - side);
+        const y = Math.min(Math.max(box.y + box.height / 2 - side / 2, 0), bitmap.height - side);
+
+        const output = document.createElement("canvas");
+        output.width = FACE_OUTPUT_PX;
+        output.height = FACE_OUTPUT_PX;
+        const ctx = output.getContext("2d");
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(source, x, y, side, side, 0, 0, FACE_OUTPUT_PX, FACE_OUTPUT_PX);
+        return output.toDataURL("image/jpeg", 0.9);
+    } finally {
+        bitmap.close();
+    }
+}

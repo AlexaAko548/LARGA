@@ -14,7 +14,13 @@
 
             <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="15">
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="15">
-                    <Border Grid.Column="0" StrokeShape="RoundRectangle 30" HeightRequest="60" WidthRequest="60" BackgroundColor="#777777" StrokeThickness="0" />
+                    <Border Grid.Column="0" StrokeShape="RoundRectangle 30" HeightRequest="60" WidthRequest="60" BackgroundColor="#777777" StrokeThickness="0">
+                        <Grid>
+                            <Image Source="{Binding ProfileImageUrl}" Aspect="AspectFill" IsVisible="{Binding HasProfileImage}" />
+                            <Label Text="{Binding Initials}" FontSize="20" FontAttributes="Bold" TextColor="White"
+                                   HorizontalOptions="Center" VerticalOptions="Center" IsVisible="{Binding HasNoProfileImage}" />
+                        </Grid>
+                    </Border>
                     <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
                         <Label Text="{Binding FullName}" FontSize="17" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" />
                         <Label Text="{Binding StatusText}" FontSize="13" TextColor="{Binding StatusColor}" />

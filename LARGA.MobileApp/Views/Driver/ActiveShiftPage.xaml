@@ -139,9 +139,9 @@
         <ContentView IsVisible="{Binding IsSosAlertVisible}" BackgroundColor="#90000000" InputTransparent="False" ZIndex="10">
             <Frame BackgroundColor="{DynamicResource ThemeDangerSoft}" CornerRadius="16" Padding="25" HorizontalOptions="Center" VerticalOptions="Center" WidthRequest="320" HasShadow="True">
                 <VerticalStackLayout Spacing="20">
-                    <Label Text="SOS ALERT SENT" FontSize="18" FontAttributes="Bold" HorizontalOptions="Center" TextColor="{DynamicResource ThemeTextBlack}"/>
-                    <Label Text="Your emergency alert and live location have been instantly sent to the manager. Please prioritize your safety." FontSize="14" HorizontalTextAlignment="Center" TextColor="{DynamicResource ThemeTextBlack}"/>
-                    <Button Text="OK" Style="{StaticResource LargaButtonStyle}" FontSize="18" BackgroundColor="#0099CC" TextColor="White" CornerRadius="20" WidthRequest="100" HorizontalOptions="Center" Command="{Binding DismissSosCommand}"/>
+                    <Label Text="{Binding SosAlertTitle}" FontSize="18" FontAttributes="Bold" HorizontalOptions="Center" TextColor="{DynamicResource ThemeTextBlack}"/>
+                    <Label Text="{Binding SosAlertBody}" FontSize="14" HorizontalTextAlignment="Center" TextColor="{DynamicResource ThemeTextBlack}"/>
+                    <Button Text="OK" IsVisible="{Binding IsSosDismissable}" Style="{StaticResource LargaButtonStyle}" FontSize="18" BackgroundColor="#0099CC" TextColor="White" CornerRadius="20" WidthRequest="100" HorizontalOptions="Center" Command="{Binding DismissSosCommand}"/>
                 </VerticalStackLayout>
             </Frame>
         </ContentView>

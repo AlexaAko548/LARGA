@@ -17,6 +17,7 @@ namespace LARGA.MobileApp.ViewModels.Manager;
 public class ManagerDriverProfileViewModel : BindableObject
 {
     private readonly IOcrService _ocrService;
+    private readonly IFaceCropService _faceCropService;
 
     private string _driverId = string.Empty;
     public string DriverId
@@ -35,6 +36,30 @@ public class ManagerDriverProfileViewModel : BindableObject
     {
         get => _fullName;
         set { _fullName = value; OnPropertyChanged(); }
+    }
+
+    // Driver's profile picture (the license face crop). When it's empty the avatar shows initials.
+    private string _profileImageUrl = string.Empty;
+    public string ProfileImageUrl
+    {
+        get => _profileImageUrl;
+        set
+        {
+            _profileImageUrl = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasProfileImage));
+            OnPropertyChanged(nameof(HasNoProfileImage));
+        }
+    }
+
+    public bool HasProfileImage => !string.IsNullOrWhiteSpace(_profileImageUrl);
+    public bool HasNoProfileImage => !HasProfileImage;
+
+    private string _initials = string.Empty;
+    public string Initials
+    {
+        get => _initials;
+        set { _initials = value; OnPropertyChanged(); }
     }
 
     private string _statusText = string.Empty;
@@ -85,9 +110,10 @@ public class ManagerDriverProfileViewModel : BindableObject
     public ICommand UploadLicensePhotoCommand { get; }
     public ICommand ReloadCommand { get; }
 
-    public ManagerDriverProfileViewModel(IOcrService ocrService)
+    public ManagerDriverProfileViewModel(IOcrService ocrService, IFaceCropService faceCropService)
     {
         _ocrService = ocrService;
+        _faceCropService = faceCropService;
 
         GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
         UploadLicensePhotoCommand = new Command(async () => await UploadLicensePhotoAsync());
@@ -122,7 +148,7 @@ public class ManagerDriverProfileViewModel : BindableObject
                 if (Application.Current?.MainPage?.Navigation is { } navigation)
                 {
                     await navigation.PushModalAsync(
-                        new Views.Driver.ScanDriverLicensePage(_ocrService, localFilePath, DriverId));
+                        new Views.Driver.ScanDriverLicensePage(_ocrService, _faceCropService, localFilePath, DriverId));
                 }
             });
         }
@@ -163,6 +189,9 @@ public class ManagerDriverProfileViewModel : BindableObject
             if (doc?.Data == null) return;
 
             FullName = string.IsNullOrWhiteSpace(doc.Data.FullName) ? "(Unnamed driver)" : doc.Data.FullName;
+            ProfileImageUrl = doc.Data.ProfileImageUrl ?? string.Empty;
+            // From the stored name, not FullName: "(Unnamed driver)" would give "(D".
+            Initials = MakeInitials(doc.Data.FullName ?? string.Empty);
             (StatusText, StatusColor) = LicenseStatusHelper.Describe(doc.Data.LicenseExpiryDate);
 
             LicenseNumberDisplay = doc.Data.LicenseNumber ?? string.Empty;
@@ -181,10 +210,22 @@ public class ManagerDriverProfileViewModel : BindableObject
         }
     }
 
+    // Same rules as ManagerWeb's DriverShifts Initials(), so both apps show the same avatar.
+    private static string MakeInitials(string fullName)
+    {
+        var parts = fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return "?";
+        if (parts.Length == 1) return parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant();
+        return $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant();
+    }
+
     private class DriverDetailProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("fullName")]
         public string FullName { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("profileImageUrl")]
+        public string? ProfileImageUrl { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("licenseNumber")]
         public string LicenseNumber { get; set; } = string.Empty;

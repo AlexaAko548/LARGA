@@ -1990,6 +1990,12 @@ height: 1.7rem;
 font-size: 0.65rem;
 }
 
+/* Profile picture (face crop of the license) in place of the initials avatar. */
+.profile-avatar-photo {
+object-fit: cover;
+background: none;
+}
+
 .table-empty.small {
 padding: 0.8rem;
 font-size: 0.75rem;
