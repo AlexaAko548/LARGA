@@ -142,7 +142,8 @@ public class EmergencyAlertService : IEmergencyAlertService
             .AddDocumentAsync(alert);
 
         // Logged here so both the manual SOS button and automated detection are audited.
-        await AuditLogWriter.WriteAsync("SosTriggered",
+        // Not awaited: the alert is already saved, so the driver's confirmation doesn't wait on a second write.
+        AuditLogWriter.Record("SosTriggered",
             $"Triggered {SosDispatchService.TriggerLabel(triggerType)} SOS for {taxiUnit} ({driverName}) during shift {shiftId}.");
 
         // Every source passes through here, so the heads-up covers the button, Hostile and Crash.

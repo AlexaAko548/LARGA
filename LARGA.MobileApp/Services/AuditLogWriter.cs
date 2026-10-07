@@ -13,6 +13,13 @@ namespace LARGA.MobileApp.Services;
 /// </summary>
 public static class AuditLogWriter
 {
+    /// <summary>
+    /// Starts an audit write and returns straight away. Use this from any flow the user is waiting
+    /// on (SOS, alert resolve, defect submit) so a slow or offline Firestore never holds it up.
+    /// WriteAsync already catches its own failures, so nothing is left unobserved.
+    /// </summary>
+    public static void Record(string actionType, string details) => _ = WriteAsync(actionType, details);
+
     public static async Task WriteAsync(string actionType, string details)
     {
         string uid = CrossFirebaseAuth.Current.CurrentUser?.Uid ?? string.Empty;
