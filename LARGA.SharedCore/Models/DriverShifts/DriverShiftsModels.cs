@@ -219,6 +219,8 @@ public class DriverProfileDetail
     public LicenseStatus LicenseStatus { get; set; }
     public DateTime? LicenseExpiryDate { get; set; }
     public string? LtoIdPhotoUrl { get; set; }
+    /// <summary>Face crop of the license photo, shown as the driver's profile picture.</summary>
+    public string? ProfileImageUrl { get; set; }
     /// <summary>Attendance, punctuality, payment reliability and damage incidents over the last
     /// DriverManagementService.PerformanceWindowDays days.</summary>
     public LARGA.SharedCore.Services.DriverPerformance Performance { get; set; } = new();

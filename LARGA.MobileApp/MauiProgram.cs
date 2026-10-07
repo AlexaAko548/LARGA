@@ -91,6 +91,13 @@ public static class MauiProgram
         builder.Services.AddSingleton<LARGA.MobileApp.Services.EReceiptOcrService>();
 
 #if ANDROID
+        // Crops the driver's face from the license photo for the profile avatar (ML Kit, on-device).
+        builder.Services.AddSingleton<IFaceCropService, LARGA.MobileApp.Platforms.Android.Services.AndroidFaceCropService>();
+#else
+        builder.Services.AddSingleton<IFaceCropService, UnsupportedFaceCropService>();
+#endif
+
+#if ANDROID
         // Removes the platform underline from Quick Ledger entries only (see LedgerEntry).
         Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("LedgerEntryNoUnderline", (handler, view) =>
         {

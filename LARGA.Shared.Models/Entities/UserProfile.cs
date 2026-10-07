@@ -59,6 +59,11 @@ public class UserProfile
     [FirestoreProperty("ltoIdPhotoUrl")]
     public string? LtoIdPhotoUrl { get; set; }
 
+    // Driver's profile picture: a face crop of the license photo (set by the license scan on
+    // web or mobile). Null when no face has been cropped yet.
+    [FirestoreProperty("profileImageUrl")]
+    public string? ProfileImageUrl { get; set; }
+
     // Free-text note a manager leaves for a driver. Written here; nothing in
     // LARGA.MobileApp displays it yet - that's a separate, future mobile-side build.
     /// <summary>Set by ManagerWeb's background check when the driver's balance has gone

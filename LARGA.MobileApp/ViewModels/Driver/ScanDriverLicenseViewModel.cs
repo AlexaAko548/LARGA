@@ -23,6 +23,7 @@ namespace LARGA.MobileApp.ViewModels.Driver;
 public class ScanDriverLicenseViewModel : BindableObject
 {
     private readonly IOcrService _ocrService;
+    private readonly IFaceCropService _faceCropService;
     private readonly string _targetUserId;
     private string _localFilePath; // THE FIX: Store path instead of byte[]
     private DriverLicenseTextParser.ParsedLicense? _parsed;
@@ -73,9 +74,10 @@ public class ScanDriverLicenseViewModel : BindableObject
     public ICommand CancelCommand { get; }
 
     // THE FIX: Constructor now accepts string localFilePath
-    public ScanDriverLicenseViewModel(IOcrService ocrService, string localFilePath, string targetUserId)
+    public ScanDriverLicenseViewModel(IOcrService ocrService, IFaceCropService faceCropService, string localFilePath, string targetUserId)
     {
         _ocrService = ocrService;
+        _faceCropService = faceCropService;
         _localFilePath = localFilePath;
         _targetUserId = targetUserId;
 
@@ -237,6 +239,10 @@ public class ScanDriverLicenseViewModel : BindableObject
             // with no photo on file.
             string photoUrl = await UploadLicensePhotoAsync();
 
+            // The face crop becomes the profile avatar. Optional: if no face is found the save
+            // still goes through, and the profile keeps whatever avatar it already had.
+            string? profileImageUrl = await UploadProfileFaceAsync();
+
             var updates = new Dictionary<object, object>
             {
                 ["licenseNumber"] = InputValidator.NormalizeLicenseNumber(LicenseNumberDisplay)!,
@@ -245,6 +251,11 @@ public class ScanDriverLicenseViewModel : BindableObject
                 ["licenseExpiryDate"] = DateTime.SpecifyKind(ExpiryDate.Date, DateTimeKind.Utc),
                 ["ltoIdPhotoUrl"] = photoUrl,
             };
+
+            if (profileImageUrl is not null)
+            {
+                updates["profileImageUrl"] = profileImageUrl;
+            }
 
             await CrossFirebaseFirestore.Current
                 .GetCollection("users")
@@ -273,6 +284,33 @@ public class ScanDriverLicenseViewModel : BindableObject
             .GetChild($"lto_ids/{_targetUserId}/{DateTime.UtcNow:yyyyMMddHHmmss}{extension.ToLowerInvariant()}");
         await storageRef.PutFile(_localFilePath).AwaitAsync();
         return await storageRef.GetDownloadUrlAsync();
+    }
+
+    /// <summary>Crops the face from the license photo and uploads it next to the license photo
+    /// (same lto_ids/{driverId}/ folder). Returns null, rather than throwing, when there's no
+    /// face or the upload fails, so a missing avatar never blocks saving the license.</summary>
+    private async Task<string?> UploadProfileFaceAsync()
+    {
+        string? facePath = null;
+        try
+        {
+            facePath = await _faceCropService.CropDriverFaceAsync(_localFilePath);
+            if (facePath is null) return null;
+
+            var storageRef = CrossFirebaseStorage.Current.GetRootReference()
+                .GetChild($"lto_ids/{_targetUserId}/face_{DateTime.UtcNow:yyyyMMddHHmmss}.jpg");
+            await storageRef.PutFile(facePath).AwaitAsync();
+            return await storageRef.GetDownloadUrlAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Profile Face Upload Error: {ex.Message}");
+            return null;
+        }
+        finally
+        {
+            TryDeleteCachedFile(facePath);
+        }
     }
 
     private async Task ClosePageAsync()

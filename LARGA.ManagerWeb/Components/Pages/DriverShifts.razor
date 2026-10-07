@@ -745,7 +745,14 @@ else
             </div>
 
             <div class="profile-hero">
-                <div class="table-avatar large">@Initials(_selectedProfile.FullName)</div>
+                @if (!string.IsNullOrEmpty(_selectedProfile.ProfileImageUrl))
+                {
+                    <img class="table-avatar large profile-avatar-photo" src="@_selectedProfile.ProfileImageUrl" alt="@_selectedProfile.FullName" />
+                }
+                else
+                {
+                    <div class="table-avatar large">@Initials(_selectedProfile.FullName)</div>
+                }
                 <div>
                     <div class="profile-name">@_selectedProfile.FullName</div>
                     <div class="profile-meta">@(_selectedProfile.DateJoined is { } joined ? $"Since {joined:MMM yyyy}" : "Join date not set")</div>
@@ -1684,6 +1691,8 @@ else
     // Held until Save Changes, and only when the scanned license was valid.
     private byte[]? _pendingLicensePhoto;
     private string _pendingLicensePhotoType = "image/jpeg";
+    // Face crop from the same valid scan, saved as the driver's profile picture.
+    private byte[]? _pendingProfileFace;
 
     private async Task OnLicenseSelectedAsync(InputFileChangeEventArgs e)
     {
@@ -1723,6 +1732,7 @@ else
                 _editLicenseExpiry = _licenseScan.ExpiryDate;
                 _pendingLicensePhoto = photo;
                 _pendingLicensePhotoType = string.IsNullOrEmpty(e.File.ContentType) ? "image/jpeg" : e.File.ContentType;
+                _pendingProfileFace = await TryCropDriverFaceAsync();
             }
         }
         catch (Exception ex)
@@ -1732,6 +1742,23 @@ else
         finally
         {
             _isReadingLicense = false;
+        }
+    }
+
+    // The profile picture is optional: if no face is found (or the detector can't load), the
+    // license still saves and the driver keeps their initials avatar.
+    private async Task<byte[]?> TryCropDriverFaceAsync()
+    {
+        try
+        {
+            string? dataUrl = await _ocrModule!.InvokeAsync<string?>(
+                "cropDriverFace", TimeSpan.FromMinutes(3), _licenseInput!.Element);
+            int comma = dataUrl?.IndexOf(',') ?? -1;
+            return comma < 0 ? null : Convert.FromBase64String(dataUrl![(comma + 1)..]);
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 
@@ -1747,6 +1774,7 @@ else
         _licenseValidation = null;
         _licenseScanError = null;
         _pendingLicensePhoto = null;
+        _pendingProfileFace = null;
     }
 
     private static string LicenseDocumentLabel(LtoLicenseParser.Result scan) =>
@@ -1794,13 +1822,28 @@ else
                 ? null
                 : await DriverManagement.UploadLtoIdPhotoAsync(_selectedProfile.DriverId, _pendingLicensePhoto, _pendingLicensePhotoType);
 
+            // Best-effort, like the mobile scan: a failed face upload shouldn't block the license save.
+            string? profileImageUrl = null;
+            if (_pendingProfileFace is not null)
+            {
+                try
+                {
+                    profileImageUrl = await DriverManagement.UploadProfileFaceAsync(_selectedProfile.DriverId, _pendingProfileFace);
+                }
+                catch (Exception)
+                {
+                    profileImageUrl = null;
+                }
+            }
+
             await DriverManagement.UpdateDriverProfileAsync(
                 _selectedProfile.DriverId,
                 _editPhone, _editAddress,
                 _editLicenseNumber, _editLicenseClass, _editLicenseRestriction,
                 _editLicenseExpiry,
                 _editAssignedTaxi,
-                ltoIdPhotoUrl);
+                ltoIdPhotoUrl,
+                profileImageUrl);
 
             ResetLicenseScan();
             _isEditingProfile = false;

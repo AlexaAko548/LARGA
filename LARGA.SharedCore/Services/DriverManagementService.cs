@@ -625,6 +625,7 @@ public class DriverManagementService
             LicenseStatus = ComputeLicenseStatus(profile.LicenseExpiryDate, now),
             LicenseExpiryDate = profile.LicenseExpiryDate,
             LtoIdPhotoUrl = profile.LtoIdPhotoUrl,
+            ProfileImageUrl = profile.ProfileImageUrl,
             Performance = performance,
             ManagerNote = profile.ManagerNote,
         };
@@ -659,7 +660,8 @@ public class DriverManagementService
         string? licenseRestrictionCode,
         DateTime? licenseExpiryDate,
         string? assignedTaxiId,
-        string? ltoIdPhotoUrl = null)
+        string? ltoIdPhotoUrl = null,
+        string? profileImageUrl = null)
     {
         // Same rules the Edit Details form checks (InputValidator) - refused here too so nothing
         // malformed is ever stored. Phone and license number are saved in one standard format.
@@ -698,6 +700,12 @@ public class DriverManagementService
             updates["ltoIdPhotoUrl"] = ltoIdPhotoUrl;
         }
 
+        // Same rule for the profile picture: only when a face was cropped from a new scan.
+        if (!string.IsNullOrWhiteSpace(profileImageUrl))
+        {
+            updates["profileImageUrl"] = profileImageUrl;
+        }
+
         await Db.Collection("users").Document(driverId).UpdateAsync(updates);
     }
 
@@ -705,6 +713,11 @@ public class DriverManagementService
     /// download URL (for users/{id}.ltoIdPhotoUrl).</summary>
     public Task<string> UploadLtoIdPhotoAsync(string driverId, byte[] photo, string contentType) =>
         _storageLazy.Value.UploadImageAsync($"lto_ids/{driverId}", photo, contentType);
+
+    /// <summary>Stores the face crop from a license scan and returns its download URL (for
+    /// users/{id}.profileImageUrl). Same lto_ids/{driverId} folder as the license photo.</summary>
+    public Task<string> UploadProfileFaceAsync(string driverId, byte[] face) =>
+        _storageLazy.Value.UploadImageAsync($"lto_ids/{driverId}", face, "image/jpeg");
 
     public async Task SetManagerNoteAsync(string driverId, string note)
     {
