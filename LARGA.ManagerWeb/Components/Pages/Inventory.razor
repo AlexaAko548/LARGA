@@ -1,6 +1,6 @@
 @page "/inventory"
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize]
+@attribute [Authorize(Policy = ManagerSignInService.ManagerOnlyPolicy)]
 @using System.Text.Json
 @using LARGA.SharedCore
 @using LARGA.Shared.Models.Entities

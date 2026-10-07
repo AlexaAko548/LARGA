@@ -11,6 +11,7 @@
 @inject NavigationManager Navigation
 @inject SosDispatchService Dispatch
 @inject ManagerChatService Chat
+@inject AuthenticationStateProvider AuthStateProvider
 @inject LARGA.ManagerWeb.Services.ChatDrawerState ChatDrawer
 @implements IDisposable
 
@@ -42,7 +43,7 @@ else
 
             <div class="header-actions">
                 <NotificationBell />
-                <MessagesButton />
+                @if (_canManage) { <MessagesButton /> }
                 <ManagerProfileMenu />
             </div>
         </header>
@@ -108,7 +109,7 @@ else
                         {
                             <span class="sos-no-phone">No phone number on file - add one in Driver &amp; Shifts to call.</span>
                         }
-                        @if (!string.IsNullOrEmpty(alert.DriverId))
+                        @if (_canManage && !string.IsNullOrEmpty(alert.DriverId))
                         {
                             <button class="solid-btn sos-message" type="button" @onclick="() => OpenChat(alert)">
                                 💬 Message@(_unreadDriverIds.Contains(alert.DriverId) ? " · new" : "")
@@ -172,6 +173,15 @@ else
 }
 
 @code {
+    // Assistant Managers can view SOS alerts but can't open driver chats from here.
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
+    }
+
     // SOS is time-critical: the page re-reads emergency_alerts far more often than the
     // other pages' 20 s refresh.
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(10);

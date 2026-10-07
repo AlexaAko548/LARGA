@@ -39,7 +39,7 @@ else
 
             <div class="header-actions">
                 <NotificationBell />
-                <MessagesButton />
+                @if (_canManage) { <MessagesButton /> }
                 <ManagerProfileMenu />
             </div>
         </header>
@@ -59,8 +59,8 @@ else
                 <button class="tab-btn @(_activeTab == "master" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("master")'>▥ Master Debt Ledger</button>
             </div>
             <div class="tab-actions">
-                <button class="solid-btn" type="button" @onclick="OpenAdjustmentModal">+ Adjustment</button>
-                <button class="outline-btn" type="button" disabled="@_isExportingCsv" @onclick="ExportCsvAsync">@(_isExportingCsv ? "Exporting…" : "⬇ Export")</button>
+                @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenAdjustmentModal">+ Adjustment</button> }
+                @if (_canManage) { <button class="outline-btn" type="button" disabled="@_isExportingCsv" @onclick="ExportCsvAsync">@(_isExportingCsv ? "Exporting…" : "⬇ Export")</button> }
             </div>
         </section>
 
@@ -555,7 +555,7 @@ else
                                 <option value="0">All Time</option>
                             </select>
                         </label>
-                        <button class="outline-btn" type="button" @onclick="ExportHistoryCsv">⬇ Export</button>
+                        @if (_canManage) { <button class="outline-btn" type="button" @onclick="ExportHistoryCsv">⬇ Export</button> }
                     </div>
 
                     <div class="data-table-wrap">
@@ -633,6 +633,15 @@ else
 }
 
 @code {
+    // Assistant Managers can view the ledger and record payments, but can't add debt adjustments.
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
+    }
+
     // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
     private bool _isLoading = true;
     private string _managerUserId = string.Empty;

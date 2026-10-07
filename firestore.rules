@@ -10,6 +10,12 @@ service cloud.firestore {
       return request.auth != null && getUserRole() == 'Manager';
     }
 
+    // Manager or Assistant Manager. Assistant Managers read the operational views (drivers, shifts,
+    // SOS, garage, fuel, ledger) and record payments; everything else stays isManager().
+    function isStaff() {
+      return request.auth != null && getUserRole() in ['Manager', 'Assistant Manager'];
+    }
+
     function isDriver() {
       return request.auth != null && getUserRole() == 'Driver';
     }
@@ -19,7 +25,7 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isOwner(userId) || isManager();
+      allow read: if isOwner(userId) || isStaff();
       // Drivers may only change their push token and contact number themselves - not their
       // unit assignment (only the manager assigns units).
       allow write: if isManager() || (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys()
@@ -27,7 +33,7 @@ service cloud.firestore {
     }
 
     match /shifts/{shiftId} {
-      allow read: if isManager() || (isDriver() && resource.data.driverId == request.auth.uid);
+      allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       // A driver can only clock in / update shifts that are their own, and can't hand a
       // shift to someone else.
       allow create: if isDriver() && request.resource.data.driverId == request.auth.uid;
@@ -38,7 +44,7 @@ service cloud.firestore {
     // Schedule Planner exceptions ({driverId}_{yyyyMMdd}): the driver app reads today's own
     // entry to pick up a substitute unit.
     match /shift_schedules/{docId} {
-      allow read: if isManager() || (request.auth != null && docId.matches(request.auth.uid + '_[0-9]{8}'));
+      allow read: if isStaff() || (request.auth != null && docId.matches(request.auth.uid + '_[0-9]{8}'));
       allow write: if isManager();
     }
 
@@ -47,7 +53,7 @@ service cloud.firestore {
     // only withdraw a pending one, or mark an approved one used once its shift has started.
     // Approve/deny is done from ManagerWeb (Admin SDK).
     match /clockin_requests/{requestId} {
-      allow read: if isManager() || (isDriver() && resource.data.driverId == request.auth.uid);
+      allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow create: if isDriver() && request.resource.data.driverId == request.auth.uid
                     && request.resource.data.status == 'Pending';
       allow update: if isManager() || (isDriver() && resource.data.driverId == request.auth.uid
@@ -57,13 +63,14 @@ service cloud.firestore {
     }
 
     // Manual penalties/credits - the driver's Ledger and Debt Details screens read their own.
+    // Assistant Managers can read these but can't add them (Manager only).
     match /debt_adjustments/{adjustmentId} {
-      allow read: if isManager() || (isDriver() && resource.data.driverId == request.auth.uid);
+      allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow write: if isManager();
     }
 
     match /driverPerformance/{driverId} {
-      allow read: if isOwner(driverId) || isManager();
+      allow read: if isOwner(driverId) || isStaff();
       allow write: if isManager();
     }
 
@@ -87,29 +94,31 @@ service cloud.firestore {
       allow write: if isManager();
     }
 
-    // Payments are recorded by managers only (ManagerWeb's Financial Ledger, the app's Quick
-    // Ledger). A driver reads only their own, read-only on their Ledger screen - driverId is set
-    // on every payment document (older ones are backfilled by ManagerWeb on startup).
+    // Payments are recorded by managers and Assistant Managers (ManagerWeb's Financial Ledger, the
+    // app's Quick Ledger). Only a Manager may delete one. A driver reads only their own, read-only
+    // on their Ledger screen - driverId is set on every payment document (older ones are backfilled
+    // by ManagerWeb on startup).
     match /boundary_payments/{paymentId} {
-      allow read: if isManager() || (isDriver() && resource.data.driverId == request.auth.uid);
-      allow create, update, delete: if isManager();
+      allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
+      allow create, update: if isStaff();
+      allow delete: if isManager();
     }
 
     match /maintenance_logs/{maintenanceId} {
-      allow read: if isManager() || isDriver();
+      allow read: if isStaff() || isDriver();
       allow create: if isDriver();
       allow update: if isManager();
     }
 
     match /fuel_logs/{fuelId} {
-      allow read: if isManager() || (isDriver() && resource.data.driverId == request.auth.uid);
+      allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow create: if isDriver();
       allow update: if isManager();
     }
 
     // A point can only come from the driver who owns the shift it's for, and is never edited.
     match /gps_telemetry/{logId} {
-      allow read: if isManager();
+      allow read: if isStaff();
       allow create: if isDriver()
         && request.resource.data.driverId == request.auth.uid
         && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid;
@@ -117,8 +126,9 @@ service cloud.firestore {
 
     // Driver SOS (Active Shift screen) - a driver can only raise one as themselves.
     // Resolved from ManagerWeb's SOS Dispatch (Admin SDK) or the manager's Alert Center.
+    // Assistant Managers can view alerts but not resolve them.
     match /emergency_alerts/{alertId} {
-      allow read: if isManager();
+      allow read: if isStaff();
       allow create: if isDriver() && request.resource.data.driverId == request.auth.uid;
       allow update: if isManager();
     }
@@ -132,15 +142,15 @@ service cloud.firestore {
     }
 
     match /handover_checklists/{checklistId} {
-      allow read: if isManager();
+      allow read: if isStaff();
       allow create: if isDriver();
       allow update: if isManager();
     }
 
-    // Raised by ManagerWeb's background checks (Admin SDK); managers only mark them read.
+    // Raised by ManagerWeb's background checks (Admin SDK); staff only mark them read.
     match /system_alerts/{alertId} {
-      allow read: if isManager();
-      allow update: if isManager() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+      allow read: if isStaff();
+      allow update: if isStaff() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
     }
   }
 }

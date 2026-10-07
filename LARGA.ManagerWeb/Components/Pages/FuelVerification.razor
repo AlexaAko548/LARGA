@@ -10,6 +10,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject FuelVerificationService FuelVerificationSvc
+@inject AuthenticationStateProvider AuthStateProvider
 
 <PageTitle>Fuel Verification</PageTitle>
 
@@ -35,7 +36,7 @@ else
 
             <div class="header-actions">
                 <NotificationBell />
-                <MessagesButton />
+                @if (_canManage) { <MessagesButton /> }
                 <ManagerProfileMenu />
             </div>
         </header>
@@ -121,11 +122,11 @@ else
                                 <td>
                                     @if (e.Status == FuelVerificationStatus.Flagged)
                                     {
-                                        <button class="profile-btn" type="button" @onclick="() => OpenResolveModal(e)">Resolve Issue</button>
+                                        @if (_canManage) { <button class="profile-btn" type="button" @onclick="() => OpenResolveModal(e)">Resolve Issue</button> }
                                     }
                                     else
                                     {
-                                        <button class="profile-btn" type="button" @onclick="() => OpenReviewModal(e)">Review</button>
+                                        @if (_canManage) { <button class="profile-btn" type="button" @onclick="() => OpenReviewModal(e)">Review</button> }
                                     }
                                 </td>
                             </tr>
@@ -358,6 +359,15 @@ else
 }
 
 @code {
+    // Assistant Managers can view fuel logs but can't verify, flag, or resolve them.
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
+    }
+
     // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
     private bool _isLoading = true;
 

@@ -35,7 +35,7 @@ erDiagram
         string FullName
         string Email
         string PhoneNumber "VARCHAR(12)"
-        enum Role "'Driver','Manager'"
+        enum Role "'Driver','Manager','Assistant Manager'"
         int PerformanceScore
         decimal CurrentArrears "DECIMAL(10,2)"
         string LicenseNumber "CHAR(11)"
