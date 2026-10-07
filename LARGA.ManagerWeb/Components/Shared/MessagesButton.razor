@@ -1,6 +1,6 @@
 @* Messages button in every dashboard page header (replaces the old placeholder ✉ icon-btn).
-   Opens a drawer on the right like the manager app's Chats: first the list of driver
-   conversations (name, last message, time), then a driver's chat with a back arrow to the
+   Opens a drawer on the right like the manager app's Chats: first every registered driver
+   (conversations first - name, last message, time - then drivers not messaged yet), then a driver's chat with a back arrow to the
    list. SOS Dispatch opens it straight into a driver's chat through ChatDrawerState. Both
    lists update live (Firestore listeners), and it's the same conversation the driver sees in
    the LARGA app's Message Manager. *@
@@ -8,6 +8,7 @@
 @using LARGA.ManagerWeb.Services
 @using LARGA.SharedCore
 @using LARGA.SharedCore.Services
+@using LARGA.SharedCore.Models.Chats
 @using LARGA.Shared.Models.Entities
 @inject ManagerChatService Chat
 @inject ChatDrawerState Drawer
@@ -39,17 +40,17 @@
                 {
                     <div class="chat-drawer-empty error">Messages unavailable: @_sessionsError</div>
                 }
-                else if (_sessions is null)
+                else if (_sessions is null || _drivers is null)
                 {
                     <div class="chat-drawer-empty">Loading conversations...</div>
                 }
-                else if (_sessions.Count == 0)
+                else if (Rows.Count == 0)
                 {
-                    <div class="chat-drawer-empty">No conversations yet. Drivers' messages from the LARGA app appear here.</div>
+                    <div class="chat-drawer-empty">No drivers registered yet.</div>
                 }
                 else
                 {
-                    @foreach (ChatSessionView session in _sessions)
+                    @foreach (ChatSessionView session in Rows)
                     {
                         ChatSessionView item = session;
                         <button type="button" class="chat-session @(item.IsUnread ? "unread" : "")"
@@ -60,7 +61,14 @@
                                     <span class="chat-session-name">@item.DriverName</span>
                                     <span class="chat-session-time">@ListTime(item.Timestamp)</span>
                                 </span>
-                                <span class="chat-session-preview">@item.LastMessage</span>
+                                @if (item.HasConversation)
+                                {
+                                    <span class="chat-session-preview">@item.LastMessage</span>
+                                }
+                                else
+                                {
+                                    <span class="chat-session-preview new">Send your first message</span>
+                                }
                             </span>
                             @if (item.IsUnread)
                             {
@@ -145,6 +153,7 @@
     };
 
     private List<ChatSessionView>? _sessions;
+    private List<ChatDriver>? _drivers;
     private string? _sessionsError;
     private Google.Cloud.Firestore.FirestoreChangeListener? _sessionsListener;
 
@@ -159,7 +168,40 @@
 
     private int UnreadCount => _sessions?.Count(s => s.IsUnread) ?? 0;
 
-    protected override void OnInitialized()
+    // One row per registered driver, like the manager app's Chats: conversations newest first
+    // (named from users, so a renamed driver shows their current name), then drivers with no
+    // chat yet A-Z. A chat whose driver is no longer registered stays listed so its messages
+    // (and any unread badge) are still reachable.
+    private List<ChatSessionView> Rows
+    {
+        get
+        {
+            List<ChatSessionView> sessions = _sessions ?? new();
+            List<ChatDriver> drivers = _drivers ?? new();
+            Dictionary<string, string> names = drivers
+                .GroupBy(d => d.Id)
+                .ToDictionary(g => g.Key, g => g.First().FullName);
+
+            IEnumerable<ChatSessionView> conversations = sessions.Select(s => new ChatSessionView
+            {
+                DriverId = s.DriverId,
+                DriverName = names.TryGetValue(s.DriverId, out string? name) ? name : s.DriverName,
+                LastMessage = s.LastMessage,
+                IsUnread = s.IsUnread,
+                Timestamp = s.Timestamp,
+            });
+
+            HashSet<string> withChat = sessions.Select(s => s.DriverId).ToHashSet();
+            IEnumerable<ChatSessionView> newChats = drivers
+                .Where(d => !withChat.Contains(d.Id))
+                .OrderBy(d => d.FullName, StringComparer.OrdinalIgnoreCase)
+                .Select(d => new ChatSessionView { DriverId = d.Id, DriverName = d.FullName, HasConversation = false });
+
+            return conversations.OrderByDescending(s => s.Timestamp).Concat(newChats).ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
     {
         Drawer.Changed += OnDrawerChanged;
 
@@ -187,6 +229,20 @@
         {
             Drawer.Close();
         }
+
+        await LoadDriversAsync();
+    }
+
+    private async Task LoadDriversAsync()
+    {
+        try
+        {
+            _drivers = await Chat.GetDriversAsync();
+        }
+        catch (Exception ex)
+        {
+            _sessionsError ??= ex.Message;
+        }
     }
 
     private void OnDrawerChanged()
@@ -199,6 +255,14 @@
                 await SwitchChatAsync(wanted);
             }
             StateHasChanged();
+
+            // Re-read the driver list each time the list shows, like the manager app's Chats
+            // does on appear, so a driver added since the page loaded is there to message.
+            if (Drawer.IsOpen && Drawer.DriverId is null)
+            {
+                await LoadDriversAsync();
+                StateHasChanged();
+            }
         });
     }
 

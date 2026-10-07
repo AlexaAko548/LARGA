@@ -20,6 +20,9 @@ public class ChatSession : INotifyPropertyChanged
     /// <summary>False for a driver with no chats/{driverId} doc yet (chats are created lazily on the first message).</summary>
     public bool HasConversation { get; set; }
 
+    /// <summary>The list row's second line: the last message, or a nudge for a driver not messaged yet.</summary>
+    public string PreviewText => HasConversation ? LastMessage : "Send your first message";
+
     public string DisplayTime => !HasConversation ? string.Empty
         : Timestamp.Date == DateTime.Today ? Timestamp.ToString("h:mm tt").ToLower() : Timestamp.ToString("ddd").ToLower();
 

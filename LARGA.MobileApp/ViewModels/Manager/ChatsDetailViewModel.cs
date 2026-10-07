@@ -109,6 +109,14 @@ public class ChatsDetailViewModel : INotifyPropertyChanged
                     Messages.Add(msg);
                 }
 
+                // Opening the thread reads it, whichever screen opened it (Chats inbox, Alert
+                // Center, Fleet Map) - only on the first snapshot, since the listener outlives
+                // the page. Skipped for a thread with no messages: no chats/{driverId} doc yet.
+                if (!HasLoadedMessages && messages.Count > 0)
+                {
+                    _ = _chatService.MarkMessagesAsReadAsync(DriverId);
+                }
+
                 HasLoadedMessages = true;
                 ScrollToBottom?.Invoke();
             });

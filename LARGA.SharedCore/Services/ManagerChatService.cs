@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Models.Chats;
 using Microsoft.Extensions.Logging;
 
 namespace LARGA.SharedCore.Services;
@@ -15,6 +16,10 @@ public class ChatSessionView
     public string DriverName { get; set; } = string.Empty;
     public string LastMessage { get; set; } = string.Empty;
     public bool IsUnread { get; set; }
+
+    /// <summary>False for a registered driver with no chats/{driverId} doc yet - chats are
+    /// created lazily on the first message.</summary>
+    public bool HasConversation { get; set; } = true;
 
     /// <summary>UTC.</summary>
     public DateTime Timestamp { get; set; }
@@ -84,6 +89,18 @@ public class ManagerChatService
                 .ToList();
             onSessions(sessions);
         });
+    }
+
+    /// <summary>Every registered driver (users with role "Driver"), so the drawer can list
+    /// drivers the manager hasn't messaged yet - same query as the manager app's Chats.</summary>
+    public async Task<List<ChatDriver>> GetDriversAsync()
+    {
+        QuerySnapshot snapshot = await Db.Collection("users").WhereEqualTo("role", "Driver").GetSnapshotAsync();
+        return snapshot.Documents
+            .Select(doc => new ChatDriver(
+                doc.Id,
+                doc.TryGetValue("fullName", out string name) && !string.IsNullOrWhiteSpace(name) ? name : "(Unnamed driver)"))
+            .ToList();
     }
 
     public async Task SendAsync(string driverId, string driverName, string text)

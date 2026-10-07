@@ -4944,6 +4944,11 @@ overflow: hidden;
 text-overflow: ellipsis;
 }
 
+.chat-session-preview.new {
+font-style: italic;
+color: var(--muted, #5a7a8a);
+}
+
 .chat-session.unread .chat-session-name,
 .chat-session.unread .chat-session-preview {
 font-weight: 800;

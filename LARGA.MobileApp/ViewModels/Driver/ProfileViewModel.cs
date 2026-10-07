@@ -114,6 +114,20 @@ public class ProfileViewModel : BindableObject
 
         LogoutCommand = new Command(async () =>
         {
+            // LAR-96: a driver mid-shift must clock out first - logging out would kill GPS
+            // telemetry and emergency detection (both stopped below) while the shift Firestore
+            // still shows them Active, leaving a manager blind to a driver who's actually still
+            // on the road. Same local flag DriverDashboardPage already treats as the source of
+            // truth for "is a shift currently open" (set at clock-in, cleared at clock-out).
+            if (Preferences.Get("IsShiftActive", false))
+            {
+                await Shell.Current.DisplayAlert(
+                    "Still on Shift",
+                    "You can't log out while a shift is active. Please clock out first.",
+                    "OK");
+                return;
+            }
+
             // No GPS points after logout - they'd be written for a driver who isn't signed in.
             telemetryService.Stop();
             // LAR-86/87: likewise stop emergency detection when the driver signs out.
