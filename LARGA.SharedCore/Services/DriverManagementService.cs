@@ -41,14 +41,18 @@ public record PhotoStorageTarget(Google.Cloud.Storage.V1.StorageClient Client, s
         string token = Guid.NewGuid().ToString();
 
         using var stream = new System.IO.MemoryStream(image);
-        await Client.UploadObjectAsync(new Google.Apis.Storage.v1.Data.Object
+        var uploaded = await Client.UploadObjectAsync(new Google.Apis.Storage.v1.Data.Object
         {
             Bucket = Bucket,
             Name = objectName,
             ContentType = contentType,
-            // The token Firebase's download URLs are checked against.
-            Metadata = new Dictionary<string, string> { ["firebaseStorageDownloadTokens"] = token },
         }, stream);
+
+        // The token Firebase's download URLs are checked against. Set in a separate update: the
+        // metadata sent with the upload itself wasn't being stored (files came back with no
+        // custom metadata, so the URL's token matched nothing and returned 403).
+        uploaded.Metadata = new Dictionary<string, string> { ["firebaseStorageDownloadTokens"] = token };
+        await Client.UpdateObjectAsync(uploaded);
 
         return $"https://firebasestorage.googleapis.com/v0/b/{Bucket}/o/{Uri.EscapeDataString(objectName)}?alt=media&token={token}";
     }
