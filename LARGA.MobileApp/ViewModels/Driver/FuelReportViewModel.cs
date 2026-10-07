@@ -31,6 +31,8 @@ public class FuelReportViewModel : BindableObject
     private const string PendingQuantityEditedKey = PendingPrefix + "QuantityEdited";
     private const string PendingFuelStationEditedKey = PendingPrefix + "FuelStationEdited";
     private const string PendingDateEditedKey = PendingPrefix + "DateEdited";
+    private const string PendingOrNumberKey = PendingPrefix + "OrNumber";
+    private const string PendingOrNumberEditedKey = PendingPrefix + "OrNumberEdited";
 
     private readonly IOcrService _ocrService;
     private readonly IFuelService _fuelService;
@@ -83,6 +85,25 @@ public class FuelReportViewModel : BindableObject
             {
                 IsFuelStationManuallyEdited = _fuelStationWasUncertain &&
                     !string.Equals(NormalizeText(_fuelStation), NormalizeText(_originalFuelStationValue), StringComparison.Ordinal);
+            }
+        }
+    }
+
+    // Optional: not part of CanSubmit - some receipts only print an SI/invoice number, and the
+    // manager can still verify a report without it.
+    private string _orNumber = string.Empty;
+    public string OrNumber
+    {
+        get => _orNumber;
+        set
+        {
+            _orNumber = value;
+            OnPropertyChanged();
+
+            if (!_isApplyingScanResult)
+            {
+                IsOrNumberManuallyEdited = _orNumberWasUncertain &&
+                    !string.Equals(NormalizeText(_orNumber), NormalizeText(_originalOrNumberValue), StringComparison.Ordinal);
             }
         }
     }
@@ -152,6 +173,9 @@ public class FuelReportViewModel : BindableObject
     private bool _isReceiptDateEditable;
     public bool IsReceiptDateEditable { get => _isReceiptDateEditable; set { _isReceiptDateEditable = value; OnPropertyChanged(); } }
 
+    private bool _isOrNumberEditable;
+    public bool IsOrNumberEditable { get => _isOrNumberEditable; set { _isOrNumberEditable = value; OnPropertyChanged(); } }
+
     private bool _isCostManuallyEdited;
     public bool IsCostManuallyEdited { get => _isCostManuallyEdited; set { _isCostManuallyEdited = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsAnyFieldManuallyEdited)); } }
 
@@ -164,17 +188,22 @@ public class FuelReportViewModel : BindableObject
     private bool _isReceiptDateManuallyEdited;
     public bool IsReceiptDateManuallyEdited { get => _isReceiptDateManuallyEdited; set { _isReceiptDateManuallyEdited = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsAnyFieldManuallyEdited)); } }
 
-    public bool IsAnyFieldManuallyEdited => IsCostManuallyEdited || IsQuantityManuallyEdited || IsFuelStationManuallyEdited || IsReceiptDateManuallyEdited;
+    private bool _isOrNumberManuallyEdited;
+    public bool IsOrNumberManuallyEdited { get => _isOrNumberManuallyEdited; set { _isOrNumberManuallyEdited = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsAnyFieldManuallyEdited)); } }
+
+    public bool IsAnyFieldManuallyEdited => IsCostManuallyEdited || IsQuantityManuallyEdited || IsFuelStationManuallyEdited || IsReceiptDateManuallyEdited || IsOrNumberManuallyEdited;
 
     private bool _isApplyingScanResult;
     private bool _costWasUncertain;
     private bool _quantityWasUncertain;
     private bool _fuelStationWasUncertain;
     private bool _dateWasUncertain;
+    private bool _orNumberWasUncertain;
     private string _originalCostValue = string.Empty;
     private string _originalQuantityValue = string.Empty;
     private string _originalFuelStationValue = string.Empty;
     private string _originalReceiptDateText = string.Empty;
+    private string _originalOrNumberValue = string.Empty;
 
     private string _odometer = string.Empty;
     public string Odometer { get => _odometer; set { _odometer = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsOdometerScanned)); OnPropertyChanged(nameof(CanSubmit)); } }
@@ -227,27 +256,32 @@ public class FuelReportViewModel : BindableObject
             FuelStation = data.Vendor;
             SelectedDate = data.ReceiptDate;
             ReceiptDateText = data.ReceiptDate?.ToString("MMM dd, yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
+            OrNumber = data.OrNumber;
             IsReceiptParsingUncertain = data.ParsingUncertain;
             ReceiptParsingWarning = data.ParsingWarning;
             IsCostEditable = data.IsCostUncertain || IsZeroOrEmpty(Cost);
             IsQuantityEditable = data.IsQuantityUncertain || IsZeroOrEmpty(Quantity);
             IsFuelStationEditable = data.IsVendorUncertain || string.IsNullOrWhiteSpace(FuelStation) || FuelStation.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase);
             IsReceiptDateEditable = data.IsDateUncertain || !SelectedDate.HasValue;
+            IsOrNumberEditable = data.IsOrNumberUncertain || string.IsNullOrWhiteSpace(OrNumber);
 
             _costWasUncertain = IsCostEditable;
             _quantityWasUncertain = IsQuantityEditable;
             _fuelStationWasUncertain = IsFuelStationEditable;
             _dateWasUncertain = IsReceiptDateEditable;
+            _orNumberWasUncertain = IsOrNumberEditable;
 
             _originalCostValue = Cost;
             _originalQuantityValue = Quantity;
             _originalFuelStationValue = FuelStation;
             _originalReceiptDateText = ReceiptDateText;
+            _originalOrNumberValue = OrNumber;
 
             IsCostManuallyEdited = false;
             IsQuantityManuallyEdited = false;
             IsFuelStationManuallyEdited = false;
             IsReceiptDateManuallyEdited = false;
+            IsOrNumberManuallyEdited = false;
             _isApplyingScanResult = false;
 
             _receiptTempPath = data.PhotoFilePath; // THE FIX: Assign path directly
@@ -320,6 +354,7 @@ public class FuelReportViewModel : BindableObject
                     FuelCost = ParseDecimal(Cost),
                     LitersRefueled = ParseDecimal(Quantity),
                     FuelStation = FuelStation,
+                    ORNumber = OrNumber?.Trim() ?? string.Empty,
                     ReceiptTimestamp = NormalizeReceiptTimestamp(SelectedDate.Value),
                     OdometerReading = int.TryParse(Odometer.Replace(",", ""), out var odoVal) ? odoVal : 0,
                     VerificationStatus = FuelVerificationStatus.Pending,
@@ -329,6 +364,7 @@ public class FuelReportViewModel : BindableObject
                     IsQuantityManuallyEdited = IsQuantityManuallyEdited,
                     IsFuelStationManuallyEdited = IsFuelStationManuallyEdited,
                     IsReceiptDateManuallyEdited = IsReceiptDateManuallyEdited,
+                    IsOrNumberManuallyEdited = IsOrNumberManuallyEdited,
                     IsAnyFieldManuallyEdited = IsAnyFieldManuallyEdited
                 };
 
@@ -378,6 +414,7 @@ public class FuelReportViewModel : BindableObject
         FuelStation = string.Empty;
         SelectedDate = null;
         ReceiptDateText = string.Empty;
+        OrNumber = string.Empty;
         Odometer = string.Empty;
         ReceiptPhoto = null;
 
@@ -388,20 +425,24 @@ public class FuelReportViewModel : BindableObject
         IsQuantityEditable = false;
         IsFuelStationEditable = false;
         IsReceiptDateEditable = false;
+        IsOrNumberEditable = false;
 
         IsCostManuallyEdited = false;
         IsQuantityManuallyEdited = false;
         IsFuelStationManuallyEdited = false;
         IsReceiptDateManuallyEdited = false;
+        IsOrNumberManuallyEdited = false;
 
         _costWasUncertain = false;
         _quantityWasUncertain = false;
         _fuelStationWasUncertain = false;
         _dateWasUncertain = false;
+        _orNumberWasUncertain = false;
         _originalCostValue = string.Empty;
         _originalQuantityValue = string.Empty;
         _originalFuelStationValue = string.Empty;
         _originalReceiptDateText = string.Empty;
+        _originalOrNumberValue = string.Empty;
 
         DeleteTempFile(_receiptTempPath);
         DeleteTempFile(_odometerTempPath);
@@ -499,6 +540,8 @@ public class FuelReportViewModel : BindableObject
         Preferences.Set(PendingQuantityEditedKey, IsQuantityManuallyEdited);
         Preferences.Set(PendingFuelStationEditedKey, IsFuelStationManuallyEdited);
         Preferences.Set(PendingDateEditedKey, IsReceiptDateManuallyEdited);
+        Preferences.Set(PendingOrNumberKey, OrNumber);
+        Preferences.Set(PendingOrNumberEditedKey, IsOrNumberManuallyEdited);
     }
 
     private void TryLoadPendingDraft()
@@ -517,6 +560,7 @@ public class FuelReportViewModel : BindableObject
         Cost = Preferences.Get(PendingCostKey, Cost);
         Quantity = Preferences.Get(PendingQuantityKey, Quantity);
         FuelStation = Preferences.Get(PendingFuelStationKey, FuelStation);
+        OrNumber = Preferences.Get(PendingOrNumberKey, OrNumber);
         Odometer = Preferences.Get(PendingOdometerKey, Odometer);
 
         if (DateTime.TryParse(Preferences.Get(PendingSelectedDateKey, string.Empty), null, DateTimeStyles.RoundtripKind, out var parsedDate))
@@ -530,20 +574,24 @@ public class FuelReportViewModel : BindableObject
         if (IsZeroOrEmpty(Quantity)) IsQuantityEditable = true;
         if (string.IsNullOrWhiteSpace(FuelStation) || FuelStation.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase)) IsFuelStationEditable = true;
         if (!SelectedDate.HasValue) IsReceiptDateEditable = true;
+        if (string.IsNullOrWhiteSpace(OrNumber)) IsOrNumberEditable = true;
 
         _costWasUncertain = IsCostEditable;
         _quantityWasUncertain = IsQuantityEditable;
         _fuelStationWasUncertain = IsFuelStationEditable;
         _dateWasUncertain = IsReceiptDateEditable;
+        _orNumberWasUncertain = IsOrNumberEditable;
         _originalCostValue = Cost;
         _originalQuantityValue = Quantity;
         _originalFuelStationValue = FuelStation;
         _originalReceiptDateText = ReceiptDateText;
+        _originalOrNumberValue = OrNumber;
 
         IsCostManuallyEdited = Preferences.Get(PendingCostEditedKey, false);
         IsQuantityManuallyEdited = Preferences.Get(PendingQuantityEditedKey, false);
         IsFuelStationManuallyEdited = Preferences.Get(PendingFuelStationEditedKey, false);
         IsReceiptDateManuallyEdited = Preferences.Get(PendingDateEditedKey, false);
+        IsOrNumberManuallyEdited = Preferences.Get(PendingOrNumberEditedKey, false);
 
         _receiptTempPath = Preferences.Get(PendingReceiptPathKey, string.Empty);
         if (!string.IsNullOrWhiteSpace(_receiptTempPath) && File.Exists(_receiptTempPath))
@@ -570,6 +618,8 @@ public class FuelReportViewModel : BindableObject
         Preferences.Remove(PendingQuantityEditedKey);
         Preferences.Remove(PendingFuelStationEditedKey);
         Preferences.Remove(PendingDateEditedKey);
+        Preferences.Remove(PendingOrNumberKey);
+        Preferences.Remove(PendingOrNumberEditedKey);
     }
 
     private static bool TryParseReceiptDateInput(string? input, out DateTime date)
@@ -634,6 +684,8 @@ public class ReceiptExtractedData
     public string Quantity { get; set; } = string.Empty;
     public string Vendor { get; set; } = string.Empty;
     public DateTime? ReceiptDate { get; set; }
+    public string OrNumber { get; set; } = string.Empty;
+    public bool IsOrNumberUncertain { get; set; }
     public bool ParsingUncertain { get; set; }
     public string ParsingWarning { get; set; } = string.Empty;
     public bool IsCostUncertain { get; set; }

@@ -5,18 +5,18 @@
              x:Class="LARGA.MobileApp.Views.Shared.ComingSoonPage"
              x:DataType="vm:ComingSoonViewModel"
              NavigationPage.HasNavigationBar="False"
-             BackgroundColor="{StaticResource LargaWhite}">
+             BackgroundColor="{DynamicResource ThemeSurface}">
 
     <VerticalStackLayout Padding="20,0" Spacing="15">
 
-        <Label Text="&lt; Back" FontSize="14" TextColor="{StaticResource LargaPrimaryBlue}" Margin="0,15,0,0">
+        <Label Text="&lt; Back" FontSize="14" TextColor="{DynamicResource LargaPrimaryBlue}" Margin="0,15,0,0">
             <Label.GestureRecognizers>
                 <TapGestureRecognizer Command="{Binding GoBackCommand}" />
             </Label.GestureRecognizers>
         </Label>
 
-        <Label Text="{Binding Title}" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaDarkText}" />
+        <Label Text="{Binding Title}" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{DynamicResource LargaDarkText}" />
 
-        <Label Text="{Binding Title, StringFormat='{0} is coming soon.'}" FontSize="14" TextColor="Gray" HorizontalOptions="Center" Margin="0,60,0,0" />
+        <Label Text="{Binding Title, StringFormat='{0} is coming soon.'}" FontSize="14" TextColor="{DynamicResource ThemeTextGray}" HorizontalOptions="Center" Margin="0,60,0,0" />
     </VerticalStackLayout>
 </ContentPage>

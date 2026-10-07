@@ -5,17 +5,17 @@
              x:Class="LARGA.MobileApp.Views.Driver.ShiftCompletedPage"
              x:DataType="vm:ShiftCompletedViewModel"
              Shell.NavBarIsVisible="False"
-             BackgroundColor="White">
+             BackgroundColor="{DynamicResource ThemeSurface}">
 
     <Grid RowDefinitions="*,Auto" Padding="20">
 
         <VerticalStackLayout Grid.Row="0" Spacing="15" VerticalOptions="Start" Margin="0,20,0,0">
             <!-- Dynamic Date -->
-            <Label Text="{Binding CurrentDateDisplay}" TextColor="Black" FontSize="14" />
-            <Label Text="Shift Completed" FontSize="32" FontAttributes="Bold" TextColor="Black" />
+            <Label Text="{Binding CurrentDateDisplay}" TextColor="{DynamicResource ThemeTextBlack}" FontSize="14" />
+            <Label Text="Shift Completed" FontSize="32" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}" />
 
             <!-- Dynamic Name inside FormattedText -->
-            <Label FontSize="14" TextColor="Black">
+            <Label FontSize="14" TextColor="{DynamicResource ThemeTextBlack}">
                 <Label.FormattedText>
                     <FormattedString>
                         <Span Text="{Binding CompletionMessage}" />
@@ -24,18 +24,18 @@
                 </Label.FormattedText>
             </Label>
 
-            <Border BackgroundColor="#AEE2F0" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+            <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                 <VerticalStackLayout Spacing="5">
-                    <Label Text="TODAY'S BOUNDARY" FontSize="12" TextColor="Black" />
+                    <Label Text="TODAY'S BOUNDARY" FontSize="12" TextColor="{DynamicResource ThemeTextBlack}" />
                     <!-- Fixed Boundary Amount -->
-                    <Label Text="{Binding BoundaryAmountDisplay}" FontSize="28" FontAttributes="Bold" TextColor="Black" />
+                    <Label Text="{Binding BoundaryAmountDisplay}" FontSize="28" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}" />
                     <Label Text="{Binding LateFeeNote}" IsVisible="{Binding HasLateFee}" FontSize="12" TextColor="#B3261E" />
                 </VerticalStackLayout>
             </Border>
 
-            <Border BackgroundColor="#AEE2F0" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+            <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                 <Label Text="Please proceed to the office to remit your cash boundary to the manager to clear your ledger."
-                       FontSize="13" TextColor="Black" />
+                       FontSize="13" TextColor="{DynamicResource ThemeTextBlack}" />
             </Border>
         </VerticalStackLayout>
 

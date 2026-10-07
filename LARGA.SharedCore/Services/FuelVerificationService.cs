@@ -184,6 +184,7 @@ public class FuelVerificationService
             IsQuantityManuallyEdited = log.IsQuantityManuallyEdited,
             IsFuelStationManuallyEdited = log.IsFuelStationManuallyEdited,
             IsReceiptDateManuallyEdited = log.IsReceiptDateManuallyEdited,
+            IsOrNumberManuallyEdited = log.IsOrNumberManuallyEdited,
             PreviousOdometerReading = previousReading,
             PreviousOdometerLabel = previousLabel,
             GpsDistanceKm = gpsDistanceKm,

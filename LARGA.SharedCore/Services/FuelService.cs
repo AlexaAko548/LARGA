@@ -35,6 +35,7 @@ public class FuelService : IFuelService
                 IsQuantityManuallyEdited = record.IsQuantityManuallyEdited,
                 IsFuelStationManuallyEdited = record.IsFuelStationManuallyEdited,
                 IsReceiptDateManuallyEdited = record.IsReceiptDateManuallyEdited,
+                IsOrNumberManuallyEdited = record.IsOrNumberManuallyEdited,
                 IsAnyFieldManuallyEdited = record.IsAnyFieldManuallyEdited
             };
 
@@ -101,6 +102,9 @@ public class FuelService : IFuelService
 
         [Plugin.Firebase.Firestore.FirestoreProperty("isReceiptDateManuallyEdited")]
         public bool IsReceiptDateManuallyEdited { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("isOrNumberManuallyEdited")]
+        public bool IsOrNumberManuallyEdited { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("isAnyFieldManuallyEdited")]
         public bool IsAnyFieldManuallyEdited { get; set; }

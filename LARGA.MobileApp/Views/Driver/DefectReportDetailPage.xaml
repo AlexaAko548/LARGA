@@ -5,53 +5,53 @@
              x:Class="LARGA.MobileApp.Views.Driver.DefectReportDetailPage"
              x:DataType="vm:DefectReportDetailViewModel"
              NavigationPage.HasNavigationBar="False"
-             BackgroundColor="{StaticResource LargaWhite}">
+             BackgroundColor="{DynamicResource ThemeSurface}">
 
     <ScrollView>
-        <VerticalStackLayout Padding="20,0" Spacing="15">
+        <VerticalStackLayout Padding="20,0" Spacing="15" Margin="0,10">
 
-            <Label Text="Report Details" FontSize="32" Margin="0,-10,0,0" Style="{StaticResource HeaderStyle}" TextColor="{StaticResource LargaDarkText}" />
+            <Label Text="Report Details" FontSize="32" Margin="0,-10,0,0" Style="{StaticResource HeaderStyle}" TextColor="{DynamicResource LargaDarkText}" />
 
-            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="10">
-                <Label Text="{Binding Status}" FontSize="12" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" HorizontalTextAlignment="Center" />
+            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="10">
+                <Label Text="{Binding Status}" FontSize="12" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" HorizontalTextAlignment="Center" />
             </Border>
 
             <!-- Title -->
-            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                 <VerticalStackLayout Spacing="5">
-                    <Label Text="Title" FontSize="12" TextColor="{StaticResource LargaDarkText}" />
-                    <Label Text="{Binding Title}" FontSize="16" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" />
+                    <Label Text="Title" FontSize="12" TextColor="{DynamicResource LargaDarkText}" />
+                    <Label Text="{Binding Title}" FontSize="16" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" />
                 </VerticalStackLayout>
             </Border>
 
             <!-- Description -->
-            <Border BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                 <VerticalStackLayout Spacing="5">
-                    <Label Text="Description" FontSize="12" TextColor="{StaticResource LargaDarkText}" />
-                    <Label Text="{Binding Description}" FontSize="14" TextColor="{StaticResource LargaDarkText}" />
+                    <Label Text="Description" FontSize="12" TextColor="{DynamicResource LargaDarkText}" />
+                    <Label Text="{Binding Description}" FontSize="14" TextColor="{DynamicResource LargaDarkText}" />
                 </VerticalStackLayout>
             </Border>
 
             <!-- Priority + Date -->
             <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
-                <Border Grid.Column="0" BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <Border Grid.Column="0" BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                     <VerticalStackLayout Spacing="5">
-                        <Label Text="Priority" FontSize="12" TextColor="{StaticResource LargaDarkText}" />
-                        <Label Text="{Binding Priority}" FontSize="14" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" />
+                        <Label Text="Priority" FontSize="12" TextColor="{DynamicResource LargaDarkText}" />
+                        <Label Text="{Binding Priority}" FontSize="14" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" />
                     </VerticalStackLayout>
                 </Border>
-                <Border Grid.Column="1" BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <Border Grid.Column="1" BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                     <VerticalStackLayout Spacing="5">
-                        <Label Text="Date Logged" FontSize="12" TextColor="{StaticResource LargaDarkText}" />
-                        <Label Text="{Binding DateLoggedDisplay}" FontSize="14" FontAttributes="Bold" TextColor="{StaticResource LargaDarkText}" />
+                        <Label Text="Date Logged" FontSize="12" TextColor="{DynamicResource LargaDarkText}" />
+                        <Label Text="{Binding DateLoggedDisplay}" FontSize="14" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" />
                     </VerticalStackLayout>
                 </Border>
             </Grid>
 
             <!-- Supporting Photo -->
-            <Border IsVisible="{Binding HasPhoto}" BackgroundColor="{StaticResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="10">
+            <Border IsVisible="{Binding HasPhoto}" BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="10">
                 <VerticalStackLayout Spacing="8">
-                    <Label Text="Supporting Photo" FontSize="12" TextColor="{StaticResource LargaDarkText}" />
+                    <Label Text="Supporting Photo" FontSize="12" TextColor="{DynamicResource LargaDarkText}" />
                     <Image Source="{Binding Photo}" HeightRequest="180" Aspect="AspectFit" />
                 </VerticalStackLayout>
             </Border>

@@ -5,30 +5,30 @@
              x:Class="LARGA.MobileApp.Views.Driver.ClockInPendingPage"
              x:DataType="vm:ClockInPendingViewModel"
              Shell.NavBarIsVisible="False"
-             BackgroundColor="White">
+             BackgroundColor="{DynamicResource ThemeSurface}">
 
     <Grid RowDefinitions="*,Auto" Padding="20">
 
         <ScrollView Grid.Row="0">
             <VerticalStackLayout Spacing="15" Margin="0,20,0,0">
-                <Label Text="PRE-SHIFT INSPECTION" Style="{StaticResource StatusDataStyle}" TextColor="Gray" FontSize="12" />
-                <Label Text="{Binding Title}" FontSize="32" FontAttributes="Bold" TextColor="Black" LineHeight="1.1" />
+                <Label Text="PRE-SHIFT INSPECTION" Style="{StaticResource StatusDataStyle}" TextColor="{DynamicResource ThemeTextGray}" FontSize="12" />
+                <Label Text="{Binding Title}" FontSize="32" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}" LineHeight="1.1" />
 
                 <ActivityIndicator IsRunning="{Binding IsWaiting}" IsVisible="{Binding IsWaiting}" Color="#0099CC" HorizontalOptions="Start" />
 
-                <Label Text="{Binding Message}" FontSize="14" TextColor="Black" />
+                <Label Text="{Binding Message}" FontSize="14" TextColor="{DynamicResource ThemeTextBlack}" />
 
-                <Border BackgroundColor="#AEE2F0" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15" IsVisible="{Binding HasReasons}">
+                <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15" IsVisible="{Binding HasReasons}">
                     <VerticalStackLayout Spacing="5">
-                        <Label Text="FLAGGED" FontSize="12" TextColor="Black" />
-                        <Label Text="{Binding Reasons}" FontSize="14" TextColor="Black" />
+                        <Label Text="FLAGGED" FontSize="12" TextColor="{DynamicResource ThemeTextBlack}" />
+                        <Label Text="{Binding Reasons}" FontSize="14" TextColor="{DynamicResource ThemeTextBlack}" />
                     </VerticalStackLayout>
                 </Border>
 
-                <Border BackgroundColor="#FDECEA" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15" IsVisible="{Binding HasManagerNote}">
+                <Border BackgroundColor="{DynamicResource ThemeNoteBg}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15" IsVisible="{Binding HasManagerNote}">
                     <VerticalStackLayout Spacing="5">
                         <Label Text="MANAGER'S NOTE" FontSize="12" TextColor="#B3261E" />
-                        <Label Text="{Binding ManagerNote}" FontSize="14" TextColor="Black" />
+                        <Label Text="{Binding ManagerNote}" FontSize="14" TextColor="{DynamicResource ThemeTextBlack}" />
                     </VerticalStackLayout>
                 </Border>
             </VerticalStackLayout>
@@ -38,7 +38,7 @@
             <Button Text="WITHDRAW REQUEST"
                     Command="{Binding CancelRequestCommand}"
                     IsVisible="{Binding IsWaiting}"
-                    BackgroundColor="White" TextColor="#B3261E" BorderColor="#B3261E" BorderWidth="1"
+                    BackgroundColor="{DynamicResource ThemeSurface}" TextColor="#B3261E" BorderColor="#B3261E" BorderWidth="1"
                     CornerRadius="25" HeightRequest="50" FontSize="14" FontAttributes="Bold" />
             <Button Text="BACK TO DASHBOARD"
                     Command="{Binding BackToDashboardCommand}"

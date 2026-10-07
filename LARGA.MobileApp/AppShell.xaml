@@ -8,10 +8,10 @@
     xmlns:manager="clr-namespace:LARGA.MobileApp.Views.Manager"
     Title="LARGA.MobileApp"
     FlyoutBehavior="Disabled"
-    Shell.TabBarBackgroundColor="White"
-    Shell.TabBarTitleColor="Black"
-    Shell.TabBarUnselectedColor="#999999"
-    Shell.TabBarForegroundColor="Black">
+    Shell.TabBarBackgroundColor="{DynamicResource ThemeSurface}"
+    Shell.TabBarTitleColor="{DynamicResource ThemeTextBlack}"
+    Shell.TabBarUnselectedColor="{DynamicResource ThemeTabUnselected}"
+    Shell.TabBarForegroundColor="{DynamicResource ThemeTextBlack}">
 
     <!-- The initial startup page -->
     <ShellContent

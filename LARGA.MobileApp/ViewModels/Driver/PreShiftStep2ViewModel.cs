@@ -426,10 +426,8 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
             _odometerPhotoLocalPath = null;
             _fuelPhotoLocalPath = null;
 
-            if (Shell.Current != null)
-            {
-                await Shell.Current.GoToAsync("active-shift");
-            }
+            // Replaces the pre-shift steps, so Back from Active Shift returns to the dashboard.
+            await ShiftNavigation.GoToActiveShiftAsync();
         }
         catch (Exception ex)
         {
