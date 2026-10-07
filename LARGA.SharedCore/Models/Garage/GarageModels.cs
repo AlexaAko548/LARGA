@@ -32,6 +32,9 @@ public class WorkOrderEntry
     public string? MechanicInstructions { get; set; }
     public DateTime? EstimatedCompletionDate { get; set; }
 
+    /// <summary>Booked from Upcoming Routine Checks (no driver report behind it).</summary>
+    public bool IsRoutineCheck { get; set; }
+
     /// <summary>The booked shop day; null on tickets made before scheduling existed.</summary>
     public DateTime? ScheduledDate { get; set; }
 

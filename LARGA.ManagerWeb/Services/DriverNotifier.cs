@@ -84,7 +84,11 @@ public class DriverNotifier
             FirebaseMessaging messaging = FirebaseMessaging.GetMessaging(FirebaseApp.GetInstance(FirebaseAppName));
             await messaging.SendAsync(new Message
             {
+                // users/{id}.fcmToken is a registration token (NotificationService), not an
+                // installation ID, so Token - not its suggested replacement Fid - is right here.
+#pragma warning disable CS0618
                 Token = token,
+#pragma warning restore CS0618
                 Notification = new Notification { Title = title, Body = body },
                 Data = new Dictionary<string, string> { ["type"] = "unit_maintenance", ["taxiId"] = taxiId },
             });

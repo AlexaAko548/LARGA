@@ -97,6 +97,7 @@ public class GarageService
             MechanicInstructions = r.MechanicInstructions,
             EstimatedCompletionDate = r.EstimatedCompletionDate,
             ScheduledDate = r.ScheduledDate,
+            IsRoutineCheck = string.IsNullOrWhiteSpace(r.ReportedByDriverId) && r.MaintenanceType == MaintenanceType.RoutineCheckup,
         };
 
         List<WorkOrderEntry> active = records
@@ -261,14 +262,36 @@ public class GarageService
     }
 
     /// <summary>Cancels a Scheduled ticket's booking: it goes back to Pending Driver Reports, to be
-    /// rebooked or dismissed. A routine-check job (no driver report behind it) is dismissed instead.</summary>
+    /// rebooked or dismissed. A routine-check job (no driver report behind it) goes back to Upcoming
+    /// Routine Checks - ScheduleRoutineCheckAsync deleted the check when booking it, so it's
+    /// recreated, due on the day it was booked for - and the job itself is dismissed.</summary>
     public async Task<GarageActionResult> UnscheduleAsync(string maintenanceId)
     {
         try
         {
             DocumentReference docRef = Db.Collection("maintenance_logs").Document(maintenanceId);
             DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
-            bool fromDriverReport = snapshot.Exists && snapshot.TryGetValue("reportedByDriverId", out string? driverId) && !string.IsNullOrWhiteSpace(driverId);
+            if (!snapshot.Exists)
+            {
+                return new GarageActionResult { Ok = false, ErrorMessage = "This work order no longer exists." };
+            }
+
+            MaintenanceRecord record = snapshot.ConvertTo<MaintenanceRecord>();
+            if (record.Status != WorkOrderRules.Scheduled)
+            {
+                return new GarageActionResult { Ok = false, ErrorMessage = "This work order is no longer scheduled - refresh the page." };
+            }
+
+            bool fromDriverReport = !string.IsNullOrWhiteSpace(record.ReportedByDriverId);
+            if (!fromDriverReport && record.MaintenanceType == MaintenanceType.RoutineCheckup)
+            {
+                await Db.Collection("routine_checks").AddAsync(new RoutineCheckItem
+                {
+                    TaxiId = record.TaxiId,
+                    CheckName = record.IssueTitle,
+                    DueDate = record.ScheduledDate ?? record.EstimatedCompletionDate,
+                });
+            }
 
             await docRef.UpdateAsync(new Dictionary<string, object>
             {

@@ -1888,6 +1888,16 @@ else
 
         try
         {
+            // One driver per unit: refuse a taken unit before anything (email, photos) is saved.
+            // UpdateDriverProfileAsync checks it again, but only after those steps.
+            if (!string.IsNullOrWhiteSpace(_editAssignedTaxi)
+                && !string.Equals(_editAssignedTaxi, _selectedProfile.AssignedTaxiId, StringComparison.OrdinalIgnoreCase)
+                && await DriverManagement.GetOtherDriverOnUnitAsync(_editAssignedTaxi, _selectedProfile.DriverId) is string holder)
+            {
+                _profileError = $"{_editAssignedTaxi} is already assigned to {holder}. Give {holder} another unit first - a unit can only have one driver.";
+                return;
+            }
+
             // Login email first: it's the step most likely to be refused (bad format, or the
             // address belongs to another account), and nothing else should be saved if it is.
             if (!string.Equals(_editEmail.Trim(), _selectedProfile.Email, StringComparison.OrdinalIgnoreCase))

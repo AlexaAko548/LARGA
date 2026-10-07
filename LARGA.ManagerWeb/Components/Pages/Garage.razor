@@ -116,11 +116,11 @@ else
                             </div>
                             <div class="report-card-status">
                                 <span class="status-inline">SHOP DAY: @s.ShopDayPh.ToString("ddd, MMM d")</span>
-                                <span class="day-badge scheduled">@(s.DaysUntilShop == 1 ? "Tomorrow" : $"In {s.DaysUntilShop} days")</span>
+                                <span class="day-badge scheduled">@(s.DaysUntilShop switch { 0 => "Today", 1 => "Tomorrow", _ => $"In {s.DaysUntilShop} days" })</span>
                             </div>
                             <div class="report-card-actions">
                                 @if (_canManage) { <button class="solid-btn" type="button" disabled="@_isBusy" title="Bring the unit into the shop today instead" @onclick="() => StartScheduledNowAsync(s)">Start Now</button> }
-                                @if (_canManage) { <button class="cancel-btn" type="button" disabled="@_isBusy" title="Cancel the booking - it goes back to Pending Driver Reports" @onclick="() => UnscheduleAsync(s.MaintenanceId)">Unschedule</button> }
+                                @if (_canManage) { <button class="cancel-btn" type="button" disabled="@_isBusy" title="@(s.IsRoutineCheck ? "Cancel the booking - it goes back to Upcoming Routine Checks" : "Cancel the booking - it goes back to Pending Driver Reports")"@onclick="() => UnscheduleAsync(s.MaintenanceId)">Unschedule</button> }
                             </div>
                         </article>
                     }
@@ -590,6 +590,8 @@ else
         _ticketShopMode = mode;
         if (mode == "Auto")
         {
+            // Never book a date left over from "Pick a Date" if the lookup fails.
+            _ticketShopDate = null;
             _isLoadingTicketAutoDate = true;
             StateHasChanged();
             try
