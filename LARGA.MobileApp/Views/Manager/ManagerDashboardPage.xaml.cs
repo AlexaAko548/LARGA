@@ -41,10 +41,12 @@ public partial class ManagerDashboardPage : ContentPage
     private const string PinAnimationName = "FleetPinGlide";
 
     // How far past a real fix's timestamp dead reckoning is willing to keep projecting the pin
-    // forward before freezing it in place - 1.5x the telemetry cadence, so a brief network hiccup
-    // doesn't visibly stall the pin, but a driver who's actually gone quiet (killed app, lost
-    // signal) doesn't get projected indefinitely further down the road than they really are.
+    // forward - 1.5x the telemetry cadence, so a brief network hiccup doesn't visibly stall the
+    // pin. Past that the driver has likely gone quiet (killed app, lost signal), so the pin eases
+    // back onto its last *real* fix over StaleReturnSeconds and stays there, rather than being
+    // left parked at a guessed spot hundreds of meters down the road.
     private const double MaxDeadReckoningSeconds = 45;
+    private const double StaleReturnSeconds = 5;
     private const int DeadReckoningTickMs = 200;
 
     private readonly FleetMapViewModel _viewModel;
@@ -219,22 +221,42 @@ public partial class ManagerDashboardPage : ContentPage
     }
 
     /// <summary>Projects a pin's position forward from its last real fix using its reported
-    /// speed/heading, clamped to MaxDeadReckoningSeconds so a driver who's gone quiet doesn't
-    /// get projected indefinitely further down the road than they really are. A stationary pin
-    /// (speed 0) just returns its real fix unchanged.</summary>
+    /// speed/heading for up to MaxDeadReckoningSeconds, then eases it back onto the real fix
+    /// (see StaleReturnSeconds) so a driver who's gone quiet isn't left shown somewhere they
+    /// never actually were. A stationary pin (speed 0), or one whose phone reported no heading
+    /// (negative - see GpsTelemetryService), just returns its real fix unchanged rather than
+    /// guessing a direction.</summary>
     private static (double X, double Y) CurrentDisplayPosition(FleetPin pin, DateTime now)
     {
         var (anchorX, anchorY) = AnchorXY(pin);
-        if (pin.SpeedKmh <= 0) return (anchorX, anchorY);
+        if (pin.SpeedKmh <= 0 || pin.HeadingDegrees < 0) return (anchorX, anchorY);
 
-        var elapsedSeconds = Math.Clamp((now - pin.PositionTimestamp).TotalSeconds, 0, MaxDeadReckoningSeconds);
+        var rawElapsedSeconds = (now - pin.PositionTimestamp).TotalSeconds;
+        var elapsedSeconds = Math.Clamp(rawElapsedSeconds, 0, MaxDeadReckoningSeconds);
         var distanceMeters = (pin.SpeedKmh / 3.6) * elapsedSeconds;
         var headingRadians = pin.HeadingDegrees * Math.PI / 180.0;
 
         // Compass bearing (0deg = north = +Y, 90deg = east = +X) maps directly onto
         // SphericalMercator's meters-based axes - close enough at city scale that the small
         // Mercator distortion doesn't matter for a visual approximation like this.
-        return (anchorX + distanceMeters * Math.Sin(headingRadians), anchorY + distanceMeters * Math.Cos(headingRadians));
+        var projectedX = anchorX + distanceMeters * Math.Sin(headingRadians);
+        var projectedY = anchorY + distanceMeters * Math.Cos(headingRadians);
+
+        if (rawElapsedSeconds <= MaxDeadReckoningSeconds) return (projectedX, projectedY);
+
+        // Gone stale: slide from the furthest projected point back to the real fix, then hold.
+        var t = Math.Min((rawElapsedSeconds - MaxDeadReckoningSeconds) / StaleReturnSeconds, 1);
+        return (projectedX + (anchorX - projectedX) * t, projectedY + (anchorY - projectedY) * t);
+    }
+
+    /// <summary>Where a pin is currently drawn (dead-reckoned), using the latest real fix the
+    /// page holds for that taxi - SelectedPin can be an older FleetPin instance from before the
+    /// last refresh. Used for camera moves so zooming onto a driver lands on the pin actually on
+    /// screen, not on a fix that may already be a few hundred meters behind it.</summary>
+    private (double X, double Y) DisplayedXY(FleetPin pin)
+    {
+        var latest = _liveAnchors.TryGetValue(pin.TaxiId, out var anchor) ? anchor : pin;
+        return CurrentDisplayPosition(latest, DateTime.UtcNow);
     }
 
     private static (double X, double Y) AnchorXY(FleetPin pin) => SphericalMercator.FromLonLat(pin.Longitude, pin.Latitude);
@@ -310,7 +332,7 @@ public partial class ManagerDashboardPage : ContentPage
     {
         if (_mapControl is null) return;
 
-        var (x, y) = SphericalMercator.FromLonLat(pin.Longitude, pin.Latitude);
+        var (x, y) = DisplayedXY(pin);
         _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), CloseUpResolution);
     }
 
@@ -350,7 +372,7 @@ public partial class ManagerDashboardPage : ContentPage
         // No live pin for this driver (no current shift/telemetry) still gets honored via the
         // SOS alert's own reported coordinates, rather than doing nothing.
         var (x, y) = matchingPin != null
-            ? SphericalMercator.FromLonLat(matchingPin.Longitude, matchingPin.Latitude)
+            ? DisplayedXY(matchingPin)
             : SphericalMercator.FromLonLat(requestedLon, requestedLat);
         _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), CloseUpResolution);
     }
@@ -376,7 +398,7 @@ public partial class ManagerDashboardPage : ContentPage
         var pin = _viewModel.SelectedPin;
         if (pin == null) return;
 
-        var (x, y) = SphericalMercator.FromLonLat(pin.Longitude, pin.Latitude);
+        var (x, y) = DisplayedXY(pin);
         _mapControl.Map.Navigator.CenterOnAndZoomTo(new MPoint(x, y), DefaultResolution);
     }
 

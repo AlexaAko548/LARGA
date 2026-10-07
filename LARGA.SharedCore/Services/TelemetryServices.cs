@@ -136,7 +136,14 @@ public class GpsTelemetryService : IGpsTelemetryService
             }
 
             int speedKmh = (int)Math.Round((location.Speed ?? 0) * 3.6); // m/s -> km/h
-            double headingDegrees = location.Course ?? 0;
+            // -1 = "no heading": many fixes (Medium accuracy on Android especially) come back
+            // without a course, and 0 would read as due north - the Fleet Map would then
+            // dead-reckon the pin north regardless of where the taxi is actually heading.
+            // Stored as a sentinel rather than null since the map's Firestore proxy can't
+            // deserialize nullable values reliably on Android.
+            double headingDegrees = location.Course is double course && course >= 0 && !double.IsNaN(course)
+                ? course
+                : -1;
             var now = DateTime.UtcNow;
 
             var point = new GpsTelemetryProxy

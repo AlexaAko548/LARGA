@@ -142,7 +142,9 @@ public class FleetMapViewModel : BindableObject
     public FleetDriverStatus? StatusFilter
     {
         get => _statusFilter;
-        set { _statusFilter = value; OnPropertyChanged(); ApplyFilter(); }
+        // ApplyFilter first: the page re-renders the map on this PropertyChanged, so Pins must
+        // already hold the newly-filtered set by the time it's raised.
+        set { _statusFilter = value; ApplyFilter(); OnPropertyChanged(); }
     }
 
     private FleetPin? _selectedPin;
@@ -199,6 +201,12 @@ public class FleetMapViewModel : BindableObject
     private readonly Dictionary<string, DriverLookup> _driverCache = new();
     private readonly Dictionary<string, TaxiLookup> _taxiCache = new();
     private List<string> _allTaxiIds = new();
+
+    // Bumped at the start of every RebuildPinsAsync. Both listeners (plus the static-data load)
+    // can start overlapping rebuilds, and one that awaits a cold driver/taxi lookup can finish
+    // after a newer one - only the latest-started rebuild is allowed to publish its results, so
+    // an older snapshot (e.g. from before an SOS arrived) can never overwrite a newer one.
+    private int _rebuildVersion;
 
     private string _currentDateText = string.Empty;
     public string CurrentDateText
@@ -340,6 +348,11 @@ public class FleetMapViewModel : BindableObject
         {
             System.Diagnostics.Debug.WriteLine($"Taxi roster fetch failed: {ex.Message}");
         }
+
+        // The listeners' first snapshot can land (often instantly, from Firestore's local
+        // cache) before the roster/threshold above - rebuild once more now that they're in, or
+        // the unit chips row stays empty until some driver's next write fires a listener.
+        await RebuildPinsAsync();
     }
 
     private void UpdateCurrentDate()
@@ -379,11 +392,12 @@ public class FleetMapViewModel : BindableObject
             // the loop below.
             var activeShifts = _activeShiftsById;
             var sosShiftIds = _sosShiftIds;
+            var version = Interlocked.Increment(ref _rebuildVersion);
 
-            ActiveCount = 0;
-            OnBreakCount = 0;
-            IdleCount = 0;
-            SosCount = 0;
+            // Tallied locally and only published at the end - incrementing the bound properties
+            // directly across the awaits below let two overlapping rebuilds both add onto the
+            // same counts (double-counted stat pills on every Map tab visit).
+            int active = 0, onBreak = 0, idle = 0, sos = 0;
 
             var pins = new List<FleetPin>();
             var now = DateTime.UtcNow;
@@ -431,6 +445,15 @@ public class FleetMapViewModel : BindableObject
                 });
             }
 
+            // A newer rebuild started while this one was awaiting lookups - its snapshot is
+            // fresher, so drop this one rather than overwrite it with stale data.
+            if (version != _rebuildVersion) return;
+
+            ActiveCount = active;
+            OnBreakCount = onBreak;
+            IdleCount = idle;
+            SosCount = sos;
+
             _allPins.Clear();
             _allPins.AddRange(pins);
             ApplyFilter();
@@ -465,10 +488,10 @@ public class FleetMapViewModel : BindableObject
             {
                 switch (s)
                 {
-                    case FleetDriverStatus.Sos: SosCount++; break;
-                    case FleetDriverStatus.OnBreak: OnBreakCount++; break;
-                    case FleetDriverStatus.Active: ActiveCount++; break;
-                    default: IdleCount++; break;
+                    case FleetDriverStatus.Sos: sos++; break;
+                    case FleetDriverStatus.OnBreak: onBreak++; break;
+                    case FleetDriverStatus.Active: active++; break;
+                    default: idle++; break;
                 }
             }
         }
@@ -595,6 +618,7 @@ public class FleetMapViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("currentSpeed")]
         public int CurrentSpeed { get; set; }
 
+        // Negative (-1) when the driver's phone reported no course for that fix.
         [Plugin.Firebase.Firestore.FirestoreProperty("currentHeading")]
         public double CurrentHeading { get; set; }
 
