@@ -461,7 +461,7 @@ public class FleetMapViewModel : BindableObject
                     TaxiId = data.TaxiId,
                     Latitude = data.CurrentLatitude,
                     Longitude = data.CurrentLongitude,
-                    SpeedKmh = data.CurrentSpeed,
+                    SpeedKmh = (int)data.CurrentSpeed,
                     HeadingDegrees = data.CurrentHeading,
                     PositionTimestamp = positionTimestamp,
                     Status = status,
@@ -638,8 +638,13 @@ public class FleetMapViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("currentLongitude")]
         public double CurrentLongitude { get; set; }
 
+        // double, not int - Plugin.Firebase.Firestore's Android deserializer crashes
+        // reflecting a Firestore integerValue (always 64-bit) into a C# int property
+        // (System.ArgumentException: Int64 cannot be converted to Int32). Every other numeric
+        // field on this proxy is already double and has never hit this; matching that instead
+        // of narrowing.
         [Plugin.Firebase.Firestore.FirestoreProperty("currentSpeed")]
-        public int CurrentSpeed { get; set; }
+        public double CurrentSpeed { get; set; }
 
         // Negative (-1) when the driver's phone reported no course for that fix.
         [Plugin.Firebase.Firestore.FirestoreProperty("currentHeading")]
