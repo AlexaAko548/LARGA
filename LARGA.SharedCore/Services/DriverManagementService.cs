@@ -633,7 +633,10 @@ public class DriverManagementService
         List<ShiftLog> driverShifts = await GetWhereEqualAsync<ShiftLog>("shifts", "driverId", driverId);
         HashSet<string> shiftIds = driverShifts.SelectMany(IdsOf).ToHashSet();
 
-        List<BoundaryPayment> allPayments = await GetAllAsync<BoundaryPayment>("boundary_payments");
+        // Every payment carries driverId (backfilled by PaymentDriverIdBackfillService), so only
+        // this driver's are read. Alerts and maintenance stay full: older SOS alerts are matched
+        // by shift (no driverId), and unit-in-shop checks need other drivers' units' records.
+        List<BoundaryPayment> allPayments = await GetWhereEqualAsync<BoundaryPayment>("boundary_payments", "driverId", driverId);
         List<MaintenanceRecord> allMaintenance = await GetAllAsync<MaintenanceRecord>("maintenance_logs");
         List<EmergencyAlert> allAlerts = await GetAllAsync<EmergencyAlert>("emergency_alerts");
 

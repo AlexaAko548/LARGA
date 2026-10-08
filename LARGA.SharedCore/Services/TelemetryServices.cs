@@ -59,6 +59,14 @@ public interface IGpsTelemetryService
 
     /// <summary>Raised (on a background thread) when IsMoving changes.</summary>
     event EventHandler? MovementChanged;
+
+    /// <summary>
+    /// Raised (off the UI thread) with the shift ID when the tracked shift stops being Active
+    /// somewhere other than this phone - ManagerWeb's 6:00 AM auto-close, or a manager ending it.
+    /// Tracking has already stopped by then; the app clears the rest of its shift state
+    /// (App.xaml.cs). A clock-out made on this phone doesn't raise it.
+    /// </summary>
+    event EventHandler<string>? ShiftClosedRemotely;
 }
 
 public class GpsTelemetryService : IGpsTelemetryService
@@ -96,6 +104,13 @@ public class GpsTelemetryService : IGpsTelemetryService
 
     public event EventHandler? MovementChanged;
 
+    public event EventHandler<string>? ShiftClosedRemotely;
+
+    // Live view of the tracked shift document: whether it's still Active (LAR-77 auto-cutoff when
+    // it's closed elsewhere) and whether the driver is on break (no points are written then).
+    private IDisposable? _shiftListener;
+    private volatile bool _onBreak;
+
     private void SetMoving(bool moving)
     {
         if (_isMoving == moving) return;
@@ -125,17 +140,64 @@ public class GpsTelemetryService : IGpsTelemetryService
         _cts = cts;
         _runningShiftId = shiftId;
         _tracker = tracker;
+        _onBreak = false;
+        WatchShift(shiftId);
         _ = RunAsync(shiftId, tracker, cts.Token);
     }
 
     public void Stop()
     {
+        _shiftListener?.Dispose();
+        _shiftListener = null;
         _cts?.Cancel();
         _cts?.Dispose();
         _cts = null;
         _runningShiftId = null;
         _tracker = null;
+        _onBreak = false;
         SetMoving(false);
+    }
+
+    /// <summary>
+    /// Follows the shift document while it's tracked. A status other than Active that came from
+    /// the server (not this phone's own pending clock-out) means the shift was closed elsewhere:
+    /// tracking stops on the spot instead of writing points until the dashboard is next opened -
+    /// firestore.rules refuse them by then anyway. isOnBreak pauses the writes (also restores the
+    /// break after an app restart).
+    /// </summary>
+    private void WatchShift(string shiftId)
+    {
+        try
+        {
+            _shiftListener = CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .GetDocument(shiftId)
+                .AddSnapshotListener<ShiftStateProxy>(
+                    snapshot =>
+                    {
+                        if (_runningShiftId != shiftId || snapshot?.Data is null)
+                        {
+                            return; // stale callback, or unreadable - never treat that as "closed"
+                        }
+
+                        _onBreak = snapshot.Data.IsOnBreak;
+
+                        string status = snapshot.Data.Status ?? string.Empty;
+                        bool closed = status.Length > 0 && !string.Equals(status, "Active", StringComparison.OrdinalIgnoreCase);
+                        if (closed && !snapshot.Metadata.HasPendingWrites)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"GPS telemetry: shift {shiftId} is now {status} - stopping.");
+                            Stop();
+                            ShiftClosedRemotely?.Invoke(this, shiftId);
+                        }
+                    },
+                    error => System.Diagnostics.Debug.WriteLine($"GPS telemetry shift listener error: {error.Message}"));
+        }
+        catch (Exception ex)
+        {
+            // Not fatal: the rules still refuse points for a closed shift.
+            System.Diagnostics.Debug.WriteLine($"GPS telemetry shift listener failed: {ex.Message}");
+        }
     }
 
     private async Task RunAsync(string shiftId, DistanceTracker tracker, CancellationToken token)
@@ -153,6 +215,13 @@ public class GpsTelemetryService : IGpsTelemetryService
             using var timer = new PeriodicTimer(PollInterval);
             while (await timer.WaitForNextTickAsync(token))
             {
+                // On break: no points (the Fleet Map shows the unit On Break from the shift doc).
+                if (_onBreak)
+                {
+                    ReportMoving(false, tracker);
+                    continue;
+                }
+
                 ReportMoving(await CaptureAndWriteAsync(shiftId, tracker, token), tracker);
             }
         }
@@ -202,11 +271,9 @@ public class GpsTelemetryService : IGpsTelemetryService
     {
         try
         {
+            // Only checked here: this loop runs off the UI thread, where MAUI can't show a
+            // permission prompt. The clock-in screens ask for it before calling Start.
             PermissionStatus status = await Permissions.CheckStatusAsync<Permissions.LocationWhenInUse>();
-            if (status != PermissionStatus.Granted)
-            {
-                status = await Permissions.RequestAsync<Permissions.LocationWhenInUse>();
-            }
             if (status != PermissionStatus.Granted)
             {
                 return null;
@@ -397,6 +464,15 @@ public class GpsTelemetryService : IGpsTelemetryService
             _lastFix = fix;
             return true;
         }
+    }
+
+    private class ShiftStateProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
+        public string? Status { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("isOnBreak")]
+        public bool IsOnBreak { get; set; }
     }
 
     private class ShiftDistanceProxy

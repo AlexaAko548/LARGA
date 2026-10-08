@@ -11,6 +11,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using LARGA.MobileApp.Services;
 using LARGA.MobileApp.Views.Manager;
 using LARGA.SharedCore;
+using LARGA.SharedCore.Ledger;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;

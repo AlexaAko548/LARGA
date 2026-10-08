@@ -32,6 +32,10 @@ public interface IEmergencyAlertService
     /// <summary>Where the last alert's coordinates came from: "live", "lastShiftFix" or "none".</summary>
     string LastLocationSource { get; }
 
+    /// <summary>True when the last alert couldn't be confirmed by the server in time (no signal).
+    /// It's saved on the phone and goes out by itself once the phone reconnects.</summary>
+    bool LastSendQueued { get; }
+
     /// <summary>
     /// system_configs/global.managerPhoneNumbers, normalized to +639XXXXXXXXX. Drivers can't
     /// read managers' users documents (firestore.rules), so this list is kept there instead.
@@ -97,6 +101,14 @@ public class EmergencyAlertService : IEmergencyAlertService
     public const string LocationSourceNone = "none";
 
     public string LastLocationSource { get; private set; } = LocationSourceLive;
+
+    public bool LastSendQueued { get; private set; }
+
+    // How long to wait for the server to confirm an SOS before treating it as queued offline.
+    private static readonly TimeSpan SendConfirmTimeout = TimeSpan.FromSeconds(10);
+
+    // Last good copy of system_configs/global.managerPhoneNumbers, for Call Manager with no signal.
+    private const string ManagerPhonesCacheKey = "ManagerPhoneNumbersCache";
 
     private readonly IShiftManagementService _shiftService;
     private readonly IEmergencyFeedback _feedback;
@@ -167,9 +179,27 @@ public class EmergencyAlertService : IEmergencyAlertService
             LocationSource = locationSource,
         };
 
-        IDocumentReference doc = await CrossFirebaseFirestore.Current
+        // The document ID exists before the write, so an alert that can't reach the server yet still
+        // has one. Firestore keeps an unconfirmed write in its local cache and sends it by itself
+        // once the phone reconnects - so after SendConfirmTimeout the SOS counts as sent-but-queued
+        // instead of leaving the driver waiting on a spinner with no signal.
+        IDocumentReference doc = CrossFirebaseFirestore.Current
             .GetCollection("emergency_alerts")
-            .AddDocumentAsync(alert);
+            .CreateDocument();
+        Task write = doc.SetDataAsync(alert);
+        LastSendQueued = await Task.WhenAny(write, Task.Delay(SendConfirmTimeout)) != write;
+        if (LastSendQueued)
+        {
+            // Observe the eventual outcome, so a later failure is logged rather than lost.
+            _ = write.ContinueWith(t => System.Diagnostics.Debug.WriteLine(t.IsFaulted
+                    ? $"Queued SOS {doc.Id} failed to sync: {t.Exception?.GetBaseException().Message}"
+                    : $"Queued SOS {doc.Id} reached the server."),
+                TaskScheduler.Default);
+        }
+        else
+        {
+            await write; // surfaces a real refusal (e.g. permission denied) as before
+        }
 
         // Logged here so both the manual SOS button and automated detection are audited.
         // Not awaited: the alert is already saved, so the driver's confirmation doesn't wait on a second write.
@@ -191,16 +221,25 @@ public class EmergencyAlertService : IEmergencyAlertService
                 .GetDocument("global")
                 .GetDocumentSnapshotAsync<ManagerPhonesProxy>();
 
-            return (config?.Data?.ManagerPhoneNumbers ?? new List<string>())
+            List<string> numbers = (config?.Data?.ManagerPhoneNumbers ?? new List<string>())
                 .Select(InputValidator.NormalizePhilippineMobile)
                 .OfType<string>()
                 .Distinct()
                 .ToList();
+
+            if (numbers.Count > 0)
+            {
+                Preferences.Set(ManagerPhonesCacheKey, string.Join(",", numbers));
+            }
+            return numbers;
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Manager phone lookup failed: {ex.Message}");
-            return Array.Empty<string>();
+            // No signal (or the read failed): the last list this phone saw, so Call Manager still works.
+            System.Diagnostics.Debug.WriteLine($"Manager phone lookup failed, using cached numbers: {ex.Message}");
+            return Preferences.Get(ManagerPhonesCacheKey, string.Empty)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .ToList();
         }
     }
 

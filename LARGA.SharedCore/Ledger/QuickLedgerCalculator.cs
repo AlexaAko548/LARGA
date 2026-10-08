@@ -3,12 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using LARGA.SharedCore;
 
-namespace LARGA.MobileApp.Services;
+namespace LARGA.SharedCore.Ledger;
 
 /// <summary>
-/// Pure ledger rules for the manager Quick Ledger. Nothing in here touches Firebase, so the rules stay readable on
-/// their own. <see cref="QuickLedgerService"/> does the reads and writes, feeding plain records in and saving the
-/// plans produced here.
+/// Pure ledger rules shared by both phone apps: the manager's Quick Ledger and the driver's Ledger / Debt Details /
+/// Payment History (<see cref="DriverDebt"/>). Nothing in here touches Firebase, so the rules stay readable on their
+/// own. The mobile app's QuickLedgerService and DriverDebtCalculator do the reads and writes, feeding plain records in
+/// and saving the plans produced here. They follow the same rules as the web's FinancialLedgerService.
 ///
 /// A shift can have more than one boundary_payments document (the clock-out row, plus one for each payment). Every
 /// rule works from one <see cref="ShiftPaymentState"/> per shift: the total paid across all of its documents, and
@@ -229,6 +230,39 @@ public static class QuickLedgerCalculator
         DateTime dayStartUtc = StartOfPhilippineDayUtc(philippineToday);
         IReadOnlyList<ShiftPaymentState> states = BuildShiftStates(input);
         return OtherOwedByDriver(input, states, ApplyOverpaymentCredit(states), dayStartUtc).GetValueOrDefault(driverId);
+    }
+
+    /// <summary>
+    /// One driver's whole debt picture - what the driver app's Ledger, Debt Details and Payment History show. Same rules
+    /// as the web's Master Debt Ledger (FinancialLedgerService.BuildCharges / TotalOwed): every charged shift (ended, or
+    /// already paid on) owes its expected amount minus what its payment documents add up to; overpayment credit pays off
+    /// the oldest unpaid shifts first; manual adjustments are added on; the total is floored at zero.
+    /// </summary>
+    public static DriverDebtResult DriverDebt(QuickLedgerInput input, string driverId)
+    {
+        List<ShiftPaymentState> states = BuildShiftStates(input)
+            .Where(s => s.IsCharge && s.Shift.DriverId == driverId)
+            .ToList();
+        CreditView credit = ApplyOverpaymentCredit(states);
+
+        List<DriverDebtShift> shifts = states
+            .OrderBy(s => s.Shift.StartUtc ?? DateTime.MinValue)
+            .Select(s => new DriverDebtShift(
+                Shift: s.Shift,
+                Expected: s.Expected,
+                Paid: s.TotalPaid,
+                Remaining: s.Remaining,
+                OwedAfterCredit: credit.OwedByShift.GetValueOrDefault(s.Shift.DocumentId),
+                HasPayment: s.HasPaymentRecord,
+                PaymentStatus: string.IsNullOrEmpty(s.Target?.PaymentStatus) ? "Unpaid" : s.Target!.PaymentStatus,
+                LatestPaymentUtc: s.Target?.TimestampUtc))
+            .ToList();
+
+        List<DebtAdjustmentRecord> adjustments = input.Adjustments.Where(a => a.DriverId == driverId).ToList();
+        decimal overpaymentCredit = states.Sum(s => s.Overpaid);
+        decimal totalDebt = Math.Max(0, shifts.Sum(s => s.Remaining) - overpaymentCredit + adjustments.Sum(a => a.Amount));
+
+        return new DriverDebtResult(shifts, adjustments, overpaymentCredit, totalDebt);
     }
 
     // ---------------------------------------------------------------------
@@ -477,7 +511,29 @@ public sealed record BoundaryPaymentRecord(
     DateTime? TimestampUtc,
     string TransactionId);
 
-public sealed record DebtAdjustmentRecord(string DriverId, decimal Amount);
+/// <param name="TimestampUtc">When the adjustment was made; only the driver's Debt Details list shows it.</param>
+public sealed record DebtAdjustmentRecord(string DriverId, decimal Amount, DateTime? TimestampUtc = null);
+
+/// <summary>One charged shift in a driver's debt (<see cref="QuickLedgerCalculator.DriverDebt"/>).</summary>
+/// <param name="Remaining">What this shift's own records still show unpaid.</param>
+/// <param name="OwedAfterCredit">What it still owes once the driver's overpayment credit is used up, oldest first.</param>
+/// <param name="PaymentStatus">The latest payment document's status ("Paid" / "Partial"), or "Unpaid" when none.</param>
+public sealed record DriverDebtShift(
+    ShiftRecord Shift,
+    decimal Expected,
+    decimal Paid,
+    decimal Remaining,
+    decimal OwedAfterCredit,
+    bool HasPayment,
+    string PaymentStatus,
+    DateTime? LatestPaymentUtc);
+
+/// <param name="TotalDebt">Everything the driver owes - equal to the web's Master Debt Ledger TotalDebt.</param>
+public sealed record DriverDebtResult(
+    IReadOnlyList<DriverDebtShift> Shifts,
+    IReadOnlyList<DebtAdjustmentRecord> Adjustments,
+    decimal OverpaymentCredit,
+    decimal TotalDebt);
 
 /// <param name="DriverNames">Full name by user ID, for every user document.</param>
 /// <param name="DriverIds">User IDs with role "Driver". The Other Payment list is built from these, so it matches the web's roster.</param>

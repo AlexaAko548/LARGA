@@ -139,7 +139,15 @@ public partial class OdometerScanPage : ContentPage
     private async void OnCancelClicked(object sender, EventArgs e)
     {
         if (sender is Button btn) btn.IsEnabled = false;
-        await Navigation.PopModalAsync();
+        try
+        {
+            await Navigation.PopModalAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Close odometer scan failed: {ex.Message}");
+            if (sender is Button again) again.IsEnabled = true;
+        }
     }
 
     // Seven-segment LCD odometer digits are a known hard case for general-purpose OCR (ML
@@ -149,21 +157,28 @@ public partial class OdometerScanPage : ContentPage
     // leaving the driver stuck.
     private async void OnEnterManuallyClicked(object sender, EventArgs e)
     {
-        string? typed = await DisplayPromptAsync(
-            "Enter odometer reading",
-            "Type the number shown on the dashboard.",
-            accept: "Use this",
-            cancel: "Back",
-            keyboard: Keyboard.Numeric,
-            maxLength: 7);
-
-        var digitsOnly = Regex.Replace(typed ?? string.Empty, "[^0-9]", string.Empty);
-        if (string.IsNullOrWhiteSpace(digitsOnly))
+        try
         {
-            return;
-        }
+            string? typed = await DisplayPromptAsync(
+                "Enter odometer reading",
+                "Type the number shown on the dashboard.",
+                accept: "Use this",
+                cancel: "Back",
+                keyboard: Keyboard.Numeric,
+                maxLength: 7);
 
-        SendResultAndClose(digitsOnly);
+            var digitsOnly = Regex.Replace(typed ?? string.Empty, "[^0-9]", string.Empty);
+            if (string.IsNullOrWhiteSpace(digitsOnly))
+            {
+                return;
+            }
+
+            SendResultAndClose(digitsOnly);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Manual odometer entry failed: {ex.Message}");
+        }
     }
 
     private void OnOcrModeClicked(object sender, EventArgs e) => SetMode(ScanMode.Ocr);

@@ -31,7 +31,8 @@ public class FuelVerificationService
     public async Task<FuelVerificationSnapshot> GetSnapshotAsync()
     {
         List<FuelLog> logs = await GetAllAsync<FuelLog>("fuel_logs");
-        List<ShiftLog> shifts = await GetAllAsync<ShiftLog>("shifts");
+        // Only the shifts these receipts belong to, not every shift ever (one batched read).
+        List<ShiftLog> shifts = await GetShiftsByIdAsync(logs.Select(l => l.ShiftId));
         List<UserProfile> drivers = await GetAllAsync<UserProfile>("users");
 
         Dictionary<string, ShiftLog> shiftById = shifts
@@ -326,6 +327,36 @@ public class FuelVerificationService
             _logger.LogWarning(ex, "Failed to reset fuel log {FuelId} to pending", fuelId);
             return new FuelActionResult { Ok = false, ErrorMessage = "Could not update this submission. Please try again." };
         }
+    }
+
+    /// <summary>The shifts with these document IDs that exist. Blank IDs, and placeholders the
+    /// phone writes when it has no shift (e.g. "UNKNOWN_SHIFT"), simply aren't found.</summary>
+    private async Task<List<ShiftLog>> GetShiftsByIdAsync(IEnumerable<string?> shiftIds)
+    {
+        List<DocumentReference> refs = shiftIds
+            .Where(id => !string.IsNullOrWhiteSpace(id) && !id.Contains('/'))
+            .Distinct()
+            .Select(id => Db.Collection("shifts").Document(id!))
+            .ToList();
+        if (refs.Count == 0)
+        {
+            return new List<ShiftLog>();
+        }
+
+        IList<DocumentSnapshot> snapshots = await Db.GetAllSnapshotsAsync(refs);
+        var shifts = new List<ShiftLog>(snapshots.Count);
+        foreach (DocumentSnapshot snapshot in snapshots.Where(s => s.Exists))
+        {
+            try
+            {
+                shifts.Add(snapshot.ConvertTo<ShiftLog>());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Skipping shifts/{Id}: unreadable", snapshot.Id);
+            }
+        }
+        return shifts;
     }
 
     private async Task<List<T>> GetAllAsync<T>(string collection) where T : class

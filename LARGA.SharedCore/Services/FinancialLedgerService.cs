@@ -240,7 +240,7 @@ public class FinancialLedgerService
             {
                 long ledgerVersion = await ReadLedgerVersionAsync(shift.DriverId);
 
-                (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetFullLedgerDataAsync();
+                (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetDriverLedgerDataAsync(shift.DriverId);
                 decimal defaultRate = await GetDefaultBoundaryRateAsync();
                 List<ShiftCharge> driverCharges = BuildCharges(shifts, payments, defaultRate).Where(c => c.DriverId == shift.DriverId).ToList();
 
@@ -315,7 +315,7 @@ public class FinancialLedgerService
             return 0m;
         }
 
-        (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetFullLedgerDataAsync();
+        (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetDriverLedgerDataAsync(shift.DriverId);
         decimal defaultRate = await GetDefaultBoundaryRateAsync();
         List<ShiftCharge> driverCharges = BuildCharges(shifts, payments, defaultRate)
             .Where(c => c.DriverId == shift.DriverId)
@@ -476,7 +476,7 @@ public class FinancialLedgerService
     /// </summary>
     public async Task<DriverLedgerHistory> GetDriverHistoryAsync(string driverId)
     {
-        (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, List<UserProfile> drivers) = await GetFullLedgerDataAsync();
+        (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, List<UserProfile> drivers) = await GetDriverLedgerDataAsync(driverId);
         UserProfile? driver = drivers.FirstOrDefault(d => d.UserId == driverId);
         List<ShiftCharge> charges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync())
             .Where(c => c.DriverId == driverId)
@@ -661,7 +661,7 @@ public class FinancialLedgerService
             {
                 long ledgerVersion = await ReadLedgerVersionAsync(driverId);
 
-                (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetFullLedgerDataAsync();
+                (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetDriverLedgerDataAsync(driverId);
                 List<ShiftCharge> driverCharges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync())
                     .Where(c => c.DriverId == driverId)
                     .ToList();
@@ -1208,6 +1208,35 @@ public class FinancialLedgerService
             results.AddRange(await GetWhereInAsync<BoundaryPayment>("boundary_payments", "shiftId", chunk.ToList()));
         }
         return results;
+    }
+
+    /// <summary>
+    /// One driver's shifts, payments and adjustments - all a single-driver action needs (Record
+    /// Payment, Settle Debt, the payment preview, a driver's history), instead of re-reading every
+    /// driver's full history on each click. Every boundary_payments document carries driverId
+    /// (written on every payment, and backfilled at startup by PaymentDriverIdBackfillService).
+    /// Same shape as GetFullLedgerDataAsync; Drivers holds just this driver (empty if not found).
+    /// </summary>
+    private async Task<(List<ShiftLog> Shifts, List<BoundaryPayment> Payments, List<DebtAdjustment> Adjustments, List<UserProfile> Drivers)> GetDriverLedgerDataAsync(string driverId)
+    {
+        List<ShiftLog> shifts = await GetWhereEqualAsync<ShiftLog>("shifts", "driverId", driverId);
+        List<BoundaryPayment> payments = await GetWhereEqualAsync<BoundaryPayment>("boundary_payments", "driverId", driverId);
+        List<DebtAdjustment> adjustments = await GetWhereEqualAsync<DebtAdjustment>("debt_adjustments", "driverId", driverId);
+
+        var drivers = new List<UserProfile>();
+        DocumentSnapshot driverDoc = await Db.Collection("users").Document(driverId).GetSnapshotAsync();
+        if (driverDoc.Exists)
+        {
+            drivers.Add(driverDoc.ConvertTo<UserProfile>());
+        }
+
+        return (shifts, payments, adjustments, drivers);
+    }
+
+    private async Task<List<T>> GetWhereEqualAsync<T>(string collection, string field, object value) where T : class
+    {
+        QuerySnapshot snapshot = await Db.Collection(collection).WhereEqualTo(field, value).GetSnapshotAsync();
+        return ConvertDocuments<T>(snapshot, collection);
     }
 
     private async Task<(List<ShiftLog> Shifts, List<BoundaryPayment> Payments, List<DebtAdjustment> Adjustments, List<UserProfile> Drivers)> GetFullLedgerDataAsync()

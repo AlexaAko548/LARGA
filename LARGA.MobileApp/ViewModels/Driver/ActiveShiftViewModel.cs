@@ -98,8 +98,16 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         IsSosAlertVisible = true;
     }
 
-    private void ShowSosSent(string locationSource)
+    private void ShowSosSent(string locationSource, bool queued)
     {
+        if (queued)
+        {
+            SosAlertTitle = "SOS SAVED - NO SIGNAL";
+            SosAlertBody = "Your phone has no signal right now. Your SOS is saved and will reach the manager as soon as the phone reconnects. Call your manager now if you can. Please prioritize your safety.";
+            IsSosDismissable = true;
+            return;
+        }
+
         SosAlertTitle = "SOS ALERT SENT";
         SosAlertBody = locationSource switch
         {
@@ -336,7 +344,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
                 return;
             }
 
-            ShowSosSent(_emergencyAlertService.LastLocationSource);
+            ShowSosSent(_emergencyAlertService.LastLocationSource, _emergencyAlertService.LastSendQueued);
         }
         catch (Exception ex)
         {

@@ -129,8 +129,15 @@ public class PreShiftStep1ViewModel : BindableObject, IQueryAttributable
 
             // Paper Ch. IV: a flagged inspection goes to the manager, who decides whether the
             // unit can go out today - the actual wait happens after step 2 (ClockInPendingPage).
-            await Shell.Current.DisplayAlert("Defect reported",
-                "Finish the checklist. Because of this issue, your clock-in will be sent to the manager for approval before your shift can start.", "OK");
+            try
+            {
+                await Shell.Current.DisplayAlert("Defect reported",
+                    "Finish the checklist. Because of this issue, your clock-in will be sent to the manager for approval before your shift can start.", "OK");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Defect-reported notice failed: {ex.Message}");
+            }
         }
     }
 }

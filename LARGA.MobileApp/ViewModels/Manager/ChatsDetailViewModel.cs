@@ -125,25 +125,35 @@ public class ChatsDetailViewModel : INotifyPropertyChanged
 
     private async void OnSendMessage()
     {
-        if (string.IsNullOrWhiteSpace(NewMessage))
+        // An empty box sends a thumbs-up.
+        string text = string.IsNullOrWhiteSpace(NewMessage) ? "👍" : NewMessage;
+        bool typed = !string.IsNullOrWhiteSpace(NewMessage);
+        NewMessage = string.Empty;
+
+        bool sent;
+        try
         {
-            var likeMessage = new ChatMessage
-            {
-                Text = "👍",
-                IsDriver = false // Sent by manager
-            };
-            await _chatService.SendMessageAsync(DriverId, likeMessage, DriverName);
-            return;
+            sent = await _chatService.SendMessageAsync(DriverId, new ChatMessage { Text = text, IsDriver = false }, DriverName);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Send message failed: {ex.Message}");
+            sent = false;
         }
 
-        var message = new ChatMessage
+        if (!sent)
         {
-            Text = NewMessage,
-            IsDriver = false // Sent by manager
-        };
-
-        NewMessage = string.Empty;
-        await _chatService.SendMessageAsync(DriverId, message, DriverName);
+            // Put the text back so nothing typed is lost, unless something new was typed meanwhile.
+            if (typed && string.IsNullOrEmpty(NewMessage)) NewMessage = text;
+            try
+            {
+                await Shell.Current.DisplayAlert("Message not sent", "Check your connection and try again.", "OK");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Send-failed alert error: {ex.Message}");
+            }
+        }
     }
 
     private async void OnCallDriver()

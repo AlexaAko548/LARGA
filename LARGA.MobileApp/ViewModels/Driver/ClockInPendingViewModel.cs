@@ -164,6 +164,7 @@ public class ClockInPendingViewModel : BindableObject
 
         // LAR-77 Contextual Auto-Cutoff Protocol: an approved clock-in is still a successful
         // clock-in, so telemetry starts here too (PreShiftStep2 covers the unflagged path).
+        await LocationPermissionHelper.EnsureWhenInUseAsync();
         _telemetryService.Start(newDocumentId);
 
         // LAR-86/87: automated emergency detection runs for the length of the shift.

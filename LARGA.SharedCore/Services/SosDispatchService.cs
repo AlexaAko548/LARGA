@@ -68,12 +68,17 @@ public class SosDispatchService
     public async Task<(List<SosAlertView> Active, List<SosAlertView> RecentlyResolved)> GetAlertsAsync()
     {
         QuerySnapshot active = await Db.Collection("emergency_alerts").WhereEqualTo("isResolved", false).GetSnapshotAsync();
-        QuerySnapshot resolved = await Db.Collection("emergency_alerts").WhereEqualTo("isResolved", true).GetSnapshotAsync();
+
+        // Only alerts resolved inside the window, not every alert ever resolved (this page
+        // refreshes every 10 seconds). A range on resolvedAt alone uses Firestore's automatic
+        // single-field index - no composite index to deploy; isResolved is checked here instead,
+        // since a reopened alert has its resolvedAt cleared anyway.
+        DateTime cutoff = DateTime.UtcNow - RecentlyResolvedWindow;
+        QuerySnapshot resolved = await Db.Collection("emergency_alerts").WhereGreaterThanOrEqualTo("resolvedAt", cutoff).GetSnapshotAsync();
 
         List<EmergencyAlert> activeAlerts = Convert(active);
-        DateTime cutoff = DateTime.UtcNow - RecentlyResolvedWindow;
         List<EmergencyAlert> recentResolved = Convert(resolved)
-            .Where(a => (a.ResolvedAt ?? DateTime.MinValue) >= cutoff)
+            .Where(a => a.IsResolved)
             .ToList();
 
         List<SosAlertView> views = await ToViewsAsync(activeAlerts.Concat(recentResolved).ToList());

@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using LARGA.SharedCore;
+using LARGA.SharedCore.Ledger;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
 using Plugin.Firebase.Storage;
@@ -283,11 +284,14 @@ public class QuickLedgerService
         }
     }
 
-    private static async Task<IReadOnlyList<ShiftRecord>> ReadShiftsAsync(List<string> warnings)
+    /// <summary>Shifts as ledger records - every shift, or only <paramref name="driverId"/>'s (the driver app:
+    /// firestore.rules let a driver read only their own).</summary>
+    internal static async Task<IReadOnlyList<ShiftRecord>> ReadShiftsAsync(List<string> warnings, string? driverId = null)
     {
-        var snapshot = await CrossFirebaseFirestore.Current
-            .GetCollection("shifts")
-            .GetDocumentsAsync<ShiftProxy>();
+        var collection = CrossFirebaseFirestore.Current.GetCollection("shifts");
+        var snapshot = driverId is null
+            ? await collection.GetDocumentsAsync<ShiftProxy>()
+            : await collection.WhereEqualsTo("driverId", driverId).GetDocumentsAsync<ShiftProxy>();
 
         var records = new List<ShiftRecord>();
         foreach (var doc in snapshot.Documents)
@@ -313,11 +317,14 @@ public class QuickLedgerService
         return records;
     }
 
-    private static async Task<IReadOnlyList<BoundaryPaymentRecord>> ReadPaymentsAsync(List<string> warnings)
+    /// <summary>Payment documents as ledger records - all, or only those carrying <paramref name="driverId"/> (the only
+    /// ones firestore.rules let a driver read).</summary>
+    internal static async Task<IReadOnlyList<BoundaryPaymentRecord>> ReadPaymentsAsync(List<string> warnings, string? driverId = null)
     {
-        var snapshot = await CrossFirebaseFirestore.Current
-            .GetCollection("boundary_payments")
-            .GetDocumentsAsync<BoundaryPaymentProxy>();
+        var collection = CrossFirebaseFirestore.Current.GetCollection("boundary_payments");
+        var snapshot = driverId is null
+            ? await collection.GetDocumentsAsync<BoundaryPaymentProxy>()
+            : await collection.WhereEqualsTo("driverId", driverId).GetDocumentsAsync<BoundaryPaymentProxy>();
 
         var records = new List<BoundaryPaymentRecord>();
         foreach (var doc in snapshot.Documents)
@@ -346,11 +353,13 @@ public class QuickLedgerService
         return records;
     }
 
-    private static async Task<IReadOnlyList<DebtAdjustmentRecord>> ReadAdjustmentsAsync(List<string> warnings)
+    /// <summary>Manual debt adjustments as ledger records - all, or only <paramref name="driverId"/>'s.</summary>
+    internal static async Task<IReadOnlyList<DebtAdjustmentRecord>> ReadAdjustmentsAsync(List<string> warnings, string? driverId = null)
     {
-        var snapshot = await CrossFirebaseFirestore.Current
-            .GetCollection("debt_adjustments")
-            .GetDocumentsAsync<DebtAdjustmentProxy>();
+        var collection = CrossFirebaseFirestore.Current.GetCollection("debt_adjustments");
+        var snapshot = driverId is null
+            ? await collection.GetDocumentsAsync<DebtAdjustmentProxy>()
+            : await collection.WhereEqualsTo("driverId", driverId).GetDocumentsAsync<DebtAdjustmentProxy>();
 
         var records = new List<DebtAdjustmentRecord>();
         foreach (var doc in snapshot.Documents)
@@ -361,7 +370,7 @@ public class QuickLedgerService
                 continue;
             }
 
-            records.Add(new DebtAdjustmentRecord(StringOf(doc.Data.DriverId), ToDecimal(doc.Data.Amount)));
+            records.Add(new DebtAdjustmentRecord(StringOf(doc.Data.DriverId), ToDecimal(doc.Data.Amount), ToUtc(doc.Data.Timestamp)));
         }
 
         return records;
@@ -422,7 +431,7 @@ public class QuickLedgerService
     }
 
     // Falls back to the same default the web ledger uses when the config is missing or unreadable.
-    private static async Task<decimal> ReadDefaultBoundaryRateAsync()
+    internal static async Task<decimal> ReadDefaultBoundaryRateAsync()
     {
         try
         {
@@ -600,6 +609,9 @@ public class QuickLedgerService
 
         [Plugin.Firebase.Firestore.FirestoreProperty("amount")]
         public object? Amount { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
+        public object? Timestamp { get; set; }
     }
 
     public class UserProxy

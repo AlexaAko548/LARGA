@@ -12,12 +12,34 @@ public partial class App : Application
 	private Page? _countdownPage;
 	private bool _syncingCountdown;
 
-	public App(LARGA.MobileApp.Services.EmergencyCountdownCoordinator countdown, LARGA.MobileApp.Services.IThemeService themeService)
+	public App(LARGA.MobileApp.Services.EmergencyCountdownCoordinator countdown, LARGA.MobileApp.Services.IThemeService themeService,
+		LARGA.SharedCore.Services.IGpsTelemetryService telemetryService, LARGA.MobileApp.Services.IEmergencyMonitor emergencyMonitor)
 	{
 		InitializeComponent();
 
 		// Saved System / Light / Dark choice, before the first page is built.
 		themeService.Initialize();
+
+		// LAR-77 auto-cutoff: the shift was closed elsewhere (ManagerWeb's 6:00 AM auto-close, or a
+		// manager) - GPS tracking has already stopped; end emergency monitoring and forget the shift,
+		// the same cleanup a normal clock-out does (EndShiftStep2ViewModel).
+		telemetryService.ShiftClosedRemotely += async (_, shiftId) =>
+		{
+			emergencyMonitor.Stop();
+			try
+			{
+				if (await SecureStorage.GetAsync("ActiveShiftDocumentId") == shiftId)
+				{
+					SecureStorage.Remove("ActiveShiftDocumentId");
+				}
+				Preferences.Remove("IsShiftActive");
+				Preferences.Remove("CurrentShiftId");
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"Remote shift close cleanup failed: {ex.Message}");
+			}
+		};
 
 		// LAR-86/87: show the cancel pop-up whenever an automated SOS countdown starts, and close
 		// it when the countdown ends (sent or cancelled). Changed can fire from any thread.

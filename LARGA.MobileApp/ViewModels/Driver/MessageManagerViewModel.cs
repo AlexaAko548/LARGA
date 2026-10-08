@@ -89,29 +89,40 @@ public class MessageManagerViewModel : INotifyPropertyChanged
 
     private async void OnSendMessage()
     {
-        if (string.IsNullOrWhiteSpace(NewMessage))
-        {
-            var likeMessage = new ChatMessage
-            {
-                Text = "👍",
-                IsDriver = true
-            };
-
-            // FIX 2: Replaced _driverId with DriverId
-            await _chatService.SendMessageAsync(DriverId, likeMessage);
-            return;
-        }
-
-        var message = new ChatMessage
-        {
-            Text = NewMessage,
-            IsDriver = true
-        };
-
+        // An empty box sends a thumbs-up, like the manager's chat.
+        string text = string.IsNullOrWhiteSpace(NewMessage) ? "👍" : NewMessage;
+        bool typed = !string.IsNullOrWhiteSpace(NewMessage);
         NewMessage = string.Empty;
 
-        // FIX 3: Replaced _driverId with DriverId
-        await _chatService.SendMessageAsync(DriverId, message);
+        bool sent;
+        try
+        {
+            sent = await _chatService.SendMessageAsync(DriverId, new ChatMessage { Text = text, IsDriver = true });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Send message failed: {ex.Message}");
+            sent = false;
+        }
+
+        if (!sent)
+        {
+            // Put the text back so nothing typed is lost, unless something new was typed meanwhile.
+            if (typed && string.IsNullOrEmpty(NewMessage)) NewMessage = text;
+            await ShowSendFailedAsync();
+        }
+    }
+
+    private static async Task ShowSendFailedAsync()
+    {
+        try
+        {
+            await Shell.Current.DisplayAlert("Message not sent", "Check your connection and try again.", "OK");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Send-failed alert error: {ex.Message}");
+        }
     }
 
     private async void OnCallManager()
