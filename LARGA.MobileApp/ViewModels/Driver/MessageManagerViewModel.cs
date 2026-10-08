@@ -56,9 +56,12 @@ public class MessageManagerViewModel : INotifyPropertyChanged
     public ICommand CallManagerCommand { get; }
     public Action? ScrollToBottom { get; set; }
 
-    public MessageManagerViewModel(IChatService chatService)
+    private readonly LARGA.MobileApp.Services.IEmergencyAlertService _emergencyAlertService;
+
+    public MessageManagerViewModel(IChatService chatService, LARGA.MobileApp.Services.IEmergencyAlertService emergencyAlertService)
     {
         _chatService = chatService;
+        _emergencyAlertService = emergencyAlertService;
         SendMessageCommand = new Command(OnSendMessage);
         StartListening();
 
@@ -115,7 +118,15 @@ public class MessageManagerViewModel : INotifyPropertyChanged
     {
         try
         {
-            string managerPhoneNumber = "09123456789";
+            // Drivers can't read managers' users documents (firestore.rules), so the managers'
+            // numbers come from the same system_configs allowlist the SOS auto-answer uses.
+            string? managerPhoneNumber = (await _emergencyAlertService.GetManagerPhoneNumbersAsync()).FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(managerPhoneNumber))
+            {
+                await Shell.Current.DisplayAlert("Call Manager",
+                    "No manager phone number is on file yet. Send a message instead, or ask your manager to add their number.", "OK");
+                return;
+            }
 
             var status = await Permissions.CheckStatusAsync<Permissions.Phone>();
             if (status != PermissionStatus.Granted)

@@ -231,46 +231,77 @@ public class FinancialLedgerService
                 return new RecordPaymentResult { Ok = false, ErrorMessage = "This shift no longer exists." };
             }
 
-            (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetFullLedgerDataAsync();
-            decimal defaultRate = await GetDefaultBoundaryRateAsync();
-            List<ShiftCharge> driverCharges = BuildCharges(shifts, payments, defaultRate).Where(c => c.DriverId == shift.DriverId).ToList();
-
-            // This shift's charge. A still-Active shift nobody has paid on isn't a charge yet
-            // (see BuildCharges), but the driver can still pay ahead for it.
-            ShiftCharge thisCharge = driverCharges.FirstOrDefault(c => c.Shift?.DocumentId == shift.DocumentId)
-                ?? NewCharge(shift, Array.Empty<BoundaryPayment>(), defaultRate);
-            List<DebtAdjustment> driverAdjustments = adjustments.Where(a => a.DriverId == shift.DriverId).ToList();
-
-            // Booked onto actual unpaid records - this shift first, then the oldest others, then
-            // adjustment debt - so every peso received sits on a document (credit keeps covering
-            // whatever those records still show unpaid). Anything above all of it stays on this
-            // shift's record as advance credit toward the driver's next boundary.
-            DateTime now = DateTime.UtcNow;
+            // Uploaded once, before the attempts below - a retry re-reads balances, not the photo.
             var receiptLink = await UploadReceiptAsync(shift.DriverId, receipt);
-            PaymentBooking booking = await BookPaymentAsync(shift.DriverId, thisCharge, driverCharges.Where(c => c != thisCharge),
-                driverAdjustments, amountReceived, advanceTarget: thisCharge, method, now, receiptLink, SourceDailySettlements);
 
-            decimal thisPaid = thisCharge.Paid + booking.ToFirst + booking.Advance;
-            SettlementStatus newStatus = thisPaid >= thisCharge.Expected ? SettlementStatus.Cleared : thisPaid > 0 ? SettlementStatus.Partial : SettlementStatus.Waiting;
-            decimal remainingAfterPayment = Math.Max(0, thisCharge.Expected - thisPaid);
-
-            await WriteAuditAsync(actorUserId, "BoundaryPaymentRecorded",
-                $"Recorded PHP {amountReceived:N2} {method} payment for shift {shiftId}. Status: {newStatus}. Remaining: PHP {remainingAfterPayment:N2}.", now);
-
-            return new RecordPaymentResult
+            // Read balances -> allocate -> commit, retried when another payment for this driver
+            // lands in between (ledger_locks version moved - see BookPaymentAsync).
+            for (int attempt = 1; ; attempt++)
             {
-                Ok = true,
-                NewStatus = newStatus,
-                RemainingAfterPayment = remainingAfterPayment,
-                AppliedToOlderDebt = booking.ToOthers + booking.ToAdjustments,
-                AdvanceCredit = booking.Advance,
-            };
+                long ledgerVersion = await ReadLedgerVersionAsync(shift.DriverId);
+
+                (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetFullLedgerDataAsync();
+                decimal defaultRate = await GetDefaultBoundaryRateAsync();
+                List<ShiftCharge> driverCharges = BuildCharges(shifts, payments, defaultRate).Where(c => c.DriverId == shift.DriverId).ToList();
+
+                // This shift's charge. A still-Active shift nobody has paid on isn't a charge yet
+                // (see BuildCharges), but the driver can still pay ahead for it.
+                ShiftCharge thisCharge = driverCharges.FirstOrDefault(c => c.Shift?.DocumentId == shift.DocumentId)
+                    ?? NewCharge(shift, Array.Empty<BoundaryPayment>(), defaultRate);
+                List<DebtAdjustment> driverAdjustments = adjustments.Where(a => a.DriverId == shift.DriverId).ToList();
+
+                // Booked onto actual unpaid records - this shift first, then the oldest others, then
+                // adjustment debt - so every peso received sits on a document (credit keeps covering
+                // whatever those records still show unpaid). Anything above all of it stays on this
+                // shift's record as advance credit toward the driver's next boundary.
+                DateTime now = DateTime.UtcNow;
+                PaymentBooking booking;
+                try
+                {
+                    booking = await BookPaymentAsync(shift.DriverId, ledgerVersion, thisCharge, driverCharges.Where(c => c != thisCharge),
+                        driverAdjustments, amountReceived, advanceTarget: thisCharge, method, now, receiptLink, SourceDailySettlements);
+                }
+                catch (LedgerConflictException) when (attempt < MaxBookingAttempts)
+                {
+                    _logger.LogInformation("Payment for shift {ShiftId} raced another payment for the same driver; retrying ({Attempt}).", shiftId, attempt);
+                    continue;
+                }
+
+                return await FinishRecordPaymentAsync(shiftId, amountReceived, method, actorUserId, thisCharge, booking, now);
+            }
+        }
+        catch (LedgerConflictException)
+        {
+            return new RecordPaymentResult { Ok = false, ErrorMessage = ConflictMessage };
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to record payment for shift {ShiftId}", shiftId);
             return new RecordPaymentResult { Ok = false, ErrorMessage = "Could not save this payment. Please try again." };
         }
+    }
+
+    /// <summary>The payment is committed by now; this only logs it and builds the result. Never
+    /// throws (WriteAuditAsync logs its own failures) - reporting a saved payment as failed would
+    /// invite the manager to record it twice.</summary>
+    private async Task<RecordPaymentResult> FinishRecordPaymentAsync(string shiftId, decimal amountReceived, PaymentMethod method,
+        string? actorUserId, ShiftCharge thisCharge, PaymentBooking booking, DateTime now)
+    {
+        decimal thisPaid = thisCharge.Paid + booking.ToFirst + booking.Advance;
+        SettlementStatus newStatus = thisPaid >= thisCharge.Expected ? SettlementStatus.Cleared : thisPaid > 0 ? SettlementStatus.Partial : SettlementStatus.Waiting;
+        decimal remainingAfterPayment = Math.Max(0, thisCharge.Expected - thisPaid);
+
+        await WriteAuditAsync(actorUserId, "BoundaryPaymentRecorded",
+            $"Recorded PHP {amountReceived:N2} {method} payment for shift {shiftId}. Status: {newStatus}. Remaining: PHP {remainingAfterPayment:N2}.", now);
+
+        return new RecordPaymentResult
+        {
+            Ok = true,
+            NewStatus = newStatus,
+            RemainingAfterPayment = remainingAfterPayment,
+            AppliedToOlderDebt = booking.ToOthers + booking.ToAdjustments,
+            AdvanceCredit = booking.Advance,
+        };
     }
 
     /// <summary>What the driver of this shift owes apart from what this shift still owes (after
@@ -352,6 +383,8 @@ public class FinancialLedgerService
             WriteBatch batch = Db.StartBatch();
             batch.Set(adjustmentDoc, adjustment);
             batch.Set(auditDoc, audit);
+            // The balance changed, so a payment planned against the old one must re-read it.
+            batch.Set(LedgerLockRef(driverId), LedgerLockBump(), SetOptions.MergeAll);
             await batch.CommitAsync();
 
             return new AdjustmentResult { Ok = true };
@@ -617,40 +650,79 @@ public class FinancialLedgerService
 
         try
         {
-            (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetFullLedgerDataAsync();
-            List<ShiftCharge> driverCharges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync())
-                .Where(c => c.DriverId == driverId)
-                .ToList();
+            // Uploaded at most once across the attempts below (only when the payment is allowed).
+            bool receiptUploaded = false;
+            (string Url, string? ReferenceNo)? receiptLink = null;
 
-            List<DebtAdjustment> driverAdjustments = adjustments.Where(a => a.DriverId == driverId).ToList();
-
-            // Anything above what's owed stays on the driver's latest shift as advance credit.
-            ShiftCharge? latest = driverCharges.OrderByDescending(c => c.Date).FirstOrDefault();
-            if (latest is null && amountReceived > TotalOwed(driverCharges, driverAdjustments))
+            // Read balances -> allocate -> commit, retried when another payment for this driver
+            // lands in between (ledger_locks version moved - see BookPaymentAsync).
+            PaymentBooking booking;
+            for (int attempt = 1; ; attempt++)
             {
-                return new SettleDebtResult { Ok = false, ErrorMessage = "This driver has no shifts yet to hold an advance payment - record only what they owe." };
+                long ledgerVersion = await ReadLedgerVersionAsync(driverId);
+
+                (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetFullLedgerDataAsync();
+                List<ShiftCharge> driverCharges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync())
+                    .Where(c => c.DriverId == driverId)
+                    .ToList();
+
+                List<DebtAdjustment> driverAdjustments = adjustments.Where(a => a.DriverId == driverId).ToList();
+
+                // Anything above what's owed stays on the driver's latest shift as advance credit.
+                ShiftCharge? latest = driverCharges.OrderByDescending(c => c.Date).FirstOrDefault();
+                if (latest is null && amountReceived > TotalOwed(driverCharges, driverAdjustments))
+                {
+                    return new SettleDebtResult { Ok = false, ErrorMessage = "This driver has no shifts yet to hold an advance payment - record only what they owe." };
+                }
+
+                // Booked onto the oldest unpaid shifts first, then adjustment debt - a new payment
+                // document for each shift it pays, all sharing one transactionId. One receipt can pay
+                // off several shifts - each document links it.
+                if (!receiptUploaded)
+                {
+                    receiptLink = await UploadReceiptAsync(driverId, receipt);
+                    receiptUploaded = true;
+                }
+
+                try
+                {
+                    booking = await BookPaymentAsync(driverId, ledgerVersion, null, driverCharges, driverAdjustments, amountReceived,
+                        advanceTarget: latest, PaymentMethodOf(paymentMethod), DateTime.UtcNow, receiptLink, SourceMasterLedger);
+                    break;
+                }
+                catch (LedgerConflictException) when (attempt < MaxBookingAttempts)
+                {
+                    _logger.LogInformation("Debt settlement for driver {DriverId} raced another payment; retrying ({Attempt}).", driverId, attempt);
+                }
             }
 
-            // Booked onto the oldest unpaid shifts first, then adjustment debt - a new payment
-            // document for each shift it pays, all sharing one transactionId. One receipt can pay
-            // off several shifts - each document links it.
-            var receiptLink = await UploadReceiptAsync(driverId, receipt);
-            PaymentBooking booking = await BookPaymentAsync(driverId, null, driverCharges, driverAdjustments, amountReceived,
-                advanceTarget: latest, PaymentMethodOf(paymentMethod), DateTime.UtcNow, receiptLink, SourceMasterLedger);
+            // Committed from here on: nothing below may turn this into a reported failure.
             decimal remaining = booking.Advance;
 
             await WriteAuditAsync(actorUserId, "DebtSettled",
                 $"Settled PHP {amountReceived - remaining:N2} of debt for driver {driverId} via {PaymentMethodOf(paymentMethod)}. Advance credit: PHP {remaining:N2}.");
 
-            DebtLedgerSnapshot refreshed = await GetDebtLedgerAsync();
-            decimal newTotal = refreshed.Rows.FirstOrDefault(r => r.DriverId == driverId)?.TotalDebt ?? 0;
+            decimal? newTotal = null;
+            try
+            {
+                DebtLedgerSnapshot refreshed = await GetDebtLedgerAsync();
+                newTotal = refreshed.Rows.FirstOrDefault(r => r.DriverId == driverId)?.TotalDebt ?? 0;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Settlement for driver {DriverId} saved, but the refreshed balance couldn't be read", driverId);
+            }
 
             return new SettleDebtResult
             {
                 Ok = true,
-                RemainingDebt = newTotal,
+                RemainingDebt = newTotal ?? 0,
                 AdvanceCredit = remaining,
             };
+        }
+        catch (LedgerConflictException)
+        {
+            return new SettleDebtResult { Ok = false, ErrorMessage = ConflictMessage };
         }
         catch (Exception ex)
         {
@@ -708,8 +780,11 @@ public class FinancialLedgerService
     /// amount (BoundaryPaymentRules) - nothing already saved is updated or overwritten, so
     /// each payment stays in the history. All the documents of one handover share a
     /// transactionId, which the automatic credit adjustment carries too.
+    ///
+    /// <paramref name="expectedLedgerVersion"/> is ledger_locks/{driverId}.version as read
+    /// before the balances were; throws LedgerConflictException if it has moved since.
     /// </summary>
-    private async Task<PaymentBooking> BookPaymentAsync(string driverId, ShiftCharge? first, IEnumerable<ShiftCharge> others,
+    private async Task<PaymentBooking> BookPaymentAsync(string driverId, long expectedLedgerVersion, ShiftCharge? first, IEnumerable<ShiftCharge> others,
         IEnumerable<DebtAdjustment> driverAdjustments, decimal amount, ShiftCharge? advanceTarget,
         PaymentMethod method, DateTime now, (string Url, string? ReferenceNo)? receiptLink, string source)
     {
@@ -747,26 +822,78 @@ public class FinancialLedgerService
         }
 
         string transactionId = BoundaryPaymentRules.NewTransactionId(driverId, now);
-        int index = 0;
-        foreach ((ShiftCharge charge, decimal apply) in applies)
-        {
-            await CreatePaymentAsync(charge, apply, method, now, receiptLink, transactionId, index++, source);
-        }
+        var paymentDocs = applies
+            .Select((entry, index) => PaymentDocument(entry.Key, entry.Value, method, now, receiptLink, transactionId, index, source))
+            .ToList();
 
-        if (toAdjustments > 0)
+        // Everything commits together or not at all - no half-booked payment if a write fails
+        // midway. And it only commits if this driver's ledger version is still the one the
+        // balances above were read at: another cashier's payment in between (web or the app's
+        // Quick Ledger, which bump the same version) makes this throw LedgerConflictException,
+        // and the caller re-reads the balances and allocates again.
+        DocumentReference lockRef = LedgerLockRef(driverId);
+        await Db.RunTransactionAsync(async transaction =>
         {
-            await Db.Collection("debt_adjustments").AddAsync(new DebtAdjustment
+            DocumentSnapshot lockSnapshot = await transaction.GetSnapshotAsync(lockRef);
+            if (LedgerVersionOf(lockSnapshot) != expectedLedgerVersion)
             {
-                DriverId = driverId,
-                Amount = -toAdjustments,
-                Reason = "Automatic credit from a debt payment.",
-                Timestamp = now,
-                TransactionId = transactionId,
-            });
-        }
+                throw new LedgerConflictException();
+            }
+
+            foreach ((DocumentReference doc, Dictionary<string, object> fields) in paymentDocs)
+            {
+                // Create, not Set: refuses to touch a document that already exists, so a
+                // payment can never overwrite another one.
+                transaction.Create(doc, fields);
+            }
+
+            if (toAdjustments > 0)
+            {
+                transaction.Create(Db.Collection("debt_adjustments").Document(), new DebtAdjustment
+                {
+                    DriverId = driverId,
+                    Amount = -toAdjustments,
+                    Reason = "Automatic credit from a debt payment.",
+                    Timestamp = now,
+                    TransactionId = transactionId,
+                });
+            }
+
+            transaction.Set(lockRef, LedgerLockBump(), SetOptions.MergeAll);
+        });
 
         return new PaymentBooking(toFirst, toOthers, toAdjustments, advance);
     }
+
+    // ---------------------------------------------------------------------
+    // Per-driver ledger version (ledger_locks/{driverId}.version)
+    // ---------------------------------------------------------------------
+
+    private const int MaxBookingAttempts = 3;
+
+    private const string ConflictMessage =
+        "Another payment for this driver was being recorded at the same time. Refresh and check the balance, then try again.";
+
+    /// <summary>Thrown when the driver's ledger changed between reading balances and booking.</summary>
+    private sealed class LedgerConflictException : Exception
+    {
+        public LedgerConflictException() : base("The driver's ledger changed while this payment was being booked.") { }
+    }
+
+    private DocumentReference LedgerLockRef(string driverId) => Db.Collection("ledger_locks").Document(driverId);
+
+    /// <summary>The fields that bump a driver's ledger version (merged, so the doc is created on first use).</summary>
+    private static Dictionary<string, object> LedgerLockBump() => new()
+    {
+        ["version"] = FieldValue.Increment(1),
+        ["updatedAt"] = FieldValue.ServerTimestamp,
+    };
+
+    private static long LedgerVersionOf(DocumentSnapshot snapshot) =>
+        snapshot.Exists && snapshot.TryGetValue("version", out long version) ? version : 0;
+
+    private async Task<long> ReadLedgerVersionAsync(string driverId) =>
+        LedgerVersionOf(await LedgerLockRef(driverId).GetSnapshotAsync());
 
     /// <summary>
     /// The driver's shifts that still owe something, oldest first, with how much each still
@@ -959,8 +1086,9 @@ public class FinancialLedgerService
     }
 
     /// <summary>A new payment document for one payment on one shift - holding only this
-    /// payment's amount (see BoundaryPaymentRules). Same fields as the Quick Ledger writes.</summary>
-    private Task CreatePaymentAsync(ShiftCharge charge, decimal amount, PaymentMethod method, DateTime now,
+    /// payment's amount (see BoundaryPaymentRules). Same fields as the Quick Ledger writes.
+    /// Returned, not written: BookPaymentAsync creates them all in one transaction.</summary>
+    private (DocumentReference Doc, Dictionary<string, object> Fields) PaymentDocument(ShiftCharge charge, decimal amount, PaymentMethod method, DateTime now,
         (string Url, string? ReferenceNo)? receipt, string transactionId, int index, string source)
     {
         ShiftLog shift = charge.Shift!;
@@ -993,9 +1121,7 @@ public class FinancialLedgerService
             }
         }
 
-        // Create, not Set: refuses to touch a document that already exists, so a payment can
-        // never overwrite another one.
-        return Db.Collection("boundary_payments").Document(docId).CreateAsync(fields);
+        return (Db.Collection("boundary_payments").Document(docId), fields);
     }
 
     /// <summary>
@@ -1036,11 +1162,13 @@ public class FinancialLedgerService
         public decimal Total => LateFee + FuelPenalty;
     }
 
-    /// <summary>A shift's extra charges: the ones worked out at clock-out (shifts.lateFee /
-    /// shifts.fuelPenalty) when the shift has them; otherwise whatever the payment record
-    /// carries (older shifts, seed data, or an amount set by hand).</summary>
+    /// <summary>A shift's extra charges: the late fee from ShiftRules.EffectiveLateFee (a stored
+    /// shifts.lateFee, else computed from the server-stamped shiftStart/shiftEnd) and the
+    /// clock-out shifts.fuelPenalty; otherwise whatever the payment record carries (older shifts,
+    /// seed data, or an amount set by hand).</summary>
     private static ExtraCharges ExtrasFor(ShiftLog? shift, BoundaryPayment? payment) => new(
-        shift?.LateFee is double late ? (decimal)late : payment?.LateFees ?? 0m,
+        ShiftRules.EffectiveLateFee(shift?.LateFee is double late ? (decimal)late : null, shift?.ShiftStart, shift?.ShiftEnd)
+            ?? payment?.LateFees ?? 0m,
         shift?.FuelPenalty is double fuel ? (decimal)fuel : payment?.FuelPenalty ?? 0m);
 
 

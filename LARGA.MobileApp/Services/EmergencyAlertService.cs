@@ -21,10 +21,16 @@ public interface IEmergencyAlertService
     /// <summary>
     /// Writes an alert for the driver's active shift. <paramref name="triggerType"/> is one of
     /// EmergencyAlert.Standard / Hostile / Crash. When no coordinates are passed the device's
-    /// location is looked up. Returns the new document's ID, or null when there's no active
-    /// shift or no location could be found.
+    /// location is looked up; failing that, the shift's last GPS point is used; failing that, the
+    /// alert still goes out without a location (0/0, locationSource "none") - an SOS is never
+    /// dropped for lack of GPS. Returns the new document's ID, or null only when there's no
+    /// active shift. <paramref name="tryLiveFix"/> false skips the live lookup (the caller
+    /// already tried one).
     /// </summary>
-    Task<string?> SendAlertAsync(string triggerType, double? latitude = null, double? longitude = null);
+    Task<string?> SendAlertAsync(string triggerType, double? latitude = null, double? longitude = null, bool tryLiveFix = true);
+
+    /// <summary>Where the last alert's coordinates came from: "live", "lastShiftFix" or "none".</summary>
+    string LastLocationSource { get; }
 
     /// <summary>
     /// system_configs/global.managerPhoneNumbers, normalized to +639XXXXXXXXX. Drivers can't
@@ -85,6 +91,13 @@ public class NoOpEmergencyFeedback : IEmergencyFeedback
 
 public class EmergencyAlertService : IEmergencyAlertService
 {
+    // emergency_alerts.locationSource values.
+    public const string LocationSourceLive = "live";
+    public const string LocationSourceLastShiftFix = "lastShiftFix";
+    public const string LocationSourceNone = "none";
+
+    public string LastLocationSource { get; private set; } = LocationSourceLive;
+
     private readonly IShiftManagementService _shiftService;
     private readonly IEmergencyFeedback _feedback;
 
@@ -100,7 +113,7 @@ public class EmergencyAlertService : IEmergencyAlertService
         _feedback = feedback;
     }
 
-    public async Task<string?> SendAlertAsync(string triggerType, double? latitude = null, double? longitude = null)
+    public async Task<string?> SendAlertAsync(string triggerType, double? latitude = null, double? longitude = null, bool tryLiveFix = true)
     {
         string? shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
         if (string.IsNullOrWhiteSpace(shiftId))
@@ -111,16 +124,32 @@ public class EmergencyAlertService : IEmergencyAlertService
         IFirebaseUser? user = CrossFirebaseAuth.Current.CurrentUser;
         string driverId = user?.Uid ?? string.Empty;
 
+        // An SOS is never dropped for lack of GPS: live fix, else the shift's last telemetry
+        // point, else no location at all (0/0 - ManagerWeb and the Alert Center show
+        // "location unavailable" for that and still dispatch on driver + unit).
+        string locationSource = LocationSourceLive;
         if (latitude is null || longitude is null)
         {
-            Location? location = await TryGetLocationAsync();
-            if (location == null)
+            Location? location = tryLiveFix ? await TryGetLocationAsync() : null;
+            if (location != null)
             {
-                return null;
+                latitude = location.Latitude;
+                longitude = location.Longitude;
             }
-            latitude = location.Latitude;
-            longitude = location.Longitude;
+            else if (await TryGetLastShiftFixAsync(shiftId) is (double lastLat, double lastLng))
+            {
+                latitude = lastLat;
+                longitude = lastLng;
+                locationSource = LocationSourceLastShiftFix;
+            }
+            else
+            {
+                latitude = 0;
+                longitude = 0;
+                locationSource = LocationSourceNone;
+            }
         }
+        LastLocationSource = locationSource;
 
         (string driverName, string taxiUnit) = await GetDriverAndUnitAsync(shiftId, user);
 
@@ -135,6 +164,7 @@ public class EmergencyAlertService : IEmergencyAlertService
             IsResolved = false,
             Timestamp = DateTime.UtcNow,
             TriggerType = triggerType,
+            LocationSource = locationSource,
         };
 
         IDocumentReference doc = await CrossFirebaseFirestore.Current
@@ -171,6 +201,36 @@ public class EmergencyAlertService : IEmergencyAlertService
         {
             System.Diagnostics.Debug.WriteLine($"Manager phone lookup failed: {ex.Message}");
             return Array.Empty<string>();
+        }
+    }
+
+    /// <summary>The shift's last GPS point (GpsTelemetryService writes currentLatitude/Longitude
+    /// on the shift doc every 30s) - null when it has none or can't be read.</summary>
+    private static async Task<(double Latitude, double Longitude)?> TryGetLastShiftFixAsync(string shiftId)
+    {
+        try
+        {
+            var snapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .GetDocument(shiftId)
+                .GetDocumentSnapshotAsync<ShiftPositionProxy>();
+
+            object? lat = snapshot?.Data?.CurrentLatitude;
+            object? lng = snapshot?.Data?.CurrentLongitude;
+            if (lat is null || lng is null)
+            {
+                return null;
+            }
+
+            // Whole-number values come back as integers (see QuickLedgerService), so convert loosely.
+            double latitude = Convert.ToDouble(lat, System.Globalization.CultureInfo.InvariantCulture);
+            double longitude = Convert.ToDouble(lng, System.Globalization.CultureInfo.InvariantCulture);
+            return latitude == 0 && longitude == 0 ? null : (latitude, longitude);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Emergency last-fix lookup failed: {ex.Message}");
+            return null;
         }
     }
 
@@ -281,6 +341,18 @@ public class EmergencyAlertService : IEmergencyAlertService
 
         [FirestoreProperty("triggerType")]
         public string TriggerType { get; set; } = string.Empty;
+
+        [FirestoreProperty("locationSource")]
+        public string LocationSource { get; set; } = string.Empty;
+    }
+
+    private class ShiftPositionProxy
+    {
+        [FirestoreProperty("currentLatitude")]
+        public object? CurrentLatitude { get; set; }
+
+        [FirestoreProperty("currentLongitude")]
+        public object? CurrentLongitude { get; set; }
     }
 
     private class DriverProfileProxy

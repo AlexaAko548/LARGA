@@ -151,7 +151,12 @@ public class ChatsDetailViewModel : INotifyPropertyChanged
         try
         {
             // Fetch driver phone number from service based on DriverId
-            string driverPhoneNumber = await _chatService.GetDriverPhoneNumberAsync(DriverId) ?? "00000000000";
+            string? driverPhoneNumber = await _chatService.GetDriverPhoneNumberAsync(DriverId);
+            if (string.IsNullOrWhiteSpace(driverPhoneNumber))
+            {
+                await Shell.Current.DisplayAlert("Call Driver", "This driver has no phone number on file.", "OK");
+                return;
+            }
 
             var status = await Permissions.CheckStatusAsync<Permissions.Phone>();
             if (status != PermissionStatus.Granted)

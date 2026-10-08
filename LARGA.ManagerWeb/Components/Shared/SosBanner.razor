@@ -1,0 +1,80 @@
+@* Red bar across every staff page while any SOS is unresolved, so an emergency is seen within
+   seconds wherever the manager is - not only on SOS Dispatch, and without waiting for the bell
+   (whose SOS entries come from a 3-minute background check). Rendered by DashboardSidebar,
+   which every authenticated page includes. Hidden on SOS Dispatch itself. *@
+@using LARGA.SharedCore.Services
+@implements IAsyncDisposable
+@inject SosDispatchService SosDispatch
+
+@if (_activeCount > 0 && !OnSosPage)
+{
+    <a class="sos-banner" href="/sos-dispatch" role="alert">
+        <Icon Name="triangle-alert" Class="sos-banner-icon" />
+        <span class="sos-banner-text">
+            @(_activeCount == 1 ? "1 active SOS" : $"{_activeCount} active SOS alerts") - a driver needs help
+        </span>
+        <span class="sos-banner-action">Open SOS Dispatch</span>
+    </a>
+}
+
+@code {
+    /// <summary>True on the SOS Dispatch page, which already lists the alerts.</summary>
+    [Parameter] public bool OnSosPage { get; set; }
+
+    // Same cadence as SOS Dispatch's own refresh.
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(10);
+
+    private int _activeCount;
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource? _timerCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+
+        _timerCts = new CancellationTokenSource();
+        _timer = new PeriodicTimer(RefreshInterval);
+        _ = PollLoopAsync(_timerCts.Token);
+    }
+
+    private async Task PollLoopAsync(CancellationToken token)
+    {
+        try
+        {
+            while (_timer is not null && await _timer.WaitForNextTickAsync(token))
+            {
+                int before = _activeCount;
+                await RefreshAsync();
+                if (before != _activeCount)
+                {
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the component is disposed.
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            _activeCount = await SosDispatch.GetActiveCountAsync();
+        }
+        catch
+        {
+            // Same stance as NotificationBell: a Firestore hiccup keeps the last-known count
+            // rather than breaking the page.
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _timerCts?.Cancel();
+        _timer?.Dispose();
+        _timerCts?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

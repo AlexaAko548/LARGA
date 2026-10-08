@@ -297,21 +297,24 @@ public class ShiftManagementService : IShiftManagementService
             }
         }
 
-        var shiftProxy = new ShiftLogProxy
+        // shiftStart is stamped by the Firestore server, not the phone (firestore.rules refuse
+        // anything else), so a phone clock set back can't start a shift before 6:00 AM or move
+        // the late-fee deadline. A dictionary, because FieldValue doesn't fit a typed proxy.
+        var shiftFields = new Dictionary<object, object>
         {
-            DriverId = user.Uid,
-            TaxiId = taxiId,
-            ShiftStart = now,
-            StartMileage = startMileage,
-            Status = "Active",
-            ShiftId = string.Empty,
-            IsOnBreak = false,
-            ManagerNote = ""
+            { "driverId", user.Uid },
+            { "taxiId", taxiId },
+            { "shiftStart", ShiftTimestamp() },
+            { "startMileage", startMileage },
+            { "status", "Active" },
+            { "shiftId", string.Empty },
+            { "isOnBreak", false },
+            { "managerNote", string.Empty },
         };
 
         var documentReference = await CrossFirebaseFirestore.Current
             .GetCollection("shifts")
-            .AddDocumentAsync(shiftProxy);
+            .AddDocumentAsync(shiftFields);
 
         // Everything else that points at a shift (fuel_logs, handover_checklists,
         // boundary_payments, ManagerWeb's lookups) uses the shiftId field and the document ID
@@ -435,47 +438,47 @@ public class ShiftManagementService : IShiftManagementService
         }
     }
 
-    /// <summary>Ends the shift and records its late-return fee (ShiftRules: the unit is timed on
-    /// return, i.e. now) and its low-fuel penalty (below half-tank at return). Returns both so
+    /// <summary>Ends the shift and records its low-fuel penalty (below half-tank at return).
+    /// shiftEnd is stamped by the Firestore server (firestore.rules refuse a phone-clock value),
+    /// and the late-return fee is NOT stored - every ledger works it out from shiftStart/shiftEnd
+    /// (ShiftRules.EffectiveLateFee), so the phone can't set its own fee. Returns both charges so
     /// the Shift Completed screen can show today's total.</summary>
     public async Task<ShiftEndCharges> ClockOutAsync(string activeShiftId, int endMileage, bool fuelBelowHalf, string managerNote = "")
     {
         try
         {
             await RefreshTestClockAsync();
-            DateTime now = ShiftClock.UtcNow;
             var shiftDoc = CrossFirebaseFirestore.Current.GetCollection("shifts").GetDocument(activeShiftId);
 
+            decimal fuelPenalty = fuelBelowHalf ? ShiftRules.LowFuelPenalty : 0m;
             var updateData = new Dictionary<object, object>
             {
-                { "shiftEnd", now },
+                { "shiftEnd", ShiftTimestamp() },
                 { "endMileage", endMileage },
                 { "status", "Completed" },
                 { "managerNote", managerNote },
                 { "isOnBreak", false },
+                { "fuelPenalty", (double)fuelPenalty },
             };
 
-            decimal fuelPenalty = fuelBelowHalf ? ShiftRules.LowFuelPenalty : 0m;
-            updateData["fuelPenalty"] = (double)fuelPenalty;
+            await shiftDoc.UpdateDataAsync(updateData);
 
+            // Only for the Shift Completed screen: the same fee the ledgers will compute, from
+            // the server's own timestamps now that they're saved.
             decimal lateFee = 0m;
             try
             {
-                var snapshot = await shiftDoc.GetDocumentSnapshotAsync<ShiftReadProxy>();
-                if (snapshot?.Data != null)
-                {
-                    lateFee = ShiftRules.LateReturnFee(FixPluginDate(snapshot.Data.ShiftStart), now);
-                    updateData["lateFee"] = (double)lateFee;
-                }
+                var snapshot = await shiftDoc.GetDocumentSnapshotAsync<ShiftTimesProxy>();
+                DateTime? start = snapshot?.Data is null ? null : ReadPluginDate(snapshot.Data.ShiftStart);
+                DateTime? end = snapshot?.Data is null ? null : ReadPluginDate(snapshot.Data.ShiftEnd);
+                lateFee = ShiftRules.EffectiveLateFee(null, start, end ?? ShiftClock.UtcNow) ?? 0m;
             }
             catch (Exception ex)
             {
-                // Without the start time there's no fee to work out; the shift still ends, and
-                // the manager can add a late fee from the ledger if needed.
-                System.Diagnostics.Debug.WriteLine($"Late Fee Error: {ex.Message}");
+                // Display only - the ledgers still charge the right fee from the saved times.
+                System.Diagnostics.Debug.WriteLine($"Late Fee Preview Error: {ex.Message}");
             }
 
-            await shiftDoc.UpdateDataAsync(updateData);
             return new ShiftEndCharges(lateFee, fuelPenalty);
         }
         catch (Exception ex)
@@ -531,6 +534,25 @@ public class ShiftManagementService : IShiftManagementService
         if (value.Year > 1700) return DateTime.SpecifyKind(value, DateTimeKind.Utc);
         long millis = value.Ticks - new DateTime(1601, 1, 1).Ticks;
         return DateTimeOffset.FromUnixTimeMilliseconds(millis).UtcDateTime;
+    }
+
+    /// <summary>The value to write for shiftStart/shiftEnd: Firestore server time, which
+    /// firestore.rules require. Debug builds running the test clock (system_configs/global
+    /// testClockPh - the rules accept any time only while it's set) write the pretend time.</summary>
+    private static object ShiftTimestamp() =>
+        ShiftClock.IsPretending ? ShiftClock.UtcNow : FieldValue.ServerTimestamp();
+
+    /// <summary>FixPluginDate for a field that may be missing (it then reads as default).</summary>
+    private static DateTime? ReadPluginDate(DateTime value) =>
+        value == default ? null : FixPluginDate(value);
+
+    private class ShiftTimesProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftStart")]
+        public DateTime ShiftStart { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftEnd")]
+        public DateTime ShiftEnd { get; set; }
     }
 
     private class ShiftReadProxy
@@ -809,31 +831,4 @@ public class ShiftManagementService : IShiftManagementService
         public DateTime Timestamp { get; set; }
     }
 
-    private class ShiftLogProxy
-    {
-        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
-        public string DriverId { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
-        public string TaxiId { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("shiftStart")]
-        public DateTime ShiftStart { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("startMileage")]
-        public int StartMileage { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
-        public string Status { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
-        public string ShiftId { get; set; }
-
-        // ADDED: Missing fields for initial clock-in
-        [Plugin.Firebase.Firestore.FirestoreProperty("isOnBreak")]
-        public bool IsOnBreak { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("managerNote")]
-        public string ManagerNote { get; set; }
-    }
 }

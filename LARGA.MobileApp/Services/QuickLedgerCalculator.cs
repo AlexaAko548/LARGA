@@ -328,7 +328,7 @@ public static class QuickLedgerCalculator
             decimal expectedBoundary = target is not null && target.ExpectedBoundary > 0
                 ? target.ExpectedBoundary
                 : input.DefaultBoundaryRate;
-            decimal lateFees = shift.LateFee ?? target?.LateFees ?? 0m;
+            decimal lateFees = ShiftRules.EffectiveLateFee(shift.LateFee, shift.StartUtc, shift.EndUtc) ?? target?.LateFees ?? 0m;
             decimal fuelPenalty = shift.FuelPenalty ?? target?.FuelPenalty ?? 0m;
 
             // Added up the same way as the web, so old running-total documents aren't counted twice.
@@ -449,8 +449,10 @@ public sealed record ShiftPaymentState(
 // Inputs: plain copies of the Firestore documents, so the rules above never see Firebase types.
 // ---------------------------------------------------------------------
 
-/// <param name="LateFee">shifts.lateFee, set at clock-out; null when the shift has none.</param>
+/// <param name="LateFee">shifts.lateFee, stored by older app versions or a manager; null when the shift has none
+/// (the fee is then computed from StartUtc/EndUtc - ShiftRules.EffectiveLateFee).</param>
 /// <param name="FuelPenalty">shifts.fuelPenalty, set at clock-out; null when the shift has none.</param>
+/// <param name="EndUtc">shifts.shiftEnd (server-stamped at clock-out); null while the shift is open.</param>
 public sealed record ShiftRecord(
     string DocumentId,
     string ShiftId,
@@ -459,7 +461,8 @@ public sealed record ShiftRecord(
     DateTime? StartUtc,
     string Status,
     decimal? LateFee,
-    decimal? FuelPenalty);
+    decimal? FuelPenalty,
+    DateTime? EndUtc = null);
 
 /// <param name="TransactionId">Empty on older records, which have none.</param>
 public sealed record BoundaryPaymentRecord(

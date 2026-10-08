@@ -53,6 +53,17 @@ public class SosDispatchService
         _logger = logger;
     }
 
+    /// <summary>How many SOS alerts are unresolved - one count aggregation, cheap enough for
+    /// the every-page SOS banner to poll.</summary>
+    public async Task<int> GetActiveCountAsync()
+    {
+        AggregateQuerySnapshot count = await Db.Collection("emergency_alerts")
+            .WhereEqualTo("isResolved", false)
+            .Count()
+            .GetSnapshotAsync();
+        return (int)(count.Count ?? 0);
+    }
+
     /// <summary>Unresolved alerts (newest first) and those resolved in the last 24 hours.</summary>
     public async Task<(List<SosAlertView> Active, List<SosAlertView> RecentlyResolved)> GetAlertsAsync()
     {

@@ -29,6 +29,30 @@ public partial class App : Application
         {
             if (e.Notification?.Data != null)
             {
+                // SOS push to a manager (ManagerWeb SosPushService): open the Alert Center.
+                if (e.Notification.Data.TryGetValue("type", out var sosType) && sosType?.ToString() == "sos_alert")
+                {
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
+                    {
+                        while (Shell.Current == null)
+                        {
+                            await Task.Delay(100);
+                        }
+
+                        try
+                        {
+                            await Shell.Current.GoToAsync("//manager-dashboard/alerts");
+                        }
+                        catch (Exception ex)
+                        {
+                            // Not signed in as a manager yet (cold start on the landing page) -
+                            // the alert is still waiting in the Alert Center after login.
+                            System.Diagnostics.Debug.WriteLine($"SOS notification routing failed: {ex.Message}");
+                        }
+                    });
+                    return;
+                }
+
                 // Check payload key sent by the backend
                 if (e.Notification.Data.TryGetValue("type", out var type) && type?.ToString() == "pre_shift_reminder")
                 {

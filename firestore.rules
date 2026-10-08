@@ -34,11 +34,59 @@ service cloud.firestore {
 
     match /shifts/{shiftId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
-      // A driver can only clock in / update shifts that are their own, and can't hand a
-      // shift to someone else.
-      allow create: if isDriver() && request.resource.data.driverId == request.auth.uid;
-      allow update: if isManager() || (isDriver() && resource.data.driverId == request.auth.uid
-                        && request.resource.data.driverId == resource.data.driverId);
+      // A driver can only clock in to a shift of their own. shiftStart must be the Firestore
+      // server time (FieldValue.ServerTimestamp - the phone's clock can't be trusted) and fall
+      // at or after 6:00 AM Philippine time (ShiftRules.ClockInOpensAt). No lateFee: every
+      // ledger computes it from shiftStart/shiftEnd (ShiftRules.EffectiveLateFee).
+      allow create: if isDriver()
+                    && request.resource.data.driverId == request.auth.uid
+                    && request.resource.data.status == 'Active'
+                    && !('lateFee' in request.resource.data)
+                    && ((request.resource.data.shiftStart == request.time && phHour(request.time) >= 6)
+                        || testClockOn());
+      allow update: if isManager() || (isDriver() && driverShiftUpdateOk(shiftId));
+    }
+
+    // What a driver's phone may change on their own shift - nothing that sets money or time:
+    // GPS position while the shift is Active (LAR-77 auto-cutoff: none once it has ended), the
+    // break flag, the shiftId backfill, and the clock-out itself - shiftEnd stamped with server
+    // time, status Active -> Completed/Auto-Closed, and the low-fuel penalty only as 0 or
+    // ShiftRules.LowFuelPenalty (50). lateFee, shiftStart, taxiId, startMileage and driverId are
+    // not on the list, so they can't be changed.
+    function driverShiftUpdateOk(shiftId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let changed = after.diff(before).affectedKeys();
+      let gpsKeys = ['currentLatitude', 'currentLongitude', 'currentSpeed', 'currentHeading',
+                     'currentPositionUpdatedAt', 'distanceKm'];
+      return before.driverId == request.auth.uid
+        && changed.hasOnly(gpsKeys.concat(['isOnBreak', 'shiftId', 'shiftEnd', 'endMileage', 'status',
+                                           'managerNote', 'fuelPenalty']))
+        && (!changed.hasAny(gpsKeys) || before.status == 'Active')
+        && (!changed.hasAny(['shiftEnd']) || after.shiftEnd == request.time || testClockOn())
+        && (!changed.hasAny(['status']) || (before.status == 'Active' && after.status in ['Completed', 'Auto-Closed']))
+        && (!changed.hasAny(['fuelPenalty']) || after.fuelPenalty == 0 || after.fuelPenalty == 50)
+        && (!changed.hasAny(['shiftId']) || after.shiftId == shiftId);
+    }
+
+    // Hour of the day (0-23) in Philippine time (UTC+8, no DST).
+    function phHour(t) {
+      return (t.hours() + 8) % 24;
+    }
+
+    // Debug builds' test clock (ShiftClock): while a manager has set system_configs/global
+    // testClockPh, shift times may come from the phone's pretend clock instead of the server.
+    // KEEP testClockPh BLANK IN PRODUCTION - while it's set, drivers' shift times are trusted.
+    function testClockOn() {
+      return get(/databases/$(database)/documents/system_configs/global).data.get('testClockPh', '') != '';
+    }
+
+    // Per-driver ledger version (FinancialLedgerService / QuickLedgerService). Every payment
+    // booking bumps it in the same transaction as its payment documents, so two cashiers paying
+    // against the same balance at once can't both succeed - the second one sees the version
+    // move and has to re-read the balance.
+    match /ledger_locks/{driverId} {
+      allow read, write: if isStaff();
     }
 
     // Schedule Planner exceptions ({driverId}_{yyyyMMdd}): the driver app reads today's own

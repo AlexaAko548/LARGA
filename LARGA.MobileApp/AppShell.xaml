@@ -47,7 +47,7 @@
         <Tab Title="Ledger" Icon="ledger.png">
             <ShellContent ContentTemplate="{DataTemplate manager:ManagerLedgerPage}" />
         </Tab>
-        <Tab Title="Alerts" Icon="warning_icon.png">
+        <Tab Route="alerts" Title="Alerts" Icon="warning_icon.png">
             <ShellContent ContentTemplate="{DataTemplate manager:AlertCenterPage}" />
         </Tab>
         <Tab Title="Profile" Icon="profile.png">

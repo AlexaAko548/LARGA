@@ -350,7 +350,7 @@ public class RecordPaymentViewModel : BindableObject
                 PaymentEvidence evidence = await BuildEvidenceAsync(note.Length > 0 ? note : null, nowUtc, debtor.DriverId);
                 PaymentPlan plan = PlanFor(amount, method, evidence, nowUtc)!;
 
-                await _service.SavePaymentPlanAsync(plan, debtor.DriverId, nowUtc);
+                await _service.SavePaymentPlanAsync(plan, debtor.DriverId, nowUtc, _snapshot.LedgerVersionFor(debtor.DriverId));
                 auditAction = "QuickLedgerDebtPaymentRecorded";
                 auditDetails = DescribeSettlement(debtor.DriverName, amount, method, plan, evidence);
             }
@@ -367,7 +367,7 @@ public class RecordPaymentViewModel : BindableObject
                     return;
                 }
 
-                await _service.SavePaymentPlanAsync(plan, row.DriverId, nowUtc);
+                await _service.SavePaymentPlanAsync(plan, row.DriverId, nowUtc, _snapshot.LedgerVersionFor(row.DriverId));
                 auditAction = "QuickLedgerPaymentRecorded";
                 auditDetails = DescribeBoundaryPayment(row, amount, method, plan, evidence);
             }

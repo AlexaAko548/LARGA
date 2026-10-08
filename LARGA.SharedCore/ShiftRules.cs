@@ -62,6 +62,26 @@ public static class ShiftRules
         return LateFeePerHour * (int)Math.Ceiling(minutesLate / 60.0);
     }
 
+    /// <summary>
+    /// The late fee a shift owes. A stored shifts.lateFee wins - set by a manager, or by older
+    /// app versions that worked it out on the phone. Otherwise it's computed from the shift's
+    /// own start/end, which the app stamps with Firestore server time (firestore.rules refuse a
+    /// phone-clock value), so changing the phone's clock can't dodge the fee. Null when there's
+    /// nothing to go on (no stored fee and the shift hasn't ended) - callers then fall back to
+    /// the payment record.
+    /// </summary>
+    public static decimal? EffectiveLateFee(decimal? storedLateFee, DateTime? shiftStartUtc, DateTime? shiftEndUtc)
+    {
+        if (storedLateFee is decimal stored)
+        {
+            return stored;
+        }
+
+        return shiftStartUtc is DateTime start && shiftEndUtc is DateTime end
+            ? LateReturnFee(start, end)
+            : null;
+    }
+
     /// <summary>Paper Ch. IV (end of shift): a driver who "has not settled their outstanding
     /// balance for three (3) or more consecutive days" gets their account flagged and the
     /// manager notified.</summary>

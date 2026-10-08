@@ -149,17 +149,24 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                 if (!string.IsNullOrEmpty(activeShiftId))
                 {
                     charges = await _shiftService.ClockOutAsync(activeShiftId, endMileage, IsBelowHalfTankSelected, "");
-                    await ShiftChecklistUploader.SubmitAsync(
-                        _shiftService, _photoStorage, activeShiftId, isEndShift: true, _inspection,
-                        IsBelowHalfTankSelected, _fuelPhotoLocalPath, _odometerPhotoLocalPath);
-                    SecureStorage.Remove("ActiveShiftDocumentId");
 
+                    // The shift is closed from here on. Release everything tied to it before the
+                    // photo uploads below, so a slow or stuck upload can't leave GPS tracking and
+                    // emergency detection running on a shift that has already ended.
                     // LAR-77 Contextual Auto-Cutoff Protocol: telemetry severs strictly on a
                     // successful clock-out.
                     _telemetryService.Stop();
 
                     // LAR-86/87: automated emergency detection stops with the shift.
                     _emergencyMonitor.Stop();
+
+                    SecureStorage.Remove("ActiveShiftDocumentId");
+                    Preferences.Remove("IsShiftActive");
+                    Preferences.Remove("CurrentShiftId");
+
+                    await ShiftChecklistUploader.SubmitAsync(
+                        _shiftService, _photoStorage, activeShiftId, isEndShift: true, _inspection,
+                        IsBelowHalfTankSelected, _fuelPhotoLocalPath, _odometerPhotoLocalPath);
                 }
 
                 Preferences.Remove("IsShiftActive");

@@ -438,7 +438,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
             if (id == null)
             {
-                EmergencyLog.Warn($"{triggerType} alert NOT written (no active shift or no location).");
+                EmergencyLog.Warn($"{triggerType} alert NOT written (no active shift).");
             }
             else
             {

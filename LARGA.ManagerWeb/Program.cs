@@ -142,6 +142,8 @@ builder.Services.AddHostedService<IdleAlertMonitorService>();
 builder.Services.AddHostedService<PaymentDriverIdBackfillService>();
 // LAR-86/87: mirror managers' numbers into the driver app's SOS auto-answer allowlist.
 builder.Services.AddHostedService<ManagerPhoneAllowlistSyncService>();
+// Pushes each new SOS to every Manager/Assistant Manager phone (FCM), app open or not.
+builder.Services.AddHostedService<SosPushService>();
 builder.Services.AddSingleton<FuelVerificationService>();
 builder.Services.AddScoped<IManagerAuthService, ManagerAuthService>();
 builder.Services.AddSingleton<ManagerSignInService>();

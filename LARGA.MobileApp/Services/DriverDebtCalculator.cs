@@ -115,7 +115,9 @@ public static class DriverDebtCalculator
 
             // Charges from the shift itself when it has them (set at clock-out, even when 0);
             // otherwise whatever the payment record carries - same as the web's ExtrasFor.
-            decimal lateFee = ToDecimal(shift.LateFee) ?? ToDecimal(payment?.LateFees) ?? 0m;
+            // Late fee: stored, else computed from the server-stamped start/end (ShiftRules).
+            decimal lateFee = ShiftRules.EffectiveLateFee(ToDecimal(shift.LateFee), ToUtc(shift.ShiftStart), ToUtc(shift.ShiftEnd))
+                ?? ToDecimal(payment?.LateFees) ?? 0m;
             decimal fuelPenalty = ToDecimal(shift.FuelPenalty) ?? ToDecimal(payment?.FuelPenalty) ?? 0m;
             decimal expectedBoundary = ToDecimal(payment?.ExpectedBoundary) ?? 0m;
             decimal boundary = expectedBoundary > 0 ? expectedBoundary : defaultRate;
@@ -228,6 +230,7 @@ public static class DriverDebtCalculator
         [FirestoreProperty("taxiId")] public object? TaxiId { get; set; }
         [FirestoreProperty("status")] public object? Status { get; set; }
         [FirestoreProperty("shiftStart")] public object? ShiftStart { get; set; }
+        [FirestoreProperty("shiftEnd")] public object? ShiftEnd { get; set; }
         [FirestoreProperty("lateFee")] public object? LateFee { get; set; }
         [FirestoreProperty("fuelPenalty")] public object? FuelPenalty { get; set; }
     }

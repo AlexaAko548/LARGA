@@ -431,8 +431,8 @@ public class GarageService
 
     /// <summary>
     /// Records the spare parts a maintenance job consumed. For each part, stock is deducted through
-    /// InventoryAuditService.DeductPartAsync (which writes the InventoryStockDeducted audit entry),
-    /// then a maintenance_parts_used row is written. If the part then sits at or below its
+    /// InventoryAuditService.DeductPartAsync, which also writes the InventoryStockDeducted audit
+    /// entry and the maintenance_parts_used row for this ticket. If the part then sits at or below its
     /// ReorderLevel, DeductPartAsync raises the LowStock alert (the same as a manual deduction).
     /// All quantities are validated before anything is deducted. Parts are then processed in order
     /// and are not rolled back as a group: if one fails, the parts before it stay deducted and logged.
@@ -448,19 +448,13 @@ public class GarageService
         {
             foreach ((string partId, int quantity) in parts)
             {
-                SparePart? updated = await _inventoryAudit.DeductPartAsync(partId, quantity, actorUserId);
+                // DeductPartAsync writes the maintenance_parts_used row itself (in the same
+                // transaction as the stock change), linked to this ticket - no second row here.
+                SparePart? updated = await _inventoryAudit.DeductPartAsync(partId, quantity, actorUserId, maintenanceId: maintenanceId);
                 if (updated is null)
                 {
                     return new GarageActionResult { Ok = false, ErrorMessage = "One of the selected parts no longer exists." };
                 }
-
-                var usage = new MaintenancePartsUsed
-                {
-                    MaintenanceId = maintenanceId,
-                    PartId = partId,
-                    QuantityUsed = quantity,
-                };
-                await Db.Collection("maintenance_parts_used").AddAsync(usage);
             }
 
             return new GarageActionResult { Ok = true };

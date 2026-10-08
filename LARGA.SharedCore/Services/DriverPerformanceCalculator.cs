@@ -151,7 +151,8 @@ public static class DriverPerformanceCalculator
             BoundaryPayment? latest = docs.OrderByDescending(d => d.RecordedAt).FirstOrDefault();
 
             decimal boundary = latest is not null && latest.ExpectedBoundary > 0 ? latest.ExpectedBoundary : defaultBoundaryRate;
-            decimal extras = (decimal)(shift.LateFee ?? 0) + (decimal)(shift.FuelPenalty ?? 0);
+            decimal lateFee = ShiftRules.EffectiveLateFee(shift.LateFee is double late ? (decimal)late : null, shift.ShiftStart, shift.ShiftEnd) ?? 0m;
+            decimal extras = lateFee + (decimal)(shift.FuelPenalty ?? 0);
             decimal expectedAmount = boundary + extras;
             decimal paid = BoundaryPaymentRules.TotalPaid(docs.Select(d => (d.PaymentId, d.TransactionId, d.AmountPaid)));
             result.BoundariesRemitted += paid;

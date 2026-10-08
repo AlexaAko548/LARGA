@@ -124,6 +124,10 @@ public class AlertCenterViewModel : BindableObject
                     var shift = await GetShiftAsync(doc.Data.ShiftId);
                     var driver = shift != null ? await GetDriverAsync(shift.DriverId) : null;
 
+                    // 0/0 = the driver's phone had no GPS fix (EmergencyAlertService still sends
+                    // the SOS). No coordinates then, so View Location stays a no-op.
+                    bool hasLocation = doc.Data.Latitude != 0 || doc.Data.Longitude != 0;
+
                     items.Add(new AlertItem
                     {
                         Id = doc.Reference.Id,
@@ -131,11 +135,13 @@ public class AlertCenterViewModel : BindableObject
                         DriverId = shift?.DriverId,
                         DriverName = BuildDriverLabel(driver, shift),
                         ChatDriverName = string.IsNullOrWhiteSpace(driver?.FullName) ? "Unknown Driver" : driver!.FullName,
-                        Subtitle = $"Location: {doc.Data.Latitude:F5}, {doc.Data.Longitude:F5}",
+                        Subtitle = hasLocation
+                            ? $"Location: {doc.Data.Latitude:F5}, {doc.Data.Longitude:F5}"
+                            : "Location unavailable - call the driver",
                         SortTime = FirestoreDateTimeFix.Apply(doc.Data.Timestamp),
                         Timestamp = FormatAlertTime(FirestoreDateTimeFix.Apply(doc.Data.Timestamp)),
-                        Latitude = doc.Data.Latitude,
-                        Longitude = doc.Data.Longitude,
+                        Latitude = hasLocation ? doc.Data.Latitude : null,
+                        Longitude = hasLocation ? doc.Data.Longitude : null,
                         PhoneNumber = driver?.PhoneNumber?.ToString()
                     });
                 }

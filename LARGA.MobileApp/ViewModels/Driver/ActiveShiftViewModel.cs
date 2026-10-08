@@ -98,10 +98,17 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         IsSosAlertVisible = true;
     }
 
-    private void ShowSosSent()
+    private void ShowSosSent(string locationSource)
     {
         SosAlertTitle = "SOS ALERT SENT";
-        SosAlertBody = SosSentBody;
+        SosAlertBody = locationSource switch
+        {
+            EmergencyAlertService.LocationSourceLastShiftFix =>
+                "Your emergency alert has been sent to the manager with your last known location (GPS is unavailable right now). Please prioritize your safety.",
+            EmergencyAlertService.LocationSourceNone =>
+                "Your emergency alert has been sent to the manager, but your location is unavailable. If you can, call or message the manager with where you are. Please prioritize your safety.",
+            _ => SosSentBody,
+        };
         IsSosDismissable = true;
     }
 
@@ -112,17 +119,28 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     // wait for a new fix, falling back to an older one if the fresh fix fails.
     private static readonly TimeSpan RecentFixAge = TimeSpan.FromSeconds(30);
 
+    /// <summary>Best available fix, or null. Never throws: GPS switched off raises
+    /// FeatureNotEnabledException, and that must not stop the SOS from going out.</summary>
     private static async Task<Location?> GetSosLocationAsync()
     {
-        Location? lastKnown = await Geolocation.Default.GetLastKnownLocationAsync();
-        if (lastKnown != null && DateTimeOffset.UtcNow - lastKnown.Timestamp <= RecentFixAge)
+        Location? lastKnown = null;
+        try
         {
+            lastKnown = await Geolocation.Default.GetLastKnownLocationAsync();
+            if (lastKnown != null && DateTimeOffset.UtcNow - lastKnown.Timestamp <= RecentFixAge)
+            {
+                return lastKnown;
+            }
+
+            Location? fresh = await Geolocation.Default.GetLocationAsync(
+                new GeolocationRequest(GeolocationAccuracy.Best, TimeSpan.FromSeconds(15)));
+            return fresh ?? lastKnown;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"SOS location lookup failed: {ex.Message}");
             return lastKnown;
         }
-
-        Location? fresh = await Geolocation.Default.GetLocationAsync(
-            new GeolocationRequest(GeolocationAccuracy.Best, TimeSpan.FromSeconds(15)));
-        return fresh ?? lastKnown;
     }
 
     private bool _isClockOutAlertVisible;
@@ -283,10 +301,18 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
                 return;
             }
 
-            PermissionStatus status = await Permissions.CheckStatusAsync<Permissions.LocationWhenInUse>();
-            if (status != PermissionStatus.Granted)
+            PermissionStatus status = PermissionStatus.Unknown;
+            try
             {
-                status = await Permissions.RequestAsync<Permissions.LocationWhenInUse>();
+                status = await Permissions.CheckStatusAsync<Permissions.LocationWhenInUse>();
+                if (status != PermissionStatus.Granted)
+                {
+                    status = await Permissions.RequestAsync<Permissions.LocationWhenInUse>();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SOS location permission check failed: {ex.Message}");
             }
 
             Location? location = null;
@@ -295,17 +321,13 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
                 location = await GetSosLocationAsync();
             }
 
-            if (location == null)
-            {
-                HideSosOverlay();
-                await Shell.Current.DisplayAlert("SOS Failed", "Unable to get your location. Please enable location services and try again.", "OK");
-                return;
-            }
-
+            // No fix is not a reason to hold the SOS back - the service falls back to the shift's
+            // last GPS point, or sends it without a location. A live lookup was already tried
+            // above, so it isn't repeated (that would add up to 15 more seconds).
             // Shared with the automated LAR-86/87 protocols - one writer for emergency_alerts.
             // A manual press is the "Standard" trigger type.
             string? alertId = await _emergencyAlertService.SendAlertAsync(
-                EmergencyAlert.Standard, location.Latitude, location.Longitude);
+                EmergencyAlert.Standard, location?.Latitude, location?.Longitude, tryLiveFix: false);
 
             if (alertId == null)
             {
@@ -314,7 +336,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
                 return;
             }
 
-            ShowSosSent();
+            ShowSosSent(_emergencyAlertService.LastLocationSource);
         }
         catch (Exception ex)
         {
