@@ -186,7 +186,7 @@ public class ShiftManagementService : IShiftManagementService
                     Model = data.Model ?? string.Empty,
                     PlateNumber = data.PlateNumber ?? string.Empty,
                     Status = data.Status ?? string.Empty,
-                    YearManufactured = data.YearManufactured
+                    YearManufactured = (int)data.YearManufactured
                 };
             }
             return null;
@@ -518,7 +518,7 @@ public class ShiftManagementService : IShiftManagementService
                 TaxiId = d.Data.TaxiId ?? string.Empty,
                 Status = d.Data.Status,
                 ShiftStartUtc = FixPluginDate(d.Data.ShiftStart),
-                EndMileage = d.Data.EndMileage,
+                EndMileage = (int)d.Data.EndMileage,
             })
             .ToList();
     }
@@ -544,8 +544,10 @@ public class ShiftManagementService : IShiftManagementService
         [Plugin.Firebase.Firestore.FirestoreProperty("status")]
         public string Status { get; set; }
 
+        // double, not int - Plugin.Firebase.Firestore's Android deserializer crashes
+        // reflecting a Firestore integerValue (always 64-bit) into a C# int property.
         [Plugin.Firebase.Firestore.FirestoreProperty("endMileage")]
-        public int EndMileage { get; set; }
+        public double EndMileage { get; set; }
     }
 
     public class TaxiUnitProxy
@@ -562,8 +564,10 @@ public class ShiftManagementService : IShiftManagementService
         [Plugin.Firebase.Firestore.FirestoreProperty("status")]
         public string Status { get; set; }
 
+        // double, not int - same Plugin.Firebase.Firestore Android deserializer crash as
+        // ShiftReadProxy.EndMileage above.
         [Plugin.Firebase.Firestore.FirestoreProperty("yearManufactured")]
-        public int YearManufactured { get; set; }
+        public double YearManufactured { get; set; }
     }
 
     private class EligibilityUserProxy
@@ -672,7 +676,7 @@ public class ShiftManagementService : IShiftManagementService
             {
                 Status = data.Status ?? string.Empty,
                 TaxiId = data.TaxiId ?? string.Empty,
-                StartMileage = data.StartMileage,
+                StartMileage = (int)data.StartMileage,
                 FlagReasons = data.FlagReasons ?? string.Empty,
                 ManagerNote = data.ManagerNote,
                 ShiftId = data.ShiftId,
@@ -717,7 +721,9 @@ public class ShiftManagementService : IShiftManagementService
         [Plugin.Firebase.Firestore.FirestoreProperty("interiorCleanliness")] public bool InteriorCleanliness { get; set; }
         [Plugin.Firebase.Firestore.FirestoreProperty("exteriorCondition")] public bool ExteriorCondition { get; set; }
         [Plugin.Firebase.Firestore.FirestoreProperty("isBelowHalfTank")] public bool IsBelowHalfTank { get; set; }
-        [Plugin.Firebase.Firestore.FirestoreProperty("startMileage")] public int StartMileage { get; set; }
+        // double, not int - same Plugin.Firebase.Firestore Android deserializer crash as
+        // ShiftReadProxy.EndMileage above.
+        [Plugin.Firebase.Firestore.FirestoreProperty("startMileage")] public double StartMileage { get; set; }
         [Plugin.Firebase.Firestore.FirestoreProperty("fuelDashboardUrl")] public string FuelDashboardUrl { get; set; }
         [Plugin.Firebase.Firestore.FirestoreProperty("odometerPhotoUrl")] public string OdometerPhotoUrl { get; set; }
         [Plugin.Firebase.Firestore.FirestoreProperty("defectReportIds")] public string DefectReportIds { get; set; }
