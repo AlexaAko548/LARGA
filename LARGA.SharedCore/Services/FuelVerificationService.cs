@@ -113,6 +113,9 @@ public class FuelVerificationService
                     ReceiptImageUrl = log.ReceiptImageUrl,
                     OdometerPhotoUrl = log.OdometerPhotoUrl,
                     FuelLogDetails = log.FuelLogDetails,
+                    SubmittedAt = log.SubmittedAt,
+                    VerifiedAt = log.VerifiedAt,
+                    FlaggedAt = log.FlaggedAt,
                     PreviousOdometerReading = previousReading,
                     PreviousOdometerLabel = previousLabel,
                 });
@@ -273,8 +276,12 @@ public class FuelVerificationService
     {
         try
         {
-            await Db.Collection("fuel_logs").Document(fuelId)
-                .UpdateAsync("verificationStatus", new FuelVerificationStatusConverter().ToFirestore(FuelVerificationStatus.Verified));
+            var updates = new Dictionary<string, object>
+            {
+                ["verificationStatus"] = new FuelVerificationStatusConverter().ToFirestore(FuelVerificationStatus.Verified),
+                ["verifiedAt"] = DateTime.UtcNow,
+            };
+            await Db.Collection("fuel_logs").Document(fuelId).UpdateAsync(updates);
             return new FuelActionResult { Ok = true };
         }
         catch (Exception ex)
@@ -291,6 +298,7 @@ public class FuelVerificationService
             var updates = new Dictionary<string, object>
             {
                 ["verificationStatus"] = new FuelVerificationStatusConverter().ToFirestore(FuelVerificationStatus.Flagged),
+                ["flaggedAt"] = DateTime.UtcNow,
             };
             if (!string.IsNullOrWhiteSpace(reason))
             {
@@ -326,6 +334,7 @@ public class FuelVerificationService
             {
                 ["verificationStatus"] = new FuelVerificationStatusConverter().ToFirestore(FuelVerificationStatus.Verified),
                 ["fuelLogDetails"] = combinedNote,
+                ["verifiedAt"] = DateTime.UtcNow,
             };
             await Db.Collection("fuel_logs").Document(fuelId).UpdateAsync(updates);
             return new FuelActionResult { Ok = true };

@@ -114,7 +114,7 @@ else
                         @foreach (FuelLogEntry e in VisibleEntries)
                         {
                             <tr>
-                                <td>@(e.Timestamp.HasValue ? e.Timestamp.Value.ToLocalTime().ToString("MMM d, h:mm tt") : "—")</td>
+                                <td>@(e.StatusTimestamp.HasValue ? e.StatusTimestamp.Value.ToLocalTime().ToString("MMM d, h:mm tt") : "—")</td>
                                 <td><span class="unit-pill">@e.RefuelLabel</span></td>
                                 <td>@e.DriverName</td>
                                 <td>@e.TaxiId</td>
@@ -175,16 +175,13 @@ else
 
                             @if (!string.IsNullOrWhiteSpace(_reviewDetail.ReceiptImageUrl))
                             {
-                                <button type="button" class="review-photo-link" @onclick="() => _showReceiptPhoto = true">
-                                    <span class="photo-icon"><Icon Name="search" /></span>
-                                    Click to view receipt photo
-                                    @if (!string.IsNullOrWhiteSpace(_reviewDetail.FuelStation) || !string.IsNullOrWhiteSpace(_reviewDetail.ORNumber))
-                                    {
-                                        <div class="fact-sub">
-                                            @_reviewDetail.FuelStation
-                                            @(!string.IsNullOrWhiteSpace(_reviewDetail.ORNumber) ? $" · OR# {_reviewDetail.ORNumber}" : "")
-                                        </div>
-                                    }
+                                <button type="button" class="review-photo-preview" @onclick="() => _showReceiptPhoto = true">
+                                    <img src="@_reviewDetail.ReceiptImageUrl" alt="Receipt photo" loading="lazy" />
+                                    <span class="review-photo-preview-caption">
+                                        <Icon Name="search" />
+                                        @_reviewDetail.FuelStation
+                                        @(!string.IsNullOrWhiteSpace(_reviewDetail.ORNumber) ? $" · OR# {_reviewDetail.ORNumber}" : "")
+                                    </span>
                                 </button>
                             }
                             else
@@ -357,16 +354,13 @@ else
 
                             @if (!string.IsNullOrWhiteSpace(_reviewDetail.ReceiptImageUrl))
                             {
-                                <button type="button" class="review-photo-link" @onclick="() => _showReceiptPhoto = true">
-                                    <span class="photo-icon"><Icon Name="search" /></span>
-                                    Click to view receipt photo
-                                    @if (!string.IsNullOrWhiteSpace(_reviewDetail.FuelStation) || !string.IsNullOrWhiteSpace(_reviewDetail.ORNumber))
-                                    {
-                                        <div class="fact-sub">
-                                            @_reviewDetail.FuelStation
-                                            @(!string.IsNullOrWhiteSpace(_reviewDetail.ORNumber) ? $" · OR# {_reviewDetail.ORNumber}" : "")
-                                        </div>
-                                    }
+                                <button type="button" class="review-photo-preview" @onclick="() => _showReceiptPhoto = true">
+                                    <img src="@_reviewDetail.ReceiptImageUrl" alt="Receipt photo" loading="lazy" />
+                                    <span class="review-photo-preview-caption">
+                                        <Icon Name="search" />
+                                        @_reviewDetail.FuelStation
+                                        @(!string.IsNullOrWhiteSpace(_reviewDetail.ORNumber) ? $" · OR# {_reviewDetail.ORNumber}" : "")
+                                    </span>
                                 </button>
                             }
                             else
