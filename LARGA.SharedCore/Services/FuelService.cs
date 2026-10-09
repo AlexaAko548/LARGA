@@ -26,6 +26,7 @@ public class FuelService : IFuelService
                 ORNumber = record.ORNumber ?? string.Empty,
                 ReceiptImageUrl = record.ReceiptImageUrl ?? string.Empty,
                 ReceiptTimestamp = record.ReceiptTimestamp ?? DateTime.UtcNow,
+                SubmittedAt = DateTime.UtcNow,
                 VerificationStatus = record.VerificationStatus.ToString(),
                 FuelLogDetails = record.FuelLogDetails ?? string.Empty,
                 OdometerReading = record.OdometerReading,
@@ -75,6 +76,9 @@ public class FuelService : IFuelService
 
         [Plugin.Firebase.Firestore.FirestoreProperty("receiptTimestamp")]
         public DateTime? ReceiptTimestamp { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("submittedAt")]
+        public DateTime SubmittedAt { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("verificationStatus")]
         public string VerificationStatus { get; set; } = string.Empty;
