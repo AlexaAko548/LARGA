@@ -72,6 +72,11 @@ public class FuelLog
     [FirestoreProperty("receiptTimestamp")]
     public DateTime? ReceiptTimestamp { get; set; }
 
+    // Firestore server time the driver sent the report (FuelService) - not the receipt's date.
+    // Missing on reports filed before it was added.
+    [FirestoreProperty("submittedAt")]
+    public DateTime? SubmittedAt { get; set; }
+
     [FirestoreProperty("verificationStatus", ConverterType = typeof(FuelVerificationStatusConverter))]
     public FuelVerificationStatus VerificationStatus { get; set; } = FuelVerificationStatus.Pending;
 

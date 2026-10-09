@@ -23,4 +23,27 @@ public static class FirestoreDateTimeFix
         var millis = value.Ticks - FileTimeEpochTicks;
         return DateTimeOffset.FromUnixTimeMilliseconds(millis).UtcDateTime;
     }
+
+    /// <summary>A timestamp field read into an object? proxy property, as UTC - the plugin can
+    /// hand it back as a DateTime, a DateTimeOffset or a string. Null if missing/unreadable.</summary>
+    public static DateTime? ReadUtc(object? value)
+    {
+        switch (value)
+        {
+            case null:
+                return null;
+            case DateTimeOffset offset:
+                return offset.UtcDateTime;
+            case DateTime dateTime:
+                DateTime fixedValue = Apply(dateTime);
+                return fixedValue.Kind == DateTimeKind.Local
+                    ? fixedValue.ToUniversalTime()
+                    : DateTime.SpecifyKind(fixedValue, DateTimeKind.Utc);
+        }
+
+        return DateTimeOffset.TryParse(value.ToString(), System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed)
+            ? parsed.UtcDateTime
+            : null;
+    }
 }

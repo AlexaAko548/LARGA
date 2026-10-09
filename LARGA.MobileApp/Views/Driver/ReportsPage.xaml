@@ -88,7 +88,10 @@
                                 </Border.GestureRecognizers>
 
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                    <Label Grid.Column="0" Text="{Binding DisplayText}" FontSize="14" TextColor="{DynamicResource LargaDarkText}" VerticalOptions="Center" />
+                                    <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
+                                        <Label Text="{Binding DisplayText}" FontSize="14" TextColor="{DynamicResource LargaDarkText}" />
+                                        <Label Text="Receipt date differs from submission date" IsVisible="{Binding HasDateMismatch}" FontSize="11" FontAttributes="Bold" TextColor="{DynamicResource ThemeEditedText}" />
+                                    </VerticalStackLayout>
                                     <Label Grid.Column="1" Text="&gt;" FontSize="16" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" VerticalOptions="Center" />
                                 </Grid>
                             </Border>

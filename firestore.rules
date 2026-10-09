@@ -186,12 +186,14 @@ service cloud.firestore {
     }
 
     // A driver submits receipts only as themselves and only for review - Verified/Flagged is
-    // set by the manager (FuelVerificationService).
+    // set by the manager (FuelVerificationService). submittedAt must be the Firestore server
+    // time (FieldValue.ServerTimestamp), so a phone clock can't backdate when it was sent.
     match /fuel_logs/{fuelId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow create: if isDriver()
                     && request.resource.data.driverId == request.auth.uid
-                    && request.resource.data.verificationStatus == 'Pending';
+                    && request.resource.data.verificationStatus == 'Pending'
+                    && request.resource.data.submittedAt == request.time;
       allow update: if isManager();
     }
 
