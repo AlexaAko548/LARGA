@@ -30,7 +30,36 @@ public class FuelVerificationService
 
     public async Task<FuelVerificationSnapshot> GetSnapshotAsync()
     {
-        List<FuelLog> logs = await GetAllAsync<FuelLog>("fuel_logs");
+        QuerySnapshot logsSnapshot = await Db.Collection("fuel_logs").GetSnapshotAsync();
+        return await BuildSnapshotAsync(logsSnapshot);
+    }
+
+    /// <summary>Live-updating version of GetSnapshotAsync for the Fuel Verification page -
+    /// fires immediately with the current state, then again on every fuel_logs write (new
+    /// submission, verify/flag/resolve/reset) so the Pending/Verified/Flagged tabs never need
+    /// a manual reload. Stop the returned listener (StopAsync) when the page is disposed.</summary>
+    public FirestoreChangeListener Listen(Action<FuelVerificationSnapshot> onSnapshot)
+    {
+        return Db.Collection("fuel_logs").Listen(snapshot =>
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    FuelVerificationSnapshot result = await BuildSnapshotAsync(snapshot);
+                    onSnapshot(result);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to rebuild fuel verification snapshot from live update");
+                }
+            });
+        });
+    }
+
+    private async Task<FuelVerificationSnapshot> BuildSnapshotAsync(QuerySnapshot logsSnapshot)
+    {
+        List<FuelLog> logs = ConvertDocuments<FuelLog>(logsSnapshot, "fuel_logs");
         List<ShiftLog> shifts = await GetAllAsync<ShiftLog>("shifts");
         List<UserProfile> drivers = await GetAllAsync<UserProfile>("users");
 
@@ -46,22 +75,16 @@ public class FuelVerificationService
         foreach (IGrouping<string, FuelLog> group in logs.GroupBy(l => l.ShiftId ?? string.Empty))
         {
             shiftById.TryGetValue(group.Key, out ShiftLog? shift);
-            // Prefer the shift's driver; a log submitted without a real shift (mobile writes
-            // UNKNOWN_SHIFT) still carries its own driverId, so fall back to that.
+            // A real shift's driver applies to every log filed under it. A log with no real
+            // shift (mobile falls back to the placeholder "UNKNOWN_SHIFT" when it can't find
+            // an active shift) has no shift-level driver to borrow, so it must resolve its
+            // OWN driverId instead - multiple different drivers' logs can land in this same
+            // placeholder group, and crediting the whole group to whichever one happened to
+            // come first misattributes every other driver's submission in it.
             string? shiftDriverId = shift?.DriverId;
-            string driverName = "Unknown Driver";
-            if (!string.IsNullOrEmpty(shiftDriverId) && driverNames.TryGetValue(shiftDriverId, out string? name))
-            {
-                driverName = name;
-            }
-            else
-            {
-                string? logDriverId = group.Select(l => l.DriverId).FirstOrDefault(id => !string.IsNullOrEmpty(id));
-                if (!string.IsNullOrEmpty(logDriverId) && driverNames.TryGetValue(logDriverId, out string? logName))
-                {
-                    driverName = logName;
-                }
-            }
+            string? groupDriverName = !string.IsNullOrEmpty(shiftDriverId) && driverNames.TryGetValue(shiftDriverId, out string? name)
+                ? name
+                : null;
             string taxiId = shift?.TaxiId ?? "—";
 
             int ordinal = 1;
@@ -70,6 +93,9 @@ public class FuelVerificationService
 
             foreach (FuelLog log in group.OrderBy(l => l.ReceiptTimestamp ?? DateTime.MinValue))
             {
+                string driverName = groupDriverName
+                    ?? (!string.IsNullOrEmpty(log.DriverId) && driverNames.TryGetValue(log.DriverId, out string? logName) ? logName : "Unknown Driver");
+
                 entries.Add(new FuelLogEntry
                 {
                     FuelId = log.FuelId,

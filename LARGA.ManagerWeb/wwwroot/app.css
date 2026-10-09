@@ -3287,7 +3287,8 @@ color: var(--ink);
 
 /* Fuel Verification review modal - two-column driver-submission vs system-validation */
 
-.report-modal.review-modal {
+.report-modal.review-modal,
+.report-modal.resolve-modal {
     width: min(94vw, 1000px);
     max-width: none;
 }
@@ -3301,7 +3302,8 @@ photo popup already uses below. */
    "Popups never taller than the screen".) */
 
 @media (max-width: 640px) {
-.report-modal.review-modal {
+.report-modal.review-modal,
+.report-modal.resolve-modal {
 width: 94vw;
 }
 
