@@ -1973,6 +1973,14 @@ background: var(--surface, #ffffff);
 border: 1px solid rgba(var(--accent-rgb),0.24);
 border-radius: var(--radius-xl);
 overflow-x: auto;
+/* LAR-109: overflow-x: auto alone makes the browser auto-compute overflow-y: auto too (per
+the CSS overflow spec), which silently makes THIS element the sticky positioning ancestor
+instead of the page - but since it was never height-capped, it never actually scrolls, so
+the sticky header had nothing to stick against. Capping the height and owning its own
+vertical scroll makes it a real (and reliable) sticky container, matching the pattern
+already used for .part-history-table-wrap and the history modal's table. */
+max-height: 65vh;
+overflow-y: auto;
 }
 
 .data-table {
@@ -1990,6 +1998,12 @@ text-transform: uppercase;
 color: var(--muted);
 border-bottom: 1px solid rgba(var(--accent-rgb),0.24);
 white-space: nowrap;
+/* LAR-109: sticky within the page's own scroll container (.dashboard-main) - .data-table-wrap
+only clips horizontal overflow, so this isn't clipped by its own ancestor. */
+position: sticky;
+top: 0;
+z-index: 1;
+background: var(--surface, #ffffff);
 }
 
 .data-table td {
@@ -3659,6 +3673,10 @@ grid-template-columns: repeat(3, 1fr);
     border: 1px solid rgba(var(--accent-rgb),0.24);
     border-radius: var(--radius-xl);
     overflow-x: auto;
+    /* LAR-109 - see .data-table-wrap for why this needs its own capped scroll to make the
+    sticky header actually work. */
+    max-height: 65vh;
+    overflow-y: auto;
 }
 
 .inventory-table,
@@ -3678,6 +3696,11 @@ grid-template-columns: repeat(3, 1fr);
     color: var(--muted);
     border-bottom: 1px solid rgba(var(--accent-rgb),0.24);
     white-space: nowrap;
+    /* LAR-109 */
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface, #ffffff);
 }
 
 .inventory-table tbody td,
