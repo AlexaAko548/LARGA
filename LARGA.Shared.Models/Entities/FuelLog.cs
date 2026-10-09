@@ -72,10 +72,18 @@ public class FuelLog
     [FirestoreProperty("receiptTimestamp")]
     public DateTime? ReceiptTimestamp { get; set; }
 
-    // Firestore server time the driver sent the report (FuelService) - not the receipt's date.
-    // Missing on reports filed before it was added.
+    // LAR-107: real event timestamps, distinct from ReceiptTimestamp (the date printed on
+    // the receipt, which the driver controls). SubmittedAt is stamped once by the Firestore
+    // server at upload (FuelService; missing on older reports); VerifiedAt/FlaggedAt are written by ManagerWeb when a manager acts on
+    // the submission - see FuelVerificationService.Verify/Flag/ResolveFlagAsync.
     [FirestoreProperty("submittedAt")]
     public DateTime? SubmittedAt { get; set; }
+
+    [FirestoreProperty("verifiedAt")]
+    public DateTime? VerifiedAt { get; set; }
+
+    [FirestoreProperty("flaggedAt")]
+    public DateTime? FlaggedAt { get; set; }
 
     [FirestoreProperty("verificationStatus", ConverterType = typeof(FuelVerificationStatusConverter))]
     public FuelVerificationStatus VerificationStatus { get; set; } = FuelVerificationStatus.Pending;

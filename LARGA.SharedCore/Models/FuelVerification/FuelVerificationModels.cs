@@ -18,8 +18,16 @@ public class FuelLogEntry
     public string TaxiId { get; set; } = string.Empty;
     public DateTime? Timestamp { get; set; }
 
-    /// <summary>Server time the driver sent the report; null on older reports.</summary>
+    // LAR-107: the web fuel tabs bind to when the report was actually submitted, not the
+    // receipt date above (whatever date the driver's receipt happened to be printed with -
+    // a manager can already see that on the receipt image itself inside Review/Resolve).
     public DateTime? SubmittedAt { get; set; }
+    public DateTime? VerifiedAt { get; set; }
+    public DateTime? FlaggedAt { get; set; }
+
+    /// <summary>Submission time, on every tab. Falls back to the receipt timestamp for rows
+    /// written before SubmittedAt existed.</summary>
+    public DateTime? StatusTimestamp => SubmittedAt ?? Timestamp;
 
     public decimal Cost { get; set; }
     public decimal Liters { get; set; }

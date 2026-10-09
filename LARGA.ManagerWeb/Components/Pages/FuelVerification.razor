@@ -3,10 +3,12 @@
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
 @using System.Text.Json
+@using Google.Cloud.Firestore
 @using LARGA.SharedCore.Models.FuelVerification
 @using LARGA.SharedCore.Services
 @using LARGA.Shared.Models.Entities
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject FuelVerificationService FuelVerificationSvc
@@ -112,7 +114,7 @@ else
                         @foreach (FuelLogEntry e in VisibleEntries)
                         {
                             <tr>
-                                <td>@(e.Timestamp.HasValue ? e.Timestamp.Value.ToLocalTime().ToString("MMM d, h:mm tt") : "—")</td>
+                                <td>@(e.StatusTimestamp.HasValue ? e.StatusTimestamp.Value.ToLocalTime().ToString("MMM d, h:mm tt") : "—")</td>
                                 <td><span class="unit-pill">@e.RefuelLabel</span></td>
                                 <td>@e.DriverName</td>
                                 <td>@e.TaxiId</td>
@@ -173,16 +175,13 @@ else
 
                             @if (!string.IsNullOrWhiteSpace(_reviewDetail.ReceiptImageUrl))
                             {
-                                <button type="button" class="review-photo-link" @onclick="() => _showReceiptPhoto = true">
-                                    <span class="photo-icon"><Icon Name="search" /></span>
-                                    Click to view receipt photo
-                                    @if (!string.IsNullOrWhiteSpace(_reviewDetail.FuelStation) || !string.IsNullOrWhiteSpace(_reviewDetail.ORNumber))
-                                    {
-                                        <div class="fact-sub">
-                                            @_reviewDetail.FuelStation
-                                            @(!string.IsNullOrWhiteSpace(_reviewDetail.ORNumber) ? $" · OR# {_reviewDetail.ORNumber}" : "")
-                                        </div>
-                                    }
+                                <button type="button" class="review-photo-preview" @onclick="() => _showReceiptPhoto = true">
+                                    <img src="@_reviewDetail.ReceiptImageUrl" alt="Receipt photo" loading="lazy" />
+                                    <span class="review-photo-preview-caption">
+                                        <Icon Name="search" />
+                                        @_reviewDetail.FuelStation
+                                        @(!string.IsNullOrWhiteSpace(_reviewDetail.ORNumber) ? $" · OR# {_reviewDetail.ORNumber}" : "")
+                                    </span>
                                 </button>
                             }
                             else
@@ -347,6 +346,127 @@ else
                     <Icon Name="triangle-alert" /> @(string.IsNullOrWhiteSpace(_resolveEntry.FuelLogDetails) ? "No reason was recorded when this was flagged." : _resolveEntry.FuelLogDetails)
                 </div>
 
+                @if (_isLoadingReview)
+                {
+                    <div class="table-empty">Loading submission...</div>
+                }
+                else if (_reviewDetail is null)
+                {
+                    <div class="table-empty">This submission could not be loaded.</div>
+                }
+                else
+                {
+                    <div class="review-columns">
+                        <div class="review-col">
+                            <div class="review-col-title">Driver's Submission</div>
+
+                            @if (!string.IsNullOrWhiteSpace(_reviewDetail.ReceiptImageUrl))
+                            {
+                                <button type="button" class="review-photo-preview" @onclick="() => _showReceiptPhoto = true">
+                                    <img src="@_reviewDetail.ReceiptImageUrl" alt="Receipt photo" loading="lazy" />
+                                    <span class="review-photo-preview-caption">
+                                        <Icon Name="search" />
+                                        @_reviewDetail.FuelStation
+                                        @(!string.IsNullOrWhiteSpace(_reviewDetail.ORNumber) ? $" · OR# {_reviewDetail.ORNumber}" : "")
+                                    </span>
+                                </button>
+                            }
+                            else
+                            {
+                                <div class="review-fact">
+                                    <div class="fact-label">Receipt Photo</div>
+                                    <div class="fact-value">No photo submitted</div>
+                                </div>
+                            }
+
+                            <div class="review-fact ocr-section">
+                                <div class="fact-label">Extracted from Receipt (OCR)</div>
+                                <div class="fact-sub">Read from the driver's scan in Firestore</div>
+                                <div class="ocr-row">
+                                    <span>Fuel Station</span>
+                                    <span>@(string.IsNullOrWhiteSpace(_reviewDetail.FuelStation) ? "—" : _reviewDetail.FuelStation) @OcrTag(_reviewDetail.IsFuelStationManuallyEdited)</span>
+                                </div>
+                                <div class="ocr-row">
+                                    <span>OR Number</span>
+                                    <span>@(string.IsNullOrWhiteSpace(_reviewDetail.ORNumber) ? "—" : _reviewDetail.ORNumber) @OcrTag(_reviewDetail.IsOrNumberManuallyEdited)</span>
+                                </div>
+                                <div class="ocr-row">
+                                    <span>Receipt Date</span>
+                                    <span>@(_reviewDetail.Timestamp.HasValue ? _reviewDetail.Timestamp.Value.ToLocalTime().ToString("MMM d, yyyy h:mm tt") : "—") @OcrTag(_reviewDetail.IsReceiptDateManuallyEdited)</span>
+                                </div>
+                                <div class="ocr-row">
+                                    <span>Total Cost</span>
+                                    <span>₱@_reviewDetail.Cost.ToString("N2") @OcrTag(_reviewDetail.IsCostManuallyEdited)</span>
+                                </div>
+                                <div class="ocr-row">
+                                    <span>Liters</span>
+                                    <span>@_reviewDetail.Liters.ToString("N2") L @OcrTag(_reviewDetail.IsQuantityManuallyEdited)</span>
+                                </div>
+                            </div>
+                            <div class="review-fact">
+                                <div class="fact-label">Submitted Fuel Cost</div>
+                                <div class="fact-value">₱@_reviewDetail.Cost.ToString("N2")</div>
+                            </div>
+                            <div class="review-fact">
+                                <div class="fact-label">Submitted Quantity</div>
+                                <div class="fact-value">@_reviewDetail.Liters.ToString("N2") Liters</div>
+                            </div>
+                            <div class="review-fact">
+                                <div class="fact-label">Submitted Odometer</div>
+                                <div class="fact-value">@_reviewDetail.OdometerReading.ToString("N0") km</div>
+                            </div>
+                        </div>
+
+                        <div class="review-col">
+                            <div class="review-col-title">System Data &amp; Validation</div>
+
+                            <div class="review-status-badge @StatusBadgeCss(_reviewDetail.MatchesExpectedRange)">
+                                <span class="badge-icon"><Icon Name="@StatusBadgeIcon(_reviewDetail.MatchesExpectedRange)" /></span>
+                                <div>
+                                    <div class="badge-title">@StatusBadgeTitle(_reviewDetail)</div>
+                                    <div class="badge-sub">@StatusBadgeSubtext(_reviewDetail)</div>
+                                </div>
+                            </div>
+
+                            <div class="review-fact">
+                                <div class="fact-label">Previous Odometer</div>
+                                <div class="fact-value">@(_reviewDetail.PreviousOdometerReading?.ToString("N0") ?? "—") km</div>
+                                <div class="fact-sub">@_reviewDetail.PreviousOdometerLabel</div>
+                            </div>
+                            <div class="review-fact">
+                                <div class="fact-label">Current Odometer</div>
+                                <div class="fact-value">@_reviewDetail.OdometerReading.ToString("N0") km</div>
+                                <div class="fact-sub">@_reviewDetail.RefuelLabel</div>
+                            </div>
+                            <div class="review-fact">
+                                <div class="fact-label">Driver's Claimed Distance</div>
+                                <div class="fact-value">@(_reviewDetail.ClaimedDistanceKm?.ToString("N0") ?? "—") km</div>
+                                <div class="fact-sub">Current odo − previous odo</div>
+                            </div>
+                            <div class="review-fact">
+                                <div class="fact-label">System GPS Distance</div>
+                                <div class="fact-value">@(_reviewDetail.GpsDistanceKm.HasValue ? $"{_reviewDetail.GpsDistanceKm.Value:N0} km" : "No data")</div>
+                                <div class="fact-sub">Tracked between refuel timestamps</div>
+                            </div>
+                            @if (_reviewDetail.VarianceKm.HasValue)
+                            {
+                                <div class="review-fact">
+                                    <div class="fact-label">Odometer vs. GPS Variance</div>
+                                    <div class="fact-value">@_reviewDetail.VarianceKm.Value.ToString("N0") km (@_reviewDetail.VariancePercent?.ToString("N0")%)</div>
+                                </div>
+                            }
+                            @if (_reviewDetail.CostPerKm.HasValue)
+                            {
+                                <div class="review-fact">
+                                    <div class="fact-label">Cost / km sanity check</div>
+                                    <div class="fact-value">₱@_reviewDetail.CostPerKm.Value.ToString("N2") /km</div>
+                                    <div class="fact-sub">Typical range: ₱@FuelReviewDetail.TypicalCostPerKmMin.ToString("N2")–@FuelReviewDetail.TypicalCostPerKmMax.ToString("N2")/km</div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
                 <div class="report-section">
                     <label>Resolution Note</label>
                     <textarea class="text-input textarea" maxlength="500" @bind="_resolutionNote" @bind:event="oninput" placeholder="Explain how this was resolved (e.g. driver provided explanation, penalty applied)..."></textarea>
@@ -404,28 +524,43 @@ else
     private List<FuelLogEntry> VisibleEntries =>
         _snapshot?.Entries.Where(e => e.Status == _activeTab).ToList() ?? new List<FuelLogEntry>();
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    // LAR-106: live Firestore listener instead of a one-shot load, so a new driver
+    // submission or another manager's verify/flag/resolve shows up on this page immediately
+    // instead of only after a manual refresh.
+    private FirestoreChangeListener? _listener;
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
         {
-            return;
+            return Task.CompletedTask;
         }
 
-        await LoadSnapshotAsync();
-        _isLoading = false;
-        StateHasChanged();
-    }
-
-    private async Task LoadSnapshotAsync()
-    {
         try
         {
-            _snapshot = await FuelVerificationSvc.GetSnapshotAsync();
-            _error = null;
+            _listener = FuelVerificationSvc.Listen(snapshot =>
+            {
+                _snapshot = snapshot;
+                _error = null;
+                _isLoading = false;
+                _ = InvokeAsync(StateHasChanged);
+            });
         }
         catch (Exception ex)
         {
             _error = ex.Message;
+            _isLoading = false;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_listener is not null)
+        {
+            await _listener.StopAsync();
+            _listener = null;
         }
     }
 
@@ -473,18 +608,43 @@ else
         _reviewDetail = null;
     }
 
-    private void OpenResolveModal(FuelLogEntry entry)
+    private async Task OpenResolveModal(FuelLogEntry entry)
     {
+        // LAR-108: reuses the same _reviewDetail/_isLoadingReview/_showReceiptPhoto state (and
+        // the same GetReviewDetailAsync call) as the Review modal - the Resolve modal renders
+        // the identical review-columns block below, so a manager resolving a flag sees the
+        // full submission + discrepancy detail, not just the one-line flag reason, without
+        // duplicating the receipt-photo/OCR-tag plumbing for a second, parallel field set.
         _resolveEntry = entry;
         _resolutionNote = string.Empty;
         _resolveError = null;
+        _reviewDetail = null;
         _showResolveModal = true;
+        _isLoadingReview = true;
+        StateHasChanged();
+
+        try
+        {
+            _reviewDetail = await FuelVerificationSvc.GetReviewDetailAsync(entry.FuelId);
+        }
+        catch (Exception ex)
+        {
+            // Non-fatal: the resolve flow (note + Mark Resolved) still works without this
+            // summary - it's recall context, not a precondition for resolving.
+            System.Diagnostics.Debug.WriteLine($"Resolve modal review detail fetch failed: {ex.Message}");
+        }
+        finally
+        {
+            _isLoadingReview = false;
+        }
     }
 
     private void CloseResolveModal()
     {
         _showResolveModal = false;
         _resolveEntry = null;
+        _reviewDetail = null;
+        _showReceiptPhoto = false;
     }
 
     private async Task ConfirmResolveAsync()
@@ -507,7 +667,6 @@ else
 
             _showResolveModal = false;
             _resolveEntry = null;
-            await LoadSnapshotAsync();
         }
         finally
         {
@@ -547,7 +706,6 @@ else
 
             _showReviewModal = false;
             _reviewDetail = null;
-            await LoadSnapshotAsync();
         }
         finally
         {

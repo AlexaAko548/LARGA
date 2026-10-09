@@ -1973,6 +1973,14 @@ background: var(--surface, #ffffff);
 border: 1px solid rgba(var(--accent-rgb),0.24);
 border-radius: var(--radius-xl);
 overflow-x: auto;
+/* LAR-109: overflow-x: auto alone makes the browser auto-compute overflow-y: auto too (per
+the CSS overflow spec), which silently makes THIS element the sticky positioning ancestor
+instead of the page - but since it was never height-capped, it never actually scrolls, so
+the sticky header had nothing to stick against. Capping the height and owning its own
+vertical scroll makes it a real (and reliable) sticky container, matching the pattern
+already used for .part-history-table-wrap and the history modal's table. */
+max-height: 65vh;
+overflow-y: auto;
 }
 
 .data-table {
@@ -1990,6 +1998,12 @@ text-transform: uppercase;
 color: var(--muted);
 border-bottom: 1px solid rgba(var(--accent-rgb),0.24);
 white-space: nowrap;
+/* LAR-109: sticky within the page's own scroll container (.dashboard-main) - .data-table-wrap
+only clips horizontal overflow, so this isn't clipped by its own ancestor. */
+position: sticky;
+top: 0;
+z-index: 1;
+background: var(--surface, #ffffff);
 }
 
 .data-table td {
@@ -3287,7 +3301,8 @@ color: var(--ink);
 
 /* Fuel Verification review modal - two-column driver-submission vs system-validation */
 
-.report-modal.review-modal {
+.report-modal.review-modal,
+.report-modal.resolve-modal {
     width: min(94vw, 1000px);
     max-width: none;
 }
@@ -3301,7 +3316,8 @@ photo popup already uses below. */
    "Popups never taller than the screen".) */
 
 @media (max-width: 640px) {
-.report-modal.review-modal {
+.report-modal.review-modal,
+.report-modal.resolve-modal {
 width: 94vw;
 }
 
@@ -3416,7 +3432,7 @@ object-fit: contain;
 border-radius: var(--radius-sm);
 }
 
-.review-photo-link {
+.review-photo-preview {
 width: 100%;
 border: 0;
 cursor: pointer;
@@ -3424,17 +3440,26 @@ font-family: inherit;
 display: block;
 background: var(--accent-tint, #eaf6fc);
 border-radius: var(--radius-md);
-padding: 1.4rem 1rem;
+padding: 0.5rem;
 text-align: center;
 color: var(--ink-soft, #17475c);
-text-decoration: none;
-font-size: 0.82rem;
 }
 
-.review-photo-link .photo-icon {
-font-size: 1.4rem;
+.review-photo-preview img {
+width: 100%;
+height: 160px;
+object-fit: cover;
+border-radius: var(--radius-sm);
 display: block;
-margin-bottom: 0.4rem;
+}
+
+.review-photo-preview-caption {
+display: flex;
+align-items: center;
+justify-content: center;
+gap: 0.35rem;
+font-size: 0.78rem;
+margin-top: 0.5rem;
 }
 
 .review-status-badge {
@@ -3648,6 +3673,10 @@ grid-template-columns: repeat(3, 1fr);
     border: 1px solid rgba(var(--accent-rgb),0.24);
     border-radius: var(--radius-xl);
     overflow-x: auto;
+    /* LAR-109 - see .data-table-wrap for why this needs its own capped scroll to make the
+    sticky header actually work. */
+    max-height: 65vh;
+    overflow-y: auto;
 }
 
 .inventory-table,
@@ -3667,6 +3696,11 @@ grid-template-columns: repeat(3, 1fr);
     color: var(--muted);
     border-bottom: 1px solid rgba(var(--accent-rgb),0.24);
     white-space: nowrap;
+    /* LAR-109 */
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface, #ffffff);
 }
 
 .inventory-table tbody td,
