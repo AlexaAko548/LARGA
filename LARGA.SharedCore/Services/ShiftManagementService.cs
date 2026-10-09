@@ -307,12 +307,14 @@ public class ShiftManagementService : IShiftManagementService
         // the late-fee deadline. A dictionary, because FieldValue doesn't fit a typed proxy.
         // shiftId = the document ID from the start: everything else that points at a shift
         // (fuel_logs, handover_checklists, boundary_payments, ManagerWeb) uses the two
-        // interchangeably.
+        // interchangeably. One value for the shift and both locks: firestore.rules check that a
+        // lock carries the same shiftStart as the shift it claims.
+        object shiftStart = ShiftTimestamp();
         var shiftFields = new Dictionary<object, object>
         {
             { "driverId", user.Uid },
             { "taxiId", taxiId },
-            { "shiftStart", ShiftTimestamp() },
+            { "shiftStart", shiftStart },
             { "startMileage", startMileage },
             { "status", "Active" },
             { "shiftId", shiftDoc.Id },
@@ -322,18 +324,18 @@ public class ShiftManagementService : IShiftManagementService
 
         // One transaction checks and claims both the driver and the unit, so a double tap, two
         // phones, or two drivers on the same unit at the same moment can't both start a shift:
-        // shift_locks/driver_{uid} and shift_locks/unit_{taxiId} point at the shift holding each,
-        // and a lock only counts while that shift is still Active (and not past its auto-close).
+        // shift_locks/driver_{uid} and shift_locks/unit_{taxiId} point at the shift holding each
+        // (see LockHolder for when a lock still counts).
         // The body returns a reason instead of throwing - see QuickLedgerService.SavePaymentPlanAsync.
         string? refusal = await firestore.RunTransactionAsync(transaction =>
         {
-            string? driverBusy = LockHolder(transaction, firestore, driverLock, now);
+            string? driverBusy = LockHolder(transaction, firestore, driverLock, user.Uid, now);
             if (driverBusy is not null)
             {
                 return "You still have an open shift. End that shift first.";
             }
 
-            string? unitHolder = LockHolder(transaction, firestore, unitLock, now);
+            string? unitHolder = LockHolder(transaction, firestore, unitLock, user.Uid, now);
             if (unitHolder is not null && unitHolder != user.Uid)
             {
                 return $"{taxiId} is already out on another driver's shift. Ask your manager for a substitute unit.";
@@ -344,6 +346,8 @@ public class ShiftManagementService : IShiftManagementService
             {
                 { "shiftId", shiftDoc.Id },
                 { "driverId", user.Uid },
+                { "shiftStart", shiftStart },
+                { "released", false },
                 { "updatedAt", FieldValue.ServerTimestamp() },
             };
             transaction.SetData(driverLock, lockFields, SetOptions.Merge());
@@ -363,36 +367,58 @@ public class ShiftManagementService : IShiftManagementService
 
     private static string UnitLockId(string taxiId) => $"unit_{taxiId}";
 
-    /// <summary>The driver holding <paramref name="lockDoc"/>, or null when it's free: no lock yet,
-    /// or the shift it points to has ended / is past its 6:00 AM auto-close (ShiftRules).</summary>
-    private static string? LockHolder(ITransaction transaction, IFirebaseFirestore firestore, IDocumentReference lockDoc, DateTime nowUtc)
+    /// <summary>
+    /// The driver holding <paramref name="lockDoc"/>, or null when it's free: no lock yet, released
+    /// at clock-out (ClockOutAsync), or its shift is past its 6:00 AM auto-close (ShiftRules) - a
+    /// missed clock-out from an earlier day, not a live shift.
+    /// Decided from the lock itself when it's another driver's: firestore.rules don't let a driver
+    /// read someone else's shift, and inside a transaction that refusal fails the whole clock-in.
+    /// A lock of the caller's own is double-checked against their shift (which they can read).
+    /// </summary>
+    private static string? LockHolder(ITransaction transaction, IFirebaseFirestore firestore, IDocumentReference lockDoc,
+        string callerId, DateTime nowUtc)
     {
-        string? shiftId = transaction.GetDocument<ShiftLockProxy>(lockDoc)?.Data?.ShiftId;
-        if (string.IsNullOrWhiteSpace(shiftId))
+        ShiftLockProxy? shiftLock = transaction.GetDocument<ShiftLockProxy>(lockDoc)?.Data;
+        if (shiftLock is null || string.IsNullOrWhiteSpace(shiftLock.ShiftId) || string.IsNullOrWhiteSpace(shiftLock.DriverId)
+            || shiftLock.Released)
         {
             return null;
         }
 
-        ShiftLockedShiftProxy? shift = transaction
-            .GetDocument<ShiftLockedShiftProxy>(firestore.GetCollection("shifts").GetDocument(shiftId))?.Data;
-        if (shift is null || !string.Equals(shift.Status, "Active", StringComparison.OrdinalIgnoreCase))
+        DateTime? start = ReadPluginDate(shiftLock.ShiftStart);
+        if (shiftLock.DriverId == callerId)
         {
+            ShiftLockedShiftProxy? shift = transaction
+                .GetDocument<ShiftLockedShiftProxy>(firestore.GetCollection("shifts").GetDocument(shiftLock.ShiftId))?.Data;
+            if (shift is null || !string.Equals(shift.Status, "Active", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+            start = ReadPluginDate(shift.ShiftStart);
+        }
+        else if (start is null)
+        {
+            // Written before locks carried shiftStart (and never released): nothing to tell a live
+            // shift from an old one, so it doesn't block - the same as before shift_locks existed.
             return null;
         }
 
-        DateTime? start = ReadPluginDate(shift.ShiftStart);
-        if (start is DateTime started && nowUtc >= ShiftRules.AutoCloseAtUtc(started))
-        {
-            return null; // a missed clock-out from an earlier day - not a live shift
-        }
-
-        return string.IsNullOrWhiteSpace(shift.DriverId) ? null : shift.DriverId;
+        return start is DateTime started && nowUtc >= ShiftRules.AutoCloseAtUtc(started) ? null : shiftLock.DriverId;
     }
 
     private class ShiftLockProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
         public string? ShiftId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
+        public string? DriverId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftStart")]
+        public DateTime ShiftStart { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("released")]
+        public bool Released { get; set; }
     }
 
     private class ShiftLockedShiftProxy
@@ -534,7 +560,19 @@ public class ShiftManagementService : IShiftManagementService
                 { "fuelPenalty", (double)fuelPenalty },
             };
 
-            await shiftDoc.UpdateDataAsync(updateData);
+            // The shift's driver and unit locks are released in the same commit, so the unit is
+            // free for the next driver the moment this shift ends (see LockHolder).
+            IWriteBatch batch = CrossFirebaseFirestore.Current.CreateBatch();
+            batch.UpdateData(shiftDoc, updateData);
+            foreach (IDocumentReference lockDoc in await LocksHeldByAsync(activeShiftId))
+            {
+                batch.SetData(lockDoc, new Dictionary<object, object>
+                {
+                    { "released", true },
+                    { "updatedAt", FieldValue.ServerTimestamp() },
+                }, SetOptions.Merge());
+            }
+            await batch.CommitAsync();
 
             // Only for the Shift Completed screen: the same fee the ledgers will compute, from
             // the server's own timestamps now that they're saved.
@@ -559,6 +597,40 @@ public class ShiftManagementService : IShiftManagementService
             System.Diagnostics.Debug.WriteLine($"Service Error: {ex.Message}");
             throw;
         }
+    }
+
+    /// <summary>The shift_locks documents that point at this shift - only those may be released
+    /// (firestore.rules refuse touching a lock that holds another shift). On a failed read none
+    /// are returned: the shift still ends, and its locks lapse at its 6:00 AM auto-close.</summary>
+    private static async Task<List<IDocumentReference>> LocksHeldByAsync(string shiftId)
+    {
+        var held = new List<IDocumentReference>();
+        try
+        {
+            IFirebaseFirestore firestore = CrossFirebaseFirestore.Current;
+            var shift = await firestore.GetCollection("shifts").GetDocument(shiftId).GetDocumentSnapshotAsync<ShiftReadProxy>();
+            string? driverId = CrossFirebaseAuth.Current.CurrentUser?.Uid;
+            string? taxiId = shift?.Data?.TaxiId;
+
+            var lockIds = new List<string>();
+            if (!string.IsNullOrWhiteSpace(driverId)) lockIds.Add(DriverLockId(driverId));
+            if (!string.IsNullOrWhiteSpace(taxiId)) lockIds.Add(UnitLockId(taxiId));
+
+            foreach (string lockId in lockIds)
+            {
+                IDocumentReference lockDoc = firestore.GetCollection("shift_locks").GetDocument(lockId);
+                var snapshot = await lockDoc.GetDocumentSnapshotAsync<ShiftLockProxy>();
+                if (snapshot?.Data?.ShiftId == shiftId)
+                {
+                    held.Add(lockDoc);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Shift lock lookup failed: {ex.Message}");
+        }
+        return held;
     }
 
     public const string AutoClosedStatus = "Auto-Closed";

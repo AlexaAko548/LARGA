@@ -29,6 +29,13 @@ public interface IEmergencyAlertService
     /// </summary>
     Task<string?> SendAlertAsync(string triggerType, double? latitude = null, double? longitude = null, bool tryLiveFix = true);
 
+    /// <summary>
+    /// Looks up the driver's name and today's unit for this shift ahead of time (Active Shift
+    /// screen), so an SOS doesn't wait on those reads - with weak signal they're the slow part.
+    /// Never throws.
+    /// </summary>
+    Task PrepareForShiftAsync(string shiftId);
+
     /// <summary>Where the last alert's coordinates came from: "live", "lastShiftFix" or "none".</summary>
     string LastLocationSource { get; }
 
@@ -107,6 +114,15 @@ public class EmergencyAlertService : IEmergencyAlertService
     // How long to wait for the server to confirm an SOS before treating it as queued offline.
     private static readonly TimeSpan SendConfirmTimeout = TimeSpan.FromSeconds(10);
 
+    // Caps on the lookups before the write, so weak signal can't hold an SOS back: past these the
+    // alert goes out without the detail (driver name falls back, no unit / no last fix).
+    private static readonly TimeSpan DriverAndUnitLookupLimit = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan LastShiftFixLookupLimit = TimeSpan.FromSeconds(3);
+
+    // A last-known fix this recent is used as it is instead of waiting for a fresh one (same as
+    // the SOS button, ActiveShiftViewModel.GetSosLocationAsync).
+    private static readonly TimeSpan RecentFixAge = TimeSpan.FromSeconds(30);
+
     // Last good copy of system_configs/global.managerPhoneNumbers, for Call Manager with no signal.
     private const string ManagerPhonesCacheKey = "ManagerPhoneNumbersCache";
 
@@ -136,6 +152,10 @@ public class EmergencyAlertService : IEmergencyAlertService
         IFirebaseUser? user = CrossFirebaseAuth.Current.CurrentUser;
         string driverId = user?.Uid ?? string.Empty;
 
+        // Started now, alongside the location lookup below, instead of after it. Usually already
+        // cached by PrepareForShiftAsync.
+        Task<(string DriverName, string TaxiUnit)> driverAndUnitLookup = GetDriverAndUnitAsync(shiftId, user);
+
         // An SOS is never dropped for lack of GPS: live fix, else the shift's last telemetry
         // point, else no location at all (0/0 - ManagerWeb and the Alert Center show
         // "location unavailable" for that and still dispatch on driver + unit).
@@ -148,7 +168,7 @@ public class EmergencyAlertService : IEmergencyAlertService
                 latitude = location.Latitude;
                 longitude = location.Longitude;
             }
-            else if (await TryGetLastShiftFixAsync(shiftId) is (double lastLat, double lastLng))
+            else if (await WithinAsync(TryGetLastShiftFixAsync(shiftId), LastShiftFixLookupLimit, null) is (double lastLat, double lastLng))
             {
                 latitude = lastLat;
                 longitude = lastLng;
@@ -163,7 +183,8 @@ public class EmergencyAlertService : IEmergencyAlertService
         }
         LastLocationSource = locationSource;
 
-        (string driverName, string taxiUnit) = await GetDriverAndUnitAsync(shiftId, user);
+        string fallbackName = string.IsNullOrWhiteSpace(user?.DisplayName) ? "Unknown Driver" : user.DisplayName;
+        (string driverName, string taxiUnit) = await WithinAsync(driverAndUnitLookup, DriverAndUnitLookupLimit, (fallbackName, string.Empty));
 
         var alert = new EmergencyAlertProxy
         {
@@ -211,6 +232,22 @@ public class EmergencyAlertService : IEmergencyAlertService
 
         return doc.Id;
     }
+
+    public async Task PrepareForShiftAsync(string shiftId)
+    {
+        if (string.IsNullOrWhiteSpace(shiftId))
+        {
+            return;
+        }
+
+        // GetDriverAndUnitAsync caches the result for this shift and never throws.
+        await GetDriverAndUnitAsync(shiftId, CrossFirebaseAuth.Current.CurrentUser);
+    }
+
+    /// <summary><paramref name="task"/>'s result if it finishes within <paramref name="limit"/>,
+    /// else <paramref name="fallback"/> (the task keeps running; for lookups that never throw).</summary>
+    private static async Task<T> WithinAsync<T>(Task<T> task, TimeSpan limit, T fallback) =>
+        await Task.WhenAny(task, Task.Delay(limit)) == task ? await task : fallback;
 
     public async Task<IReadOnlyList<string>> GetManagerPhoneNumbersAsync()
     {
@@ -284,9 +321,15 @@ public class EmergencyAlertService : IEmergencyAlertService
                 return null;
             }
 
+            Location? lastKnown = await Geolocation.Default.GetLastKnownLocationAsync();
+            if (lastKnown != null && DateTimeOffset.UtcNow - lastKnown.Timestamp <= RecentFixAge)
+            {
+                return lastKnown;
+            }
+
             return await Geolocation.Default.GetLocationAsync(
                        new GeolocationRequest(GeolocationAccuracy.Best, TimeSpan.FromSeconds(15)))
-                   ?? await Geolocation.Default.GetLastKnownLocationAsync();
+                   ?? lastKnown;
         }
         catch (Exception ex)
         {

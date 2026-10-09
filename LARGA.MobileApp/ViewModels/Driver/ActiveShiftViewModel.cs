@@ -391,6 +391,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
             }
 
             _ = InitializeDynamicTaxiAsync();
+            _ = PrepareSosAsync();
         }
         catch (Exception ex)
         {
@@ -424,6 +425,17 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         {
             System.Diagnostics.Debug.WriteLine($"Break Sync Error: {ex.Message}");
         }
+    }
+
+    // Driver name and unit for an SOS, looked up now while there's time, not when it's pressed.
+    private async Task PrepareSosAsync()
+    {
+        try
+        {
+            string? shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
+            await _emergencyAlertService.PrepareForShiftAsync(shiftId ?? string.Empty);
+        }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SOS prepare failed: {ex.Message}"); }
     }
 
     private async Task InitializeDynamicTaxiAsync()

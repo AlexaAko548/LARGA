@@ -96,17 +96,25 @@ service cloud.firestore {
     // Clock-in claims (ShiftManagementService.ClockInAsync): driver_{uid} and unit_{taxiId} point
     // at the shift holding each, written in the same transaction as that shift so two clock-ins
     // can't both win. A driver may only point their own lock, or the lock of the unit their new
-    // shift is on, at a shift of their own (getAfter: the shift created in this same commit).
+    // shift is on, at a shift of their own (getAfter: the shift as of this same commit).
+    // Each lock carries its shift's shiftStart and a released flag, so other drivers can tell a
+    // live claim from a finished one without reading that shift (they can't - see /shifts).
+    // A claim must copy the start of an Active shift; a release (ClockOutAsync, in the same batch
+    // as the clock-out) is only allowed once that shift is no longer Active.
     match /shift_locks/{lockId} {
       allow read: if request.auth != null;
       allow write: if isManager() || (isDriver() && ownShiftLock(lockId));
     }
 
     function ownShiftLock(lockId) {
-      let lockedShift = getAfter(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data;
-      return request.resource.data.driverId == request.auth.uid
+      let shiftLock = request.resource.data;
+      let lockedShift = getAfter(/databases/$(database)/documents/shifts/$(shiftLock.shiftId)).data;
+      return shiftLock.driverId == request.auth.uid
         && lockedShift.driverId == request.auth.uid
-        && lockId in ['driver_' + request.auth.uid, 'unit_' + lockedShift.taxiId];
+        && lockId in ['driver_' + request.auth.uid, 'unit_' + lockedShift.taxiId]
+        && (shiftLock.get('released', false) == true
+              ? lockedShift.status != 'Active'
+              : lockedShift.status == 'Active' && shiftLock.get('shiftStart', null) == lockedShift.shiftStart);
     }
 
     // Schedule Planner exceptions ({driverId}_{yyyyMMdd}): the driver app reads today's own
