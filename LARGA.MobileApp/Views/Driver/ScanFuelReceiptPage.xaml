@@ -2,6 +2,7 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:cv="clr-namespace:Camera.MAUI;assembly=Camera.MAUI"
+             xmlns:controls="clr-namespace:LARGA.MobileApp.Controls"
              x:Class="LARGA.MobileApp.Views.Driver.ScanFuelReceiptPage"
              NavigationPage.HasNavigationBar="False"
              BackgroundColor="Black">
@@ -31,36 +32,68 @@
                 <RoundRectangle CornerRadius="20,20,0,0" />
             </Border.StrokeShape>
             
-            <VerticalStackLayout Spacing="15">
+            <!-- The OCR results are editable right here: the driver fixes a misread Amount, Liters,
+                 station or OR No. before confirming, instead of on the Fuel Report page. The fields
+                 unlock once a receipt has been read; "Edited" marks a value changed from the scan. -->
+            <VerticalStackLayout Spacing="12">
+                <Label x:Name="LblEditHint" Text="Capture the receipt, then check and correct the values below."
+                       FontSize="12" TextColor="{DynamicResource ThemeTextGray}" HorizontalTextAlignment="Center"/>
 
-                <Grid ColumnDefinitions="*,*">
-                    <Label Grid.Column="0" Text="Amount" TextColor="{DynamicResource ThemeTextGray}"/>
-                    <Label Grid.Column="1" x:Name="LblAmount" Text="--" HorizontalOptions="End" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}"/>
+                <Grid ColumnDefinitions="*,Auto,1.3*" ColumnSpacing="8">
+                    <Label Grid.Column="0" Text="Amount (₱)" TextColor="{DynamicResource ThemeTextGray}" VerticalOptions="Center"/>
+                    <Label Grid.Column="1" x:Name="TagAmountEdited" Text="Edited" IsVisible="False" FontSize="11" FontAttributes="Bold"
+                           TextColor="{DynamicResource ThemeEditedText}" VerticalOptions="Center"/>
+                    <Border Grid.Column="2" BackgroundColor="{DynamicResource ThemePanel}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="10,0" HeightRequest="40">
+                        <controls:LedgerEntry x:Name="EntAmount" Placeholder="--" IsEnabled="False" Keyboard="Numeric" FontAttributes="Bold"
+                                              HorizontalTextAlignment="End" VerticalOptions="Center" BackgroundColor="Transparent"
+                                              TextColor="{DynamicResource ThemeTextBlack}" PlaceholderColor="{DynamicResource ThemeTextGray}"
+                                              TextChanged="OnScannedFieldChanged"/>
+                    </Border>
                 </Grid>
-                <BoxView HeightRequest="1" Color="{DynamicResource ThemeDividerLight}"/>
 
-                <Grid ColumnDefinitions="*,*">
-                    <Label Grid.Column="0" Text="Quantity" TextColor="{DynamicResource ThemeTextGray}"/>
-                    <Label Grid.Column="1" x:Name="LblQuantity" Text="--" HorizontalOptions="End" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}"/>
+                <Grid ColumnDefinitions="*,Auto,1.3*" ColumnSpacing="8">
+                    <Label Grid.Column="0" Text="Liters" TextColor="{DynamicResource ThemeTextGray}" VerticalOptions="Center"/>
+                    <Label Grid.Column="1" x:Name="TagQuantityEdited" Text="Edited" IsVisible="False" FontSize="11" FontAttributes="Bold"
+                           TextColor="{DynamicResource ThemeEditedText}" VerticalOptions="Center"/>
+                    <Border Grid.Column="2" BackgroundColor="{DynamicResource ThemePanel}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="10,0" HeightRequest="40">
+                        <controls:LedgerEntry x:Name="EntQuantity" Placeholder="--" IsEnabled="False" Keyboard="Numeric" FontAttributes="Bold"
+                                              HorizontalTextAlignment="End" VerticalOptions="Center" BackgroundColor="Transparent"
+                                              TextColor="{DynamicResource ThemeTextBlack}" PlaceholderColor="{DynamicResource ThemeTextGray}"
+                                              TextChanged="OnScannedFieldChanged"/>
+                    </Border>
                 </Grid>
-                <BoxView HeightRequest="1" Color="{DynamicResource ThemeDividerLight}"/>
 
-                <Grid ColumnDefinitions="*,*">
-                    <Label Grid.Column="0" Text="Gasoline Name" TextColor="{DynamicResource ThemeTextGray}"/>
-                    <Label Grid.Column="1" x:Name="LblVendor" Text="--" HorizontalOptions="End" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}"/>
+                <Grid ColumnDefinitions="*,Auto,1.3*" ColumnSpacing="8">
+                    <Label Grid.Column="0" Text="Gasoline Name" TextColor="{DynamicResource ThemeTextGray}" VerticalOptions="Center"/>
+                    <Label Grid.Column="1" x:Name="TagVendorEdited" Text="Edited" IsVisible="False" FontSize="11" FontAttributes="Bold"
+                           TextColor="{DynamicResource ThemeEditedText}" VerticalOptions="Center"/>
+                    <Border Grid.Column="2" BackgroundColor="{DynamicResource ThemePanel}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="10,0" HeightRequest="40">
+                        <controls:LedgerEntry x:Name="EntVendor" Placeholder="--" IsEnabled="False" FontAttributes="Bold"
+                                              HorizontalTextAlignment="End" VerticalOptions="Center" BackgroundColor="Transparent"
+                                              TextColor="{DynamicResource ThemeTextBlack}" PlaceholderColor="{DynamicResource ThemeTextGray}"
+                                              TextChanged="OnScannedFieldChanged"/>
+                    </Border>
                 </Grid>
-                <BoxView HeightRequest="1" Color="{DynamicResource ThemeDividerLight}"/>
 
                 <Grid ColumnDefinitions="*,*">
-                    <Label Grid.Column="0" Text="Date" TextColor="{DynamicResource ThemeTextGray}"/>
+                    <Label Grid.Column="0" Text="Date" TextColor="{DynamicResource ThemeTextGray}" VerticalOptions="Center"/>
                     <Label Grid.Column="1" x:Name="LblDate" Text="--" HorizontalOptions="End" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}"/>
                 </Grid>
-                <BoxView HeightRequest="1" Color="{DynamicResource ThemeDividerLight}"/>
 
-                <Grid ColumnDefinitions="*,*">
-                    <Label Grid.Column="0" Text="OR Number" TextColor="{DynamicResource ThemeTextGray}"/>
-                    <Label Grid.Column="1" x:Name="LblOrNumber" Text="--" HorizontalOptions="End" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}"/>
+                <Grid ColumnDefinitions="*,Auto,1.3*" ColumnSpacing="8">
+                    <Label Grid.Column="0" Text="OR Number" TextColor="{DynamicResource ThemeTextGray}" VerticalOptions="Center"/>
+                    <Label Grid.Column="1" x:Name="TagOrNumberEdited" Text="Edited" IsVisible="False" FontSize="11" FontAttributes="Bold"
+                           TextColor="{DynamicResource ThemeEditedText}" VerticalOptions="Center"/>
+                    <Border Grid.Column="2" BackgroundColor="{DynamicResource ThemePanel}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="10,0" HeightRequest="40">
+                        <controls:LedgerEntry x:Name="EntOrNumber" Placeholder="--" IsEnabled="False" FontAttributes="Bold"
+                                              HorizontalTextAlignment="End" VerticalOptions="Center" BackgroundColor="Transparent"
+                                              TextColor="{DynamicResource ThemeTextBlack}" PlaceholderColor="{DynamicResource ThemeTextGray}"
+                                              TextChanged="OnScannedFieldChanged"/>
+                    </Border>
                 </Grid>
+
+                <Label x:Name="LblEditError" IsVisible="False" FontSize="12" FontAttributes="Bold"
+                       TextColor="{DynamicResource LargaDanger}" HorizontalTextAlignment="Center"/>
 
                 <Grid ColumnDefinitions="*,*,*" ColumnSpacing="15" Margin="0,15,0,0">
                     <Button Grid.Column="0" Text="Cancel" Clicked="OnCancelClicked" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextGray}" BorderColor="{DynamicResource ThemeTextGray}" BorderWidth="1" CornerRadius="25"/>
