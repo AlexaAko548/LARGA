@@ -48,6 +48,7 @@ public class SosCallerVerificationService
         SosCallerValidator.Result result = await VerifyAsync(alert);
         await alertRef.UpdateAsync(new System.Collections.Generic.Dictionary<string, object>
         {
+            ["callerCheck"] = result.Status,
             ["callerVerified"] = result.Verified,
             ["callerVerificationReason"] = result.Reason,
         });

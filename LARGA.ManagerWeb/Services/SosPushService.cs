@@ -31,10 +31,12 @@ namespace LARGA.ManagerWeb.Services;
 /// (NotificationService). Never throws out of the host - failures are logged and the listener
 /// is restarted.
 ///
-/// Before pushing, each alert is reverse-geocoded (MapTiler) and its address stored on the
-/// alert, and its caller is validated (SosCallerVerificationService): an alert that didn't come
-/// from the driver assigned to that unit's active shift is marked callerVerified=false and not
-/// pushed - it still shows, flagged, on SOS Dispatch and in the manager app's Alert Center.
+/// Before pushing, each alert's caller is validated (SosCallerVerificationService) and its
+/// position reverse-geocoded (MapTiler, stored on the alert). Only a Rejected alert - positively
+/// from the wrong sender - is held back; it still shows, flagged, on SOS Dispatch and in the
+/// manager app's Alert Center. An Unverified one (details missing, e.g. weak signal) is pushed
+/// with a note. The address is waited on for at most AddressWaitForPush, so a slow MapTiler
+/// never delays an SOS; it still lands on the alert afterwards.
 /// </summary>
 public class SosPushService : BackgroundService
 {
@@ -49,6 +51,7 @@ public class SosPushService : BackgroundService
 
     private static readonly TimeSpan MaxAlertAge = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan RestartDelay = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan AddressWaitForPush = TimeSpan.FromSeconds(2);
 
     private static readonly string[] StaffRoles = [ManagerSignInService.ManagerRole, ManagerSignInService.AssistantManagerRole];
 
@@ -145,9 +148,22 @@ public class SosPushService : BackgroundService
             return; // another listener pass (or instance) already handled it
         }
 
-        EmergencyAlert parsed = alert.ConvertTo<EmergencyAlert>();
-        string? address = await StoreAddressAsync(alert.Reference, parsed, token);
-        SosCallerValidator.Result caller = await VerifyCallerAsync(alert.Reference, parsed);
+        // Already claimed, so nothing past this point may throw before the push: an alert that
+        // can't be read is still pushed, just without the address and caller check.
+        EmergencyAlert? parsed = null;
+        try
+        {
+            parsed = alert.ConvertTo<EmergencyAlert>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "emergency_alerts/{AlertId} couldn't be read; pushing without caller check or address", alert.Id);
+        }
+
+        Task<string?> addressLookup = parsed is null ? Task.FromResult<string?>(null) : StoreAddressAsync(alert.Reference, parsed, token);
+        SosCallerValidator.Result caller = parsed is null
+            ? new SosCallerValidator.Result(SosCallerCheck.Unverified, "The alert couldn't be read to check the caller.")
+            : await VerifyCallerAsync(alert.Reference, parsed);
 
         if (tooOld)
         {
@@ -155,11 +171,15 @@ public class SosPushService : BackgroundService
             return;
         }
 
-        if (!caller.Verified)
+        if (caller.Rejected)
         {
-            _logger.LogWarning("SOS emergency_alerts/{AlertId} not pushed - unverified caller: {Reason}", alert.Id, caller.Reason);
+            _logger.LogWarning("SOS emergency_alerts/{AlertId} not pushed - rejected caller: {Reason}", alert.Id, caller.Reason);
             return;
         }
+
+        string? address = await Task.WhenAny(addressLookup, Task.Delay(AddressWaitForPush, token)) == addressLookup
+            ? await addressLookup
+            : null;
 
         List<string> tokens = await GetStaffTokensAsync(token);
         if (tokens.Count == 0)
@@ -178,7 +198,8 @@ public class SosPushService : BackgroundService
         string title = $"SOS - {label}";
         string body = $"{driverName} ({taxiUnit}) needs help."
                       + (!string.IsNullOrWhiteSpace(address) ? $" Near {address}."
-                         : hasLocation ? " Open LARGA for their location." : " Location unavailable - call the driver.");
+                         : hasLocation ? " Open LARGA for their location." : " Location unavailable - call the driver.")
+                      + (caller.Verified ? string.Empty : " (Caller not verified - confirm with the driver.)");
 
         _ = _auth.Value; // creates the shared FirebaseApp on first use
         FirebaseMessaging messaging = FirebaseMessaging.GetMessaging(FirebaseApp.GetInstance(FirebaseAppName));
@@ -199,6 +220,7 @@ public class SosPushService : BackgroundService
                 ["triggerType"] = EmergencyTypes.Normalize(triggerType),
                 ["emergencyLabel"] = label,
                 ["address"] = address ?? string.Empty,
+                ["callerCheck"] = caller.Status,
             },
             Android = new AndroidConfig
             {
@@ -246,8 +268,8 @@ public class SosPushService : BackgroundService
     }
 
     /// <summary>Runs the SOS caller validation and stores the outcome on the alert. A lookup
-    /// failure (Firestore unreachable) counts as verified, so a genuine SOS is never held back by
-    /// an outage - only a positive mismatch suppresses the push.</summary>
+    /// failure (Firestore unreachable) leaves it Unverified - pushed - so a genuine SOS is never
+    /// held back by an outage; only a positive mismatch (Rejected) suppresses the push.</summary>
     private async Task<SosCallerValidator.Result> VerifyCallerAsync(DocumentReference alertRef, EmergencyAlert alert)
     {
         try
@@ -257,7 +279,7 @@ public class SosPushService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Caller validation for emergency_alerts/{AlertId} failed; pushing anyway", alertRef.Id);
-            return new SosCallerValidator.Result(true, "Not checked (lookup failed).");
+            return new SosCallerValidator.Result(SosCallerCheck.Unverified, "Caller not checked (lookup failed).");
         }
     }
 

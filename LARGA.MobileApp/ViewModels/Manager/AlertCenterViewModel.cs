@@ -146,7 +146,7 @@ public class AlertCenterViewModel : BindableObject
                         Id = doc.Reference.Id,
                         Type = AlertType.Sos,
                         TriggerType = EmergencyTypes.Normalize(doc.Data.TriggerType),
-                        CallerVerified = doc.Data.CallerVerified,
+                        CallerCheck = doc.Data.CallerCheck,
                         CallerVerificationReason = doc.Data.CallerVerificationReason,
                         DriverId = shift?.DriverId,
                         DriverName = BuildDriverLabel(driver, shift),
@@ -751,8 +751,8 @@ public class AlertCenterViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("addressSource")]
         public string? AddressSource { get; set; }
 
-        [Plugin.Firebase.Firestore.FirestoreProperty("callerVerified")]
-        public bool? CallerVerified { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("callerCheck")]
+        public string? CallerCheck { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("callerVerificationReason")]
         public string? CallerVerificationReason { get; set; }
@@ -891,17 +891,22 @@ public class AlertItem
     public string? PhoneNumber { get; set; }
 
     // SOS only: "Standard", "Hostile" or "Crash" (emergency_alerts.triggerType), the street
-    // address (MapTiler) and the caller validation outcome (null = not checked yet).
+    // address (MapTiler) and the caller validation outcome (SosCallerCheck; null = not checked yet).
     public string TriggerType { get; set; } = string.Empty;
     public string? Address { get; set; }
-    public bool? CallerVerified { get; set; }
+    public string? CallerCheck { get; set; }
     public string? CallerVerificationReason { get; set; }
 
     public string EmergencyLabel => EmergencyTypes.Label(TriggerType).ToUpperInvariant();
     public bool IsHostileSos => IsSos && EmergencyTypes.Normalize(TriggerType) == EmergencyAlert.Hostile;
     public bool IsCrashSos => IsSos && EmergencyTypes.Normalize(TriggerType) == EmergencyAlert.Crash;
-    public bool IsUnverifiedCaller => IsSos && CallerVerified == false;
-    public string UnverifiedText => $"Unverified caller: {CallerVerificationReason}";
+    // Rejected: positively the wrong sender (not pushed, card greyed). Unverified: couldn't be
+    // confirmed (pushed, just noted). Both show the reason.
+    public bool IsCallerRejected => IsSos && CallerCheck == SosCallerCheck.Rejected;
+    public bool IsCallerFlagged => IsSos && CallerCheck is SosCallerCheck.Rejected or SosCallerCheck.Unverified;
+    public string CallerFlagText => IsCallerRejected
+        ? $"Rejected caller (not pushed): {CallerVerificationReason}"
+        : $"Unverified caller: {CallerVerificationReason}";
 
     public bool IsSos => Type == AlertType.Sos;
     public bool IsFuelDiscrepancy => Type == AlertType.FuelDiscrepancy;

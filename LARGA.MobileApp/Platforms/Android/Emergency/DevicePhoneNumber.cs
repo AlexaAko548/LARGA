@@ -28,13 +28,24 @@ public static class DevicePhoneNumber
             }
 
             string? number = null;
-            if (OperatingSystem.IsAndroidVersionAtLeast(33)
-                && context.GetSystemService(Context.TelephonySubscriptionService) is SubscriptionManager subscriptions)
+            if (OperatingSystem.IsAndroidVersionAtLeast(33))
             {
-                int subscriptionId = SubscriptionManager.DefaultSubscriptionId;
-                if (subscriptionId != SubscriptionManager.InvalidSubscriptionId)
+                // Each source is tried on its own: one refusing (e.g. only READ_PHONE_STATE granted)
+                // mustn't skip the other.
+                try
                 {
-                    number = subscriptions.GetPhoneNumber(subscriptionId);
+                    if (context.GetSystemService(Context.TelephonySubscriptionService) is SubscriptionManager subscriptions)
+                    {
+                        int subscriptionId = SubscriptionManager.DefaultSubscriptionId;
+                        if (subscriptionId != SubscriptionManager.InvalidSubscriptionId)
+                        {
+                            number = subscriptions.GetPhoneNumber(subscriptionId);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    EmergencyLog.Warn($"SubscriptionManager phone number unavailable: {ex.Message}");
                 }
             }
 

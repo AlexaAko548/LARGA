@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using LARGA.SharedCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
@@ -127,6 +128,11 @@ public class DriverUpdateContactViewModel : BindableObject
                 .GetCollection("users")
                 .GetDocument(user.Uid)
                 .UpdateDataAsync(updates);
+
+            // The next SOS must carry the new number, or caller validation would reject it.
+            Application.Current?.Handler?.MauiContext?.Services
+                .GetService<LARGA.MobileApp.Services.IEmergencyAlertService>()?
+                .ForgetCachedDriverDetails();
 
             CurrentNumber = string.Empty;
             NewNumber = string.Empty;

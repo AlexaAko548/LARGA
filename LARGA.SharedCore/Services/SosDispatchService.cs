@@ -26,9 +26,12 @@ public class SosAlertView
     /// (or when the lookup failed - the coordinates are shown then).</summary>
     public string? Address { get; set; }
 
-    /// <summary>SOS caller validation: true/false once checked, null while pending.</summary>
-    public bool? CallerVerified { get; set; }
+    /// <summary>SOS caller validation: SosCallerCheck.Verified / Unverified / Rejected once
+    /// checked, null while pending. Rejected alerts weren't pushed.</summary>
+    public string? CallerCheck { get; set; }
     public string? CallerVerificationReason { get; set; }
+    public bool IsCallerRejected => CallerCheck == SosCallerCheck.Rejected;
+    public bool IsCallerUnverified => CallerCheck == SosCallerCheck.Unverified;
 
     public string ShiftId { get; set; } = string.Empty;
     public string DriverId { get; set; } = string.Empty;
@@ -64,20 +67,36 @@ public class SosDispatchService
         _logger = logger;
     }
 
-    /// <summary>How many SOS alerts are unresolved, leaving out ones whose caller failed
-    /// validation - count aggregations, cheap enough for the every-page SOS banner to poll.</summary>
+    /// <summary>How many SOS alerts are unresolved, leaving out ones whose caller was rejected -
+    /// count aggregations, cheap enough for the every-page SOS banner to poll.</summary>
     public async Task<int> GetActiveCountAsync()
     {
         AggregateQuerySnapshot count = await Db.Collection("emergency_alerts")
             .WhereEqualTo("isResolved", false)
             .Count()
             .GetSnapshotAsync();
-        AggregateQuerySnapshot unverified = await Db.Collection("emergency_alerts")
-            .WhereEqualTo("isResolved", false)
-            .WhereEqualTo("callerVerified", false)
-            .Count()
-            .GetSnapshotAsync();
-        return (int)Math.Max(0, (count.Count ?? 0) - (unverified.Count ?? 0));
+        long active = count.Count ?? 0;
+        if (active == 0)
+        {
+            return 0;
+        }
+
+        // Kept separate so the banner never goes quiet: if this narrower count fails, every
+        // unresolved alert is counted instead.
+        try
+        {
+            AggregateQuerySnapshot rejected = await Db.Collection("emergency_alerts")
+                .WhereEqualTo("isResolved", false)
+                .WhereEqualTo("callerCheck", SosCallerCheck.Rejected)
+                .Count()
+                .GetSnapshotAsync();
+            return (int)Math.Max(0, active - (rejected.Count ?? 0));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Rejected-SOS count failed; the banner counts every unresolved alert");
+            return (int)active;
+        }
     }
 
     /// <summary>Unresolved alerts (newest first) and those resolved in the last 24 hours.</summary>
@@ -140,7 +159,7 @@ public class SosDispatchService
     public async Task RaiseBellAlertsAsync()
     {
         (List<SosAlertView> active, _) = await GetAlertsAsync();
-        foreach (SosAlertView sos in active.Where(a => a.CallerVerified != false))
+        foreach (SosAlertView sos in active.Where(a => !a.IsCallerRejected))
         {
             DocumentReference bell = Db.Collection("system_alerts").Document($"{sos.AlertId}_SOS");
             if ((await bell.GetSnapshotAsync()).Exists)
@@ -213,10 +232,13 @@ public class SosDispatchService
 
         // Alerts from before SosPushService stored addresses (or whose lookup failed then) are
         // geocoded here; the geocoder caches, so the 10-second page refresh doesn't re-query.
+        // Looked up side by side, and a failed lookup is remembered briefly by the geocoder, so an
+        // outage costs one timeout per refresh rather than one per alert.
+        string?[] resolved = await Task.WhenAll(alerts.Select(ResolveAddressAsync));
         var addresses = new Dictionary<string, string?>();
-        foreach (EmergencyAlert a in alerts)
+        for (int i = 0; i < alerts.Count; i++)
         {
-            addresses[a.AlertId] = await ResolveAddressAsync(a);
+            addresses[alerts[i].AlertId] = resolved[i];
         }
 
         return alerts.Select(a =>
@@ -240,7 +262,7 @@ public class SosDispatchService
                 Longitude = a.Longitude,
                 HasLocation = a.Latitude != 0 || a.Longitude != 0,
                 Address = addresses.GetValueOrDefault(a.AlertId),
-                CallerVerified = a.CallerVerified,
+                CallerCheck = a.CallerCheck ?? (a.CallerVerified == false ? SosCallerCheck.Unverified : a.CallerVerified == true ? SosCallerCheck.Verified : null),
                 CallerVerificationReason = a.CallerVerificationReason,
                 ShiftId = a.ShiftId,
                 DriverId = driverId,

@@ -25,6 +25,11 @@ public class MapTilerGeocoder
     private readonly string? _apiKey;
     private readonly ConcurrentDictionary<string, string> _cache = new();
 
+    // A lookup that just failed isn't retried for a while, so a MapTiler outage doesn't make every
+    // refresh (or every alert on a page) wait out the timeout again.
+    private static readonly TimeSpan FailureBackoff = TimeSpan.FromMinutes(2);
+    private readonly ConcurrentDictionary<string, DateTime> _failedUntil = new();
+
     public MapTilerGeocoder(string? apiKey)
     {
         _apiKey = string.IsNullOrWhiteSpace(apiKey) || apiKey.Contains("YOUR_", StringComparison.Ordinal) ? null : apiKey.Trim();
@@ -48,6 +53,10 @@ public class MapTilerGeocoder
         {
             return cached;
         }
+        if (_failedUntil.TryGetValue(key, out DateTime until) && DateTime.UtcNow < until)
+        {
+            return null;
+        }
 
         try
         {
@@ -55,22 +64,27 @@ public class MapTilerGeocoder
             string url = string.Create(CultureInfo.InvariantCulture,
                 $"https://api.maptiler.com/geocoding/{longitude:F6},{latitude:F6}.json?key={Uri.EscapeDataString(_apiKey)}&limit=1&language=en");
             using HttpResponseMessage response = await Http.GetAsync(url, cancellationToken);
-            if (!response.IsSuccessStatusCode)
+            string? address = null;
+            if (response.IsSuccessStatusCode)
             {
-                return null;
+                address = ParsePlaceName(await response.Content.ReadAsStringAsync(cancellationToken));
             }
 
-            string json = await response.Content.ReadAsStringAsync(cancellationToken);
-            string? address = ParsePlaceName(json);
             if (address is not null)
             {
                 _cache[key] = address;
+                _failedUntil.TryRemove(key, out _);
+            }
+            else
+            {
+                _failedUntil[key] = DateTime.UtcNow + FailureBackoff;
             }
             return address;
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             // Offline, timeout, bad JSON - the caller falls back to coordinates.
+            _failedUntil[key] = DateTime.UtcNow + FailureBackoff;
             return null;
         }
     }

@@ -72,10 +72,14 @@ else
                 SosAlertView alert = sos;
                 @* @key ties each card to its alert: without it, resolving a card made the next one
                    slide into its DOM element and inherit the ticked checkbox. *@
-                <article @key="alert.AlertId" class="sos-card @TriggerCss(alert.TriggerType) @(alert.CallerVerified == false ? "unverified" : "")">
+                <article @key="alert.AlertId" class="sos-card @TriggerCss(alert.TriggerType) @(alert.IsCallerRejected ? "unverified" : "")">
                     <div class="sos-card-head">
                         <span class="sos-trigger"><Icon Name="@TriggerIcon(alert.TriggerType)" /> @SosDispatchService.TriggerLabel(alert.TriggerType).ToUpperInvariant()</span>
-                        @if (alert.CallerVerified == false)
+                        @if (alert.IsCallerRejected)
+                        {
+                            <span class="sos-unverified" title="@alert.CallerVerificationReason"><Icon Name="triangle-alert" /> Rejected caller (not pushed): @alert.CallerVerificationReason</span>
+                        }
+                        else if (alert.IsCallerUnverified)
                         {
                             <span class="sos-unverified" title="@alert.CallerVerificationReason"><Icon Name="triangle-alert" /> Unverified caller: @alert.CallerVerificationReason</span>
                         }

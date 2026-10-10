@@ -57,7 +57,9 @@ public class EmergencyAlert
     // SOS caller validation. The driver app sends the taxi ID, the driver's registered phone
     // (callerPhone) and, when Android exposes it, the SIM's own number (devicePhone).
     // SosPushService checks them against the unit's active shift and the driver's profile and
-    // writes callerVerified / callerVerificationReason (null = not checked yet).
+    // writes callerCheck ("Verified" / "Unverified" / "Rejected" - SosCallerCheck), callerVerified
+    // (true only when Verified) and callerVerificationReason; all null = not checked yet. Only a
+    // Rejected alert is held back from the push.
     [FirestoreProperty("taxiId")]
     public string? TaxiId { get; set; }
 
@@ -69,6 +71,9 @@ public class EmergencyAlert
 
     [FirestoreProperty("callerVerified")]
     public bool? CallerVerified { get; set; }
+
+    [FirestoreProperty("callerCheck")]
+    public string? CallerCheck { get; set; }
 
     [FirestoreProperty("callerVerificationReason")]
     public string? CallerVerificationReason { get; set; }
