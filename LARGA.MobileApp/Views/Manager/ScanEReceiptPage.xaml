@@ -55,6 +55,15 @@
                         <Label x:Name="LblReference" Grid.Column="1" Text="--" Style="{StaticResource Ledger.FieldValue}" LineBreakMode="NoWrap" />
                     </Grid>
                 </Border>
+                <!-- Target account verification: the GCash number / bank account the receipt was sent to,
+                     checked against the authorized payout accounts (system_configs/global). -->
+                <Border Style="{StaticResource Ledger.Field}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Sent To" Style="{StaticResource Ledger.Caption}" VerticalOptions="Center" />
+                        <Label x:Name="LblTarget" Grid.Column="1" Text="--" Style="{StaticResource Ledger.FieldValue}" LineBreakMode="NoWrap" />
+                    </Grid>
+                </Border>
+                <Label x:Name="LblTargetStatus" IsVisible="False" FontSize="12" FontAttributes="Bold" HorizontalTextAlignment="Center" />
             </VerticalStackLayout>
 
             <Grid ColumnDefinitions="*,*" ColumnSpacing="10">

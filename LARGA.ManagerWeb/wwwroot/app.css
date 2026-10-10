@@ -3001,6 +3001,26 @@ padding: 0.5rem 0.7rem;
 margin-top: 0.4rem;
 }
 
+/* Target account verification: receipt sent to an account that isn't an authorized payout account. */
+.receipt-account-flag {
+color: var(--danger, #b3261e);
+background: var(--danger-tint, rgba(211,47,47,0.10));
+font-weight: 600;
+}
+
+.receipt-account-ok {
+display: block;
+font-size: 0.78rem;
+font-weight: 600;
+color: var(--success, #1b7a3a);
+margin-top: 0.3rem;
+}
+
+.history-account-flag {
+margin-top: 0.3rem;
+white-space: nowrap;
+}
+
 .settlement-status-preview {
 display: flex;
 align-items: center;
@@ -5682,4 +5702,39 @@ text-decoration: underline;
 @media (max-width: 640px) {
 .sos-banner { font-size: 0.85rem; gap: 0.5rem; padding: 0.5rem 0.8rem; }
 .sos-banner-action { display: none; }
+}
+
+/* Manager Settings: authorized payout accounts (target account verification). */
+.payout-accounts .manager-menu-hint {
+display: block;
+margin-bottom: 0.4rem;
+}
+
+.payout-account-list {
+list-style: none;
+margin: 0 0 0.6rem;
+padding: 0;
+display: flex;
+flex-direction: column;
+gap: 0.35rem;
+}
+
+.payout-account-list li {
+display: flex;
+justify-content: space-between;
+align-items: center;
+gap: 0.6rem;
+font-family: var(--font-mono);
+font-size: 0.85rem;
+color: var(--ink);
+}
+
+.payout-account-add {
+display: flex;
+gap: 0.5rem;
+}
+
+.payout-account-add .text-input {
+flex: 1;
+min-width: 0;
 }

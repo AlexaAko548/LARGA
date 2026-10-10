@@ -38,7 +38,7 @@ public class FinancialLedgerService
 
     /// <summary>A receipt's link fields for a boundary_payments document, after uploading its
     /// image (receipts/{driverId}/...). Null when there's no receipt (a cash payment).</summary>
-    private async Task<(string Url, string? ReferenceNo)?> UploadReceiptAsync(string driverId, PaymentReceipt? receipt)
+    private async Task<(string Url, string? ReferenceNo, string? TargetAccount, string? TargetAccountStatus)?> UploadReceiptAsync(string driverId, PaymentReceipt? receipt)
     {
         if (receipt is null)
         {
@@ -47,7 +47,9 @@ public class FinancialLedgerService
 
         string folder = $"receipts/{(string.IsNullOrWhiteSpace(driverId) ? "unknown" : driverId)}";
         string url = await _storageLazy.Value.UploadImageAsync(folder, receipt.Image, receipt.ContentType);
-        return (url, string.IsNullOrWhiteSpace(receipt.ReferenceNo) ? null : receipt.ReferenceNo.Trim());
+        return (url, string.IsNullOrWhiteSpace(receipt.ReferenceNo) ? null : receipt.ReferenceNo.Trim(),
+            string.IsNullOrWhiteSpace(receipt.TargetAccount) ? null : receipt.TargetAccount.Trim(),
+            string.IsNullOrWhiteSpace(receipt.TargetAccountStatus) ? null : receipt.TargetAccountStatus);
     }
 
     // ---------------------------------------------------------------------
@@ -583,6 +585,8 @@ public class FinancialLedgerService
                 DebtChange = -amount,
                 ReceiptUrl = string.IsNullOrWhiteSpace(first.EPayReceiptPhoto) ? null : first.EPayReceiptPhoto,
                 ReceiptReferenceNo = reference,
+                ReceiptTargetAccount = handover.Select(p => p.Doc.ReceiptTargetAccount).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t)),
+                TargetAccountStatus = handover.Select(p => p.Doc.TargetAccountStatus).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t)),
                 Details = details,
             });
         }
@@ -652,7 +656,7 @@ public class FinancialLedgerService
         {
             // Uploaded at most once across the attempts below (only when the payment is allowed).
             bool receiptUploaded = false;
-            (string Url, string? ReferenceNo)? receiptLink = null;
+            (string Url, string? ReferenceNo, string? TargetAccount, string? TargetAccountStatus)? receiptLink = null;
 
             // Read balances -> allocate -> commit, retried when another payment for this driver
             // lands in between (ledger_locks version moved - see BookPaymentAsync).
@@ -786,7 +790,7 @@ public class FinancialLedgerService
     /// </summary>
     private async Task<PaymentBooking> BookPaymentAsync(string driverId, long expectedLedgerVersion, ShiftCharge? first, IEnumerable<ShiftCharge> others,
         IEnumerable<DebtAdjustment> driverAdjustments, decimal amount, ShiftCharge? advanceTarget,
-        PaymentMethod method, DateTime now, (string Url, string? ReferenceNo)? receiptLink, string source)
+        PaymentMethod method, DateTime now, (string Url, string? ReferenceNo, string? TargetAccount, string? TargetAccountStatus)? receiptLink, string source)
     {
         var applies = new Dictionary<ShiftCharge, decimal>();
         decimal remaining = amount;
@@ -1089,7 +1093,7 @@ public class FinancialLedgerService
     /// payment's amount (see BoundaryPaymentRules). Same fields as the Quick Ledger writes.
     /// Returned, not written: BookPaymentAsync creates them all in one transaction.</summary>
     private (DocumentReference Doc, Dictionary<string, object> Fields) PaymentDocument(ShiftCharge charge, decimal amount, PaymentMethod method, DateTime now,
-        (string Url, string? ReferenceNo)? receipt, string transactionId, int index, string source)
+        (string Url, string? ReferenceNo, string? TargetAccount, string? TargetAccountStatus)? receipt, string transactionId, int index, string source)
     {
         ShiftLog shift = charge.Shift!;
         string shiftKey = BoundaryPaymentRules.ShiftKey(shift.DocumentId, shift.ShiftId);
@@ -1118,6 +1122,16 @@ public class FinancialLedgerService
             {
                 fields["gcashReferenceNumber"] = r.ReferenceNo;
                 fields["receiptReferenceNo"] = r.ReferenceNo;
+            }
+            // Same fields as the Quick Ledger: who the receipt was sent to, and whether that's an
+            // authorized payout account.
+            if (r.TargetAccount is not null)
+            {
+                fields["receiptTargetAccount"] = r.TargetAccount;
+            }
+            if (r.TargetAccountStatus is not null)
+            {
+                fields["targetAccountStatus"] = r.TargetAccountStatus;
             }
         }
 
@@ -1251,6 +1265,23 @@ public class FinancialLedgerService
     // ---------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------
+
+    /// <summary>system_configs/global.authorizedPayoutAccounts - the GCash numbers / bank
+    /// accounts boundary payments may be sent to. Null when it can't be read, so a scan says
+    /// "couldn't check" rather than flagging every receipt.</summary>
+    public async Task<List<string>?> GetAuthorizedPayoutAccountsAsync()
+    {
+        try
+        {
+            DocumentSnapshot snapshot = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
+            return snapshot.Exists ? snapshot.ConvertTo<SystemConfig>().AuthorizedPayoutAccounts ?? new List<string>() : new List<string>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read system_configs/global.authorizedPayoutAccounts");
+            return null;
+        }
+    }
 
     private async Task<decimal> GetDefaultBoundaryRateAsync()
     {

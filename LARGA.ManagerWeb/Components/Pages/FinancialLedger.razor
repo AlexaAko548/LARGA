@@ -5,6 +5,7 @@
 @using LARGA.SharedCore
 @using LARGA.SharedCore.Models.DriverShifts
 @using LARGA.SharedCore.Models.FinancialLedger
+@using LARGA.SharedCore.Ledger
 @using LARGA.SharedCore.Services
 @rendermode InteractiveServer
 @using System.Security.Claims
@@ -614,6 +615,13 @@ else
                                                     <a class="history-receipt" href="@tx.ReceiptUrl" target="_blank" rel="noopener" title="@(tx.ReceiptReferenceNo is null ? "Open GCash receipt" : $"Ref. No. {tx.ReceiptReferenceNo}")">
                                                         <img src="@tx.ReceiptUrl" alt="GCash receipt" loading="lazy" />
                                                     </a>
+                                                    @if (tx.IsTargetAccountFlagged)
+                                                    {
+                                                        <div class="status-pill small status-danger history-account-flag"
+                                                             title="@(tx.TargetAccountStatus == PayoutAccountStatus.NotFound ? "The recipient couldn't be read from the receipt." : $"Sent to {tx.ReceiptTargetAccount}, which isn't an authorized payout account.")">
+                                                            <Icon Name="triangle-alert" /> Account mismatch
+                                                        </div>
+                                                    }
                                                 }
                                                 else
                                                 {
@@ -905,7 +913,15 @@ else
         _pendingReceiptImage is not null && _receiptAmountValue is > 0 && !ReceiptAmountMismatch && !_isReadingReceipt;
 
     private PaymentReceipt? PendingReceipt() =>
-        _pendingReceiptImage is null ? null : new PaymentReceipt(_pendingReceiptImage, _pendingReceiptType, _receiptReference);
+        _pendingReceiptImage is null ? null : new PaymentReceipt(_pendingReceiptImage, _pendingReceiptType, _receiptReference,
+            _receiptAccountCheck?.Target?.Display, _receiptAccountCheck?.Status);
+
+    // Target account verification (same rules as the mobile Quick Ledger): the receipt's
+    // recipient checked against system_configs/global.authorizedPayoutAccounts. Null until a
+    // receipt is scanned, or when the accounts couldn't be loaded. A mismatch only warns - the
+    // payment can still be recorded, and stays flagged in the driver's history.
+    private PayoutAccountCheck? _receiptAccountCheck;
+    private bool _receiptAccountsUnavailable;
 
     // Switching to GCash takes the amount from the scanned receipt (none yet = 0); switching
     // back to cash leaves it editable.
@@ -967,7 +983,28 @@ else
             <input class="text-input" type="text" placeholder="Amount (read from the receipt)" value="@_receiptAmount" readonly />
             <input class="text-input" type="text" placeholder="Date (read from the receipt)" value="@_receiptDate" readonly />
             <input class="text-input" type="text" placeholder="Reference No. (read from the receipt)" value="@_receiptReference" readonly />
+            <input class="text-input" type="text" placeholder="Sent to (read from the receipt)" value="@(_receiptAccountCheck?.Target?.Display ?? string.Empty)" readonly />
         </div>
+
+        @if (_pendingReceiptImage is not null && !_isReadingReceipt && _receiptError is null)
+        {
+            @if (_receiptAccountsUnavailable)
+            {
+                <small class="receipt-hint">Couldn't load the authorized payout accounts, so the recipient wasn't checked.</small>
+            }
+            else if (_receiptAccountCheck is { NeedsWarning: true } accountWarning)
+            {
+                <div class="receipt-mismatch receipt-account-flag"><Icon Name="triangle-alert" /> @accountWarning.Message It will be flagged in the ledger if you record it.</div>
+            }
+            else if (_receiptAccountCheck is { Status: PayoutAccountStatus.Verified } verified)
+            {
+                <small class="receipt-account-ok"><Icon Name="badge-check" /> @verified.Message</small>
+            }
+            else if (_receiptAccountCheck is not null)
+            {
+                <small class="receipt-hint">@_receiptAccountCheck.Message</small>
+            }
+        }
 
         @if (_receiptError is not null)
         {
@@ -995,6 +1032,8 @@ else
         _receiptAmount = string.Empty;
         _receiptDate = string.Empty;
         _receiptReference = string.Empty;
+        _receiptAccountCheck = null;
+        _receiptAccountsUnavailable = false;
         StateHasChanged();
 
         try
@@ -1031,6 +1070,10 @@ else
                 : string.Empty;
             _receiptReference = parsed.ReferenceNumber ?? string.Empty;
 
+            List<string>? authorizedAccounts = await Ledger.GetAuthorizedPayoutAccountsAsync();
+            _receiptAccountsUnavailable = authorizedAccounts is null;
+            _receiptAccountCheck = authorizedAccounts is null ? null : PayoutAccountMatcher.Check(parsed.TargetAccount, authorizedAccounts);
+
             // The receipt is the payment, so its amount is what was received - fill it in
             // (still editable) for whichever window is open.
             decimal receiptAmount = parsed.Amount is decimal a && a > 0 ? a : 0;
@@ -1065,6 +1108,8 @@ else
         _receiptAmount = string.Empty;
         _receiptDate = string.Empty;
         _receiptReference = string.Empty;
+        _receiptAccountCheck = null;
+        _receiptAccountsUnavailable = false;
         _isReadingReceipt = false;
         await ReleasePreviewAsync();
     }

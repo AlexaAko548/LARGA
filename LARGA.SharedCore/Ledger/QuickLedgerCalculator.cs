@@ -613,7 +613,11 @@ public sealed record PaymentEvidence(
     string? ReferenceNumber,
     decimal? ReceiptAmount,
     DateTime? ReceiptDate,
-    string? ReceiptPhotoUrl);
+    string? ReceiptPhotoUrl,
+    // Who the receipt says the money went to, and how that compared with the authorized payout
+    // accounts (PayoutAccountStatus). Kept so a misrouted payment stays flagged in the ledger.
+    string? TargetAccount = null,
+    string? TargetAccountStatus = null);
 
 /// <summary>
 /// Where one payment goes, mirroring the web's PaymentBooking: <paramref name="ToFirst"/> to the shift being paid,
