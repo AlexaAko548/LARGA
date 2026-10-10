@@ -164,7 +164,7 @@
                 </Grid>
 
                 <Border BackgroundColor="{DynamicResource LargaDangerBg}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="10,6" IsVisible="{Binding SelectedPin.IsSos}">
-                    <Label Text="⚠ SOS active — driver may need immediate assistance" FontSize="12" FontAttributes="Bold" TextColor="{DynamicResource LargaDanger}" />
+                    <Label Text="{Binding SelectedPin.SosWarningText}" FontSize="12" FontAttributes="Bold" TextColor="{DynamicResource LargaDanger}" />
                 </Border>
 
                 <BoxView HeightRequest="1" BackgroundColor="{DynamicResource LargaCardBorder}" />

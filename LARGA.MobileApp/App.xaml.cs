@@ -54,6 +54,12 @@ public partial class App : Application
                 // SOS push to a manager (ManagerWeb SosPushService): open the Alert Center.
                 if (e.Notification.Data.TryGetValue("type", out var sosType) && sosType?.ToString() == "sos_alert")
                 {
+                    // Scroll the Alert Center to this alert (emergency type and address are on the card).
+                    if (e.Notification.Data.TryGetValue("alertId", out var alertId) && !string.IsNullOrWhiteSpace(alertId?.ToString()))
+                    {
+                        LARGA.MobileApp.ViewModels.Manager.AlertCenterViewModel.PendingFocusAlertId = alertId.ToString();
+                    }
+
                     await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
                         while (Shell.Current == null)

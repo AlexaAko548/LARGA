@@ -72,9 +72,13 @@ else
                 SosAlertView alert = sos;
                 @* @key ties each card to its alert: without it, resolving a card made the next one
                    slide into its DOM element and inherit the ticked checkbox. *@
-                <article @key="alert.AlertId" class="sos-card @TriggerCss(alert.TriggerType)">
+                <article @key="alert.AlertId" class="sos-card @TriggerCss(alert.TriggerType) @(alert.CallerVerified == false ? "unverified" : "")">
                     <div class="sos-card-head">
                         <span class="sos-trigger"><Icon Name="@TriggerIcon(alert.TriggerType)" /> @SosDispatchService.TriggerLabel(alert.TriggerType).ToUpperInvariant()</span>
+                        @if (alert.CallerVerified == false)
+                        {
+                            <span class="sos-unverified" title="@alert.CallerVerificationReason"><Icon Name="triangle-alert" /> Unverified caller: @alert.CallerVerificationReason</span>
+                        }
                         <span class="sos-time" title="@alert.Timestamp.ToPhilippineTime().ToString("MMM d, yyyy h:mm:ss tt")">@alert.Timestamp.ToPhilippineTime().ToString("h:mm tt") · @Ago(alert.Timestamp)</span>
                     </div>
 
@@ -92,7 +96,11 @@ else
                             <div class="sos-location-label">LAST KNOWN LOCATION</div>
                             @if (alert.HasLocation)
                             {
-                                <div class="sos-coords">@Coordinates(alert)</div>
+                                @if (!string.IsNullOrWhiteSpace(alert.Address))
+                                {
+                                    <div class="sos-address"><Icon Name="map-pin" /> @alert.Address</div>
+                                }
+                                <div class="sos-coords @(string.IsNullOrWhiteSpace(alert.Address) ? "" : "secondary")">@Coordinates(alert)</div>
                                 <button class="profile-btn" type="button" @onclick="() => CopyCoordinatesAsync(alert)">@if (_copiedAlertId == alert.AlertId) { <Icon Name="check" /> <text>Copied</text> } else { <text>Copy coordinates</text> }</button>
                             }
                             else
@@ -156,7 +164,7 @@ else
                                     <td>@alert.TaxiId</td>
                                     <td>@alert.Timestamp.ToPhilippineTime().ToString("MMM d, h:mm tt")</td>
                                     <td>@(alert.ResolvedAt?.ToPhilippineTime().ToString("MMM d, h:mm tt") ?? "–")</td>
-                                    <td>@(alert.HasLocation ? Coordinates(alert) : "unavailable")</td>
+                                    <td>@(alert.HasLocation ? (string.IsNullOrWhiteSpace(alert.Address) ? Coordinates(alert) : alert.Address) : "unavailable")</td>
                                     <td>
                                         <label class="sos-toggle" title="Untick to reopen this emergency">
                                             <input type="checkbox" checked="@alert.IsResolved" disabled="@(_busyAlertId == alert.AlertId)"

@@ -5,6 +5,9 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using LARGA.MobileApp.Services;
+using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Emergency;
+using LARGA.SharedCore.Services;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.ApplicationModel.Communication;
 using Microsoft.Maui.Controls;
@@ -37,6 +40,13 @@ public class AlertCenterViewModel : BindableObject
     private readonly HashSet<string> _hiddenIds = new();
 
     public ObservableCollection<AlertItem> Alerts { get; } = new();
+
+    /// <summary>Set when the manager opened the app from an SOS push (App.xaml.cs); the page
+    /// scrolls to that alert once it's in the list.</summary>
+    public static string? PendingFocusAlertId { get; set; }
+
+    /// <summary>Raised (main thread) with the alert to scroll to after PendingFocusAlertId lands.</summary>
+    public event EventHandler<AlertItem>? FocusRequested;
 
     // Same alerts as Alerts, newest first, sectioned by date for the CollectionView.
     public ObservableCollection<AlertGroup> AlertGroups { get; } = new();
@@ -127,17 +137,22 @@ public class AlertCenterViewModel : BindableObject
                     // 0/0 = the driver's phone had no GPS fix (EmergencyAlertService still sends
                     // the SOS). No coordinates then, so View Location stays a no-op.
                     bool hasLocation = doc.Data.Latitude != 0 || doc.Data.Longitude != 0;
+                    string? address = doc.Data.AddressSource == MapTilerGeocoder.SourceMapTiler && !string.IsNullOrWhiteSpace(doc.Data.Address)
+                        ? doc.Data.Address
+                        : null;
 
                     items.Add(new AlertItem
                     {
                         Id = doc.Reference.Id,
                         Type = AlertType.Sos,
+                        TriggerType = EmergencyTypes.Normalize(doc.Data.TriggerType),
+                        CallerVerified = doc.Data.CallerVerified,
+                        CallerVerificationReason = doc.Data.CallerVerificationReason,
                         DriverId = shift?.DriverId,
                         DriverName = BuildDriverLabel(driver, shift),
                         ChatDriverName = string.IsNullOrWhiteSpace(driver?.FullName) ? "Unknown Driver" : driver!.FullName,
-                        Subtitle = hasLocation
-                            ? $"Location: {doc.Data.Latitude:F5}, {doc.Data.Longitude:F5}"
-                            : "Location unavailable - call the driver",
+                        Address = address,
+                        Subtitle = SosLocationText(hasLocation, address, doc.Data.Latitude, doc.Data.Longitude),
                         SortTime = FirestoreDateTimeFix.Apply(doc.Data.Timestamp),
                         Timestamp = FormatAlertTime(FirestoreDateTimeFix.Apply(doc.Data.Timestamp)),
                         Latitude = hasLocation ? doc.Data.Latitude : null,
@@ -149,6 +164,13 @@ public class AlertCenterViewModel : BindableObject
                 _sosItems.Clear();
                 _sosItems.AddRange(items);
                 MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
+
+                // Alerts ManagerWeb hasn't geocoded yet (or that came in while it was down):
+                // look the address up here and redraw once it's known.
+                foreach (AlertItem item in items.Where(i => i.Address is null && i.Latitude is not null))
+                {
+                    _ = FillAddressAsync(item);
+                }
             });
 
         _fuelListener = CrossFirebaseFirestore.Current
@@ -286,13 +308,34 @@ public class AlertCenterViewModel : BindableObject
             });
     }
 
+    private static string SosLocationText(bool hasLocation, string? address, double latitude, double longitude)
+    {
+        if (!hasLocation) return "Location unavailable - call the driver";
+        string coordinates = MapTilerGeocoder.FormatCoordinates(latitude, longitude);
+        return address is null ? $"Location: {coordinates}" : $"{address}\n{coordinates}";
+    }
+
+    private async Task FillAddressAsync(AlertItem item)
+    {
+        string? address = await MapTilerGeocoding.Shared.ReverseGeocodeAsync(item.Latitude!.Value, item.Longitude!.Value);
+        if (address is null) return;
+
+        item.Address = address;
+        item.Subtitle = SosLocationText(true, address, item.Latitude.Value, item.Longitude.Value);
+        MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
+    }
+
     private void RefreshCombinedAlerts()
     {
         // Newest first across all alert types. GroupBy keeps that order, so each date section
-        // starts with its newest alert and the newest section comes first.
+        // starts with its newest alert and the newest section comes first. Within a day, SOS
+        // alerts lead, the most severe emergency type (Crash, Hostile, Standard) first.
         List<AlertItem> sorted = _sosItems.Concat(_fuelItems).Concat(_defectItems).Concat(_idleItems).Concat(_lowStockItems)
             .Where(item => !_hiddenIds.Contains(item.Id))
-            .OrderByDescending(item => item.SortTime)
+            .OrderByDescending(item => item.SortTime == DateTime.MinValue ? DateTime.MinValue : item.SortTime.ToLocalTime().Date)
+            .ThenByDescending(item => item.IsSos)
+            .ThenByDescending(item => item.IsSos ? EmergencyTypes.Severity(item.TriggerType) : 0)
+            .ThenByDescending(item => item.SortTime)
             .ToList();
 
         Alerts.Clear();
@@ -305,6 +348,18 @@ public class AlertCenterViewModel : BindableObject
         foreach (var group in sorted.GroupBy(item => SectionTitle(item.SortTime)))
         {
             AlertGroups.Add(new AlertGroup(group.Key, group));
+        }
+
+        ApplyPendingFocus();
+    }
+
+    /// <summary>Scrolls to the alert an SOS push was opened for, once it's in the list.</summary>
+    public void ApplyPendingFocus()
+    {
+        if (PendingFocusAlertId is string focusId && Alerts.FirstOrDefault(i => i.Id == focusId) is AlertItem focus)
+        {
+            PendingFocusAlertId = null;
+            FocusRequested?.Invoke(this, focus);
         }
     }
 
@@ -686,6 +741,21 @@ public class AlertCenterViewModel : BindableObject
 
         [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
         public DateTime Timestamp { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("triggerType")]
+        public string? TriggerType { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("address")]
+        public string? Address { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("addressSource")]
+        public string? AddressSource { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("callerVerified")]
+        public bool? CallerVerified { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("callerVerificationReason")]
+        public string? CallerVerificationReason { get; set; }
     }
 
     private class FuelLogProxy
@@ -819,6 +889,19 @@ public class AlertItem
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public string? PhoneNumber { get; set; }
+
+    // SOS only: "Standard", "Hostile" or "Crash" (emergency_alerts.triggerType), the street
+    // address (MapTiler) and the caller validation outcome (null = not checked yet).
+    public string TriggerType { get; set; } = string.Empty;
+    public string? Address { get; set; }
+    public bool? CallerVerified { get; set; }
+    public string? CallerVerificationReason { get; set; }
+
+    public string EmergencyLabel => EmergencyTypes.Label(TriggerType).ToUpperInvariant();
+    public bool IsHostileSos => IsSos && EmergencyTypes.Normalize(TriggerType) == EmergencyAlert.Hostile;
+    public bool IsCrashSos => IsSos && EmergencyTypes.Normalize(TriggerType) == EmergencyAlert.Crash;
+    public bool IsUnverifiedCaller => IsSos && CallerVerified == false;
+    public string UnverifiedText => $"Unverified caller: {CallerVerificationReason}";
 
     public bool IsSos => Type == AlertType.Sos;
     public bool IsFuelDiscrepancy => Type == AlertType.FuelDiscrepancy;

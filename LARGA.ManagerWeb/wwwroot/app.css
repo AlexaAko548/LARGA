@@ -4634,6 +4634,34 @@ color: var(--ink);
 margin: 0.2rem 0 0.4rem;
 }
 
+.sos-address {
+font-size: 1rem;
+font-weight: 700;
+color: var(--ink);
+margin: 0.25rem 0 0.1rem;
+line-height: 1.35;
+}
+
+.sos-coords.secondary {
+font-size: 0.8rem;
+font-weight: 600;
+color: var(--muted);
+}
+
+.sos-card.unverified {
+border-left-color: var(--muted, #8a8f98);
+opacity: 0.85;
+}
+
+.sos-unverified {
+font-size: 0.75rem;
+font-weight: 700;
+color: var(--muted, #6b7280);
+background: rgba(128,128,128,0.14);
+border-radius: 999px;
+padding: 0.15rem 0.6rem;
+}
+
 .sos-coords.unavailable {
 font-family: inherit;
 font-size: 0.85rem;

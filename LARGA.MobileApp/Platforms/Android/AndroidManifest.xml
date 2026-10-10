@@ -38,6 +38,8 @@
 	<uses-permission android:name="android.permission.VIBRATE" />
 	<uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
 	<uses-permission android:name="android.permission.READ_CALL_LOG" />
+	<!-- SOS caller validation: the SIM's own number is sent with each alert (DevicePhoneNumber). -->
+	<uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
 	<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 	<!-- Lets the 5-second SOS cancel pop-up appear over the lock screen (Android 14+: the driver
 	     enables "Full screen notifications" for the app once; the app prompts for it). -->

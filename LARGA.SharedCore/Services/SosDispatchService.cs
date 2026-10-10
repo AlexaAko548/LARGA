@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Emergency;
 using Microsoft.Extensions.Logging;
 
 namespace LARGA.SharedCore.Services;
@@ -20,6 +21,14 @@ public class SosAlertView
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public bool HasLocation { get; set; }
+
+    /// <summary>Street address from MapTiler reverse geocoding; null until it's been looked up
+    /// (or when the lookup failed - the coordinates are shown then).</summary>
+    public string? Address { get; set; }
+
+    /// <summary>SOS caller validation: true/false once checked, null while pending.</summary>
+    public bool? CallerVerified { get; set; }
+    public string? CallerVerificationReason { get; set; }
 
     public string ShiftId { get; set; } = string.Empty;
     public string DriverId { get; set; } = string.Empty;
@@ -43,25 +52,32 @@ public class SosDispatchService
     private static readonly TimeSpan RecentlyResolvedWindow = TimeSpan.FromHours(24);
 
     private readonly Lazy<FirestoreDb> _dbLazy;
+    private readonly MapTilerGeocoder _geocoder;
     private readonly ILogger<SosDispatchService> _logger;
 
     private FirestoreDb Db => _dbLazy.Value;
 
-    public SosDispatchService(Lazy<FirestoreDb> dbLazy, ILogger<SosDispatchService> logger)
+    public SosDispatchService(Lazy<FirestoreDb> dbLazy, MapTilerGeocoder geocoder, ILogger<SosDispatchService> logger)
     {
         _dbLazy = dbLazy;
+        _geocoder = geocoder;
         _logger = logger;
     }
 
-    /// <summary>How many SOS alerts are unresolved - one count aggregation, cheap enough for
-    /// the every-page SOS banner to poll.</summary>
+    /// <summary>How many SOS alerts are unresolved, leaving out ones whose caller failed
+    /// validation - count aggregations, cheap enough for the every-page SOS banner to poll.</summary>
     public async Task<int> GetActiveCountAsync()
     {
         AggregateQuerySnapshot count = await Db.Collection("emergency_alerts")
             .WhereEqualTo("isResolved", false)
             .Count()
             .GetSnapshotAsync();
-        return (int)(count.Count ?? 0);
+        AggregateQuerySnapshot unverified = await Db.Collection("emergency_alerts")
+            .WhereEqualTo("isResolved", false)
+            .WhereEqualTo("callerVerified", false)
+            .Count()
+            .GetSnapshotAsync();
+        return (int)Math.Max(0, (count.Count ?? 0) - (unverified.Count ?? 0));
     }
 
     /// <summary>Unresolved alerts (newest first) and those resolved in the last 24 hours.</summary>
@@ -124,7 +140,7 @@ public class SosDispatchService
     public async Task RaiseBellAlertsAsync()
     {
         (List<SosAlertView> active, _) = await GetAlertsAsync();
-        foreach (SosAlertView sos in active)
+        foreach (SosAlertView sos in active.Where(a => a.CallerVerified != false))
         {
             DocumentReference bell = Db.Collection("system_alerts").Document($"{sos.AlertId}_SOS");
             if ((await bell.GetSnapshotAsync()).Exists)
@@ -140,19 +156,17 @@ public class SosDispatchService
                 TaxiId = sos.TaxiId,
                 UnitLabel = sos.TaxiId,
                 ShiftId = sos.ShiftId,
-                Message = $"SOS ({TriggerLabel(sos.TriggerType)}) from {sos.DriverName} in {sos.TaxiId} - open SOS Dispatch.",
+                Message = $"SOS ({TriggerLabel(sos.TriggerType)}) from {sos.DriverName} in {sos.TaxiId}"
+                          + (string.IsNullOrWhiteSpace(sos.Address) ? string.Empty : $" near {sos.Address}")
+                          + " - open SOS Dispatch.",
                 Timestamp = DateTime.UtcNow,
                 IsRead = false,
             });
         }
     }
 
-    public static string TriggerLabel(string triggerType) => triggerType switch
-    {
-        EmergencyAlert.Hostile => "Hostile passenger / threat",
-        EmergencyAlert.Crash => "Crash / accident",
-        _ => "Emergency",
-    };
+    /// <summary>"Standard Breakdown", "Hostile Protocol" or "Crash Protocol".</summary>
+    public static string TriggerLabel(string? triggerType) => EmergencyTypes.Label(triggerType);
 
     private List<EmergencyAlert> Convert(QuerySnapshot snapshot)
     {
@@ -197,6 +211,14 @@ public class SosDispatchService
             .OfType<TaxiUnit>()
             .ToDictionary(t => t.TaxiId);
 
+        // Alerts from before SosPushService stored addresses (or whose lookup failed then) are
+        // geocoded here; the geocoder caches, so the 10-second page refresh doesn't re-query.
+        var addresses = new Dictionary<string, string?>();
+        foreach (EmergencyAlert a in alerts)
+        {
+            addresses[a.AlertId] = await ResolveAddressAsync(a);
+        }
+
         return alerts.Select(a =>
         {
             // The driver app (LAR-80) writes driverId/driverName and taxiUnit (the unit's plate as
@@ -217,6 +239,9 @@ public class SosDispatchService
                 Latitude = a.Latitude,
                 Longitude = a.Longitude,
                 HasLocation = a.Latitude != 0 || a.Longitude != 0,
+                Address = addresses.GetValueOrDefault(a.AlertId),
+                CallerVerified = a.CallerVerified,
+                CallerVerificationReason = a.CallerVerificationReason,
                 ShiftId = a.ShiftId,
                 DriverId = driverId,
                 DriverName = driver?.FullName ?? (string.IsNullOrWhiteSpace(a.DriverName) ? "Unknown driver" : a.DriverName),
@@ -226,5 +251,37 @@ public class SosDispatchService
                     : string.IsNullOrWhiteSpace(a.TaxiUnit) ? null : a.TaxiUnit,
             };
         }).ToList();
+    }
+
+    /// <summary>The alert's stored address, else a fresh MapTiler lookup (saved back to the
+    /// alert, so the manager app sees it too). Null when there's no address to show.</summary>
+    private async Task<string?> ResolveAddressAsync(EmergencyAlert alert)
+    {
+        if (alert.AddressSource == MapTilerGeocoder.SourceMapTiler && !string.IsNullOrWhiteSpace(alert.Address))
+        {
+            return alert.Address;
+        }
+        if (alert.Latitude == 0 && alert.Longitude == 0)
+        {
+            return null;
+        }
+
+        string? address = await _geocoder.ReverseGeocodeAsync(alert.Latitude, alert.Longitude);
+        if (address is not null && !alert.IsResolved)
+        {
+            try
+            {
+                await Db.Collection("emergency_alerts").Document(alert.AlertId).UpdateAsync(new Dictionary<string, object>
+                {
+                    ["address"] = address,
+                    ["addressSource"] = MapTilerGeocoder.SourceMapTiler,
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Couldn't save the address on emergency_alerts/{Id}", alert.AlertId);
+            }
+        }
+        return address;
     }
 }

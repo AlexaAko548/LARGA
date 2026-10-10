@@ -7,6 +7,8 @@ using FirebaseAdmin;
 using FirebaseAdmin.Auth;
 using FirebaseAdmin.Messaging;
 using Google.Cloud.Firestore;
+using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Emergency;
 using LARGA.SharedCore.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -28,6 +30,11 @@ namespace LARGA.ManagerWeb.Services;
 /// Recipients' tokens are users/{uid}.fcmToken, saved by the manager app's dashboard
 /// (NotificationService). Never throws out of the host - failures are logged and the listener
 /// is restarted.
+///
+/// Before pushing, each alert is reverse-geocoded (MapTiler) and its address stored on the
+/// alert, and its caller is validated (SosCallerVerificationService): an alert that didn't come
+/// from the driver assigned to that unit's active shift is marked callerVerified=false and not
+/// pushed - it still shows, flagged, on SOS Dispatch and in the manager app's Alert Center.
 /// </summary>
 public class SosPushService : BackgroundService
 {
@@ -47,12 +54,17 @@ public class SosPushService : BackgroundService
 
     private readonly Lazy<FirestoreDb> _db;
     private readonly Lazy<FirebaseAuth> _auth;
+    private readonly MapTilerGeocoder _geocoder;
+    private readonly SosCallerVerificationService _callerVerification;
     private readonly ILogger<SosPushService> _logger;
 
-    public SosPushService(Lazy<FirestoreDb> db, Lazy<FirebaseAuth> auth, ILogger<SosPushService> logger)
+    public SosPushService(Lazy<FirestoreDb> db, Lazy<FirebaseAuth> auth, MapTilerGeocoder geocoder,
+        SosCallerVerificationService callerVerification, ILogger<SosPushService> logger)
     {
         _db = db;
         _auth = auth;
+        _geocoder = geocoder;
+        _callerVerification = callerVerification;
         _logger = logger;
     }
 
@@ -133,9 +145,19 @@ public class SosPushService : BackgroundService
             return; // another listener pass (or instance) already handled it
         }
 
+        EmergencyAlert parsed = alert.ConvertTo<EmergencyAlert>();
+        string? address = await StoreAddressAsync(alert.Reference, parsed, token);
+        SosCallerValidator.Result caller = await VerifyCallerAsync(alert.Reference, parsed);
+
         if (tooOld)
         {
             _logger.LogInformation("emergency_alerts/{AlertId} is older than {MaxAge}; marked without a push.", alert.Id, MaxAlertAge);
+            return;
+        }
+
+        if (!caller.Verified)
+        {
+            _logger.LogWarning("SOS emergency_alerts/{AlertId} not pushed - unverified caller: {Reason}", alert.Id, caller.Reason);
             return;
         }
 
@@ -152,9 +174,11 @@ public class SosPushService : BackgroundService
         bool hasLocation = (alert.TryGetValue("latitude", out double lat) && lat != 0)
                            | (alert.TryGetValue("longitude", out double lng) && lng != 0);
 
-        string title = $"SOS - {SosDispatchService.TriggerLabel(triggerType)}";
+        string label = EmergencyTypes.Label(triggerType);
+        string title = $"SOS - {label}";
         string body = $"{driverName} ({taxiUnit}) needs help."
-                      + (hasLocation ? " Open LARGA for their location." : " Location unavailable - call the driver.");
+                      + (!string.IsNullOrWhiteSpace(address) ? $" Near {address}."
+                         : hasLocation ? " Open LARGA for their location." : " Location unavailable - call the driver.");
 
         _ = _auth.Value; // creates the shared FirebaseApp on first use
         FirebaseMessaging messaging = FirebaseMessaging.GetMessaging(FirebaseApp.GetInstance(FirebaseAppName));
@@ -172,7 +196,9 @@ public class SosPushService : BackgroundService
             {
                 ["type"] = PushType,
                 ["alertId"] = alert.Id,
-                ["triggerType"] = triggerType,
+                ["triggerType"] = EmergencyTypes.Normalize(triggerType),
+                ["emergencyLabel"] = label,
+                ["address"] = address ?? string.Empty,
             },
             Android = new AndroidConfig
             {
@@ -189,6 +215,49 @@ public class SosPushService : BackgroundService
             {
                 _logger.LogWarning(failed.Exception, "SOS push to one manager device failed (stale token?)");
             }
+        }
+    }
+
+    /// <summary>Reverse-geocodes the alert's position and stores it as emergency_alerts.address
+    /// (only ManagerWeb's Admin SDK may update alerts besides a Manager). Returns the address, or
+    /// null when there's no location or MapTiler couldn't be reached.</summary>
+    private async Task<string?> StoreAddressAsync(DocumentReference alertRef, EmergencyAlert alert, CancellationToken token)
+    {
+        if (!string.IsNullOrWhiteSpace(alert.Address) || (alert.Latitude == 0 && alert.Longitude == 0))
+        {
+            return string.IsNullOrWhiteSpace(alert.Address) ? null : alert.Address;
+        }
+
+        try
+        {
+            string? address = await _geocoder.ReverseGeocodeAsync(alert.Latitude, alert.Longitude, token);
+            await alertRef.UpdateAsync(new Dictionary<string, object>
+            {
+                ["address"] = address ?? MapTilerGeocoder.FormatCoordinates(alert.Latitude, alert.Longitude),
+                ["addressSource"] = address is null ? MapTilerGeocoder.SourceCoordinates : MapTilerGeocoder.SourceMapTiler,
+            }, cancellationToken: token);
+            return address;
+        }
+        catch (Exception ex) when (!token.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Reverse geocoding emergency_alerts/{AlertId} failed", alertRef.Id);
+            return null;
+        }
+    }
+
+    /// <summary>Runs the SOS caller validation and stores the outcome on the alert. A lookup
+    /// failure (Firestore unreachable) counts as verified, so a genuine SOS is never held back by
+    /// an outage - only a positive mismatch suppresses the push.</summary>
+    private async Task<SosCallerValidator.Result> VerifyCallerAsync(DocumentReference alertRef, EmergencyAlert alert)
+    {
+        try
+        {
+            return await _callerVerification.VerifyAndStoreAsync(alertRef, alert);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Caller validation for emergency_alerts/{AlertId} failed; pushing anyway", alertRef.Id);
+            return new SosCallerValidator.Result(true, "Not checked (lookup failed).");
         }
     }
 

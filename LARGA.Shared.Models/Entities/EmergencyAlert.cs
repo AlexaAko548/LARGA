@@ -45,4 +45,31 @@ public class EmergencyAlert
 
     [FirestoreProperty("resolvedAt")]
     public DateTime? ResolvedAt { get; set; }
+
+    // Reverse-geocoded street address of latitude/longitude (MapTiler), written once by
+    // ManagerWeb's SosPushService; addressSource is "maptiler" or "coords" (lookup failed).
+    [FirestoreProperty("address")]
+    public string? Address { get; set; }
+
+    [FirestoreProperty("addressSource")]
+    public string? AddressSource { get; set; }
+
+    // SOS caller validation. The driver app sends the taxi ID, the driver's registered phone
+    // (callerPhone) and, when Android exposes it, the SIM's own number (devicePhone).
+    // SosPushService checks them against the unit's active shift and the driver's profile and
+    // writes callerVerified / callerVerificationReason (null = not checked yet).
+    [FirestoreProperty("taxiId")]
+    public string? TaxiId { get; set; }
+
+    [FirestoreProperty("callerPhone")]
+    public string? CallerPhone { get; set; }
+
+    [FirestoreProperty("devicePhone")]
+    public string? DevicePhone { get; set; }
+
+    [FirestoreProperty("callerVerified")]
+    public bool? CallerVerified { get; set; }
+
+    [FirestoreProperty("callerVerificationReason")]
+    public string? CallerVerificationReason { get; set; }
 }
