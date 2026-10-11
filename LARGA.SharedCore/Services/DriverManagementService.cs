@@ -339,13 +339,15 @@ public class DriverManagementService
     /// <summary>Server-side backstop for the same rule the Schedule Planner UI enforces by
     /// disabling the cell - looked up fresh rather than trusting a value the caller might pass
     /// in, since this is a real business rule (an unlicensed/soon-to-be-unlicensed driver must
-    /// never be scheduled), not just a UI convenience.</summary>
-    private async Task EnsureLicenseEligibleOnAsync(string driverId, DateTime date)
+    /// never be scheduled), not just a UI convenience. Returns the driver's display name
+    /// (falling back to their id) so callers can reuse this lookup for an audit log entry
+    /// instead of fetching the profile a second time.</summary>
+    private async Task<string> EnsureLicenseEligibleOnAsync(string driverId, DateTime date)
     {
         DocumentSnapshot doc = await Db.Collection("users").Document(driverId).GetSnapshotAsync();
         if (!doc.Exists)
         {
-            return;
+            return driverId;
         }
 
         UserProfile profile = doc.ConvertTo<UserProfile>();
@@ -357,13 +359,14 @@ public class DriverManagementService
         {
             throw new InvalidOperationException("This driver's license is expired or within one month of expiring on this date - they cannot be scheduled.");
         }
+        return string.IsNullOrWhiteSpace(profile.FullName) ? driverId : profile.FullName;
     }
 
     /// <summary>Marks this driver off for this day - the one exception a manager actually
     /// needs to set, since every day otherwise defaults to working.</summary>
-    public async Task MarkDayOffAsync(string driverId, DateTime dateUtc)
+    public async Task MarkDayOffAsync(string driverId, DateTime dateUtc, string? actorUserId = null)
     {
-        await EnsureLicenseEligibleOnAsync(driverId, dateUtc);
+        string driverName = await EnsureLicenseEligibleOnAsync(driverId, dateUtc);
 
         var schedule = new ShiftSchedule
         {
@@ -372,16 +375,26 @@ public class DriverManagementService
             ScheduledStartTime = DateTime.SpecifyKind(dateUtc.Date, DateTimeKind.Utc),
             Status = "DayOff",
         };
-        await Db.Collection("shift_schedules").Document(ScheduleDocId(driverId, dateUtc)).SetAsync(schedule, SetOptions.Overwrite);
+
+        WriteBatch batch = Db.StartBatch();
+        batch.Set(Db.Collection("shift_schedules").Document(ScheduleDocId(driverId, dateUtc)), schedule, SetOptions.Overwrite);
+        batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+        {
+            UserId = actorUserId ?? string.Empty,
+            ActionType = "DriverMarkedDayOff",
+            AuditLogDetails = $"Marked {driverName} as off on {dateUtc:yyyy-MM-dd}.",
+            Timestamp = DateTime.UtcNow,
+        });
+        await batch.CommitAsync();
     }
 
     /// <summary>Gives the driver a temporary unit for this one day because their own is under
     /// maintenance. Checked server-side against a fresh schedule, not just the page's
     /// dropdown: the driver's unit must really be in the shop that day, and the substitute
     /// must be free (not under maintenance, not driven by anyone else).</summary>
-    public async Task AssignSubstituteAsync(string driverId, DateTime dateUtc, string taxiId)
+    public async Task AssignSubstituteAsync(string driverId, DateTime dateUtc, string taxiId, string? actorUserId = null)
     {
-        await EnsureLicenseEligibleOnAsync(driverId, dateUtc);
+        string driverName = await EnsureLicenseEligibleOnAsync(driverId, dateUtc);
 
         WeekSchedule week = await GetWeekScheduleAsync(dateUtc);
         int dayIndex = (dateUtc.Date - week.WeekStart.Date).Days;
@@ -405,16 +418,35 @@ public class DriverManagementService
             ScheduledStartTime = DateTime.SpecifyKind(dateUtc.Date, DateTimeKind.Utc),
             Status = "Substitute",
         };
-        await Db.Collection("shift_schedules").Document(ScheduleDocId(driverId, dateUtc)).SetAsync(schedule, SetOptions.Overwrite);
+
+        WriteBatch batch = Db.StartBatch();
+        batch.Set(Db.Collection("shift_schedules").Document(ScheduleDocId(driverId, dateUtc)), schedule, SetOptions.Overwrite);
+        batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+        {
+            UserId = actorUserId ?? string.Empty,
+            ActionType = "SubstituteUnitAssigned",
+            AuditLogDetails = $"Assigned {taxiId} as a substitute unit for {driverName} on {dateUtc:yyyy-MM-dd}.",
+            Timestamp = DateTime.UtcNow,
+        });
+        await batch.CommitAsync();
     }
 
     /// <summary>Removes this day's exception (day off or substitute), reverting the cell
     /// back to its default: working, with the driver's permanently assigned unit.</summary>
-    public async Task ClearScheduleAsync(string driverId, DateTime dateUtc)
+    public async Task ClearScheduleAsync(string driverId, DateTime dateUtc, string? actorUserId = null)
     {
-        await EnsureLicenseEligibleOnAsync(driverId, dateUtc);
+        string driverName = await EnsureLicenseEligibleOnAsync(driverId, dateUtc);
 
-        await Db.Collection("shift_schedules").Document(ScheduleDocId(driverId, dateUtc)).DeleteAsync();
+        WriteBatch batch = Db.StartBatch();
+        batch.Delete(Db.Collection("shift_schedules").Document(ScheduleDocId(driverId, dateUtc)));
+        batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+        {
+            UserId = actorUserId ?? string.Empty,
+            ActionType = "DriverScheduleCleared",
+            AuditLogDetails = $"Cleared the schedule exception for {driverName} on {dateUtc:yyyy-MM-dd}.",
+            Timestamp = DateTime.UtcNow,
+        });
+        await batch.CommitAsync();
     }
 
     // ---------------------------------------------------------------------
@@ -704,7 +736,8 @@ public class DriverManagementService
         DateTime? licenseExpiryDate,
         string? assignedTaxiId,
         string? ltoIdPhotoUrl = null,
-        string? profileImageUrl = null)
+        string? profileImageUrl = null,
+        string? actorUserId = null)
     {
         // Same rules the Edit Details form checks (InputValidator) - refused here too so nothing
         // malformed is ever stored. Phone and license number are saved in one standard format.
@@ -774,7 +807,16 @@ public class DriverManagementService
             previous = snapshot.Exists ? snapshot.ConvertTo<UserProfile>() : null;
         }
 
-        await userRef.UpdateAsync(updates);
+        WriteBatch batch = Db.StartBatch();
+        batch.Update(userRef, updates);
+        batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+        {
+            UserId = actorUserId ?? string.Empty,
+            ActionType = "DriverProfileUpdated",
+            AuditLogDetails = $"Updated profile details for driver {driverId}.",
+            Timestamp = DateTime.UtcNow,
+        });
+        await batch.CommitAsync();
 
         if (previous is not null)
         {
@@ -812,14 +854,23 @@ public class DriverManagementService
     public Task<string> UploadProfileFaceAsync(string driverId, byte[] face) =>
         _storageLazy.Value.UploadImageAsync($"lto_ids/{driverId}", face, "image/jpeg", namePrefix: "face_");
 
-    public async Task SetManagerNoteAsync(string driverId, string note)
+    public async Task SetManagerNoteAsync(string driverId, string note, string? actorUserId = null)
     {
         if (InputValidator.ValidateText(note, "the note", 500) is string error)
         {
             throw new ArgumentException(error);
         }
 
-        await Db.Collection("users").Document(driverId).UpdateAsync("managerNote", note);
+        WriteBatch batch = Db.StartBatch();
+        batch.Update(Db.Collection("users").Document(driverId), new Dictionary<string, object> { ["managerNote"] = note });
+        batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+        {
+            UserId = actorUserId ?? string.Empty,
+            ActionType = "DriverManagerNoteUpdated",
+            AuditLogDetails = $"Updated the manager note for driver {driverId}.",
+            Timestamp = DateTime.UtcNow,
+        });
+        await batch.CommitAsync();
     }
 
     // ---------------------------------------------------------------------
@@ -958,7 +1009,7 @@ public class DriverManagementService
         };
     }
 
-    public async Task<ResetPasswordResult> ResetDriverPasswordAsync(string driverId, string? newPassword)
+    public async Task<ResetPasswordResult> ResetDriverPasswordAsync(string driverId, string? newPassword, string? actorUserId = null)
     {
         if (InputValidator.ValidatePassword(newPassword, required: false) is string passwordError)
         {
@@ -969,7 +1020,18 @@ public class DriverManagementService
         try
         {
             await Auth.UpdateUserAsync(new UserRecordArgs { Uid = driverId, Password = password });
-            await Db.Collection("users").Document(driverId).UpdateAsync("mustChangePassword", true);
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Update(Db.Collection("users").Document(driverId), new Dictionary<string, object> { ["mustChangePassword"] = true });
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "DriverPasswordReset",
+                AuditLogDetails = $"Reset the mobile app password for driver {driverId}.",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
+
             return new ResetPasswordResult { Ok = true, NewPassword = password };
         }
         catch (Exception ex)
@@ -984,7 +1046,7 @@ public class DriverManagementService
     /// address (see GenerateDriverEmail), which can't receive the mobile app's Forgot Password
     /// email; switching to the driver's real address makes that flow work. Their password
     /// doesn't change.</summary>
-    public async Task<ResetPasswordResult> UpdateDriverLoginEmailAsync(string driverId, string newEmail)
+    public async Task<ResetPasswordResult> UpdateDriverLoginEmailAsync(string driverId, string newEmail, string? actorUserId = null)
     {
         string email = (newEmail ?? string.Empty).Trim().ToLowerInvariant();
         if (!IsValidEmail(email))
@@ -1010,7 +1072,16 @@ public class DriverManagementService
             // profile keeps showing the old email and Save looks like it did nothing.
             try
             {
-                await Db.Collection("users").Document(driverId).UpdateAsync("email", email);
+                WriteBatch syncBatch = Db.StartBatch();
+                syncBatch.Update(Db.Collection("users").Document(driverId), new Dictionary<string, object> { ["email"] = email });
+                syncBatch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+                {
+                    UserId = actorUserId ?? string.Empty,
+                    ActionType = "DriverLoginEmailUpdated",
+                    AuditLogDetails = $"Synced the profile email to match the login email for driver {driverId}.",
+                    Timestamp = DateTime.UtcNow,
+                });
+                await syncBatch.CommitAsync();
             }
             catch (Exception ex)
             {
@@ -1037,7 +1108,16 @@ public class DriverManagementService
 
         try
         {
-            await Db.Collection("users").Document(driverId).UpdateAsync("email", email);
+            WriteBatch batch = Db.StartBatch();
+            batch.Update(Db.Collection("users").Document(driverId), new Dictionary<string, object> { ["email"] = email });
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "DriverLoginEmailUpdated",
+                AuditLogDetails = $"Changed the mobile app login email for driver {driverId} to {email}.",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
         }
         catch (Exception ex)
         {

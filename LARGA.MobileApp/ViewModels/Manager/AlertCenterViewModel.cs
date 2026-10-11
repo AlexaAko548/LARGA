@@ -656,6 +656,8 @@ public class AlertCenterViewModel : BindableObject
                 ["verificationStatus"] = "Verified",
                 ["fuelLogDetails"] = combined,
             });
+            AuditLogWriter.Record("FuelFlagResolved",
+                $"Resolved the flag on shift {snapshot?.Data?.ShiftId ?? "unknown"}'s fuel submission: {note}");
         }
         catch (Exception ex)
         {

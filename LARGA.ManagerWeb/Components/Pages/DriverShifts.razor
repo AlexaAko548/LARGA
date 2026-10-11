@@ -1224,7 +1224,7 @@ else
         _clockInError = null;
         try
         {
-            ClockInDecisionResult result = await ClockInApprovals.ApproveAsync(item.RequestId, null);
+            ClockInDecisionResult result = await ClockInApprovals.ApproveAsync(item.RequestId, null, _managerUserId);
             if (!result.Ok)
             {
                 _clockInError = result.ErrorMessage;
@@ -1259,7 +1259,7 @@ else
         _clockInError = null;
         try
         {
-            ClockInDecisionResult result = await ClockInApprovals.DenyAsync(_denyClockIn.RequestId, _denyNote, _denyMarkUnderMaintenance);
+            ClockInDecisionResult result = await ClockInApprovals.DenyAsync(_denyClockIn.RequestId, _denyNote, _denyMarkUnderMaintenance, _managerUserId);
             if (!result.Ok)
             {
                 _clockInError = result.ErrorMessage;
@@ -1504,13 +1504,13 @@ else
     private Task AssignSubstituteAsync() => RunSubstituteActionAsync(() =>
         string.IsNullOrEmpty(_subSelected)
             ? throw new InvalidOperationException("Pick a unit first.")
-            : DriverManagement.AssignSubstituteAsync(_subRow!.DriverId, _subCell!.Date, _subSelected));
+            : DriverManagement.AssignSubstituteAsync(_subRow!.DriverId, _subCell!.Date, _subSelected, _managerUserId));
 
     private Task RemoveSubstituteAsync() => RunSubstituteActionAsync(() =>
-        DriverManagement.ClearScheduleAsync(_subRow!.DriverId, _subCell!.Date));
+        DriverManagement.ClearScheduleAsync(_subRow!.DriverId, _subCell!.Date, _managerUserId));
 
     private Task SubstituteDayOffAsync() => RunSubstituteActionAsync(() =>
-        DriverManagement.MarkDayOffAsync(_subRow!.DriverId, _subCell!.Date));
+        DriverManagement.MarkDayOffAsync(_subRow!.DriverId, _subCell!.Date, _managerUserId));
 
     private async Task ToggleDayOffAsync(string driverId, DateTime date, bool wasDayOff)
     {
@@ -1518,11 +1518,11 @@ else
         {
             if (wasDayOff)
             {
-                await DriverManagement.ClearScheduleAsync(driverId, date);
+                await DriverManagement.ClearScheduleAsync(driverId, date, _managerUserId);
             }
             else
             {
-                await DriverManagement.MarkDayOffAsync(driverId, date);
+                await DriverManagement.MarkDayOffAsync(driverId, date, _managerUserId);
             }
             await ReloadCurrentWeekAsync();
         }
@@ -1674,7 +1674,7 @@ else
 
         try
         {
-            await DriverManagement.SetManagerNoteAsync(_managerNoteDriverId, _managerNoteText.Trim());
+            await DriverManagement.SetManagerNoteAsync(_managerNoteDriverId, _managerNoteText.Trim(), _managerUserId);
             _showManagerNoteModal = false;
         }
         catch (Exception ex)
@@ -1945,7 +1945,7 @@ else
             // address belongs to another account), and nothing else should be saved if it is.
             if (!string.Equals(_editEmail.Trim(), _selectedProfile.Email, StringComparison.OrdinalIgnoreCase))
             {
-                ResetPasswordResult emailResult = await DriverManagement.UpdateDriverLoginEmailAsync(_selectedProfile.DriverId, _editEmail);
+                ResetPasswordResult emailResult = await DriverManagement.UpdateDriverLoginEmailAsync(_selectedProfile.DriverId, _editEmail, _managerUserId);
                 if (!emailResult.Ok)
                 {
                     _profileError = emailResult.ErrorMessage;
@@ -1978,7 +1978,8 @@ else
                 _editLicenseExpiry,
                 _editAssignedTaxi,
                 ltoIdPhotoUrl,
-                profileImageUrl);
+                profileImageUrl,
+                _managerUserId);
 
             ResetLicenseScan();
             _isEditingProfile = false;
@@ -2022,7 +2023,8 @@ else
         {
             _lastResetPassword = await DriverManagement.ResetDriverPasswordAsync(
                 _selectedProfile.DriverId,
-                string.IsNullOrWhiteSpace(_newPasswordInput) ? null : _newPasswordInput);
+                string.IsNullOrWhiteSpace(_newPasswordInput) ? null : _newPasswordInput,
+                _managerUserId);
             if (!_lastResetPassword.Ok)
             {
                 _profileError = _lastResetPassword.ErrorMessage;

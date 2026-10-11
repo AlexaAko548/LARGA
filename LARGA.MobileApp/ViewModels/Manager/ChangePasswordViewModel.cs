@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using LARGA.MobileApp.Services;
 using Microsoft.Maui.Controls;
 using Plugin.Firebase.Auth;
 
@@ -84,6 +85,7 @@ public class ChangePasswordViewModel : BindableObject
             // and also doubles as verifying the current password is actually correct.
             await CrossFirebaseAuth.Current.SignInWithEmailAndPasswordAsync(email, CurrentPassword);
             await CrossFirebaseAuth.Current.CurrentUser.UpdatePasswordAsync(NewPassword);
+            AuditLogWriter.Record("ManagerPasswordChanged", "Changed their own mobile app password.");
 
             CurrentPassword = string.Empty;
             NewPassword = string.Empty;

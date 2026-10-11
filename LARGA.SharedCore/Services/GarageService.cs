@@ -187,12 +187,27 @@ public class GarageService
             .ToList();
     }
 
-    public async Task<GarageActionResult> DismissReportAsync(string maintenanceId)
+    public async Task<GarageActionResult> DismissReportAsync(string maintenanceId, string? actorUserId = null)
     {
         try
         {
             DocumentReference docRef = Db.Collection("maintenance_logs").Document(maintenanceId);
-            await docRef.UpdateAsync("status", "Dismissed");
+            DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
+            string taxiId = snapshot.Exists && snapshot.TryGetValue("taxiId", out string? id) ? id : "unknown unit";
+            string issueTitle = snapshot.Exists && snapshot.TryGetValue("issueTitle", out string? title) ? title : "report";
+
+            // The status change and its audit entry commit together, so a dismiss can't land unlogged.
+            WriteBatch batch = Db.StartBatch();
+            batch.Update(docRef, new Dictionary<string, object> { ["status"] = "Dismissed" });
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "MaintenanceDismissed",
+                AuditLogDetails = $"Dismissed maintenance report \"{issueTitle}\" for {taxiId}.",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
+
             await ReturnUnitToServiceIfDoneAsync(docRef);
             return new GarageActionResult { Ok = true };
         }
@@ -206,7 +221,7 @@ public class GarageService
     /// <summary>Turns a pending driver report into a work order booked for <paramref name="shopDate"/>
     /// (a calendar date as midnight UTC, like the date inputs give). Today goes straight into
     /// the shop (In Progress); a later day waits under Upcoming Work Orders (Scheduled).</summary>
-    public async Task<GarageActionResult> CreateTicketAsync(string maintenanceId, PriorityLevel priority, string mechanicInstructions, DateTime shopDate, DateTime? estimatedCompletionDate)
+    public async Task<GarageActionResult> CreateTicketAsync(string maintenanceId, PriorityLevel priority, string mechanicInstructions, DateTime shopDate, DateTime? estimatedCompletionDate, string? actorUserId = null)
     {
         DateTime todayPh = PhilippineTime.Now.Date;
         if (shopDate.Date < todayPh)
@@ -220,6 +235,11 @@ public class GarageService
 
         try
         {
+            DocumentReference docRef = Db.Collection("maintenance_logs").Document(maintenanceId);
+            DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
+            string taxiId = snapshot.Exists && snapshot.TryGetValue("taxiId", out string? id) ? id : "unknown unit";
+            string issueTitle = snapshot.Exists && snapshot.TryGetValue("issueTitle", out string? title) ? title : "report";
+
             bool startsToday = shopDate.Date == todayPh;
             var updates = new Dictionary<string, object>
             {
@@ -232,7 +252,17 @@ public class GarageService
             {
                 updates["estimatedCompletionDate"] = estimatedCompletionDate.Value;
             }
-            await Db.Collection("maintenance_logs").Document(maintenanceId).UpdateAsync(updates);
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Update(docRef, updates);
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "MaintenanceTicketCreated",
+                AuditLogDetails = $"Created a {priority} work order ticket for \"{issueTitle}\" on {taxiId}, shop day {shopDate:yyyy-MM-dd}.",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
             return new GarageActionResult { Ok = true };
         }
         catch (Exception ex)
@@ -243,15 +273,28 @@ public class GarageService
     }
 
     /// <summary>Brings a Scheduled ticket into the shop today instead of on its booked day.</summary>
-    public async Task<GarageActionResult> StartScheduledNowAsync(string maintenanceId)
+    public async Task<GarageActionResult> StartScheduledNowAsync(string maintenanceId, string? actorUserId = null)
     {
         try
         {
-            await Db.Collection("maintenance_logs").Document(maintenanceId).UpdateAsync(new Dictionary<string, object>
+            DocumentReference docRef = Db.Collection("maintenance_logs").Document(maintenanceId);
+            DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
+            string taxiId = snapshot.Exists && snapshot.TryGetValue("taxiId", out string? id) ? id : "unknown unit";
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Update(docRef, new Dictionary<string, object>
             {
                 ["status"] = WorkOrderRules.InProgress,
                 ["scheduledDate"] = DateTime.SpecifyKind(PhilippineTime.Now.Date, DateTimeKind.Utc),
             });
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "MaintenanceStartedEarly",
+                AuditLogDetails = $"Brought {taxiId}'s scheduled work order into the shop today instead of its booked day.",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
             return new GarageActionResult { Ok = true };
         }
         catch (Exception ex)
@@ -265,7 +308,7 @@ public class GarageService
     /// rebooked or dismissed. A routine-check job (no driver report behind it) goes back to Upcoming
     /// Routine Checks - ScheduleRoutineCheckAsync deleted the check when booking it, so it's
     /// recreated, due on the day it was booked for - and the job itself is dismissed.</summary>
-    public async Task<GarageActionResult> UnscheduleAsync(string maintenanceId)
+    public async Task<GarageActionResult> UnscheduleAsync(string maintenanceId, string? actorUserId = null)
     {
         try
         {
@@ -283,9 +326,11 @@ public class GarageService
             }
 
             bool fromDriverReport = !string.IsNullOrWhiteSpace(record.ReportedByDriverId);
+
+            WriteBatch batch = Db.StartBatch();
             if (!fromDriverReport && record.MaintenanceType == MaintenanceType.RoutineCheckup)
             {
-                await Db.Collection("routine_checks").AddAsync(new RoutineCheckItem
+                batch.Create(Db.Collection("routine_checks").Document(), new RoutineCheckItem
                 {
                     TaxiId = record.TaxiId,
                     CheckName = record.IssueTitle,
@@ -293,12 +338,20 @@ public class GarageService
                 });
             }
 
-            await docRef.UpdateAsync(new Dictionary<string, object>
+            batch.Update(docRef, new Dictionary<string, object>
             {
                 ["status"] = fromDriverReport ? WorkOrderRules.Reported : "Dismissed",
                 ["scheduledDate"] = FieldValue.Delete,
                 ["estimatedCompletionDate"] = FieldValue.Delete,
             });
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "MaintenanceUnscheduled",
+                AuditLogDetails = $"Unscheduled the booked work order for \"{record.IssueTitle}\" on {record.TaxiId}.",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
             return new GarageActionResult { Ok = true };
         }
         catch (Exception ex)
@@ -308,17 +361,32 @@ public class GarageService
         }
     }
 
-    public async Task<GarageActionResult> MarkResolvedAsync(string maintenanceId)
+    public async Task<GarageActionResult> MarkResolvedAsync(string maintenanceId, string? actorUserId = null)
     {
         try
         {
+            DocumentReference docRef = Db.Collection("maintenance_logs").Document(maintenanceId);
+            DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
+            string taxiId = snapshot.Exists && snapshot.TryGetValue("taxiId", out string? id) ? id : "unknown unit";
+            string issueTitle = snapshot.Exists && snapshot.TryGetValue("issueTitle", out string? title) ? title : "work order";
+
             var updates = new Dictionary<string, object>
             {
                 ["status"] = "Resolved",
                 ["dateResolved"] = DateTime.UtcNow,
             };
-            DocumentReference docRef = Db.Collection("maintenance_logs").Document(maintenanceId);
-            await docRef.UpdateAsync(updates);
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Update(docRef, updates);
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "MaintenanceResolved",
+                AuditLogDetails = $"Marked \"{issueTitle}\" resolved for {taxiId}.",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
+
             await ReturnUnitToServiceIfDoneAsync(docRef);
             return new GarageActionResult { Ok = true };
         }
@@ -394,7 +462,7 @@ public class GarageService
     /// <summary>Turns an upcoming routine check straight into a work order booked for that day
     /// (skipping the driver-report stage, since it's manager/system-initiated) and removes it
     /// from the routine-check list. A one-day job: it's expected done the same day.</summary>
-    public async Task<GarageActionResult> ScheduleRoutineCheckAsync(string checkId, DateTime scheduledDate)
+    public async Task<GarageActionResult> ScheduleRoutineCheckAsync(string checkId, DateTime scheduledDate, string? actorUserId = null)
     {
         try
         {
@@ -417,8 +485,18 @@ public class GarageService
                 ScheduledDate = DateTime.SpecifyKind(scheduledDate.Date, DateTimeKind.Utc),
                 EstimatedCompletionDate = scheduledDate,
             };
-            await Db.Collection("maintenance_logs").AddAsync(record);
-            await Db.Collection("routine_checks").Document(checkId).DeleteAsync();
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Create(Db.Collection("maintenance_logs").Document(), record);
+            batch.Delete(Db.Collection("routine_checks").Document(checkId));
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "RoutineCheckScheduled",
+                AuditLogDetails = $"Scheduled routine check \"{check.CheckName}\" for {check.TaxiId} on {scheduledDate:yyyy-MM-dd}.",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
 
             return new GarageActionResult { Ok = true };
         }

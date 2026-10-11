@@ -274,16 +274,30 @@ public class FuelVerificationService
 
     private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
 
-    public async Task<FuelActionResult> VerifyAsync(string fuelId)
+    public async Task<FuelActionResult> VerifyAsync(string fuelId, string? actorUserId = null)
     {
         try
         {
+            DocumentReference docRef = Db.Collection("fuel_logs").Document(fuelId);
+            DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
+            string shiftId = snapshot.Exists && snapshot.TryGetValue("shiftId", out string? sid) ? sid : "unknown shift";
+
             var updates = new Dictionary<string, object>
             {
                 ["verificationStatus"] = new FuelVerificationStatusConverter().ToFirestore(FuelVerificationStatus.Verified),
                 ["verifiedAt"] = DateTime.UtcNow,
             };
-            await Db.Collection("fuel_logs").Document(fuelId).UpdateAsync(updates);
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Update(docRef, updates);
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "FuelVerified",
+                AuditLogDetails = $"Verified the fuel submission for shift {shiftId}.",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
             return new FuelActionResult { Ok = true };
         }
         catch (Exception ex)
@@ -293,10 +307,14 @@ public class FuelVerificationService
         }
     }
 
-    public async Task<FuelActionResult> FlagAsync(string fuelId, string? reason)
+    public async Task<FuelActionResult> FlagAsync(string fuelId, string? reason, string? actorUserId = null)
     {
         try
         {
+            DocumentReference docRef = Db.Collection("fuel_logs").Document(fuelId);
+            DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
+            string shiftId = snapshot.Exists && snapshot.TryGetValue("shiftId", out string? sid) ? sid : "unknown shift";
+
             var updates = new Dictionary<string, object>
             {
                 ["verificationStatus"] = new FuelVerificationStatusConverter().ToFirestore(FuelVerificationStatus.Flagged),
@@ -306,7 +324,19 @@ public class FuelVerificationService
             {
                 updates["fuelLogDetails"] = reason;
             }
-            await Db.Collection("fuel_logs").Document(fuelId).UpdateAsync(updates);
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Update(docRef, updates);
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "FuelFlagged",
+                AuditLogDetails = string.IsNullOrWhiteSpace(reason)
+                    ? $"Flagged the fuel submission for shift {shiftId}."
+                    : $"Flagged the fuel submission for shift {shiftId}: {reason}",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
             return new FuelActionResult { Ok = true };
         }
         catch (Exception ex)
@@ -321,12 +351,14 @@ public class FuelVerificationService
     /// trail, and moves it to Verified - it's been looked at and dealt with, not still an
     /// open question, so it belongs in the Verified queue rather than staying Flagged or
     /// going back to unreviewed Pending.</summary>
-    public async Task<FuelActionResult> ResolveFlagAsync(string fuelId, string resolutionNote)
+    public async Task<FuelActionResult> ResolveFlagAsync(string fuelId, string resolutionNote, string? actorUserId = null)
     {
         try
         {
-            DocumentSnapshot snapshot = await Db.Collection("fuel_logs").Document(fuelId).GetSnapshotAsync();
-            string existingReason = snapshot.Exists ? snapshot.ConvertTo<FuelLog>().FuelLogDetails ?? string.Empty : string.Empty;
+            DocumentReference docRef = Db.Collection("fuel_logs").Document(fuelId);
+            DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
+            FuelLog record = snapshot.Exists ? snapshot.ConvertTo<FuelLog>() : new FuelLog();
+            string existingReason = record.FuelLogDetails ?? string.Empty;
 
             string combinedNote = string.IsNullOrWhiteSpace(existingReason)
                 ? $"Resolved: {resolutionNote}"
@@ -338,7 +370,17 @@ public class FuelVerificationService
                 ["fuelLogDetails"] = combinedNote,
                 ["verifiedAt"] = DateTime.UtcNow,
             };
-            await Db.Collection("fuel_logs").Document(fuelId).UpdateAsync(updates);
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Update(docRef, updates);
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "FuelFlagResolved",
+                AuditLogDetails = $"Resolved the flag on shift {record.ShiftId}'s fuel submission: {resolutionNote}",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
             return new FuelActionResult { Ok = true };
         }
         catch (Exception ex)
@@ -350,12 +392,27 @@ public class FuelVerificationService
 
     /// <summary>Resets a Verified/Flagged submission back to Pending, in case a manager
     /// acted on it by mistake.</summary>
-    public async Task<FuelActionResult> ResetToPendingAsync(string fuelId)
+    public async Task<FuelActionResult> ResetToPendingAsync(string fuelId, string? actorUserId = null)
     {
         try
         {
-            await Db.Collection("fuel_logs").Document(fuelId)
-                .UpdateAsync("verificationStatus", new FuelVerificationStatusConverter().ToFirestore(FuelVerificationStatus.Pending));
+            DocumentReference docRef = Db.Collection("fuel_logs").Document(fuelId);
+            DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
+            string shiftId = snapshot.Exists && snapshot.TryGetValue("shiftId", out string? sid) ? sid : "unknown shift";
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Update(docRef, new Dictionary<string, object>
+            {
+                ["verificationStatus"] = new FuelVerificationStatusConverter().ToFirestore(FuelVerificationStatus.Pending),
+            });
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "FuelResetToPending",
+                AuditLogDetails = $"Reset the fuel submission for shift {shiftId} back to Pending.",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
             return new FuelActionResult { Ok = true };
         }
         catch (Exception ex)

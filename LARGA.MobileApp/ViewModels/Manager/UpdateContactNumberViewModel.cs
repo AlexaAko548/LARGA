@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using LARGA.MobileApp.Services;
 using LARGA.SharedCore;
 using Microsoft.Maui.Controls;
 using Plugin.Firebase.Auth;
@@ -101,6 +102,7 @@ public class UpdateContactNumberViewModel : BindableObject
 
             // LAR-86/87: keep the driver app's SOS auto-answer allowlist on the new number.
             await LARGA.MobileApp.Services.ManagerAllowlistSync.ReplaceAsync(actualCurrentNumber, NewNumber);
+            AuditLogWriter.Record("ManagerContactNumberChanged", "Updated their own contact number.");
 
             CurrentNumber = string.Empty;
             NewNumber = string.Empty;

@@ -703,7 +703,7 @@ else
                 : null;
 
             DateTime shopDateUtc = DateTime.SpecifyKind(shopDay, DateTimeKind.Utc);
-            GarageActionResult result = await GarageService.CreateTicketAsync(_ticketReport.MaintenanceId, _ticketPriority, _ticketInstructions, shopDateUtc, estimated);
+            GarageActionResult result = await GarageService.CreateTicketAsync(_ticketReport.MaintenanceId, _ticketPriority, _ticketInstructions, shopDateUtc, estimated, _managerUserId);
             if (!result.Ok)
             {
                 _ticketError = result.ErrorMessage ?? "Could not create this ticket.";
@@ -726,7 +726,7 @@ else
 
     private async Task StartScheduledNowAsync(WorkOrderEntry order)
     {
-        await RunCardActionAsync(() => GarageService.StartScheduledNowAsync(order.MaintenanceId), "Could not start this work order.");
+        await RunCardActionAsync(() => GarageService.StartScheduledNowAsync(order.MaintenanceId, _managerUserId), "Could not start this work order.");
         if (_actionError is null)
         {
             // The shop day moved up to today - let the driver know.
@@ -735,7 +735,7 @@ else
     }
 
     private Task UnscheduleAsync(string maintenanceId) =>
-        RunCardActionAsync(() => GarageService.UnscheduleAsync(maintenanceId), "Could not cancel this booking.");
+        RunCardActionAsync(() => GarageService.UnscheduleAsync(maintenanceId, _managerUserId), "Could not cancel this booking.");
 
     private async Task RunCardActionAsync(Func<Task<GarageActionResult>> action, string fallbackError)
     {
@@ -763,7 +763,7 @@ else
         _actionError = null;
         try
         {
-            GarageActionResult result = await GarageService.DismissReportAsync(maintenanceId);
+            GarageActionResult result = await GarageService.DismissReportAsync(maintenanceId, _managerUserId);
             if (!result.Ok)
             {
                 _actionError = result.ErrorMessage ?? "Could not dismiss this report.";
@@ -783,7 +783,7 @@ else
         _actionError = null;
         try
         {
-            GarageActionResult result = await GarageService.MarkResolvedAsync(maintenanceId);
+            GarageActionResult result = await GarageService.MarkResolvedAsync(maintenanceId, _managerUserId);
             if (!result.Ok)
             {
                 _actionError = result.ErrorMessage ?? "Could not mark this resolved.";
@@ -967,7 +967,7 @@ else
         try
         {
             DateTime scheduledUtc = DateTime.SpecifyKind(_scheduleDate.Value, DateTimeKind.Utc);
-            GarageActionResult result = await GarageService.ScheduleRoutineCheckAsync(_scheduleCheck.CheckId, scheduledUtc);
+            GarageActionResult result = await GarageService.ScheduleRoutineCheckAsync(_scheduleCheck.CheckId, scheduledUtc, _managerUserId);
             if (!result.Ok)
             {
                 _scheduleError = result.ErrorMessage ?? "Could not schedule this check.";

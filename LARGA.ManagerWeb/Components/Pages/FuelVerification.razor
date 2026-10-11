@@ -7,6 +7,7 @@
 @using LARGA.SharedCore.Models.FuelVerification
 @using LARGA.SharedCore.Services
 @using LARGA.Shared.Models.Entities
+@using System.Security.Claims
 @rendermode InteractiveServer
 @implements IAsyncDisposable
 @inject IJSRuntime JS
@@ -492,11 +493,13 @@ else
 @code {
     // Assistant Managers can view fuel logs but can't verify, flag, or resolve them.
     private bool _canManage;
+    private string _managerUserId = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
         AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
         _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
+        _managerUserId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
     }
 
     // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
@@ -694,7 +697,7 @@ else
         _resolveError = null;
         try
         {
-            FuelActionResult result = await FuelVerificationSvc.ResolveFlagAsync(_resolveEntry.FuelId, _resolutionNote);
+            FuelActionResult result = await FuelVerificationSvc.ResolveFlagAsync(_resolveEntry.FuelId, _resolutionNote, _managerUserId);
             if (!result.Ok)
             {
                 _resolveError = result.ErrorMessage ?? "Could not resolve this flag.";
@@ -729,9 +732,9 @@ else
         {
             FuelActionResult result = action switch
             {
-                ResolveAction.Verify => await FuelVerificationSvc.VerifyAsync(_reviewDetail.FuelId),
-                ResolveAction.Flag => await FuelVerificationSvc.FlagAsync(_reviewDetail.FuelId, _flagReason),
-                _ => await FuelVerificationSvc.ResetToPendingAsync(_reviewDetail.FuelId),
+                ResolveAction.Verify => await FuelVerificationSvc.VerifyAsync(_reviewDetail.FuelId, _managerUserId),
+                ResolveAction.Flag => await FuelVerificationSvc.FlagAsync(_reviewDetail.FuelId, _flagReason, _managerUserId),
+                _ => await FuelVerificationSvc.ResetToPendingAsync(_reviewDetail.FuelId, _managerUserId),
             };
 
             if (!result.Ok)
