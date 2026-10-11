@@ -7,6 +7,35 @@
              NavigationPage.HasNavigationBar="False"
              BackgroundColor="{DynamicResource ThemeSurface}">
 
+    <ContentPage.Resources>
+        <ResourceDictionary>
+            <ControlTemplate x:Key="FuelRadioTemplate">
+                <Grid WidthRequest="22" HeightRequest="22">
+                    <Ellipse Stroke="{DynamicResource ThemeTextGray}" StrokeThickness="2"
+                             WidthRequest="22" HeightRequest="22" HorizontalOptions="Center" VerticalOptions="Center" />
+                    <Ellipse x:Name="SelectedDot" Fill="{AppThemeBinding Light=#2B0B98, Dark=White}"
+                             WidthRequest="12" HeightRequest="12" HorizontalOptions="Center" VerticalOptions="Center" Opacity="0" />
+                    <VisualStateManager.VisualStateGroups>
+                        <VisualStateGroupList>
+                            <VisualStateGroup x:Name="CheckedStates">
+                                <VisualState x:Name="Checked">
+                                    <VisualState.Setters>
+                                        <Setter TargetName="SelectedDot" Property="Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Unchecked">
+                                    <VisualState.Setters>
+                                        <Setter TargetName="SelectedDot" Property="Opacity" Value="0" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateGroupList>
+                    </VisualStateManager.VisualStateGroups>
+                </Grid>
+            </ControlTemplate>
+        </ResourceDictionary>
+    </ContentPage.Resources>
+
     <ScrollView>
         <VerticalStackLayout Padding="20,0" Spacing="12" Margin="0,10">
 
@@ -43,15 +72,15 @@
                     <Label Text="Checked fuel gauge dashboard" FontSize="13" TextColor="{DynamicResource ThemeTextGray}" />
 
                     <HorizontalStackLayout Spacing="10" VerticalOptions="Center">
-                        <RadioButton GroupName="Fuel" IsChecked="{Binding IsHalfTankSelected}" />
+                        <RadioButton GroupName="Fuel" IsChecked="{Binding IsHalfTankSelected}" ControlTemplate="{StaticResource FuelRadioTemplate}" />
                         <Label Text="Half-tank" TextColor="{DynamicResource ThemeTextBlack}" VerticalOptions="Center" />
                     </HorizontalStackLayout>
 
                     <HorizontalStackLayout Spacing="10" VerticalOptions="Center">
-                        <RadioButton GroupName="Fuel" IsChecked="{Binding IsBelowHalfTankSelected}" />
+                        <RadioButton GroupName="Fuel" IsChecked="{Binding IsBelowHalfTankSelected}" ControlTemplate="{StaticResource FuelRadioTemplate}" />
                         <VerticalStackLayout>
                             <Label Text="Below half-tank" TextColor="{DynamicResource ThemeTextBlack}" />
-                            <Label Text="(Penalty to the previous driver : ₱ 50.00)" TextColor="Blue" TextDecorations="Underline" FontSize="10" IsVisible="{Binding PenaltyNoteVisible}" />
+                            <Label Text="(Penalty to the previous driver : ₱ 50.00)" TextColor="{DynamicResource LargaDanger}" TextDecorations="Underline" FontSize="10" IsVisible="{Binding PenaltyNoteVisible}" />
                         </VerticalStackLayout>
                     </HorizontalStackLayout>
 
