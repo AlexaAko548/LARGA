@@ -167,7 +167,7 @@ public partial class ScanFuelReceiptPage : ContentPage
                 string fullText = string.Join(" ", lines);
 
                 var vendor = TryParseVendor(fullText, lines);
-                var amount = TryParseAmount(fullText, lines);
+                var amount = TryParseAmount(fullText, lines, detectedBlocks);
                 var quantity = TryParseLiters(fullText, lines);
                 var receiptDate = TryParseReceiptDate(fullText, lines);
                 // OR Number is optional on the report, so it's left out of BuildParsingWarning:
@@ -352,9 +352,31 @@ public partial class ScanFuelReceiptPage : ContentPage
         }
     }
 
-    private static decimal? TryParseAmount(string fullText, List<string> lines)
+    // "0.987L x 96.700P/L" - a per-liter rate, never a total. Thermal POS receipts print this
+    // right next to the actual line amount, and a rate is very often numerically bigger than
+    // the total when the purchase is small (buy under 1L and the rate alone exceeds what was
+    // paid) - exactly what mis-extracted LAR-105's reference receipt (P96.70 picked over the
+    // real P95.44 total). Matched as its own pattern so it can be kept out of the last-resort
+    // "biggest number on the receipt" fallback below, regardless of which OCR block it lands in.
+    private static readonly Regex UnitPriceToken = new(@"\d+(?:[.,]\d+)?\s*L\s*[xX]\s*(\d+(?:[.,]\d+)?)\s*P?\s*/\s*L", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static decimal? TryParseAmount(string fullText, List<string> lines, List<OcrTextBlock>? blocks = null)
     {
+        var unitPriceValues = new HashSet<decimal>();
+        foreach (Match unitMatch in UnitPriceToken.Matches(fullText))
+        {
+            if (TryParseDecimal(unitMatch.Groups[1].Value, out var rate))
+            {
+                unitPriceValues.Add(rate);
+            }
+        }
+
         var candidates = new List<(decimal Value, int Score)>();
+        // Per-block info kept only when the caller has bounding boxes, for the row-alignment
+        // pass below (tier 2) - label and value land in the same visual row but, on a lot of
+        // real POS layouts, in two separate OCR blocks (one column of labels, one of
+        // right-aligned values), so neither "same line" nor "next line" ever lines them up.
+        var blockInfos = new List<(string UpperText, bool HasKeyword, bool IsLikelyNonTotal, Microsoft.Maui.Graphics.Rect Box, List<decimal> Values)>();
 
         foreach (var line in lines)
         {
@@ -395,8 +417,50 @@ public partial class ScanFuelReceiptPage : ContentPage
             return keyedAmount;
         }
 
+        // Tier 2: the keyword and its value are on separate OCR blocks (a label column and a
+        // value column, grouped as two blocks by ML Kit) - find a numeric block sitting on the
+        // same visual row as a keyword block, by bounding-box Y, instead of text adjacency.
+        if (blocks is { Count: > 0 })
+        {
+            foreach (OcrTextBlock block in blocks)
+            {
+                string text = block.Text ?? string.Empty;
+                string upper = text.ToUpperInvariant();
+                bool hasKeyword = upper.Contains("TOTAL") || upper.Contains("AMOUNT") || upper.Contains("NET") || upper.Contains("SALE") || upper.Contains("DUE") || upper.Contains("PAYABLE");
+                bool isLikelyNonTotal = upper.Contains("VAT") || upper.Contains("CHANGE") || upper.Contains("DISCOUNT") || upper.Contains("PRICE/L") || upper.Contains("UNIT PRICE") || upper.Contains("LITER") || upper.Contains("LTR") || upper.Contains("QTY");
+                var values = new List<decimal>();
+                foreach (Match m in Regex.Matches(text, @"(?:PHP|P|₱|\?)?\s*\d{1,3}(?:[\s,]\d{3})*(?:[\.,]\d{2,3})|(?:PHP|P|₱|\?)?\s*\d+[\.,]\d{2,3}"))
+                {
+                    if (TryParseDecimal(m.Value, out var v) && v > 0)
+                    {
+                        values.Add(v);
+                    }
+                }
+                blockInfos.Add((upper, hasKeyword, isLikelyNonTotal, block.BoundingBox, values));
+            }
+
+            foreach (var keywordBlock in blockInfos.Where(b => b.HasKeyword && !b.IsLikelyNonTotal))
+            {
+                double keywordRowY = keywordBlock.Box.Y + keywordBlock.Box.Height / 2;
+                double tolerance = Math.Max(keywordBlock.Box.Height, 1) * 0.8;
+
+                var rowMatch = blockInfos
+                    .Where(b => b.Values.Count > 0 && !b.IsLikelyNonTotal
+                                && Math.Abs((b.Box.Y + b.Box.Height / 2) - keywordRowY) <= tolerance)
+                    .SelectMany(b => b.Values.Select(v => (Value: v, Right: b.Box.X + b.Box.Width)))
+                    .Where(v => v.Value >= 10m && !unitPriceValues.Contains(v.Value))
+                    .OrderByDescending(v => v.Right)
+                    .FirstOrDefault();
+
+                if (rowMatch.Value > 0)
+                {
+                    return rowMatch.Value;
+                }
+            }
+        }
+
         var fallback = candidates
-            .Where(c => c.Value >= 10m)
+            .Where(c => c.Value >= 10m && !unitPriceValues.Contains(c.Value))
             .OrderByDescending(c => c.Value)
             .FirstOrDefault();
 

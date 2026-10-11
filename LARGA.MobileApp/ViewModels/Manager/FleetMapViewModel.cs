@@ -457,7 +457,7 @@ public class FleetMapViewModel : BindableObject
                     DriverName = string.IsNullOrWhiteSpace(driver?.FullName) ? "Unknown Driver" : driver!.FullName,
                     PhoneNumber = driver?.PhoneNumber?.ToString(),
                     PlateNumber = string.IsNullOrWhiteSpace(taxi?.PlateNumber) ? "—" : taxi!.PlateNumber,
-                    UnitDetails = taxi != null ? $"{taxi.YearManufactured} {taxi.Model}".Trim() : string.Empty,
+                    UnitDetails = taxi != null ? $"{(int)taxi.YearManufactured} {taxi.Model}".Trim() : string.Empty,
                     TaxiId = data.TaxiId,
                     Latitude = data.CurrentLatitude,
                     Longitude = data.CurrentLongitude,
@@ -688,7 +688,10 @@ public class FleetMapViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("model")]
         public string Model { get; set; } = string.Empty;
 
+        // double, not int - same Plugin.Firebase.Firestore Android deserializer crash as
+        // ShiftProxy.CurrentSpeed above (Firestore integerValue is always 64-bit, reflecting it
+        // into a C# int property throws System.ArgumentException: Int64 cannot be converted to Int32).
         [Plugin.Firebase.Firestore.FirestoreProperty("yearManufactured")]
-        public int YearManufactured { get; set; }
+        public double YearManufactured { get; set; }
     }
 }
