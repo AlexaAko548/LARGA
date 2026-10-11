@@ -305,10 +305,10 @@ else
                 {
                     @if (_reviewDetail.Status != FuelVerificationStatus.Pending)
                     {
-                        <button class="cancel-btn" type="button" disabled="@_isSavingReview" @onclick="() => ResolveAsync(ResolveAction.ResetToPending)">Reset to Pending</button>
+                        <button class="cancel-btn" type="button" disabled="@_isSavingReview" @onclick='() => RequestConfirm("Reset to Pending?", "This clears the current decision and sends the submission back to the pending queue for re-review.", "Reset to Pending", () => ResolveAsync(ResolveAction.ResetToPending))'>Reset to Pending</button>
                     }
-                    <button class="cancel-btn" type="button" disabled="@(_isSavingReview || FlagReasonError is not null)" title="@(FlagReasonError is null ? "" : "Write a flag reason first")" @onclick="() => ResolveAsync(ResolveAction.Flag)"><Icon Name="flag" /> Flag Irregularity</button>
-                    <button class="download-btn" type="button" disabled="@_isSavingReview" @onclick="() => ResolveAsync(ResolveAction.Verify)">@if (_isSavingReview) { <text>Saving…</text> } else { <Icon Name="check" /> <text>Verify &amp; Approve</text> }</button>
+                    <button class="cancel-btn" type="button" disabled="@(_isSavingReview || FlagReasonError is not null)" title="@(FlagReasonError is null ? "" : "Write a flag reason first")" @onclick='() => RequestConfirm("Flag This Submission?", "This flags the fuel submission as irregular and notifies the driver. Make sure the flag reason above is accurate.", "Flag Irregularity", () => ResolveAsync(ResolveAction.Flag))'><Icon Name="flag" /> Flag Irregularity</button>
+                    <button class="download-btn" type="button" disabled="@_isSavingReview" @onclick='() => RequestConfirm("Verify & Approve This Submission?", "This marks the fuel submission as verified and approved.", "Verify & Approve", () => ResolveAsync(ResolveAction.Verify), isDangerous: false)'>@if (_isSavingReview) { <text>Saving…</text> } else { <Icon Name="check" /> <text>Verify &amp; Approve</text> }</button>
                 }
             </div>
         </div>
@@ -480,11 +480,14 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn pull-left" type="button" disabled="@_isSavingResolve" @onclick="CloseResolveModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingResolve || ResolutionNoteError is not null)" @onclick="ConfirmResolveAsync">@(_isSavingResolve ? "Saving…" : "Mark Resolved")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingResolve || ResolutionNoteError is not null)" @onclick='() => RequestConfirm("Mark This Flag Resolved?", "This marks the fuel flag for " + _resolveEntry!.DriverName + " as resolved with the note above. This cannot be undone.", "Mark Resolved", ConfirmResolveAsync)'>@(_isSavingResolve ? "Saving…" : "Mark Resolved")</button>
             </div>
         </div>
     </div>
 }
+
+<ConfirmationModal Show="_showConfirm" Title="@_confirmTitle" Message="@_confirmMessage"
+    ConfirmText="@_confirmButtonText" IsDangerous="_confirmIsDangerous" IsBusy="_isSavingReview" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm" />
 
 @code {
     // Assistant Managers can view fuel logs but can't verify, flag, or resolve them.
@@ -517,6 +520,39 @@ else
     private FuelLogEntry? _resolveEntry;
     private string _resolutionNote = string.Empty;
     private bool _isSavingResolve;
+
+    private bool _showConfirm;
+    private string _confirmTitle = "";
+    private string _confirmMessage = "";
+    private string _confirmButtonText = "Confirm";
+    private bool _confirmIsDangerous = true;
+    private Func<Task>? _confirmAction;
+
+    private void RequestConfirm(string title, string message, string confirmText, Func<Task> action, bool isDangerous = true)
+    {
+        _confirmTitle = title;
+        _confirmMessage = message;
+        _confirmButtonText = confirmText;
+        _confirmIsDangerous = isDangerous;
+        _confirmAction = action;
+        _showConfirm = true;
+    }
+
+    private async Task ConfirmActionAsync()
+    {
+        if (_confirmAction is Func<Task> action)
+        {
+            await action();
+        }
+        _showConfirm = false;
+        _confirmAction = null;
+    }
+
+    private void CancelConfirm()
+    {
+        _showConfirm = false;
+        _confirmAction = null;
+    }
     private string? _resolveError;
 
     private enum ResolveAction { Verify, Flag, ResetToPending }

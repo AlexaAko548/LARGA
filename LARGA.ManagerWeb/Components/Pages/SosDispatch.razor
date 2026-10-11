@@ -119,7 +119,7 @@ else
                         }
                         <label class="sos-toggle" title="Mark this emergency as handled">
                             <input type="checkbox" checked="@alert.IsResolved" disabled="@(_busyAlertId == alert.AlertId)"
-                                   @onchange="e => SetResolvedAsync(alert, e.Value is true)" />
+                                   @onchange="e => HandleResolvedToggle(alert, e.Value is true)" />
                             <span>Resolved</span>
                         </label>
                     </div>
@@ -160,7 +160,7 @@ else
                                     <td>
                                         <label class="sos-toggle" title="Untick to reopen this emergency">
                                             <input type="checkbox" checked="@alert.IsResolved" disabled="@(_busyAlertId == alert.AlertId)"
-                                                   @onchange="e => SetResolvedAsync(alert, e.Value is true)" />
+                                                   @onchange="e => HandleResolvedToggle(alert, e.Value is true)" />
                                             <span>Resolved</span>
                                         </label>
                                     </td>
@@ -175,6 +175,9 @@ else
 
 </div>
 }
+
+<ConfirmationModal Show="_showConfirm" Title="@_confirmTitle" Message="@_confirmMessage"
+    ConfirmText="@_confirmButtonText" IsDangerous="_confirmIsDangerous" IsBusy="_confirmBusy" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm" />
 
 @code {
     // Assistant Managers can view SOS alerts but can't open driver chats from here.
@@ -201,6 +204,48 @@ else
     private List<SosAlertView> _recentlyResolved = new();
     private string? _busyAlertId;
     private string? _copiedAlertId;
+
+    private bool _showConfirm;
+    private bool _confirmBusy;
+    private string _confirmTitle = "";
+    private string _confirmMessage = "";
+    private string _confirmButtonText = "Confirm";
+    private bool _confirmIsDangerous = true;
+    private Func<Task>? _confirmAction;
+
+    private void RequestConfirm(string title, string message, string confirmText, Func<Task> action, bool isDangerous = true)
+    {
+        _confirmTitle = title;
+        _confirmMessage = message;
+        _confirmButtonText = confirmText;
+        _confirmIsDangerous = isDangerous;
+        _confirmAction = action;
+        _showConfirm = true;
+    }
+
+    private async Task ConfirmActionAsync()
+    {
+        if (_confirmAction is Func<Task> action)
+        {
+            _confirmBusy = true;
+            try
+            {
+                await action();
+            }
+            finally
+            {
+                _confirmBusy = false;
+            }
+        }
+        _showConfirm = false;
+        _confirmAction = null;
+    }
+
+    private void CancelConfirm()
+    {
+        _showConfirm = false;
+        _confirmAction = null;
+    }
     private readonly CancellationTokenSource _refreshCts = new();
 
     private HashSet<string> _unreadDriverIds = new();
@@ -259,6 +304,19 @@ else
         {
             // Page closed.
         }
+    }
+
+    private Task HandleResolvedToggle(SosAlertView alert, bool isResolved)
+    {
+        if (isResolved)
+        {
+            RequestConfirm("Mark This SOS Resolved?", $"This marks the alert from {alert.DriverName} as handled. Make sure the situation is actually resolved first.", "Mark Resolved", () => SetResolvedAsync(alert, true), isDangerous: false);
+        }
+        else
+        {
+            RequestConfirm("Reopen This SOS Alert?", $"This marks the alert from {alert.DriverName} as active again and moves it back into the dispatch queue.", "Reopen Alert", () => SetResolvedAsync(alert, false));
+        }
+        return Task.CompletedTask;
     }
 
     private async Task SetResolvedAsync(SosAlertView alert, bool isResolved)

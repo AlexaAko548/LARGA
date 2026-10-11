@@ -1,0 +1,52 @@
+@* Reusable "are you sure?" popup for destructive/irreversible actions (dismiss, cancel,
+   resolve, remove, etc). Parent owns the Show flag; this component only renders the prompt
+   and relays Confirm/Cancel back up. *@
+@if (Show)
+{
+    <div class="modal-overlay confirm-overlay" @onclick="HandleCancel">
+        <div class="modal-card confirm-modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>@Title</h3>
+                <button type="button" class="modal-close-btn" disabled="@IsBusy" @onclick="HandleCancel">×</button>
+            </div>
+            <div class="confirm-body">
+                @if (ChildContent is not null)
+                {
+                    @ChildContent
+                }
+                else
+                {
+                    <p>@Message</p>
+                }
+            </div>
+            <div class="confirm-actions">
+                <button class="cancel-btn" type="button" disabled="@IsBusy" @onclick="HandleCancel">@CancelText</button>
+                <button class="@(IsDangerous ? "danger-btn" : "download-btn")" type="button" disabled="@IsBusy" @onclick="HandleConfirm">
+                    @if (IsBusy) { <text>Working…</text> } else { @ConfirmText }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public string Title { get; set; } = "Are you sure?";
+    [Parameter] public string Message { get; set; } = "This action cannot be undone.";
+    [Parameter] public string ConfirmText { get; set; } = "Confirm";
+    [Parameter] public string CancelText { get; set; } = "Cancel";
+
+    /// <summary>True (default) renders the confirm button in the danger color; false uses the neutral/primary style for non-destructive confirmations.</summary>
+    [Parameter] public bool IsDangerous { get; set; } = true;
+
+    /// <summary>Disables both buttons and swaps the confirm label while the parent's async action is in flight.</summary>
+    [Parameter] public bool IsBusy { get; set; }
+
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private Task HandleConfirm() => IsBusy ? Task.CompletedTask : OnConfirm.InvokeAsync();
+
+    private Task HandleCancel() => IsBusy ? Task.CompletedTask : OnCancel.InvokeAsync();
+}

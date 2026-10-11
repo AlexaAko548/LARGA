@@ -614,10 +614,10 @@ else
                 }
             </div>
             <div class="report-actions">
-                <button class="cancel-btn" type="button" disabled="@_isSavingSub" @onclick="SubstituteDayOffAsync">Mark Day Off</button>
+                <button class="cancel-btn" type="button" disabled="@_isSavingSub" @onclick='() => RequestConfirm("Mark This Driver Off?", "This marks " + _subRow.FullName + " as off on " + _subCell.Date.ToString("dddd, MMM d") + " instead of assigning a substitute unit.", "Mark Day Off", SubstituteDayOffAsync)'>Mark Day Off</button>
                 @if (_subCell.SubstituteTaxiId is not null)
                 {
-                    <button class="cancel-btn" type="button" disabled="@_isSavingSub" @onclick="RemoveSubstituteAsync">Remove Substitute</button>
+                    <button class="cancel-btn" type="button" disabled="@_isSavingSub" @onclick='() => RequestConfirm("Remove Substitute Unit?", "This clears the substitute assignment for " + _subRow.FullName + " on " + _subCell.Date.ToString("dddd, MMM d") + ".", "Remove Substitute", RemoveSubstituteAsync)'>Remove Substitute</button>
                 }
                 <button class="download-btn" type="button" disabled="@(_isSavingSub || _subChoices.Count == 0)" @onclick="AssignSubstituteAsync">
                     @(_isSavingSub ? "Saving…" : _subCell.SubstituteTaxiId is null ? "Assign" : "Change")
@@ -878,7 +878,7 @@ else
                             <small class="receipt-hint">The driver's current password stops working immediately.</small>
                             <div class="profile-edit-actions">
                                 <button class="cancel-btn" type="button" disabled="@_isResettingPassword" @onclick="() => _showPasswordForm = false">Cancel</button>
-                                <button class="download-btn" type="button" disabled="@(_isResettingPassword || InputValidator.ValidatePassword(_newPasswordInput, required: false) is not null)" @onclick="ResetPasswordAsync">
+                                <button class="download-btn" type="button" disabled="@(_isResettingPassword || InputValidator.ValidatePassword(_newPasswordInput, required: false) is not null)" @onclick='() => RequestConfirm("Set New Password?", "The current mobile app password for this driver stops working immediately.", "Set Password", ResetPasswordAsync)'>
                                     @(_isResettingPassword ? "Saving…" : "Set Password")
                                 </button>
                             </div>
@@ -1025,9 +1025,52 @@ else
 }
 }
 
+<ConfirmationModal Show="_showConfirm" Title="@_confirmTitle" Message="@_confirmMessage"
+    ConfirmText="@_confirmButtonText" IsBusy="_confirmBusy" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm" />
+
 @code {
     // Assistant Managers can view drivers and shifts but can't approve clock-ins, edit the schedule, or add notes/drivers.
     private bool _canManage;
+
+    private bool _showConfirm;
+    private bool _confirmBusy;
+    private string _confirmTitle = "";
+    private string _confirmMessage = "";
+    private string _confirmButtonText = "Confirm";
+    private Func<Task>? _confirmAction;
+
+    private void RequestConfirm(string title, string message, string confirmText, Func<Task> action)
+    {
+        _confirmTitle = title;
+        _confirmMessage = message;
+        _confirmButtonText = confirmText;
+        _confirmAction = action;
+        _showConfirm = true;
+    }
+
+    private async Task ConfirmActionAsync()
+    {
+        if (_confirmAction is Func<Task> action)
+        {
+            _confirmBusy = true;
+            try
+            {
+                await action();
+            }
+            finally
+            {
+                _confirmBusy = false;
+            }
+        }
+        _showConfirm = false;
+        _confirmAction = null;
+    }
+
+    private void CancelConfirm()
+    {
+        _showConfirm = false;
+        _confirmAction = null;
+    }
 
     protected override async Task OnInitializedAsync()
     {

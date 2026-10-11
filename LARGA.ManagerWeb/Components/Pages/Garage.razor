@@ -86,7 +86,7 @@ else
                             </div>
                             <div class="report-card-actions">
                                 @if (_canManage) { <button class="solid-btn" type="button" @onclick="() => OpenCreateTicketModal(r)">+ Create Ticket</button> }
-                                @if (_canManage) { <button class="cancel-btn" type="button" disabled="@_isBusy" @onclick="() => DismissAsync(r.MaintenanceId)">Dismiss</button> }
+                                @if (_canManage) { <button class="cancel-btn" type="button" disabled="@_isBusy" @onclick='() => RequestConfirm("Dismiss Report?", "This will dismiss the driver report. It will be removed from the queue and this cannot be undone.", "Dismiss", () => DismissAsync(r.MaintenanceId))'>Dismiss</button> }
                             </div>
                         </article>
                     }
@@ -120,7 +120,7 @@ else
                             </div>
                             <div class="report-card-actions">
                                 @if (_canManage) { <button class="solid-btn" type="button" disabled="@_isBusy" title="Bring the unit into the shop today instead" @onclick="() => StartScheduledNowAsync(s)">Start Now</button> }
-                                @if (_canManage) { <button class="cancel-btn" type="button" disabled="@_isBusy" title="@(s.IsRoutineCheck ? "Cancel the booking - it goes back to Upcoming Routine Checks" : "Cancel the booking - it goes back to Pending Driver Reports")"@onclick="() => UnscheduleAsync(s.MaintenanceId)">Unschedule</button> }
+                                @if (_canManage) { <button class="cancel-btn" type="button" disabled="@_isBusy" title="@(s.IsRoutineCheck ? "Cancel the booking - it goes back to Upcoming Routine Checks" : "Cancel the booking - it goes back to Pending Driver Reports")" @onclick='() => RequestConfirm("Unschedule This Work Order?", "This cancels the booked shop day. It goes back to " + (s.IsRoutineCheck ? "Upcoming Routine Checks." : "Pending Driver Reports.") , "Unschedule", () => UnscheduleAsync(s.MaintenanceId))'>Unschedule</button> }
                             </div>
                         </article>
                     }
@@ -158,7 +158,7 @@ else
                             </div>
                             <div class="report-card-actions">
                                 @if (_canManage) { <button class="outline-btn" type="button" disabled="@_isBusy" @onclick="() => OpenPartsModalAsync(w)">+ Log Parts</button> }
-                                @if (_canManage) { <button class="solid-btn" type="button" disabled="@_isBusy" @onclick="() => MarkResolvedAsync(w.MaintenanceId)">Mark as Resolved</button> }
+                                @if (_canManage) { <button class="solid-btn" type="button" disabled="@_isBusy" @onclick='() => RequestConfirm("Mark This Work Order Resolved?", "This closes the work order and moves the unit out of Active Work Orders.", "Mark Resolved", () => MarkResolvedAsync(w.MaintenanceId), isDangerous: false)'>Mark as Resolved</button> }
                             </div>
                         </article>
                     }
@@ -402,7 +402,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseLogPartsModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingParts || _availableParts is null || _availableParts.Count == 0)" @onclick="ConfirmLogPartsAsync">@(_isSavingParts ? "Saving…" : "Confirm & Deduct")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingParts || _availableParts is null || _availableParts.Count == 0)" @onclick="ValidateAndRequestLogPartsConfirm">@(_isSavingParts ? "Saving…" : "Confirm & Deduct")</button>
             </div>
         </div>
     </div>
@@ -466,6 +466,20 @@ else
     </div>
 }
 
+<ConfirmationModal Show="_showConfirm" Title="@_confirmTitle"
+    ConfirmText="@_confirmButtonText" IsDangerous="_confirmIsDangerous" IsBusy="@(_isBusy || _isSavingParts)" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm">
+    <p>@_confirmMessage</p>
+    @if (_confirmListItems is { Count: > 0 })
+    {
+        <ul class="confirm-list">
+            @foreach (string item in _confirmListItems)
+            {
+                <li>@item</li>
+            }
+        </ul>
+    }
+</ConfirmationModal>
+
 @code {
     // Assistant Managers can view the garage but can't create, schedule, or log work on units.
     private bool _canManage;
@@ -482,6 +496,41 @@ else
     private GarageSnapshot? _snapshot;
     private string? _error;
     private string? _actionError;
+
+    private bool _showConfirm;
+    private string _confirmTitle = "";
+    private string _confirmMessage = "";
+    private List<string>? _confirmListItems;
+    private string _confirmButtonText = "Confirm";
+    private bool _confirmIsDangerous = true;
+    private Func<Task>? _confirmAction;
+
+    private void RequestConfirm(string title, string message, string confirmText, Func<Task> action, bool isDangerous = true, List<string>? listItems = null)
+    {
+        _confirmTitle = title;
+        _confirmMessage = message;
+        _confirmListItems = listItems;
+        _confirmButtonText = confirmText;
+        _confirmIsDangerous = isDangerous;
+        _confirmAction = action;
+        _showConfirm = true;
+    }
+
+    private async Task ConfirmActionAsync()
+    {
+        if (_confirmAction is Func<Task> action)
+        {
+            await action();
+        }
+        _showConfirm = false;
+        _confirmAction = null;
+    }
+
+    private void CancelConfirm()
+    {
+        _showConfirm = false;
+        _confirmAction = null;
+    }
     private bool _isBusy;
 
     private bool _showEvidenceModal;
@@ -787,7 +836,7 @@ else
         }
     }
 
-    private async Task ConfirmLogPartsAsync()
+    private void ValidateAndRequestLogPartsConfirm()
     {
         if (_partsWorkOrder is null || _availableParts is null)
         {
@@ -815,6 +864,7 @@ else
 
         // The service clamps stock at zero rather than refusing, so block over-use here.
         var usage = new List<(string PartId, int Quantity)>();
+        var summaryParts = new List<string>();
         foreach ((string partId, int quantity) in totals)
         {
             SparePart? part = _availableParts.FirstOrDefault(p => p.PartId == partId);
@@ -829,6 +879,17 @@ else
                 return;
             }
             usage.Add((partId, quantity));
+            summaryParts.Add($"{quantity} {part.Unit} of {part.PartName}");
+        }
+
+        RequestConfirm("Log These Parts?", "This deducts the following from inventory stock. This cannot be undone.", "Confirm & Deduct", () => DeductPartsAsync(usage), listItems: summaryParts);
+    }
+
+    private async Task DeductPartsAsync(List<(string PartId, int Quantity)> usage)
+    {
+        if (_partsWorkOrder is null)
+        {
+            return;
         }
 
         _isSavingParts = true;

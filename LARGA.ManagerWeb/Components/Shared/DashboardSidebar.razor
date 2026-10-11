@@ -8,7 +8,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject Lazy<FirestoreDb> FirestoreDb
 
-<SosBanner OnSosPage="@(ActiveItem == "SosDispatch")" />
+<SosBanner OnSosPage="@(ActiveItem == "SosDispatch")" OnActiveCountChanged="@(count => _sosActiveCount = count)" />
 
 <aside class="dashboard-sidebar @(Collapsed ? "collapsed" : "")">
     <div class="sidebar-brand">
@@ -42,8 +42,14 @@
             <span class="nav-icon"><Icon Name="users" Class="nav-svg" /></span>
             <span class="nav-label">Driver &amp; Shifts</span>
         </a>
-        <a href="/sos-dispatch" class="nav-item @(ActiveItem == "SosDispatch" ? "active" : "")" title="SOS Dispatch">
-            <span class="nav-icon"><Icon Name="siren" Class="nav-svg" /></span>
+        <a href="/sos-dispatch" class="nav-item @(ActiveItem == "SosDispatch" ? "active" : "")" title="@(_sosActiveCount > 0 ? $"SOS Dispatch - {_sosActiveCount} unresolved" : "SOS Dispatch")">
+            <span class="nav-icon">
+                <Icon Name="siren" Class="nav-svg" />
+                @if (_sosActiveCount > 0)
+                {
+                    <span class="nav-icon-dot" aria-label="Unresolved SOS alerts"></span>
+                }
+            </span>
             <span class="nav-label">SOS Dispatch</span>
         </a>
         <a href="/financial-ledger" class="nav-item @(ActiveItem == "FinancialLedger" ? "active" : "")" title="Financial Ledger">
@@ -96,6 +102,9 @@
 
     // Audit Logs and Inventory are Manager-only (the pages enforce this too; this just hides the links).
     private bool _isManager;
+
+    // Mirrors SosBanner's count so the nav badge still shows after the banner itself is dismissed.
+    private int _sosActiveCount;
 
     protected override async Task OnInitializedAsync()
     {
