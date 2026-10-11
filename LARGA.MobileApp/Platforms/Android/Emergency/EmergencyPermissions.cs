@@ -7,7 +7,8 @@ namespace LARGA.MobileApp.Platforms.Android.Emergency;
 
 /// <summary>
 /// Runtime permissions the emergency protocols need on top of location: answering the manager's
-/// call (ANSWER_PHONE_CALLS), seeing who's calling (READ_CALL_LOG + READ_PHONE_STATE), and
+/// call (ANSWER_PHONE_CALLS), seeing who's calling (READ_CALL_LOG + READ_PHONE_STATE), the SIM's
+/// own number for SOS caller validation (READ_PHONE_NUMBERS), and
 /// showing the cancel countdown (POST_NOTIFICATIONS). MODIFY_PHONE_STATE isn't here - Android
 /// only grants it to system apps.
 /// </summary>
@@ -26,6 +27,8 @@ public class EmergencyPermissions : Permissions.BasePlatformPermission
             if (OperatingSystem.IsAndroidVersionAtLeast(26))
             {
                 permissions.Add((Manifest.Permission.AnswerPhoneCalls, true));
+                // The SIM's own number, sent with each SOS for caller validation (DevicePhoneNumber).
+                permissions.Add((Manifest.Permission.ReadPhoneNumbers, true));
             }
 
             if (OperatingSystem.IsAndroidVersionAtLeast(33))

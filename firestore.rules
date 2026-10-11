@@ -220,7 +220,12 @@ service cloud.firestore {
     // Assistant Managers can view alerts but not resolve them.
     match /emergency_alerts/{alertId} {
       allow read: if isStaff();
-      allow create: if isDriver() && request.resource.data.driverId == request.auth.uid;
+      // SOS caller validation: a driver may only raise an SOS for a shift that is theirs - an
+      // unassigned device can't write one for someone else's unit. (The full check - active
+      // shift, unit, registered phone number - runs in ManagerWeb's SosPushService.)
+      allow create: if isDriver() && request.resource.data.driverId == request.auth.uid
+                    && exists(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId))
+                    && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid;
       allow update: if isManager();
     }
 

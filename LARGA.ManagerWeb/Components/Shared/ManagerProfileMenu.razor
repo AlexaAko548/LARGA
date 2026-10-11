@@ -9,6 +9,7 @@
 @inject Lazy<FirestoreDb> FirestoreDb
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
+@inject PayoutAccountService PayoutAccounts
 
 @* Header profile menu: the same pill the header always showed, now opening Settings
    (contact number, password) and Logout. Styled with the app's own header/modal classes. *@
@@ -75,6 +76,48 @@
                         <button class="download-btn" type="submit" disabled="@_isSavingContact">@(_isSavingContact ? "Saving…" : "Update Number")</button>
                     </div>
                 </EditForm>
+
+                @if (IsManager)
+                {
+                    @* Target account verification: e-receipts sent to any other account are flagged in the
+                       Quick Ledger (mobile) and the Financial Ledger. *@
+                    <div class="report-section payout-accounts">
+                        <label>Authorized payout accounts</label>
+                        <span class="manager-menu-hint">GCash numbers and bank accounts drivers may send boundary payments to. Receipts sent anywhere else are flagged.</span>
+
+                        @if (_payoutAccounts is null)
+                        {
+                            <span class="manager-menu-hint">Loading…</span>
+                        }
+                        else if (_payoutAccounts.Count == 0)
+                        {
+                            <span class="manager-menu-hint">None yet - receipts can't be checked until you add one.</span>
+                        }
+                        else
+                        {
+                            <ul class="payout-account-list">
+                                @foreach (string account in _payoutAccounts)
+                                {
+                                    string current = account;
+                                    <li>
+                                        <span>@current</span>
+                                        <button type="button" class="cancel-btn" disabled="@_isSavingPayout" @onclick="() => RemovePayoutAccountAsync(current)">Remove</button>
+                                    </li>
+                                }
+                            </ul>
+                        }
+
+                        <div class="payout-account-add">
+                            <input class="text-input" type="text" maxlength="@PayoutAccountService.MaxAccountLength" placeholder="e.g. 0917 123 4567 or BDO 001234567890"
+                                   @bind="_newPayoutAccount" @bind:event="oninput" />
+                            <button class="download-btn" type="button" disabled="@(_isSavingPayout || string.IsNullOrWhiteSpace(_newPayoutAccount))" @onclick="AddPayoutAccountAsync">Add</button>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_payoutError))
+                        {
+                            <div class="field-error">@_payoutError</div>
+                        }
+                    </div>
+                }
 
                 <EditForm Model="_passwordModel" FormName="manager-password" OnValidSubmit="UpdatePasswordAsync" class="report-section">
                     <DataAnnotationsValidator />
@@ -197,10 +240,79 @@
 
     private void ToggleDropdown() => _isDropdownOpen = !_isDropdownOpen;
 
-    private void OpenSettingsModal()
+    private bool IsManager => string.Equals(_roleLabel, ManagerSignInService.ManagerRole, StringComparison.OrdinalIgnoreCase);
+
+    private List<string>? _payoutAccounts;
+    private string _newPayoutAccount = string.Empty;
+    private string? _payoutError;
+    private bool _isSavingPayout;
+
+    private async Task OpenSettingsModal()
     {
         _isDropdownOpen = false;
         _isSettingsModalOpen = true;
+        if (IsManager)
+        {
+            await LoadPayoutAccountsAsync();
+        }
+    }
+
+    private async Task LoadPayoutAccountsAsync()
+    {
+        try
+        {
+            _payoutAccounts = await PayoutAccounts.GetAsync();
+        }
+        catch (Exception)
+        {
+            _payoutAccounts = new List<string>();
+            _payoutError = "Couldn't load the authorized accounts. Please try again.";
+        }
+    }
+
+    private async Task<string> CurrentUserIdAsync() =>
+        (await AuthStateProvider.GetAuthenticationStateAsync()).User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+
+    private async Task AddPayoutAccountAsync()
+    {
+        _isSavingPayout = true;
+        _payoutError = null;
+        try
+        {
+            _payoutError = await PayoutAccounts.AddAsync(_newPayoutAccount, await CurrentUserIdAsync());
+            if (_payoutError is null)
+            {
+                _newPayoutAccount = string.Empty;
+                await LoadPayoutAccountsAsync();
+            }
+        }
+        catch (Exception)
+        {
+            _payoutError = "Couldn't save the account. Please try again.";
+        }
+        finally
+        {
+            _isSavingPayout = false;
+        }
+    }
+
+    private async Task RemovePayoutAccountAsync(string account)
+    {
+        _isSavingPayout = true;
+        _payoutError = null;
+        try
+        {
+            await PayoutAccounts.RemoveAsync(account, await CurrentUserIdAsync());
+            await LoadPayoutAccountsAsync();
+        }
+        catch (Exception)
+        {
+            _payoutError = "Couldn't remove the account. Please try again.";
+        }
+        finally
+        {
+            _isSavingPayout = false;
+        }
     }
 
     private void CloseSettingsModal()
@@ -211,6 +323,8 @@
         _contactMessage = null;
         _contactSaved = false;
         _passwordError = null;
+        _newPayoutAccount = string.Empty;
+        _payoutError = null;
     }
 
     private async Task UpdateContactNumberAsync()

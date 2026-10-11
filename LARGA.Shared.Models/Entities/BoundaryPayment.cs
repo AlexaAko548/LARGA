@@ -154,4 +154,14 @@ public class BoundaryPayment
     /// written by the manager app.</summary>
     [FirestoreProperty("recordedVia")]
     public string? RecordedVia { get; set; }
+
+    /// <summary>Quick Ledger / Financial Ledger target account verification: the GCash number or
+    /// bank account the e-receipt was sent to, and how it compared with
+    /// system_configs/global.authorizedPayoutAccounts ("Verified", "Mismatch", "NotFound",
+    /// "NotConfigured").</summary>
+    [FirestoreProperty("receiptTargetAccount")]
+    public string? ReceiptTargetAccount { get; set; }
+
+    [FirestoreProperty("targetAccountStatus")]
+    public string? TargetAccountStatus { get; set; }
 }

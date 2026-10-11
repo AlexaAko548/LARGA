@@ -50,6 +50,8 @@ public class RecordPaymentViewModel : BindableObject
     private string _allocationText = string.Empty;
     private string _receiptDateText = NotScanned;
     private string _referenceText = NotScanned;
+    private string _targetAccountText = NotScanned;
+    private string _targetAccountWarning = string.Empty;
     private int _selectedDriverIndex;
     private int _selectedCategoryIndex;
 
@@ -131,6 +133,19 @@ public class RecordPaymentViewModel : BindableObject
     public string ErrorText { get => _errorText; private set => Set(ref _errorText, value); }
     public string ReceiptDateText { get => _receiptDateText; private set => Set(ref _receiptDateText, value); }
     public string ReferenceText { get => _referenceText; private set => Set(ref _referenceText, value); }
+    public string TargetAccountText { get => _targetAccountText; private set => Set(ref _targetAccountText, value); }
+
+    /// <summary>Shown under the receipt details when the receipt wasn't sent to an authorized payout account.</summary>
+    public string TargetAccountWarning
+    {
+        get => _targetAccountWarning;
+        private set
+        {
+            Set(ref _targetAccountWarning, value);
+            OnPropertyChanged(nameof(HasTargetAccountWarning));
+        }
+    }
+    public bool HasTargetAccountWarning => !string.IsNullOrEmpty(TargetAccountWarning);
 
     public int SelectedDriverIndex
     {
@@ -265,6 +280,8 @@ public class RecordPaymentViewModel : BindableObject
         NotesText = string.Empty;
         ReceiptDateText = NotScanned;
         ReferenceText = NotScanned;
+        TargetAccountText = NotScanned;
+        TargetAccountWarning = string.Empty;
         ErrorText = string.Empty;
         AllocationText = string.Empty;
         IsEWallet = false;
@@ -277,6 +294,8 @@ public class RecordPaymentViewModel : BindableObject
         AmountReceivedText = scan.Amount.ToString("0.00", CultureInfo.InvariantCulture);
         ReceiptDateText = scan.Date.ToString("MMM d, yyyy", CultureInfo.InvariantCulture);
         ReferenceText = scan.ReferenceNumber;
+        TargetAccountText = scan.AccountCheck?.Target?.Display ?? NotScanned;
+        TargetAccountWarning = scan.AccountCheck is { NeedsWarning: true } check ? "⚠ " + check.Message : string.Empty;
         ErrorText = string.Empty;
     }
 
@@ -319,6 +338,23 @@ public class RecordPaymentViewModel : BindableObject
             {
                 ErrorText = $"The receipt shows {Money(_receipt.Amount)}, which doesn't match the amount received.";
                 return;
+            }
+
+            // Target account verification: a receipt sent to an account that isn't one of the authorized payout
+            // accounts may be a misrouted payment. Warn and let the manager decide - it's still recorded, flagged.
+            if (_receipt.AccountCheck is { NeedsWarning: true } check)
+            {
+                Page? page = Shell.Current?.CurrentPage;
+                bool proceed = page is not null && await page.DisplayAlert(
+                    "Check the receiving account",
+                    check.Message + "\n\nRecord this payment anyway? It will be flagged in the ledger.",
+                    "Record anyway",
+                    "Cancel");
+                if (!proceed)
+                {
+                    ErrorText = "Payment not recorded - the receipt wasn't sent to an authorized account.";
+                    return;
+                }
             }
         }
 
@@ -443,7 +479,10 @@ public class RecordPaymentViewModel : BindableObject
         string receipt = string.IsNullOrEmpty(evidence.ReferenceNumber)
             ? string.Empty
             : $" GCash reference {evidence.ReferenceNumber}; receipt photo stored.";
-        return note + receipt;
+        string account = PayoutAccountStatus.NeedsWarning(evidence.TargetAccountStatus)
+            ? $" WARNING: target account {evidence.TargetAccount ?? "unreadable"} is not an authorized payout account ({evidence.TargetAccountStatus}) - recorded anyway."
+            : string.Empty;
+        return note + receipt + account;
     }
 
     private async Task<PaymentEvidence> BuildEvidenceAsync(string? notes, DateTime nowUtc, string label)
@@ -468,7 +507,9 @@ public class RecordPaymentViewModel : BindableObject
             ReferenceNumber: _receipt.ReferenceNumber,
             ReceiptAmount: _receipt.Amount,
             ReceiptDate: _receipt.Date,
-            ReceiptPhotoUrl: photoUrl);
+            ReceiptPhotoUrl: photoUrl,
+            TargetAccount: _receipt.AccountCheck?.Target?.Display,
+            TargetAccountStatus: _receipt.AccountCheck?.Status);
     }
 
     private bool TryReadAmount(out decimal amount)

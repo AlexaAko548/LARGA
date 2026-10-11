@@ -259,11 +259,20 @@ public class FuelReportViewModel : BindableObject
             OrNumber = data.OrNumber;
             IsReceiptParsingUncertain = data.ParsingUncertain;
             ReceiptParsingWarning = data.ParsingWarning;
-            IsCostEditable = data.IsCostUncertain || IsZeroOrEmpty(Cost);
-            IsQuantityEditable = data.IsQuantityUncertain || IsZeroOrEmpty(Quantity);
-            IsFuelStationEditable = data.IsVendorUncertain || string.IsNullOrWhiteSpace(FuelStation) || FuelStation.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase);
+            // Values the driver already corrected inline on the scan page count as edited (they
+            // differ from what OCR read) and stay editable here.
+            bool costEditedInline = data.OriginalAmount is not null && !NumericEquivalent(Cost, data.OriginalAmount);
+            bool quantityEditedInline = data.OriginalQuantity is not null && !NumericEquivalent(Quantity, data.OriginalQuantity);
+            bool stationEditedInline = data.OriginalVendor is not null
+                && !string.Equals(NormalizeText(FuelStation), NormalizeText(data.OriginalVendor), StringComparison.Ordinal);
+            bool orNumberEditedInline = data.OriginalOrNumber is not null
+                && !string.Equals(NormalizeText(OrNumber), NormalizeText(data.OriginalOrNumber), StringComparison.Ordinal);
+
+            IsCostEditable = data.IsCostUncertain || IsZeroOrEmpty(Cost) || costEditedInline;
+            IsQuantityEditable = data.IsQuantityUncertain || IsZeroOrEmpty(Quantity) || quantityEditedInline;
+            IsFuelStationEditable = data.IsVendorUncertain || string.IsNullOrWhiteSpace(FuelStation) || FuelStation.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase) || stationEditedInline;
             IsReceiptDateEditable = data.IsDateUncertain || !SelectedDate.HasValue;
-            IsOrNumberEditable = data.IsOrNumberUncertain || string.IsNullOrWhiteSpace(OrNumber);
+            IsOrNumberEditable = data.IsOrNumberUncertain || string.IsNullOrWhiteSpace(OrNumber) || orNumberEditedInline;
 
             _costWasUncertain = IsCostEditable;
             _quantityWasUncertain = IsQuantityEditable;
@@ -271,17 +280,18 @@ public class FuelReportViewModel : BindableObject
             _dateWasUncertain = IsReceiptDateEditable;
             _orNumberWasUncertain = IsOrNumberEditable;
 
-            _originalCostValue = Cost;
-            _originalQuantityValue = Quantity;
-            _originalFuelStationValue = FuelStation;
+            // Compared against what OCR read, so an inline correction stays flagged as edited.
+            _originalCostValue = data.OriginalAmount ?? Cost;
+            _originalQuantityValue = data.OriginalQuantity ?? Quantity;
+            _originalFuelStationValue = data.OriginalVendor ?? FuelStation;
             _originalReceiptDateText = ReceiptDateText;
-            _originalOrNumberValue = OrNumber;
+            _originalOrNumberValue = data.OriginalOrNumber ?? OrNumber;
 
-            IsCostManuallyEdited = false;
-            IsQuantityManuallyEdited = false;
-            IsFuelStationManuallyEdited = false;
+            IsCostManuallyEdited = costEditedInline;
+            IsQuantityManuallyEdited = quantityEditedInline;
+            IsFuelStationManuallyEdited = stationEditedInline;
             IsReceiptDateManuallyEdited = false;
-            IsOrNumberManuallyEdited = false;
+            IsOrNumberManuallyEdited = orNumberEditedInline;
             _isApplyingScanResult = false;
 
             _receiptTempPath = data.PhotoFilePath; // THE FIX: Assign path directly
@@ -692,6 +702,14 @@ public class ReceiptExtractedData
     public bool IsQuantityUncertain { get; set; }
     public bool IsVendorUncertain { get; set; }
     public bool IsDateUncertain { get; set; }
+
+    // What OCR originally read, when the driver corrected values inline on the scan page (null
+    // from senders that don't edit). Lets the report flag those fields as manually edited.
+    public string? OriginalAmount { get; set; }
+    public string? OriginalQuantity { get; set; }
+    public string? OriginalVendor { get; set; }
+    public string? OriginalOrNumber { get; set; }
+
     // THE FIX: Pass file path instead of bytes
     public string PhotoFilePath { get; set; } = string.Empty;
 }

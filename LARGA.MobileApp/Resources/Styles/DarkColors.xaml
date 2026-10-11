@@ -23,6 +23,10 @@
     <Color x:Key="LargaDangerBg">#3A1D1D</Color>
     <Color x:Key="LargaWarning">#E5A04A</Color>
     <Color x:Key="LargaWarningBg">#3A2C12</Color>
+    <!-- SOS emergency-type badges (Alert Center, Live Fleet popup): Standard Breakdown uses
+    LargaWarning, Hostile Protocol LargaDanger, Crash Protocol these. -->
+    <Color x:Key="SosCrash">#F07AB0</Color>
+    <Color x:Key="SosCrashBg">#3A1A2B</Color>
 
     <Color x:Key="ThemePageBg">#0F1A21</Color>
     <Color x:Key="ThemeSurface">#17242C</Color>

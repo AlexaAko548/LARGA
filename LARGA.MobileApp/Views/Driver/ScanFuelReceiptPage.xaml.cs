@@ -29,6 +29,14 @@ public partial class ScanFuelReceiptPage : ContentPage
     private bool _isRetakeLocked;
     private bool _isScanned = false;
 
+    // What OCR read, before any inline edit - sent along so the Fuel Report (and the manager's
+    // verification) can tell which values the driver corrected.
+    private string _ocrAmount = string.Empty;
+    private string _ocrQuantity = string.Empty;
+    private string _ocrVendor = string.Empty;
+    private string _ocrOrNumber = string.Empty;
+    private bool _isApplyingScan;
+
     private Camera.MAUI.CameraView? ReceiptCameraView => this.FindByName<Camera.MAUI.CameraView>("ReceiptCamera");
     private Image? ReceiptPreviewImage => this.FindByName<Image>("CapturedReceiptPreview");
     private Label? ReceiptDateLabel => this.FindByName<Label>("LblDate");
@@ -222,23 +230,38 @@ public partial class ScanFuelReceiptPage : ContentPage
         {
             if (!string.IsNullOrWhiteSpace(_capturedImagePath))
             {
+                // The driver may have corrected the values inline: what's in the fields now is what
+                // goes to the report. A malformed number keeps the page open with the reason shown.
+                if (!TryReadEditedNumbers(out decimal? amount, out decimal? quantity, out string? error))
+                {
+                    ShowEditError(error);
+                    return;
+                }
+                ShowEditError(null);
+
+                string amountText = amount?.ToString("0.00", CultureInfo.InvariantCulture) ?? string.Empty;
+                string quantityText = quantity?.ToString("0.##", CultureInfo.InvariantCulture) ?? string.Empty;
+                string vendor = FieldText(EntVendor);
+                string orNumber = FieldText(EntOrNumber);
+
                 var payloadWarning = BuildParsingWarning(
-                    LblVendor.Text == "--" ? null : LblVendor.Text,
-                    decimal.TryParse(LblAmount.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsedAmount) ? parsedAmount : null,
-                    decimal.TryParse(LblQuantity.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsedQuantity) ? parsedQuantity : null,
-                    _capturedReceiptDate);
+                    string.IsNullOrEmpty(vendor) ? null : vendor, amount, quantity, _capturedReceiptDate);
 
                 var payload = new ReceiptExtractedData
                 {
-                    Amount = LblAmount.Text == "--" ? string.Empty : LblAmount.Text,
-                    Quantity = LblQuantity.Text == "--" ? string.Empty : LblQuantity.Text,
-                    Vendor = LblVendor.Text == "--" ? string.Empty : LblVendor.Text,
+                    Amount = amountText,
+                    Quantity = quantityText,
+                    Vendor = vendor,
                     ReceiptDate = _capturedReceiptDate,
-                    OrNumber = LblOrNumber.Text == "--" ? string.Empty : LblOrNumber.Text,
+                    OrNumber = orNumber,
+                    OriginalAmount = _ocrAmount,
+                    OriginalQuantity = _ocrQuantity,
+                    OriginalVendor = _ocrVendor,
+                    OriginalOrNumber = _ocrOrNumber,
                     ParsingWarning = payloadWarning,
                     ParsingUncertain = !string.IsNullOrWhiteSpace(payloadWarning),
-                    IsCostUncertain = _isCostUncertain || IsZeroValue(LblAmount.Text),
-                    IsQuantityUncertain = _isQuantityUncertain || IsZeroValue(LblQuantity.Text),
+                    IsCostUncertain = _isCostUncertain || IsZeroValue(amountText),
+                    IsQuantityUncertain = _isQuantityUncertain || IsZeroValue(quantityText),
                     IsVendorUncertain = _isVendorUncertain,
                     IsDateUncertain = _isDateUncertain,
                     IsOrNumberUncertain = _isOrNumberUncertain,
@@ -280,10 +303,17 @@ public partial class ScanFuelReceiptPage : ContentPage
         _isDateUncertain = false;
         _isOrNumberUncertain = false;
 
-        LblVendor.Text = "--";
-        LblAmount.Text = "--";
-        LblQuantity.Text = "--";
-        LblOrNumber.Text = "--";
+        _isApplyingScan = true;
+        foreach (Entry entry in ScannedFields)
+        {
+            entry.Text = string.Empty;
+            entry.IsEnabled = false;
+        }
+        _isApplyingScan = false;
+        _ocrAmount = _ocrQuantity = _ocrVendor = _ocrOrNumber = string.Empty;
+        RefreshEditedTags();
+        ShowEditError(null);
+        LblEditHint.Text = "Capture the receipt, then check and correct the values below.";
         if (ReceiptDateLabel != null)
         {
             ReceiptDateLabel.Text = "--";
@@ -335,10 +365,26 @@ public partial class ScanFuelReceiptPage : ContentPage
         _isDateUncertain = scan.IsDateUncertain;
         _isOrNumberUncertain = scan.IsOrNumberUncertain;
 
-        LblVendor.Text = scan.Vendor;
-        LblAmount.Text = scan.Amount;
-        LblQuantity.Text = scan.Quantity;
-        LblOrNumber.Text = scan.OrNumber;
+        // OCR's reads go into the editable fields ("--" = not read: left empty for the driver to fill).
+        _ocrAmount = scan.Amount == "--" ? string.Empty : scan.Amount;
+        _ocrQuantity = scan.Quantity == "--" ? string.Empty : scan.Quantity;
+        _ocrVendor = scan.Vendor.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase) ? string.Empty : scan.Vendor;
+        _ocrOrNumber = scan.OrNumber == "--" ? string.Empty : scan.OrNumber;
+
+        _isApplyingScan = true;
+        EntAmount.Text = _ocrAmount;
+        EntQuantity.Text = _ocrQuantity;
+        EntVendor.Text = _ocrVendor;
+        EntOrNumber.Text = _ocrOrNumber;
+        foreach (Entry entry in ScannedFields)
+        {
+            entry.IsEnabled = true;
+        }
+        _isApplyingScan = false;
+        RefreshEditedTags();
+        ShowEditError(null);
+        LblEditHint.Text = "Tap a value to correct it, then Confirm.";
+
         if (ReceiptDateLabel != null)
         {
             ReceiptDateLabel.Text = scan.ReceiptDate?.ToString("MMM dd, yyyy", CultureInfo.InvariantCulture) ?? "--";
@@ -608,6 +654,81 @@ public partial class ScanFuelReceiptPage : ContentPage
             return value == 0m;
 
         return text.Trim() == "--";
+    }
+
+    private IEnumerable<Entry> ScannedFields => new Entry[] { EntAmount, EntQuantity, EntVendor, EntOrNumber };
+
+    private static string FieldText(Entry entry) => (entry.Text ?? string.Empty).Trim();
+
+    private void OnScannedFieldChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (_isApplyingScan)
+        {
+            return;
+        }
+
+        RefreshEditedTags();
+        ShowEditError(null);
+    }
+
+    /// <summary>Shows "Edited" next to each value the driver changed from what OCR read.</summary>
+    private void RefreshEditedTags()
+    {
+        TagAmountEdited.IsVisible = EntAmount.IsEnabled && !SameNumber(FieldText(EntAmount), _ocrAmount);
+        TagQuantityEdited.IsVisible = EntQuantity.IsEnabled && !SameNumber(FieldText(EntQuantity), _ocrQuantity);
+        TagVendorEdited.IsVisible = EntVendor.IsEnabled && !string.Equals(FieldText(EntVendor), _ocrVendor, StringComparison.OrdinalIgnoreCase);
+        TagOrNumberEdited.IsVisible = EntOrNumber.IsEnabled && !string.Equals(FieldText(EntOrNumber), _ocrOrNumber, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool SameNumber(string a, string b)
+    {
+        if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b))
+        {
+            return string.IsNullOrEmpty(a) && string.IsNullOrEmpty(b);
+        }
+        return TryParseDecimal(a, out var x) && TryParseDecimal(b, out var y) ? x == y : string.Equals(a, b, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Amount and Liters as typed. Empty is allowed (the Fuel Report asks for it then, as before),
+    /// but a value that isn't a positive number - or more liters than a taxi's tank could take -
+    /// is refused here, before it reaches the report.
+    /// </summary>
+    private bool TryReadEditedNumbers(out decimal? amount, out decimal? quantity, out string? error)
+    {
+        amount = null;
+        quantity = null;
+        error = null;
+
+        string amountText = FieldText(EntAmount);
+        if (amountText.Length > 0)
+        {
+            if (!TryParseDecimal(amountText.Replace("₱", string.Empty).Trim(), out var a) || a <= 0m || a > 100000m)
+            {
+                error = "Enter the fuel cost as an amount, e.g. 1500.00.";
+                return false;
+            }
+            amount = decimal.Round(a, 2);
+        }
+
+        string quantityText = FieldText(EntQuantity);
+        if (quantityText.Length > 0)
+        {
+            if (!TryParseDecimal(quantityText.Replace("L", string.Empty, StringComparison.OrdinalIgnoreCase).Trim(), out var q) || q <= 0m || q > 200m)
+            {
+                error = "Enter the liters as a number between 0 and 200, e.g. 25.5.";
+                return false;
+            }
+            quantity = decimal.Round(q, 2);
+        }
+
+        return true;
+    }
+
+    private void ShowEditError(string? message)
+    {
+        LblEditError.Text = message ?? string.Empty;
+        LblEditError.IsVisible = !string.IsNullOrEmpty(message);
     }
 
     private sealed class ReceiptScanSnapshot

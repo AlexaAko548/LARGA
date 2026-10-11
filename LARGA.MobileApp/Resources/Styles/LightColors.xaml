@@ -30,6 +30,10 @@
     <Color x:Key="LargaDangerBg">#FBEAEA</Color>
     <Color x:Key="LargaWarning">#C97A1B</Color>
     <Color x:Key="LargaWarningBg">#FBF0E0</Color>
+    <!-- SOS emergency-type badges (Alert Center, Live Fleet popup): Standard Breakdown uses
+    LargaWarning, Hostile Protocol LargaDanger, Crash Protocol these. -->
+    <Color x:Key="SosCrash">#9C1C5B</Color>
+    <Color x:Key="SosCrashBg">#F8E3EE</Color>
 
     <!-- Theme tokens for colors views used to hardcode. Light values are the exact literals
          they replace, so light mode looks the same as before. -->

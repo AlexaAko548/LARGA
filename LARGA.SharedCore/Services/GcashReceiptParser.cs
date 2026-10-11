@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
+using LARGA.SharedCore.Ledger;
 
 namespace LARGA.SharedCore.Services;
 
@@ -30,6 +31,10 @@ public static class GcashReceiptParser
         /// <summary>Digits only, spaces removed. A string, not a number: GCash reference
         /// numbers are 13 digits, which doesn't fit in an int.</summary>
         public string? ReferenceNumber { get; set; }
+
+        /// <summary>The GCash number / bank account the money was sent to (often masked, e.g.
+        /// "+63 917 *** 4567"), for checking against the authorized payout accounts.</summary>
+        public TargetAccount? TargetAccount { get; set; }
     }
 
     // Thousands separator is a comma only. Allowing a space too turned "₱ 850.00" - whose peso
@@ -65,13 +70,18 @@ public static class GcashReceiptParser
     {
         var passes = ocrTexts.Select(SplitLines).ToList();
 
+        // A full 13-digit GCash reference from any pass beats a partial one from an earlier pass.
+        string? reference = passes.Select(lines => FindReference(string.Join("\n", lines))).FirstOrDefault(r => r?.Length == 13)
+            ?? passes.Select(lines => FindReference(string.Join("\n", lines))).FirstOrDefault(r => r is not null);
+
         return new Result
         {
             Amount = passes.Select(FindAmount).FirstOrDefault(a => a is > 0),
             Date = passes.Select(lines => FindDate(string.Join("\n", lines))).FirstOrDefault(d => d is not null),
-            // A full 13-digit GCash reference from any pass beats a partial one from an earlier pass.
-            ReferenceNumber = passes.Select(lines => FindReference(string.Join("\n", lines))).FirstOrDefault(r => r?.Length == 13)
-                ?? passes.Select(lines => FindReference(string.Join("\n", lines))).FirstOrDefault(r => r is not null),
+            ReferenceNumber = reference,
+            // A recipient whose digits all show beats a masked read from an earlier pass.
+            TargetAccount = passes.Select(lines => PayoutAccountMatcher.ExtractTarget(lines, reference)).FirstOrDefault(t => t is { IsMasked: false })
+                ?? passes.Select(lines => PayoutAccountMatcher.ExtractTarget(lines, reference)).FirstOrDefault(t => t is not null),
         };
     }
 
