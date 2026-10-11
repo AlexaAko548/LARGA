@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Themed "are you sure?" popup - the manager-side equivalent of ManagerWeb's
+     ConfirmationModal.razor, used instead of the plain OS-styled Shell.DisplayAlert so a
+     confirmation looks like the rest of the app. Show it with ConfirmationPopup.ShowAsync(...). -->
+<toolkit:Popup xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
+                x:Class="LARGA.MobileApp.Controls.ConfirmationPopup"
+                Color="Transparent"
+                CanBeDismissedByTappingOutsideOfPopup="False">
+
+    <Border BackgroundColor="{DynamicResource ThemeSurface}"
+            Stroke="{DynamicResource LargaCardBorder}"
+            StrokeThickness="1"
+            StrokeShape="RoundRectangle 20"
+            Padding="20,18"
+            WidthRequest="320">
+        <Border.Shadow>
+            <Shadow Brush="{StaticResource LargaNavy}" Opacity="0.18" Radius="18" Offset="0,8" />
+        </Border.Shadow>
+
+        <VerticalStackLayout Spacing="12">
+            <Label x:Name="TitleLabel"
+                   FontFamily="BarlowCondensedBold" FontSize="21"
+                   TextColor="{DynamicResource ThemeTextBlack}" />
+
+            <Label x:Name="MessageLabel"
+                   FontFamily="InterRegular" FontSize="14"
+                   TextColor="{DynamicResource ThemeTextSecondary}" />
+
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Margin="0,6,0,0">
+                <Button x:Name="CancelButton" Grid.Column="0"
+                        Text="Cancel" Clicked="OnCancelClicked"
+                        BackgroundColor="{DynamicResource LargaLightBlue}"
+                        TextColor="{DynamicResource LargaDarkText}"
+                        FontFamily="BarlowCondensedSemiBold" FontAttributes="Bold" FontSize="15"
+                        CornerRadius="19" HeightRequest="42" TextTransform="None" Margin="0" />
+                <Button x:Name="ConfirmButton" Grid.Column="1"
+                        Text="Confirm" Clicked="OnConfirmClicked"
+                        TextColor="{DynamicResource LargaWhite}"
+                        FontFamily="BarlowCondensedSemiBold" FontAttributes="Bold" FontSize="15"
+                        CornerRadius="19" HeightRequest="42" TextTransform="None" Margin="0" />
+            </Grid>
+        </VerticalStackLayout>
+    </Border>
+</toolkit:Popup>
