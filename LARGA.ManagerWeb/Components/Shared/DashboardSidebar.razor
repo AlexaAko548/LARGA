@@ -1,0 +1,166 @@
+@* Shared across ManagerWeb's authenticated pages so the nav stays consistent as new
+   pages land - every item below is now a real route. "Financial Ledger" is the
+   standardized label everywhere in the app - no "Fin. Ledger" abbreviation. Collapsible
+   (ToggleCollapsed) so the nav doesn't eat the whole screen at narrower widths.*@
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using Google.Cloud.Firestore
+@inject AuthenticationStateProvider AuthStateProvider
+@inject Lazy<FirestoreDb> FirestoreDb
+
+<SosBanner OnSosPage="@(ActiveItem == "SosDispatch")" />
+
+<aside class="dashboard-sidebar @(Collapsed ? "collapsed" : "")">
+    <div class="sidebar-brand">
+        <div class="sidebar-logo"><img src="/images/larga-logo-taxi.png" alt="LARGA" /></div>
+        <div class="sidebar-brand-text">
+            <div class="brand-name">LARGA</div>
+            <div class="brand-subtext">Fleet Ops</div>
+        </div>
+        <button class="sidebar-toggle-btn" type="button" @onclick="ToggleCollapsed"
+                title="@(Collapsed ? "Expand sidebar" : "Collapse sidebar")"
+                aria-label="@(Collapsed ? "Expand sidebar" : "Collapse sidebar")">
+            <span class="sidebar-toggle-icon">
+                @if (Collapsed)
+                {
+                    <Icon Name="chevron-right" Class="toggle-svg" />
+                }
+                else
+                {
+                    <Icon Name="chevron-left" Class="toggle-svg" />
+                }
+            </span>
+        </button>
+    </div>
+
+    <nav class="sidebar-nav">
+        <a href="/dashboard" class="nav-item @(ActiveItem == "Dashboard" ? "active" : "")" title="Dashboard">
+            <span class="nav-icon"><Icon Name="layout-dashboard" Class="nav-svg" /></span>
+            <span class="nav-label">Dashboard</span>
+        </a>
+        <a href="/driver-shifts" class="nav-item @(ActiveItem == "DriverShifts" ? "active" : "")" title="Driver &amp; Shifts">
+            <span class="nav-icon"><Icon Name="users" Class="nav-svg" /></span>
+            <span class="nav-label">Driver &amp; Shifts</span>
+        </a>
+        <a href="/sos-dispatch" class="nav-item @(ActiveItem == "SosDispatch" ? "active" : "")" title="SOS Dispatch">
+            <span class="nav-icon"><Icon Name="siren" Class="nav-svg" /></span>
+            <span class="nav-label">SOS Dispatch</span>
+        </a>
+        <a href="/financial-ledger" class="nav-item @(ActiveItem == "FinancialLedger" ? "active" : "")" title="Financial Ledger">
+            <span class="nav-icon"><Icon Name="wallet" Class="nav-svg" /></span>
+            <span class="nav-label">Financial Ledger</span>
+        </a>
+        <a href="/garage" class="nav-item @(ActiveItem == "Garage" ? "active" : "")" title="Garage">
+            <span class="nav-icon"><Icon Name="wrench" Class="nav-svg" /></span>
+            <span class="nav-label">Garage</span>
+        </a>
+        @if (_isManager)
+        {
+            <a href="/inventory" class="nav-item @(ActiveItem == "Inventory" ? "active" : "")" title="Inventory">
+                <span class="nav-icon"><Icon Name="package" Class="nav-svg" /></span>
+                <span class="nav-label">Inventory</span>
+            </a>
+        }
+        <a href="/fuel-verification" class="nav-item @(ActiveItem == "FuelVerification" ? "active" : "")" title="Fuel Verification">
+            <span class="nav-icon"><Icon Name="fuel" Class="nav-svg" /></span>
+            <span class="nav-label">Fuel Verification</span>
+        </a>
+        @if (_isManager)
+        {
+            <a href="/audit-logs" class="nav-item @(ActiveItem == "AuditLogs" ? "active" : "")" title="Audit Logs">
+                <span class="nav-icon"><Icon Name="scroll-text" Class="nav-svg" /></span>
+                <span class="nav-label">Audit Logs</span>
+            </a>
+        }
+    </nav>
+
+    <!-- Dynamic User Card -->
+    <div class="user-card" title="@($"{userName} - {userRole}")">
+        <div class="user-avatar">@userInitials</div>
+        <div class="user-meta">
+            <div class="user-name">@userName</div>
+            <div class="user-role">@userRole</div>
+        </div>
+    </div>
+</aside>
+
+@code {
+    [Parameter]
+    public string ActiveItem { get; set; } = string.Empty;
+
+    private bool Collapsed { get; set; }
+
+    private string userName = "Loading...";
+    private string userRole = "Manager";
+    private string userInitials = "--";
+
+    // Audit Logs and Inventory are Manager-only (the pages enforce this too; this just hides the links).
+    private bool _isManager;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUserProfileAsync();
+    }
+
+    private async Task LoadUserProfileAsync()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            _isManager = authState.User.IsInRole(ManagerSignInService.ManagerRole);
+            var uid = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            if (!string.IsNullOrEmpty(uid))
+            {
+                var db = FirestoreDb.Value;
+                var userDoc = await db.Collection("users").Document(uid).GetSnapshotAsync();
+
+                if (userDoc.Exists)
+                {
+                    // Adjust "name" and "role" below if your Firestore fields are named differently (e.g., "fullName")
+                    userName = userDoc.ContainsField("fullName") ? userDoc.GetValue<string>("fullName") : "Unknown User";
+                    userRole = userDoc.ContainsField("role") ? userDoc.GetValue<string>("role") : "Manager";
+
+                    GenerateInitials(userName);
+                }
+                else
+                {
+                    userName = "Manager";
+                    userInitials = "MG";
+                }
+            }
+        }
+        catch
+        {
+            // Fallback display if database query fails or times out
+            userName = "Manager";
+            userInitials = "MG";
+        }
+    }
+
+    private void GenerateInitials(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            userInitials = "M";
+            return;
+        }
+
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        if (parts.Length == 1)
+        {
+            userInitials = parts[0][0].ToString().ToUpper();
+        }
+        else
+        {
+            // Takes the first letter of the first name and the first letter of the last name
+            userInitials = (parts[0][0].ToString() + parts[^1][0].ToString()).ToUpper();
+        }
+    }
+
+    private void ToggleCollapsed()
+    {
+        Collapsed = !Collapsed;
+    }
+}

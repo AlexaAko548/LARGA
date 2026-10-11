@@ -1,0 +1,107 @@
+@page "/register"
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+@using System.ComponentModel.DataAnnotations
+@using LARGA.ManagerWeb.Validation
+@using LARGA.SharedCore
+@rendermode InteractiveServer
+@inject NavigationManager Navigation
+
+<PageTitle>Register - web</PageTitle>
+
+<div class="auth-page">
+    <div class="back-link">
+        <a href="/"><Icon Name="arrow-left" /> Back to Home</a>
+    </div>
+
+    <EditForm Model="_model" FormName="manager-register" OnValidSubmit="Continue" class="auth-card register-card">
+        <DataAnnotationsValidator />
+
+        <div class="brand-lockup compact">
+            <img class="mini-logo" src="/images/larga-logo-taxi.png" alt="LARGA Fleet OS logo" />
+            <div class="brand-title">LARGA Fleet OS</div>
+            <div class="brand-subtitle">Manager Portal</div>
+        </div>
+
+        <div class="step-indicator">
+            <div class="step active">1</div>
+            <div class="step inactive">2</div>
+        </div>
+
+        <h2>Create Manager Account</h2>
+        <p>Manager access only. Drivers use the mobile app.</p>
+
+        <div class="form-block">
+            <label for="fullName">FULL NAME</label>
+            <InputText id="fullName" @bind-Value="_model.FullName" class="form-control" maxlength="80" placeholder="e.g. Regina Cruz" />
+            <ValidationMessage For="() => _model.FullName" class="field-error" />
+        </div>
+
+        <div class="form-block">
+            <label for="workEmail">WORK EMAIL</label>
+            <InputText id="workEmail" @bind-Value="_model.Email" class="form-control" type="email" maxlength="254" placeholder="manager@company.com" />
+            <ValidationMessage For="() => _model.Email" class="field-error" />
+        </div>
+
+        <div class="two-column">
+            <div class="form-block">
+                <label for="fleetSize">FLEET SIZE</label>
+                <InputText id="fleetSize" @bind-Value="_model.FleetSize" class="form-control" inputmode="numeric" maxlength="4" placeholder="e.g. 20" />
+                <ValidationMessage For="() => _model.FleetSize" class="field-error" />
+            </div>
+            <div class="form-block">
+                <label for="phone">PHONE</label>
+                <InputText id="phone" @bind-Value="_model.Phone" class="form-control" type="tel" maxlength="17" placeholder="0917 123 4567" />
+                <ValidationMessage For="() => _model.Phone" class="field-error" />
+            </div>
+        </div>
+
+        <button class="primary-btn full-width" type="submit">CONTINUE <span><Icon Name="chevron-right" /></span></button>
+
+        <div class="auth-divider"><span>OR</span></div>
+
+        <div class="switch-copy">
+            Already have an account? <a href="/login">Sign In</a>
+        </div>
+    </EditForm>
+
+    <div class="portal-note">
+        <span class="shield-icon"><Icon Name="shield-check" /></span>
+        <span>Manager-only portal</span>
+        <span class="dot-separator">•</span>
+        <span>Drivers use the mobile app</span>
+    </div>
+</div>
+
+@code {
+    private readonly RegisterFormModel _model = new();
+
+    private void Continue()
+    {
+        // Passed on in their standard forms (name spacing tidied, email lower-case, phone +63...).
+        string fullName = InputValidator.NormalizeSpaces(_model.FullName);
+        string email = _model.Email.Trim().ToLowerInvariant();
+        string phone = InputValidator.NormalizePhilippineMobile(_model.Phone) ?? _model.Phone.Trim();
+        var url = $"/register/password?fullName={Uri.EscapeDataString(fullName)}&email={Uri.EscapeDataString(email)}&fleetSize={Uri.EscapeDataString(_model.FleetSize.Trim())}&phone={Uri.EscapeDataString(phone)}";
+        Navigation.NavigateTo(url, forceLoad: false);
+    }
+
+    private class RegisterFormModel
+    {
+        [Required(ErrorMessage = "Full name is required.")]
+        [FullName]
+        public string FullName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Work email is required.")]
+        [StrictEmail]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Fleet size is required.")]
+        [RegularExpression(@"^\s*[1-9]\d{0,3}\s*$", ErrorMessage = "Enter the number of taxis (1-9999).")]
+        public string FleetSize { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Phone number is required.")]
+        [PhilippineMobile]
+        public string Phone { get; set; } = string.Empty;
+    }
+}

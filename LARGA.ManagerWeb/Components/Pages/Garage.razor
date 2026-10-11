@@ -1,0 +1,953 @@
+@page "/garage"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using System.Text.Json
+@using LARGA.SharedCore
+@using LARGA.SharedCore.Models.Garage
+@using LARGA.SharedCore.Services
+@using LARGA.Shared.Models.Entities
+@rendermode InteractiveServer
+@using System.Security.Claims
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject GarageService GarageService
+@inject InventoryAuditService InventoryAudit
+@inject DriverNotifier DriverNotifier
+
+<PageTitle>Maintenance Scheduler</PageTitle>
+
+@if (_isLoading)
+{
+    <div class="auth-page">
+        <div class="auth-card">
+            <h2>Loading...</h2>
+        </div>
+    </div>
+}
+else
+{
+<div class="dashboard-shell">
+    <DashboardSidebar ActiveItem="Garage" />
+
+    <main class="dashboard-main">
+        <header class="dashboard-header">
+            <div class="header-title-wrap">
+                <h1>MAINTENANCE SCHEDULER</h1>
+                <div class="header-date">Driver reports &amp; routine checks</div>
+            </div>
+
+            <div class="header-actions">
+                <NotificationBell />
+                @if (_canManage) { <MessagesButton /> }
+                <ManagerProfileMenu />
+            </div>
+        </header>
+
+        @if (_error is not null)
+        {
+            <div class="data-warning-banner">Garage data unavailable: @_error</div>
+        }
+        @if (_actionError is not null)
+        {
+            <div class="report-error">@_actionError</div>
+        }
+
+        <div class="garage-toolbar">
+            <button class="outline-btn" type="button" @onclick="OpenHistoryModalAsync">History</button>
+        </div>
+
+        @if (_snapshot is null)
+        {
+            <div class="table-empty">Loading the garage...</div>
+        }
+        else
+        {
+            <section class="garage-section">
+                <h2 class="garage-section-title"><Icon Name="triangle-alert" /> Pending Driver Reports (@_snapshot.PendingReports.Count)</h2>
+                @if (_snapshot.PendingReports.Count == 0)
+                {
+                    <div class="table-empty">No pending driver reports.</div>
+                }
+                else
+                {
+                    @foreach (DriverReportEntry r in _snapshot.PendingReports)
+                    {
+                        <article class="report-card">
+                            <div class="report-card-icon"><Icon Name="wrench" /></div>
+                            <div class="report-card-body">
+                                <div class="report-card-meta">
+                                    <span class="unit-pill">@r.UnitLabel.ToUpperInvariant()</span>
+                                    <span class="priority-pill @PriorityCss(r.Priority)">@r.Priority.ToString().ToUpperInvariant()</span>
+                                </div>
+                                <div class="report-card-title">"@r.IssueTitle"</div>
+                                <div class="report-card-sub">Reported by @r.ReportedByName · @r.DateLogged.ToPhilippineTime().ToString("MMM d")</div>
+                                <button class="link-btn" type="button" @onclick="() => OpenEvidenceModal(r.IssueTitle, r.ReportedByName, r.IssueDescription, r.SupportingPhotoUrl)"><Icon Name="eye" /> View Evidence</button>
+                            </div>
+                            <div class="report-card-actions">
+                                @if (_canManage) { <button class="solid-btn" type="button" @onclick="() => OpenCreateTicketModal(r)">+ Create Ticket</button> }
+                                @if (_canManage) { <button class="cancel-btn" type="button" disabled="@_isBusy" @onclick="() => DismissAsync(r.MaintenanceId)">Dismiss</button> }
+                            </div>
+                        </article>
+                    }
+                }
+            </section>
+
+            <section class="garage-section">
+                <h2 class="garage-section-title"><Icon Name="calendar-days" /> Upcoming Work Orders (@_snapshot.ScheduledWorkOrders.Count)</h2>
+                @if (_snapshot.ScheduledWorkOrders.Count == 0)
+                {
+                    <div class="table-empty">No work orders booked for a later day. Create Ticket on a driver report to book one.</div>
+                }
+                else
+                {
+                    @foreach (WorkOrderEntry s in _snapshot.ScheduledWorkOrders)
+                    {
+                        <article class="report-card">
+                            <div class="report-card-icon"><Icon Name="calendar-clock" /></div>
+                            <div class="report-card-body">
+                                <div class="report-card-meta">
+                                    <span class="unit-pill">@s.UnitLabel.ToUpperInvariant()</span>
+                                    <span class="priority-pill @PriorityCss(s.Priority)">@s.Priority.ToString().ToUpperInvariant()</span>
+                                </div>
+                                <div class="report-card-title">"@s.IssueTitle"</div>
+                                <div class="report-card-sub">Reported by @s.ReportedByName · @s.DateLogged.ToPhilippineTime().ToString("MMM d")</div>
+                                <button class="link-btn" type="button" @onclick="() => OpenEvidenceModal(s.IssueTitle, s.ReportedByName, s.IssueDescription, s.SupportingPhotoUrl)"><Icon Name="eye" /> View Evidence</button>
+                            </div>
+                            <div class="report-card-status">
+                                <span class="status-inline">SHOP DAY: @s.ShopDayPh.ToString("ddd, MMM d")</span>
+                                <span class="day-badge scheduled">@(s.DaysUntilShop switch { 0 => "Today", 1 => "Tomorrow", _ => $"In {s.DaysUntilShop} days" })</span>
+                            </div>
+                            <div class="report-card-actions">
+                                @if (_canManage) { <button class="solid-btn" type="button" disabled="@_isBusy" title="Bring the unit into the shop today instead" @onclick="() => StartScheduledNowAsync(s)">Start Now</button> }
+                                @if (_canManage) { <button class="cancel-btn" type="button" disabled="@_isBusy" title="@(s.IsRoutineCheck ? "Cancel the booking - it goes back to Upcoming Routine Checks" : "Cancel the booking - it goes back to Pending Driver Reports")"@onclick="() => UnscheduleAsync(s.MaintenanceId)">Unschedule</button> }
+                            </div>
+                        </article>
+                    }
+                }
+            </section>
+
+            <section class="garage-section">
+                <h2 class="garage-section-title"><Icon Name="settings" /> Active Work Orders (Currently In Shop)</h2>
+                @if (_snapshot.ActiveWorkOrders.Count == 0)
+                {
+                    <div class="table-empty">No active work orders.</div>
+                }
+                else
+                {
+                    @foreach (WorkOrderEntry w in _snapshot.ActiveWorkOrders)
+                    {
+                        <article class="report-card">
+                            <div class="report-card-icon"><Icon Name="wrench" /></div>
+                            <div class="report-card-body">
+                                <div class="report-card-meta">
+                                    <span class="unit-pill">@w.UnitLabel.ToUpperInvariant()</span>
+                                    <span class="priority-pill @PriorityCss(w.Priority)">@w.Priority.ToString().ToUpperInvariant()</span>
+                                </div>
+                                <div class="report-card-title">"@w.IssueTitle"</div>
+                                <div class="report-card-sub">Reported by @w.ReportedByName · @w.DateLogged.ToPhilippineTime().ToString("MMM d")</div>
+                                <button class="link-btn" type="button" @onclick="() => OpenEvidenceModal(w.IssueTitle, w.ReportedByName, w.IssueDescription, w.SupportingPhotoUrl)"><Icon Name="eye" /> View Evidence</button>
+                            </div>
+                            <div class="report-card-status">
+                                <span class="status-inline">STATUS: In Progress</span>
+                                <span class="day-badge">Day @w.DayNumber</span>
+                                @if (w.EstimatedCompletionDate is DateTime due)
+                                {
+                                    <span class="report-card-sub">Expected done @due.ToString("MMM d")</span>
+                                }
+                            </div>
+                            <div class="report-card-actions">
+                                @if (_canManage) { <button class="outline-btn" type="button" disabled="@_isBusy" @onclick="() => OpenPartsModalAsync(w)">+ Log Parts</button> }
+                                @if (_canManage) { <button class="solid-btn" type="button" disabled="@_isBusy" @onclick="() => MarkResolvedAsync(w.MaintenanceId)">Mark as Resolved</button> }
+                            </div>
+                        </article>
+                    }
+                }
+            </section>
+
+            <section class="garage-section">
+                <h2 class="garage-section-title"><Icon Name="calendar-clock" /> Upcoming Routine Checks</h2>
+                @if (_snapshot.UpcomingChecks.Count == 0)
+                {
+                    <div class="table-empty">No upcoming routine checks.</div>
+                }
+                else
+                {
+                    <div class="routine-check-list">
+                        @foreach (RoutineCheckEntry c in _snapshot.UpcomingChecks)
+                        {
+                            <div class="routine-check-row">
+                                <span class="routine-check-dot"></span>
+                                <span class="routine-check-name">@c.UnitLabel · @c.CheckName</span>
+                                <span class="routine-check-due @(!c.DueDate.HasValue && c.DueInKm <= 0 ? "overdue" : "")">
+                                    @(c.DueDate.HasValue ? $"Expires {c.DueDate.Value:MMM d, yyyy}" : c.DueInKm <= 0 ? "Overdue" : $"Due in {c.DueInKm} km")
+                                </span>
+                                @if (_canManage) { <button class="profile-btn" type="button" disabled="@_isBusy" @onclick="() => OpenScheduleModal(c)">Schedule</button> }
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+        }
+    </main>
+</div>
+}
+
+@if (_showEvidenceModal)
+{
+    <div class="report-overlay" @onclick="CloseEvidenceModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Driver Report Evidence</h3>
+                <button type="button" class="close-modal" @onclick="CloseEvidenceModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="settlement-modal-subject">Issue: "@_evidenceTitle"</div>
+                <div class="settlement-modal-subject">Reported by: @_evidenceReportedBy</div>
+
+                <div class="report-section">
+                    <label>Description</label>
+                    <div class="evidence-box">@_evidenceDescription</div>
+                </div>
+
+                <div class="report-section">
+                    <label>Photo Evidence</label>
+                    @if (!string.IsNullOrWhiteSpace(_evidencePhotoUrl))
+                    {
+                        <img class="evidence-photo" src="@_evidencePhotoUrl" alt="Photo evidence" />
+                    }
+                    else
+                    {
+                        <div class="evidence-box evidence-photo-empty">No photo evidence available.</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showTicketModal && _ticketReport is not null)
+{
+    <div class="report-overlay" @onclick="CloseCreateTicketModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Create Work Order Ticket</h3>
+                <button type="button" class="close-modal" @onclick="CloseCreateTicketModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="ticket-chip-row">
+                    <span class="ticket-chip">@_ticketReport.UnitLabel</span>
+                    <span class="ticket-chip">Issue: @_ticketReport.IssueTitle</span>
+                </div>
+
+                <div class="report-section">
+                    <label>Priority Level</label>
+                    <div class="payment-method-toggle three-way">
+                        <button type="button" class="payment-method-btn @(_ticketPriority == PriorityLevel.Low ? "active" : "")" @onclick="() => _ticketPriority = PriorityLevel.Low">Low</button>
+                        <button type="button" class="payment-method-btn @(_ticketPriority == PriorityLevel.Medium ? "active" : "")" @onclick="() => _ticketPriority = PriorityLevel.Medium">Medium</button>
+                        <button type="button" class="payment-method-btn @(_ticketPriority == PriorityLevel.High ? "active" : "")" @onclick="() => _ticketPriority = PriorityLevel.High">High</button>
+                    </div>
+                </div>
+
+                <div class="report-section">
+                    <label>Mechanic Instructions</label>
+                    <textarea class="text-input textarea" maxlength="500" @bind="_ticketInstructions" @bind:event="oninput" placeholder="What should the shop do?"></textarea>
+                    <FieldError Show="_ticketInstructions.Length > 0" Message="@TicketInstructionsError" />
+                </div>
+
+                <div class="report-section">
+                    <label>Shop Date</label>
+                    <div class="payment-method-toggle three-way">
+                        <button type="button" class="payment-method-btn @(_ticketShopMode == "Today" ? "active" : "")" @onclick='() => SelectTicketShopModeAsync("Today")'>Today</button>
+                        <button type="button" class="payment-method-btn @(_ticketShopMode == "Auto" ? "active" : "")" @onclick='() => SelectTicketShopModeAsync("Auto")'>Next Available</button>
+                        <button type="button" class="payment-method-btn @(_ticketShopMode == "Manual" ? "active" : "")" @onclick='() => SelectTicketShopModeAsync("Manual")'>Pick a Date</button>
+                    </div>
+                    @if (_ticketShopMode == "Today")
+                    {
+                        <div class="info-banner">The unit goes into the shop now - listed under Active Work Orders, and it can't be clocked into until it's resolved.</div>
+                    }
+                    else if (_ticketShopMode == "Auto")
+                    {
+                        <div class="evidence-box">@(_isLoadingTicketAutoDate ? "Finding the next available date…" : _ticketShopDate?.ToString("dddd, MMM d, yyyy"))</div>
+                        <div class="info-banner">The earliest day from tomorrow with fewer than @DailyScheduleCapacityDisplay jobs starting. Listed under Upcoming Work Orders until then; the unit stays in service until that day.</div>
+                    }
+                    else
+                    {
+                        <input class="text-input" type="date" min="@PhilippineTime.Now.ToString("yyyy-MM-dd")" max="@PhilippineTime.Now.AddYears(1).ToString("yyyy-MM-dd")" @bind="_ticketShopDate" />
+                        <FieldError Message="@TicketShopDateError" />
+                        <div class="info-banner">Listed under Upcoming Work Orders until that day; the unit stays in service until then. Not checked against the shop's daily capacity.</div>
+                    }
+                </div>
+
+                <div class="report-section">
+                    <label>Expected Finish <span class="field-optional">(optional)</span></label>
+                    <input class="text-input" type="date" min="@((TicketShopDay ?? PhilippineTime.Now.Date).ToString("yyyy-MM-dd"))" max="@PhilippineTime.Now.AddYears(1).ToString("yyyy-MM-dd")" @bind="_ticketEstimatedDate" />
+                    <FieldError Message="@TicketDateError" />
+                </div>
+
+                @if (_ticketError is not null)
+                {
+                    <div class="report-error">@_ticketError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="CloseCreateTicketModal">Cancel</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingTicket || _isLoadingTicketAutoDate || TicketShopDay is null || TicketInstructionsError is not null || TicketShopDateError is not null || TicketDateError is not null)" @onclick="ConfirmCreateTicketAsync">@(_isSavingTicket ? "Saving…" : _ticketShopMode == "Today" ? "Confirm & Start Today" : "Confirm & Schedule")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showScheduleModal && _scheduleCheck is not null)
+{
+    <div class="report-overlay" @onclick="CloseScheduleModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Schedule Routine Check</h3>
+                <button type="button" class="close-modal" @onclick="CloseScheduleModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="ticket-chip-row">
+                    <span class="ticket-chip">@_scheduleCheck.UnitLabel</span>
+                    <span class="ticket-chip">@_scheduleCheck.CheckName</span>
+                </div>
+
+                <div class="payment-method-toggle">
+                    <button type="button" class="payment-method-btn @(_scheduleMode == "Auto" ? "active" : "")" @onclick='() => SelectScheduleModeAsync("Auto")'>AUTOMATIC</button>
+                    <button type="button" class="payment-method-btn @(_scheduleMode == "Manual" ? "active" : "")" @onclick='() => SelectScheduleModeAsync("Manual")'>MANUAL</button>
+                </div>
+
+                @if (_scheduleMode == "Auto")
+                {
+                    <div class="report-section">
+                        <label>Scheduled Date</label>
+                        <div class="evidence-box">
+                            @(_isLoadingAutoDate ? "Finding the next available date…" : _scheduleDate?.ToString("dddd, MMM d, yyyy"))
+                        </div>
+                    </div>
+                    <div class="info-banner">Picks the earliest day from tomorrow onward that has fewer than @DailyScheduleCapacityDisplay other maintenance jobs already scheduled.</div>
+                }
+                else
+                {
+                    <div class="report-section">
+                        <label>Scheduled Date</label>
+                        <input class="text-input" type="date" min="@PhilippineTime.Now.ToString("yyyy-MM-dd")" max="@PhilippineTime.Now.AddYears(1).ToString("yyyy-MM-dd")" @bind="_scheduleDate" />
+                        <FieldError Message="@ScheduleDateError" />
+                    </div>
+                    <div class="info-banner">Manually chosen - not checked against the shop's daily capacity.</div>
+                }
+
+                @if (_scheduleError is not null)
+                {
+                    <div class="report-error">@_scheduleError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="CloseScheduleModal">Cancel</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingSchedule || _isLoadingAutoDate || !_scheduleDate.HasValue || ScheduleDateError is not null)" @onclick="ConfirmScheduleAsync">@(_isSavingSchedule ? "Saving…" : "Confirm Schedule")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showPartsModal && _partsWorkOrder is not null)
+{
+    <div class="report-overlay" @onclick="CloseLogPartsModal">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>Log Parts Used</h3>
+                <button type="button" class="close-modal" @onclick="CloseLogPartsModal">×</button>
+            </div>
+            <div class="report-body">
+                <div class="ticket-chip-row">
+                    <span class="ticket-chip">@_partsWorkOrder.UnitLabel</span>
+                    <span class="ticket-chip">@_partsWorkOrder.IssueTitle</span>
+                </div>
+
+                @if (_availableParts is null)
+                {
+                    <div class="table-empty">Loading spare parts...</div>
+                }
+                else if (_availableParts.Count == 0)
+                {
+                    <div class="table-empty">No spare parts in inventory yet. Add them on the Inventory page first.</div>
+                }
+                else
+                {
+                    <div class="report-section">
+                        <label>Parts used</label>
+                        @foreach (PartUsageRow row in _partRows)
+                        {
+                            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+                                <select class="text-input" style="flex:1" @bind="row.PartId">
+                                    <option value="">Select a part</option>
+                                    @foreach (SparePart part in _availableParts)
+                                    {
+                                        <option value="@part.PartId">@part.PartName (@part.StockQuantity @part.Unit left)</option>
+                                    }
+                                </select>
+                                <input class="text-input" style="width:90px" type="number" min="1" @bind="row.Quantity" />
+                                <button class="cancel-btn" type="button" @onclick="() => RemovePartRow(row)">Remove</button>
+                            </div>
+                        }
+                        <button class="outline-btn" type="button" @onclick="AddPartRow">+ Add another part</button>
+                    </div>
+                    <div class="info-banner">Stock is deducted when you confirm. A part that drops to its minimum triggers a low-stock alert.</div>
+                }
+
+                @if (_partsError is not null)
+                {
+                    <div class="report-error">@_partsError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" @onclick="CloseLogPartsModal">Cancel</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingParts || _availableParts is null || _availableParts.Count == 0)" @onclick="ConfirmLogPartsAsync">@(_isSavingParts ? "Saving…" : "Confirm & Deduct")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showHistoryModal)
+{
+    <div class="report-overlay" @onclick="CloseHistoryModal">
+        <div class="report-modal wide history-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <div class="history-title-wrap">
+                    <h3>Maintenance History</h3>
+                    <div class="history-subtitle">@(_history is null ? "Loading…" : $"{_history.Count} {(_history.Count == 1 ? "record" : "records")}")</div>
+                </div>
+                <button type="button" class="close-modal" @onclick="CloseHistoryModal" aria-label="Close">×</button>
+            </div>
+            <div class="report-body history-body">
+                @if (_history is null)
+                {
+                    <div class="table-empty">Loading history...</div>
+                }
+                else
+                {
+                    <div class="data-table-wrap">
+                        <table class="data-table history-table">
+                            <thead>
+                                <tr>
+                                    <th>Unit</th>
+                                    <th>Issue</th>
+                                    <th>Reported By</th>
+                                    <th>Date Logged</th>
+                                    <th>Date Resolved</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (_history.Count == 0)
+                                {
+                                    <tr><td colspan="6" class="table-empty">No history yet.</td></tr>
+                                }
+                                else
+                                {
+                                    @foreach (HistoryEntry h in _history)
+                                    {
+                                        <tr>
+                                            <td class="history-unit"><span class="history-unit-chip">@h.UnitLabel</span></td>
+                                            <td class="history-issue">@h.IssueTitle</td>
+                                            <td class="history-reporter">@h.ReportedByName</td>
+                                            <td class="history-date">@h.DateLogged.ToPhilippineTime().ToString("MMM d, yyyy")</td>
+                                            <td class="history-date">@(h.DateResolved.HasValue ? h.DateResolved.Value.ToPhilippineTime().ToString("MMM d, yyyy") : "–")</td>
+                                            <td class="history-status"><span class="status-pill small @(h.Status == "Resolved" ? "status-success" : "status-neutral")">@h.Status.ToUpperInvariant()</span></td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // Assistant Managers can view the garage but can't create, schedule, or log work on units.
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
+    }
+
+    // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
+    private bool _isLoading = true;
+
+    private GarageSnapshot? _snapshot;
+    private string? _error;
+    private string? _actionError;
+    private bool _isBusy;
+
+    private bool _showEvidenceModal;
+    private string _evidenceTitle = string.Empty;
+    private string _evidenceReportedBy = string.Empty;
+    private string _evidenceDescription = string.Empty;
+    private string? _evidencePhotoUrl;
+
+    private bool _showTicketModal;
+    private DriverReportEntry? _ticketReport;
+    private PriorityLevel _ticketPriority = PriorityLevel.Medium;
+    private string _ticketInstructions = string.Empty;
+    private DateTime? _ticketEstimatedDate;
+    // "Today" (straight into the shop), "Auto" (next day under capacity) or "Manual".
+    private string _ticketShopMode = "Today";
+    private DateTime? _ticketShopDate;
+    private bool _isLoadingTicketAutoDate;
+    private bool _isSavingTicket;
+    private string? _ticketError;
+
+    // Must match GarageService.DailyScheduleCapacity - only used for the modal's helper text.
+    private const int DailyScheduleCapacityDisplay = 2;
+
+    private bool _showScheduleModal;
+    private RoutineCheckEntry? _scheduleCheck;
+    private string _scheduleMode = "Auto";
+    private DateTime? _scheduleDate;
+    private bool _isLoadingAutoDate;
+    private bool _isSavingSchedule;
+    private string? _scheduleError;
+
+    private bool _showHistoryModal;
+    private List<HistoryEntry>? _history;
+
+    private string _managerUserId = string.Empty;
+    private bool _showPartsModal;
+    private WorkOrderEntry? _partsWorkOrder;
+    private List<SparePart>? _availableParts;
+    private List<PartUsageRow> _partRows = new();
+    private bool _isSavingParts;
+    private string? _partsError;
+
+    private class PartUsageRow
+    {
+        public string PartId { get; set; } = string.Empty;
+        public int Quantity { get; set; } = 1;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // Parts usage is attributed to the signed-in manager, from the server session.
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _managerUserId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+
+        await LoadSnapshotAsync();
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task LoadSnapshotAsync()
+    {
+        try
+        {
+            _snapshot = await GarageService.GetGarageSnapshotAsync();
+            _error = null;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private void OpenEvidenceModal(string title, string reportedBy, string description, string? photoUrl)
+    {
+        _evidenceTitle = title;
+        _evidenceReportedBy = reportedBy;
+        _evidenceDescription = description;
+        _evidencePhotoUrl = photoUrl;
+        _showEvidenceModal = true;
+    }
+
+    private void CloseEvidenceModal() => _showEvidenceModal = false;
+
+    private void OpenCreateTicketModal(DriverReportEntry report)
+    {
+        _ticketReport = report;
+        _ticketPriority = report.Priority;
+        _ticketInstructions = string.Empty;
+        _ticketEstimatedDate = null;
+        _ticketShopMode = "Today";
+        _ticketShopDate = null;
+        _ticketError = null;
+        _showTicketModal = true;
+    }
+
+    /// <summary>The shop day the ticket will be booked for, or null while it isn't known yet.</summary>
+    private DateTime? TicketShopDay => _ticketShopMode == "Today" ? PhilippineTime.Now.Date : _ticketShopDate?.Date;
+
+    private async Task SelectTicketShopModeAsync(string mode)
+    {
+        _ticketShopMode = mode;
+        if (mode == "Auto")
+        {
+            // Never book a date left over from "Pick a Date" if the lookup fails.
+            _ticketShopDate = null;
+            _isLoadingTicketAutoDate = true;
+            StateHasChanged();
+            try
+            {
+                _ticketShopDate = await GarageService.GetNextAvailableScheduleDateAsync();
+            }
+            catch (Exception ex)
+            {
+                _ticketError = $"Couldn't find the next available date: {ex.Message}";
+            }
+            finally
+            {
+                _isLoadingTicketAutoDate = false;
+            }
+        }
+        else if (mode == "Manual")
+        {
+            _ticketShopDate ??= PhilippineTime.Now.Date.AddDays(1);
+        }
+    }
+
+    private void CloseCreateTicketModal()
+    {
+        _showTicketModal = false;
+        _ticketReport = null;
+    }
+
+    // A work order needs real instructions, and dates can't be in the past or over a year out.
+    private string? TicketInstructionsError => InputValidator.ValidateText(_ticketInstructions, "the mechanic instructions", 500, required: true, minLength: 5);
+    private string? TicketShopDateError => _ticketShopMode == "Manual" ? FutureDateError(_ticketShopDate, "The shop date") : null;
+    private string? TicketDateError =>
+        FutureDateError(_ticketEstimatedDate, "The expected finish")
+        ?? (_ticketEstimatedDate is DateTime finish && TicketShopDay is DateTime start && finish.Date < start
+            ? "The expected finish can't be before the shop date." : null);
+    private string? ScheduleDateError => FutureDateError(_scheduleDate, "The scheduled date");
+
+    private static string? FutureDateError(DateTime? date, string what)
+    {
+        if (date is not DateTime d) return null;
+        DateTime today = PhilippineTime.Now.Date;
+        if (d.Date < today) return $"{what} can't be in the past.";
+        return d.Date > today.AddYears(1) ? $"{what} can't be more than a year from today." : null;
+    }
+
+    private async Task ConfirmCreateTicketAsync()
+    {
+        if (_ticketReport is null || TicketShopDay is not DateTime shopDay
+            || TicketInstructionsError is not null || TicketShopDateError is not null || TicketDateError is not null)
+        {
+            _ticketError = TicketInstructionsError ?? TicketShopDateError ?? TicketDateError ?? "Pick a shop date.";
+            return;
+        }
+
+        _isSavingTicket = true;
+        _ticketError = null;
+        try
+        {
+            DateTime? estimated = _ticketEstimatedDate.HasValue
+                ? DateTime.SpecifyKind(_ticketEstimatedDate.Value, DateTimeKind.Utc)
+                : null;
+
+            DateTime shopDateUtc = DateTime.SpecifyKind(shopDay, DateTimeKind.Utc);
+            GarageActionResult result = await GarageService.CreateTicketAsync(_ticketReport.MaintenanceId, _ticketPriority, _ticketInstructions, shopDateUtc, estimated);
+            if (!result.Ok)
+            {
+                _ticketError = result.ErrorMessage ?? "Could not create this ticket.";
+                return;
+            }
+
+            // Tell the unit's driver which day it goes into the shop (chat message + push).
+            DriverReportEntry booked = _ticketReport;
+            _ = DriverNotifier.NotifyUnitBookedForShopAsync(booked.TaxiId, shopDay, _ticketEstimatedDate, booked.IssueTitle);
+
+            _showTicketModal = false;
+            _ticketReport = null;
+            await LoadSnapshotAsync();
+        }
+        finally
+        {
+            _isSavingTicket = false;
+        }
+    }
+
+    private async Task StartScheduledNowAsync(WorkOrderEntry order)
+    {
+        await RunCardActionAsync(() => GarageService.StartScheduledNowAsync(order.MaintenanceId), "Could not start this work order.");
+        if (_actionError is null)
+        {
+            // The shop day moved up to today - let the driver know.
+            _ = DriverNotifier.NotifyUnitBookedForShopAsync(order.TaxiId, PhilippineTime.Now.Date, order.EstimatedCompletionDate, order.IssueTitle);
+        }
+    }
+
+    private Task UnscheduleAsync(string maintenanceId) =>
+        RunCardActionAsync(() => GarageService.UnscheduleAsync(maintenanceId), "Could not cancel this booking.");
+
+    private async Task RunCardActionAsync(Func<Task<GarageActionResult>> action, string fallbackError)
+    {
+        _isBusy = true;
+        _actionError = null;
+        try
+        {
+            GarageActionResult result = await action();
+            if (!result.Ok)
+            {
+                _actionError = result.ErrorMessage ?? fallbackError;
+                return;
+            }
+            await LoadSnapshotAsync();
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DismissAsync(string maintenanceId)
+    {
+        _isBusy = true;
+        _actionError = null;
+        try
+        {
+            GarageActionResult result = await GarageService.DismissReportAsync(maintenanceId);
+            if (!result.Ok)
+            {
+                _actionError = result.ErrorMessage ?? "Could not dismiss this report.";
+                return;
+            }
+            await LoadSnapshotAsync();
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task MarkResolvedAsync(string maintenanceId)
+    {
+        _isBusy = true;
+        _actionError = null;
+        try
+        {
+            GarageActionResult result = await GarageService.MarkResolvedAsync(maintenanceId);
+            if (!result.Ok)
+            {
+                _actionError = result.ErrorMessage ?? "Could not mark this resolved.";
+                return;
+            }
+            await LoadSnapshotAsync();
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task OpenPartsModalAsync(WorkOrderEntry workOrder)
+    {
+        _partsWorkOrder = workOrder;
+        _partRows = new List<PartUsageRow> { new() };
+        _partsError = null;
+        _availableParts = null;
+        _showPartsModal = true;
+
+        try
+        {
+            _availableParts = await InventoryAudit.GetSparePartsAsync();
+        }
+        catch (Exception ex)
+        {
+            _partsError = $"Spare parts unavailable: {ex.Message}";
+            _availableParts = new List<SparePart>();
+        }
+    }
+
+    private void CloseLogPartsModal()
+    {
+        _showPartsModal = false;
+        _partsWorkOrder = null;
+        _availableParts = null;
+        _partRows = new List<PartUsageRow>();
+        _partsError = null;
+    }
+
+    private void AddPartRow() => _partRows.Add(new PartUsageRow());
+
+    private void RemovePartRow(PartUsageRow row)
+    {
+        _partRows.Remove(row);
+        if (_partRows.Count == 0)
+        {
+            _partRows.Add(new PartUsageRow());
+        }
+    }
+
+    private async Task ConfirmLogPartsAsync()
+    {
+        if (_partsWorkOrder is null || _availableParts is null)
+        {
+            return;
+        }
+
+        _partsError = null;
+
+        // Add up quantities per part first, so a part listed on two rows is checked against stock once.
+        var totals = new Dictionary<string, int>();
+        foreach (PartUsageRow row in _partRows)
+        {
+            if (string.IsNullOrWhiteSpace(row.PartId))
+            {
+                _partsError = "Pick a part for every row, or remove the empty ones.";
+                return;
+            }
+            if (row.Quantity <= 0)
+            {
+                _partsError = "Each quantity must be more than zero.";
+                return;
+            }
+            totals[row.PartId] = totals.GetValueOrDefault(row.PartId) + row.Quantity;
+        }
+
+        // The service clamps stock at zero rather than refusing, so block over-use here.
+        var usage = new List<(string PartId, int Quantity)>();
+        foreach ((string partId, int quantity) in totals)
+        {
+            SparePart? part = _availableParts.FirstOrDefault(p => p.PartId == partId);
+            if (part is null)
+            {
+                _partsError = "One of the selected parts no longer exists. Reopen this form and try again.";
+                return;
+            }
+            if (quantity > part.StockQuantity)
+            {
+                _partsError = $"Only {part.StockQuantity} {part.Unit} of {part.PartName} left in stock.";
+                return;
+            }
+            usage.Add((partId, quantity));
+        }
+
+        _isSavingParts = true;
+        try
+        {
+            GarageActionResult result = await GarageService.LogPartsUsedAsync(_partsWorkOrder.MaintenanceId, usage, _managerUserId);
+            if (!result.Ok)
+            {
+                _partsError = result.ErrorMessage ?? "Could not log these parts.";
+                return;
+            }
+
+            CloseLogPartsModal();
+        }
+        finally
+        {
+            _isSavingParts = false;
+        }
+    }
+
+    private async Task OpenScheduleModal(RoutineCheckEntry check)
+    {
+        _scheduleCheck = check;
+        _scheduleMode = "Auto";
+        _scheduleDate = null;
+        _scheduleError = null;
+        _showScheduleModal = true;
+        await RefreshAutoDateAsync();
+    }
+
+    private async Task SelectScheduleModeAsync(string mode)
+    {
+        _scheduleMode = mode;
+        if (mode == "Auto")
+        {
+            await RefreshAutoDateAsync();
+        }
+        else
+        {
+            // Manual: seed with tomorrow if nothing's picked yet, otherwise leave whatever
+            // Auto had already found - a reasonable starting point either way.
+            _scheduleDate ??= DateTime.UtcNow.Date.AddDays(1);
+        }
+    }
+
+    private async Task RefreshAutoDateAsync()
+    {
+        _isLoadingAutoDate = true;
+        StateHasChanged();
+        try
+        {
+            _scheduleDate = await GarageService.GetNextAvailableScheduleDateAsync();
+        }
+        finally
+        {
+            _isLoadingAutoDate = false;
+        }
+    }
+
+    private void CloseScheduleModal()
+    {
+        _showScheduleModal = false;
+        _scheduleCheck = null;
+    }
+
+    private async Task ConfirmScheduleAsync()
+    {
+        if (_scheduleCheck is null || !_scheduleDate.HasValue)
+        {
+            return;
+        }
+
+        _isSavingSchedule = true;
+        _scheduleError = null;
+        try
+        {
+            DateTime scheduledUtc = DateTime.SpecifyKind(_scheduleDate.Value, DateTimeKind.Utc);
+            GarageActionResult result = await GarageService.ScheduleRoutineCheckAsync(_scheduleCheck.CheckId, scheduledUtc);
+            if (!result.Ok)
+            {
+                _scheduleError = result.ErrorMessage ?? "Could not schedule this check.";
+                return;
+            }
+
+            _ = DriverNotifier.NotifyUnitBookedForShopAsync(_scheduleCheck.TaxiId, _scheduleDate.Value.Date, _scheduleDate.Value.Date, _scheduleCheck.CheckName);
+
+            _showScheduleModal = false;
+            _scheduleCheck = null;
+            await LoadSnapshotAsync();
+        }
+        finally
+        {
+            _isSavingSchedule = false;
+        }
+    }
+
+    private async Task OpenHistoryModalAsync()
+    {
+        _showHistoryModal = true;
+        _history = null;
+        StateHasChanged();
+
+        try
+        {
+            _history = await GarageService.GetHistoryAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = $"History unavailable: {ex.Message}";
+            _showHistoryModal = false;
+        }
+    }
+
+    private void CloseHistoryModal() => _showHistoryModal = false;
+
+    private static string PriorityCss(PriorityLevel priority) => priority switch
+    {
+        PriorityLevel.High => "priority-high",
+        PriorityLevel.Medium => "priority-medium",
+        _ => "priority-low",
+    };
+}

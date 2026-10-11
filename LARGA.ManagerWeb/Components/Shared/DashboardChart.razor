@@ -1,0 +1,80 @@
+@* A Chart.js chart (wwwroot/charts.js) for a ChartSpec: tooltips on hover, axis gridlines, and
+   colors that follow the light/dark theme. Fills its parent (.chart-area), so the panel decides
+   the size. Shows EmptyMessage instead when there's nothing to plot. *@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@if (Spec is null || Spec.IsEmpty)
+{
+    <div class="chart-empty">@EmptyMessage</div>
+}
+else
+{
+    <div class="chart-canvas-wrap">
+        <canvas @ref="_canvas" role="img" aria-label="@AriaLabel"></canvas>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public ChartSpec? Spec { get; set; }
+
+    [Parameter] public string EmptyMessage { get; set; } = "No data available";
+
+    /// <summary>Read out by screen readers in place of the drawing.</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    private ElementReference _canvas;
+    private IJSObjectReference? _module;
+    private ChartSpec? _drawn;
+    private bool _hasChart;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        bool showing = Spec is { IsEmpty: false };
+        if (!showing)
+        {
+            // The <canvas> is gone from the page; forget the chart that was on it.
+            _drawn = null;
+            _hasChart = false;
+            return;
+        }
+
+        if (ReferenceEquals(Spec, _drawn) && _hasChart)
+        {
+            return;
+        }
+
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "/charts.js");
+            await _module.InvokeVoidAsync("render", _canvas, Spec);
+            _drawn = Spec;
+            _hasChart = true;
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit closed mid-render; nothing to draw on.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_hasChart)
+            {
+                await _module.InvokeVoidAsync("destroy", _canvas);
+            }
+            await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // Page already gone.
+        }
+    }
+}

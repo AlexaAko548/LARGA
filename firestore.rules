@@ -1,0 +1,259 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // users/{uid}.role, trimmed and lower-cased - both apps' logins match the role ignoring case
+    // and surrounding spaces (ManagerSignInService, LandingPage), so the rules do the same. A
+    // profile without a role fails every check below.
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role.trim().lower();
+    }
+
+    function isManager() {
+      return request.auth != null && getUserRole() == 'manager';
+    }
+
+    // Manager or Assistant Manager. Assistant Managers read the operational views (drivers, shifts,
+    // SOS, garage, fuel, ledger) and record payments; everything else stays isManager().
+    function isStaff() {
+      return request.auth != null && getUserRole() in ['manager', 'assistant manager'];
+    }
+
+    function isDriver() {
+      return request.auth != null && getUserRole() == 'driver';
+    }
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isStaff();
+      // Drivers may only change their push token and contact number themselves - not their
+      // unit assignment (only the manager assigns units).
+      allow write: if isManager() || (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['fcmToken', 'tokenUpdatedAt', 'phoneNumber']));
+    }
+
+    match /shifts/{shiftId} {
+      allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
+      // A driver can only clock in to a shift of their own. shiftStart must be the Firestore
+      // server time (FieldValue.ServerTimestamp - the phone's clock can't be trusted) and fall
+      // at or after 6:00 AM Philippine time (ShiftRules.ClockInOpensAt). No lateFee: every
+      // ledger computes it from shiftStart/shiftEnd (ShiftRules.EffectiveLateFee).
+      allow create: if isDriver()
+                    && request.resource.data.driverId == request.auth.uid
+                    && request.resource.data.status == 'Active'
+                    && request.resource.data.shiftId in ['', shiftId]
+                    && !('lateFee' in request.resource.data)
+                    && ((request.resource.data.shiftStart == request.time && phHour(request.time) >= 6)
+                        || testClockOn());
+      allow update: if isManager() || (isDriver() && driverShiftUpdateOk(shiftId));
+    }
+
+    // What a driver's phone may change on their own shift - nothing that sets money or time:
+    // GPS position while the shift is Active (LAR-77 auto-cutoff: none once it has ended), the
+    // break flag, the shiftId backfill, and the clock-out itself - shiftEnd stamped with server
+    // time, status Active -> Completed/Auto-Closed, and the low-fuel penalty only as 0 or
+    // ShiftRules.LowFuelPenalty (50). lateFee, shiftStart, taxiId, startMileage and driverId are
+    // not on the list, so they can't be changed.
+    function driverShiftUpdateOk(shiftId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let changed = after.diff(before).affectedKeys();
+      let gpsKeys = ['currentLatitude', 'currentLongitude', 'currentSpeed', 'currentHeading',
+                     'currentPositionUpdatedAt', 'distanceKm'];
+      return before.driverId == request.auth.uid
+        && changed.hasOnly(gpsKeys.concat(['isOnBreak', 'shiftId', 'shiftEnd', 'endMileage', 'status',
+                                           'managerNote', 'fuelPenalty']))
+        && (!changed.hasAny(gpsKeys) || before.status == 'Active')
+        && (!changed.hasAny(['shiftEnd']) || after.shiftEnd == request.time || testClockOn())
+        && (!changed.hasAny(['status']) || (before.status == 'Active' && after.status in ['Completed', 'Auto-Closed']))
+        && (!changed.hasAny(['fuelPenalty']) || after.fuelPenalty == 0 || after.fuelPenalty == 50)
+        && (!changed.hasAny(['shiftId']) || after.shiftId == shiftId);
+    }
+
+    // Hour of the day (0-23) in Philippine time (UTC+8, no DST).
+    function phHour(t) {
+      return (t.hours() + 8) % 24;
+    }
+
+    // Debug builds' test clock (ShiftClock): while a manager has set system_configs/global
+    // testClockPh, shift times may come from the phone's pretend clock instead of the server.
+    // KEEP testClockPh BLANK IN PRODUCTION - while it's set, drivers' shift times are trusted.
+    function testClockOn() {
+      return get(/databases/$(database)/documents/system_configs/global).data.get('testClockPh', '') != '';
+    }
+
+    // Per-driver ledger version (FinancialLedgerService / QuickLedgerService). Every payment
+    // booking bumps it in the same transaction as its payment documents, so two cashiers paying
+    // against the same balance at once can't both succeed - the second one sees the version
+    // move and has to re-read the balance.
+    match /ledger_locks/{driverId} {
+      allow read, write: if isStaff();
+    }
+
+    // Clock-in claims (ShiftManagementService.ClockInAsync): driver_{uid} and unit_{taxiId} point
+    // at the shift holding each, written in the same transaction as that shift so two clock-ins
+    // can't both win. A driver may only point their own lock, or the lock of the unit their new
+    // shift is on, at a shift of their own (getAfter: the shift as of this same commit).
+    // Each lock carries its shift's shiftStart and a released flag, so other drivers can tell a
+    // live claim from a finished one without reading that shift (they can't - see /shifts).
+    // A claim must copy the start of an Active shift; a release (ClockOutAsync, in the same batch
+    // as the clock-out) is only allowed once that shift is no longer Active.
+    match /shift_locks/{lockId} {
+      allow read: if request.auth != null;
+      allow write: if isManager() || (isDriver() && ownShiftLock(lockId));
+    }
+
+    function ownShiftLock(lockId) {
+      let shiftLock = request.resource.data;
+      let lockedShift = getAfter(/databases/$(database)/documents/shifts/$(shiftLock.shiftId)).data;
+      return shiftLock.driverId == request.auth.uid
+        && lockedShift.driverId == request.auth.uid
+        && lockId in ['driver_' + request.auth.uid, 'unit_' + lockedShift.taxiId]
+        && (shiftLock.get('released', false) == true
+              ? lockedShift.status != 'Active'
+              : lockedShift.status == 'Active' && shiftLock.get('shiftStart', null) == lockedShift.shiftStart);
+    }
+
+    // Schedule Planner exceptions ({driverId}_{yyyyMMdd}): the driver app reads today's own
+    // entry to pick up a substitute unit.
+    match /shift_schedules/{docId} {
+      allow read: if isStaff() || (request.auth != null && docId.matches(request.auth.uid + '_[0-9]{8}'));
+      allow write: if isManager();
+    }
+
+    // Flagged pre-shift inspections waiting for the manager (paper Ch. IV clock-in process).
+    // The driver's phone creates its own request (Pending) and reads it while waiting; it may
+    // only withdraw a pending one, or mark an approved one used once its shift has started.
+    // Approve/deny is done from ManagerWeb (Admin SDK).
+    match /clockin_requests/{requestId} {
+      allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
+      allow create: if isDriver() && request.resource.data.driverId == request.auth.uid
+                    && request.resource.data.status == 'Pending';
+      allow update: if isManager() || (isDriver() && resource.data.driverId == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'shiftId'])
+                    && ((resource.data.status == 'Pending' && request.resource.data.status == 'Cancelled')
+                        || (resource.data.status == 'Approved' && request.resource.data.status == 'ClockedIn')));
+    }
+
+    // Manual penalties/credits - the driver's Ledger and Debt Details screens read their own.
+    // Assistant Managers can read these but can't add them (Manager only).
+    match /debt_adjustments/{adjustmentId} {
+      allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
+      allow write: if isManager();
+    }
+
+    match /driverPerformance/{driverId} {
+      allow read: if isOwner(driverId) || isStaff();
+      allow write: if isManager();
+    }
+
+    match /chats/{driverId} {
+      allow read, write: if isManager() || isOwner(driverId);
+
+      match /messages/{messageId} {
+        allow read, write: if isManager() || isOwner(driverId);
+      }
+    }
+
+    match /taxis/{taxiId} {
+      allow read: if request.auth != null;
+      // Drivers only ever change a unit's status (clock-in/out).
+      allow update: if isManager() || (isDriver() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
+      allow create, delete: if isManager();
+    }
+
+    match /system_configs/{configId} {
+      allow read: if request.auth != null;
+      allow write: if isManager();
+    }
+
+    // Payments are recorded by managers and Assistant Managers (ManagerWeb's Financial Ledger, the
+    // app's Quick Ledger). Only a Manager may delete one. A driver reads only their own, read-only
+    // on their Ledger screen - driverId is set on every payment document (older ones are backfilled
+    // by ManagerWeb on startup).
+    match /boundary_payments/{paymentId} {
+      allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
+      allow create, update: if isStaff();
+      allow delete: if isManager();
+    }
+
+    match /maintenance_logs/{maintenanceId} {
+      allow read: if isStaff() || isDriver();
+      // Managers too: denying a flagged clock-in from the manager app files a Garage report for
+      // failed checklist items the driver didn't report (LAR-99, same as ManagerWeb).
+      // A driver files a defect report only as themselves, and only as a fresh "Reported" one
+      // (VehicleDefectViewModel) - triage, priority and status are the manager's.
+      allow create: if isManager()
+                    || (isDriver()
+                        && request.resource.data.reportedByDriverId == request.auth.uid
+                        && request.resource.data.status == 'Reported');
+      allow update: if isManager();
+    }
+
+    // A driver submits receipts only as themselves and only for review - Verified/Flagged is
+    // set by the manager (FuelVerificationService). submittedAt must be the Firestore server
+    // time (FieldValue.ServerTimestamp), so a phone clock can't backdate when it was sent.
+    match /fuel_logs/{fuelId} {
+      allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
+      allow create: if isDriver()
+                    && request.resource.data.driverId == request.auth.uid
+                    && request.resource.data.verificationStatus == 'Pending'
+                    && request.resource.data.submittedAt == request.time;
+      allow update: if isManager();
+    }
+
+    // A point can only come from the driver who owns the shift it's for, only while that shift
+    // is Active (LAR-77 auto-cutoff), and is never edited.
+    match /gps_telemetry/{logId} {
+      allow read: if isStaff();
+      allow create: if isDriver()
+        && request.resource.data.driverId == request.auth.uid
+        && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid
+        && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.status == 'Active';
+    }
+
+    // Driver SOS (Active Shift screen) - a driver can only raise one as themselves.
+    // Resolved from ManagerWeb's SOS Dispatch (Admin SDK) or the manager's Alert Center.
+    // Assistant Managers can view alerts but not resolve them.
+    match /emergency_alerts/{alertId} {
+      allow read: if isStaff();
+      allow create: if isDriver() && request.resource.data.driverId == request.auth.uid;
+      allow update: if isManager();
+    }
+
+    match /spare_parts/{partId} {
+      allow read, write: if isManager();
+    }
+
+    match /audit_logs/{logId} {
+      allow read, write: if isManager();
+      // Drivers log only their own SOS and defect reports (EmergencyAlertService, VehicleDefectViewModel).
+      allow create: if isDriver()
+         && request.resource.data.userId == request.auth.uid
+         && request.resource.data.actionType in ['SosTriggered', 'VehicleDefectReported'];
+    }
+
+    // One Pre and one End checklist per shift ({shiftId}_PRE / {shiftId}_END - the IDs
+    // SubmitHandoverChecklistAsync writes), only by the driver whose shift it is. Update is
+    // allowed for them too: a retried submit rewrites the same deterministic document.
+    match /handover_checklists/{checklistId} {
+      allow read: if isStaff();
+      allow create, update: if isManager() || (isDriver() && ownChecklist(checklistId));
+    }
+
+    function ownChecklist(checklistId) {
+      let shiftId = request.resource.data.shiftId;
+      return checklistId in [shiftId + '_PRE', shiftId + '_END']
+        && get(/databases/$(database)/documents/shifts/$(shiftId)).data.driverId == request.auth.uid;
+    }
+
+    // Raised by ManagerWeb's background checks (Admin SDK); staff only mark them read.
+    match /system_alerts/{alertId} {
+      allow read: if isStaff();
+      allow update: if isStaff() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+    }
+  }
+}

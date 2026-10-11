@@ -1,0 +1,554 @@
+@page "/inventory"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Policy = ManagerSignInService.ManagerOnlyPolicy)]
+@using System.Text.Json
+@using LARGA.SharedCore
+@using LARGA.Shared.Models.Entities
+@using LARGA.SharedCore.Services
+@rendermode InteractiveServer
+@using System.Security.Claims
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject InventoryAuditService InventoryAudit
+
+@if (_isLoading)
+{
+    <div class="auth-page">
+        <div class="auth-card">
+            <h2>Loading...</h2>
+        </div>
+    </div>
+}
+else
+{
+<div class="dashboard-shell">
+    <DashboardSidebar ActiveItem="Inventory" />
+
+    <main class="dashboard-main">
+<div class="inventory-page-wrapper">
+    <header class="dashboard-header">
+        <div class="header-title-wrap">
+            <h1>SPARE PARTS INVENTORY</h1>
+            <div class="header-date">Stock levels &amp; part management</div>
+        </div>
+
+        <div class="header-actions">
+            <NotificationBell />
+            <MessagesButton />
+            <ManagerProfileMenu />
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_loadError))
+    {
+        <div class="data-warning-banner">Inventory data unavailable: @_loadError</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_actionError))
+    {
+        <div class="report-error">@_actionError</div>
+    }
+
+    <!-- Filter & Action Controls -->
+    <div class="toolbar">
+        <div class="filter-pills">
+            <span class="filter-pill">@parts.Count(p => GetStatus(p) == "Normal") Normal</span>
+            <span class="filter-pill active-pill">@parts.Count(p => GetStatus(p) != "Normal") Low / Critical</span>
+        </div>
+        <button class="btn-log-part" @onclick="() => showAddModal = true">
+            + LOG NEW SPARE PART
+        </button>
+    </div>
+
+    <!-- Inventory Table -->
+    <div class="table-container">
+        <table class="inventory-table">
+            <thead>
+                <tr>
+                    <th class="col-id">ID</th>
+                    <th class="col-name">PART NAME</th>
+                    <th class="col-qty">QTY</th>
+                    <th class="col-min">MIN STOCK</th>
+                    <th class="col-min">UNIT PRICE</th>
+                    <th class="col-status">STATUS</th>
+                    <th class="col-actions">ACTIONS</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (parts.Count == 0)
+                {
+                    <tr>
+                        <td colspan="7" class="table-empty">No spare parts found.</td>
+                    </tr>
+                }
+                else
+                {
+                    @for (int i = 0; i < parts.Count; i++)
+                    {
+                        SparePart item = parts[i];
+                        string status = GetStatus(item);
+                        bool isExpanded = _expandedPartId == item.PartId;
+                        <tr class="part-row @(status == "Normal" ? "row-highlighted" : "")" title="Click to show this part's usage history"
+                            @onclick="() => TogglePartHistoryAsync(item)">
+                            <td class="col-id font-mono"><span class="part-expander"><Icon Name="@(isExpanded ? "chevron-down" : "chevron-right")" /></span>@ToDisplayPartId(i + 1)</td>
+                            <td class="col-name fw-bold">@item.PartName</td>
+                            <td class="col-qty">
+                                <span class="qty-number">@item.StockQuantity</span>
+                                <span class="qty-unit font-mono">@item.Unit</span>
+                            </td>
+                            <td class="col-min font-mono">@item.ReorderLevel @item.Unit</td>
+                            <td class="col-min font-mono">@(item.UnitPrice > 0 ? $"₱{item.UnitPrice:#,##0.00}" : "–")</td>
+                            <td class="col-status">
+                                <span class="status-badge">
+                                    <span class="status-bullet @GetStatusClass(status)"></span>
+                                    @status
+                                </span>
+                            </td>
+                            <td class="col-actions" @onclick:stopPropagation="true">
+                                <button class="btn-table-action" type="button" @onclick="() => OpenAdjustStockModal(item, true)">+ Add</button>
+                                <button class="btn-table-action" type="button" @onclick="() => OpenAdjustStockModal(item, false)"><Icon Name="minus" /> Deduct</button>
+                            </td>
+                        </tr>
+                        @if (isExpanded)
+                        {
+                            <tr class="part-history-row">
+                                <td colspan="7">
+                                    @* LAR-84: nested usage history & unit costs for this part. *@
+                                    <div class="part-history">
+                                        @if (_historyLoading)
+                                        {
+                                            <div class="part-history-empty">Loading usage history...</div>
+                                        }
+                                        else if (_historyError is not null)
+                                        {
+                                            <div class="report-error">Couldn't load usage history: @_historyError</div>
+                                        }
+                                        else if (_history is not null)
+                                        {
+                                            <div class="part-history-stats">
+                                                <div class="part-history-stat"><span>Current unit price</span><strong>@(item.UnitPrice > 0 ? $"₱{item.UnitPrice:#,##0.00}" : "Not set")</strong></div>
+                                                <div class="part-history-stat"><span>Total used</span><strong>@_history.TotalQuantity @item.Unit</strong></div>
+                                                <div class="part-history-stat"><span>Total cost of use</span><strong>₱@_history.TotalCost.ToString("#,##0.00")</strong></div>
+                                                <div class="part-history-stat"><span>Avg. cost per @item.Unit</span><strong>@(_history.TotalQuantity == 0 ? "–" : $"₱{_history.AverageUnitCost:#,##0.00}")</strong></div>
+                                                <div class="part-history-stat"><span>Stock value now</span><strong>₱@((item.StockQuantity * item.UnitPrice).ToString("#,##0.00"))</strong></div>
+                                                <div class="part-history-stat"><span>Last used</span><strong>@(_history.LastUsed?.ToPhilippineTime().ToString("MMM d, yyyy") ?? "Never")</strong></div>
+                                            </div>
+
+                                            @if (_history.Entries.Count == 0)
+                                            {
+                                                <div class="part-history-empty">No usage recorded yet. Stock taken out with Deduct is recorded here.</div>
+                                            }
+                                            else
+                                            {
+                                                <div class="part-history-table-wrap">
+                                                    <table class="part-history-table">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>DATE</th>
+                                                                <th>UNIT</th>
+                                                                <th>USED FOR</th>
+                                                                <th class="num">QTY</th>
+                                                                <th class="num">UNIT COST</th>
+                                                                <th class="num">COST</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            @foreach (InventoryAuditService.PartUsageEntry entry in _history.Entries)
+                                                            {
+                                                                <tr>
+                                                                    <td>@(entry.UsedAt?.ToPhilippineTime().ToString("MMM d, yyyy h:mm tt") ?? "–")</td>
+                                                                    <td>@(entry.TaxiId ?? "–")</td>
+                                                                    <td>
+                                                                        @(entry.TicketTitle ?? "No maintenance ticket linked")
+                                                                        @if (entry.TicketType is not null)
+                                                                        {
+                                                                            <span class="part-history-note"> · @entry.TicketType</span>
+                                                                        }
+                                                                        @if (!string.IsNullOrWhiteSpace(entry.Note))
+                                                                        {
+                                                                            <div class="part-history-note">@entry.Note</div>
+                                                                        }
+                                                                    </td>
+                                                                    <td class="num">@entry.Quantity @item.Unit</td>
+                                                                    <td class="num">₱@entry.UnitCost.ToString("#,##0.00")@(entry.IsCostEstimated ? "*" : "")</td>
+                                                                    <td class="num">₱@entry.LineCost.ToString("#,##0.00")</td>
+                                                                </tr>
+                                                            }
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                                @if (_history.Entries.Any(e => e.IsCostEstimated))
+                                                {
+                                                    <div class="part-history-note">* Recorded before unit costs were saved with each use - priced at the current unit price.</div>
+                                                }
+                                            }
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Log New Part Modal Dialog -->
+@if (showAddModal)
+{
+    <div class="modal-overlay" @onclick="() => showAddModal = false">
+        <div class="modal-card" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Log New Part</h3>
+                <button class="modal-close-btn" aria-label="Close" @onclick="() => showAddModal = false"><Icon Name="x" /></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Part Name</label>
+                    <input type="text" maxlength="60" placeholder="e.g. Brake Pads" @bind="newPart.PartName" @bind:event="oninput" />
+                    <FieldError Show="_partAttempted || newPart.PartName.Length > 0" Message="@PartNameError" />
+                </div>
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input type="number" min="0" max="@MaxStock" step="1" placeholder="e.g. 10" @bind="newPart.StockQuantity" @bind:event="oninput" />
+                    <FieldError Message="@PartQuantityError" />
+                </div>
+                <div class="form-group">
+                    <label>Unit</label>
+                    <input type="text" maxlength="10" placeholder="pcs / set / L" @bind="newPart.Unit" @bind:event="oninput" />
+                    <FieldError Show="_partAttempted || newPart.Unit.Length > 0" Message="@PartUnitError" />
+                </div>
+                <div class="form-group">
+                    <label>Min Stock Level</label>
+                    <input type="number" min="0" max="@MaxStock" step="1" placeholder="Alert threshold" @bind="newPart.ReorderLevel" @bind:event="oninput" />
+                    <FieldError Message="@PartReorderError" />
+                </div>
+                <div class="form-group">
+                    <label>Unit Price (₱ per unit)</label>
+                    <input type="number" min="0" max="@MaxUnitPrice" step="0.01" placeholder="e.g. 1500" @bind="newPart.UnitPrice" @bind:event="oninput" />
+                    <FieldError Message="@PartPriceError" />
+                </div>
+                <button class="btn-save-part" type="button" disabled="@(_partAttempted && NewPartError is not null)" @onclick="SavePartAsync">SAVE PART</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showAdjustModal && selectedPart is not null)
+{
+    <div class="modal-overlay" @onclick="CloseAdjustStockModal">
+        <div class="modal-card" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>@(isAddMode ? "Add Stock" : "Deduct Stock")</h3>
+                <button class="modal-close-btn" aria-label="Close" @onclick="CloseAdjustStockModal"><Icon Name="x" /></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Part</label>
+                    <input type="text" value="@selectedPart.PartName" disabled />
+                </div>
+                <div class="form-group">
+                    <label>Quantity (@selectedPart.Unit)</label>
+                    <input type="number" min="1" max="@(isAddMode ? MaxStock : selectedPart.StockQuantity)" step="1" @bind="adjustAmount" @bind:event="oninput" />
+                    <FieldError Message="@AdjustAmountError" />
+                </div>
+                @if (isAddMode)
+                {
+                    <div class="form-group">
+                        <label>Unit Price (₱ per @selectedPart.Unit)</label>
+                        <input type="number" min="0" max="@MaxUnitPrice" step="0.01" @bind="adjustUnitPrice" @bind:event="oninput" />
+                        <FieldError Message="@AdjustPriceError" />
+                    </div>
+                }
+                else
+                {
+                    <div class="form-group">
+                        <label>Used for (maintenance ticket)</label>
+                        <select @bind="adjustTicketId">
+                            <option value="">No ticket / other use</option>
+                            @foreach (InventoryAuditService.MaintenanceTicketOption ticket in ticketOptions)
+                            {
+                                <option value="@ticket.MaintenanceId">@ticket.Label</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Note (optional)</label>
+                        <input type="text" maxlength="200" placeholder="e.g. replaced front-left tire" @bind="adjustNote" />
+                    </div>
+                }
+                <button class="btn-save-part" type="button" disabled="@(isApplyingAdjustment || AdjustAmountError is not null || (isAddMode && AdjustPriceError is not null))" @onclick="ApplyStockAdjustmentAsync">
+                    @(isApplyingAdjustment ? "PROCESSING..." : isAddMode ? "CONFIRM ADD" : "CONFIRM DEDUCT")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+    </main>
+</div>
+}
+
+@code {
+    // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
+    private bool _isLoading = true;
+    private string _managerUserId = string.Empty;
+    private string? _loadError;
+    private string? _actionError;
+
+    private bool showAddModal = false;
+    private bool showAdjustModal = false;
+    private bool isAddMode = true;
+    private bool isApplyingAdjustment;
+    private int adjustAmount = 1;
+
+    // Input checks (InputValidator). Counts are whole numbers within a sane range; a deduction
+    // can't take out more than is in stock.
+    private const int MaxStock = 100_000;
+    private const decimal MaxUnitPrice = 1_000_000m;
+    private bool _partAttempted;
+    private string? PartNameError => InputValidator.ValidateText(newPart.PartName, "the part name", 60, required: true, minLength: 2);
+    private string? PartQuantityError => InputValidator.ValidateWholeNumber(newPart.StockQuantity, "the quantity", 0, MaxStock);
+    private string? PartUnitError => InputValidator.ValidateText(newPart.Unit, "the unit", 10, required: true);
+    private string? PartReorderError => InputValidator.ValidateWholeNumber(newPart.ReorderLevel, "the min stock level", 0, MaxStock);
+    private string? PartPriceError => InputValidator.ValidateAmount(newPart.UnitPrice, "the unit price", MaxUnitPrice, allowZero: true);
+    private string? NewPartError => PartNameError ?? PartQuantityError ?? PartUnitError ?? PartReorderError ?? PartPriceError
+        ?? (parts.Any(p => string.Equals(p.PartName.Trim(), newPart.PartName.Trim(), StringComparison.OrdinalIgnoreCase))
+            ? $"\"{newPart.PartName.Trim()}\" is already in the inventory - use + Add on it instead." : null);
+    private string? AdjustAmountError => selectedPart is null ? null
+        : !isAddMode && selectedPart.StockQuantity <= 0 ? "There's no stock left to deduct."
+        : InputValidator.ValidateWholeNumber(adjustAmount, "the quantity", 1, isAddMode ? MaxStock : selectedPart.StockQuantity) is string e
+            ? (!isAddMode && adjustAmount > selectedPart.StockQuantity ? $"Only {selectedPart.StockQuantity} {selectedPart.Unit} in stock." : e)
+            : null;
+    private string? AdjustPriceError => InputValidator.ValidateAmount(adjustUnitPrice, "the unit price", MaxUnitPrice, allowZero: true);
+    private decimal adjustUnitPrice;
+    private string adjustTicketId = string.Empty;
+    private string adjustNote = string.Empty;
+    private List<InventoryAuditService.MaintenanceTicketOption> ticketOptions = new();
+
+    // LAR-84 usage history: one part expanded at a time.
+    private string? _expandedPartId;
+    private InventoryAuditService.PartUsageHistory? _history;
+    private bool _historyLoading;
+    private string? _historyError;
+    private SparePart? selectedPart;
+    private SparePart newPart = new() { Unit = "pcs" };
+    private List<SparePart> parts = new();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // Audit entries are attributed to the signed-in manager, from the server session.
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _managerUserId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+
+        await LoadPartsAsync();
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task LoadPartsAsync()
+    {
+        try
+        {
+            _loadError = null;
+            parts = await InventoryAudit.GetSparePartsAsync();
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+            parts = new List<SparePart>();
+        }
+    }
+
+    private string GetStatusClass(string status) => status switch
+    {
+        "Normal" => "bullet-normal",
+        "Low Stock" => "bullet-low",
+        "Critical" => "bullet-critical",
+        _ => ""
+    };
+
+    private string GetStatus(SparePart item)
+    {
+        if (item.StockQuantity <= 0 || item.StockQuantity <= item.ReorderLevel / 2)
+        {
+            return "Critical";
+        }
+
+        if (item.StockQuantity <= item.ReorderLevel)
+        {
+            return "Low Stock";
+        }
+
+        return "Normal";
+    }
+
+    private static string ToDisplayPartId(int rowNumber) => rowNumber.ToString("D2");
+
+    private async Task TogglePartHistoryAsync(SparePart item)
+    {
+        if (_expandedPartId == item.PartId)
+        {
+            _expandedPartId = null;
+            _history = null;
+            return;
+        }
+
+        _expandedPartId = item.PartId;
+        await LoadHistoryAsync(item);
+    }
+
+    private async Task LoadHistoryAsync(SparePart item)
+    {
+        _history = null;
+        _historyError = null;
+        _historyLoading = true;
+        try
+        {
+            _history = await InventoryAudit.GetPartUsageHistoryAsync(item);
+        }
+        catch (Exception ex)
+        {
+            _historyError = ex.Message;
+        }
+        finally
+        {
+            _historyLoading = false;
+        }
+    }
+
+    private async Task OpenAdjustStockModal(SparePart item, bool addMode)
+    {
+        _actionError = null;
+        selectedPart = item;
+        isAddMode = addMode;
+        adjustAmount = 1;
+        adjustUnitPrice = item.UnitPrice;
+        adjustTicketId = string.Empty;
+        adjustNote = string.Empty;
+        showAdjustModal = true;
+
+        if (!addMode)
+        {
+            try
+            {
+                ticketOptions = await InventoryAudit.GetTicketOptionsAsync();
+            }
+            catch (Exception ex)
+            {
+                ticketOptions = new();
+                _actionError = $"Couldn't load maintenance tickets: {ex.Message}";
+            }
+        }
+    }
+
+    private void CloseAdjustStockModal()
+    {
+        showAdjustModal = false;
+        selectedPart = null;
+        adjustAmount = 1;
+        isApplyingAdjustment = false;
+    }
+
+    private async Task ApplyStockAdjustmentAsync()
+    {
+        _actionError = null;
+
+        if (selectedPart is null)
+        {
+            _actionError = "No part selected.";
+            return;
+        }
+
+        if ((AdjustAmountError ?? (isAddMode ? AdjustPriceError : null)) is string adjustError)
+        {
+            _actionError = adjustError;
+            return;
+        }
+
+        isApplyingAdjustment = true;
+
+        try
+        {
+            if (isAddMode && adjustUnitPrice < 0)
+            {
+                _actionError = "Unit price can't be negative.";
+                return;
+            }
+
+            SparePart? updated = isAddMode
+                ? await InventoryAudit.AddPartStockAsync(selectedPart.PartId, adjustAmount, actorUserId: _managerUserId, unitPrice: adjustUnitPrice)
+                : await InventoryAudit.DeductPartAsync(selectedPart.PartId, adjustAmount, actorUserId: _managerUserId,
+                    maintenanceId: string.IsNullOrEmpty(adjustTicketId) ? null : adjustTicketId, note: adjustNote);
+
+            if (updated is null)
+            {
+                _actionError = "This part no longer exists in Firestore.";
+                return;
+            }
+
+            int idx = parts.FindIndex(p => p.PartId == updated.PartId);
+            if (idx >= 0)
+            {
+                parts[idx] = updated;
+            }
+
+            CloseAdjustStockModal();
+
+            if (_expandedPartId == updated.PartId)
+            {
+                await LoadHistoryAsync(updated);
+            }
+        }
+        catch (Exception ex)
+        {
+            _actionError = isAddMode
+                ? $"Couldn't add stock: {ex.Message}"
+                : $"Couldn't deduct stock: {ex.Message}";
+        }
+        finally
+        {
+            isApplyingAdjustment = false;
+        }
+    }
+
+    private async Task SavePartAsync()
+    {
+        _actionError = null;
+
+        _partAttempted = true;
+        if (NewPartError is string partError)
+        {
+            _actionError = partError;
+            return;
+        }
+
+        try
+        {
+            SparePart saved = await InventoryAudit.AddSparePartAsync(new SparePart
+            {
+                PartName = InputValidator.NormalizeSpaces(newPart.PartName),
+                StockQuantity = newPart.StockQuantity,
+                ReorderLevel = newPart.ReorderLevel,
+                Unit = newPart.Unit,
+                UnitPrice = Math.Max(0m, newPart.UnitPrice),
+            }, actorUserId: _managerUserId);
+
+            parts.Add(saved);
+            parts = parts.OrderBy(p => p.PartName, StringComparer.OrdinalIgnoreCase).ToList();
+            newPart = new SparePart { Unit = "pcs" };
+            _partAttempted = false;
+            showAddModal = false;
+        }
+        catch (Exception ex)
+        {
+            _actionError = $"Couldn't save part: {ex.Message}";
+        }
+    }
+}

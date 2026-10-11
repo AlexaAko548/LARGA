@@ -1,4 +1,6 @@
+using System.Threading.Tasks;
 using System.Windows.Input;
+using Microsoft.Maui.Controls;
 
 namespace LARGA.MobileApp.ViewModels.Auth;
 
@@ -13,7 +15,7 @@ public class LandingViewModel
 
     private async Task OnSelectRoleAsync(string role)
     {
-        // Navigate to login
-        await Shell.Current.GoToAsync("login");
+        // Pass the clicked role securely into the route dictionary
+        await Shell.Current.GoToAsync($"login?SelectedRole={role}");
     }
 }

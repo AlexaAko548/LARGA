@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<?xaml-comp compile="true" ?>
+<!-- Dark palette: same keys as LightColors.xaml (see there). -->
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    x:Class="LARGA.MobileApp.Resources.Styles.DarkColors">
+
+    <Color x:Key="LargaDarkText">#E6EEF2</Color>
+    <Color x:Key="LargaPrimaryBlue">#019BCF</Color>
+    <Color x:Key="LargaWhite">#FFFFFF</Color>
+    <Color x:Key="LargaLightBlue">#1E3A47</Color>
+
+    <Color x:Key="LargaPageBg">#0F1A21</Color>
+    <Color x:Key="LargaNavy">#DCEAF2</Color>
+    <Color x:Key="LargaNavySurface">#163B54</Color>
+    <Color x:Key="LargaMutedText">#9AB0BA</Color>
+    <Color x:Key="LargaCardBorder">#27404C</Color>
+    <Color x:Key="LargaAccentBlue">#15303C</Color>
+    <Color x:Key="LargaSuccess">#4CC38A</Color>
+    <Color x:Key="LargaSuccessBg">#16352A</Color>
+    <Color x:Key="LargaDanger">#EF6B6B</Color>
+    <Color x:Key="LargaDangerBg">#3A1D1D</Color>
+    <Color x:Key="LargaWarning">#E5A04A</Color>
+    <Color x:Key="LargaWarningBg">#3A2C12</Color>
+
+    <Color x:Key="ThemePageBg">#0F1A21</Color>
+    <Color x:Key="ThemeSurface">#17242C</Color>
+    <Color x:Key="ThemeTextBlack">#E6EEF2</Color>
+    <Color x:Key="ThemeTextGray">#9AB0BA</Color>
+    <Color x:Key="ThemeTextSecondary">#B4C4CC</Color>
+    <Color x:Key="ThemeTextTertiary">#8FA3AD</Color>
+    <Color x:Key="ThemePanel">#1E3A47</Color>
+    <Color x:Key="ThemePanelAlt">#1B3540</Color>
+    <Color x:Key="ThemeDivider">#2D4A57</Color>
+    <Color x:Key="ThemeDividerDark">#3A4A52</Color>
+    <Color x:Key="ThemeDividerLight">#2E3E46</Color>
+    <Color x:Key="ThemeEditedText">#F0B45A</Color>
+    <Color x:Key="ThemeWarningText">#F0C75A</Color>
+    <Color x:Key="ThemeOrangeText">#FFA25A</Color>
+    <Color x:Key="ThemeDangerSoft">#3A1D1D</Color>
+    <Color x:Key="ThemeNoteBg">#3A1D1D</Color>
+    <Color x:Key="ThemeWarningSoft">#3A3212</Color>
+    <Color x:Key="ThemeOrangeSoft">#3A2A12</Color>
+    <Color x:Key="ThemeTabUnselected">#6F8590</Color>
+
+</ResourceDictionary>

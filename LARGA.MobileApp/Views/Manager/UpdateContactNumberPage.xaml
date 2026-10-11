@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Manager"
+             x:Class="LARGA.MobileApp.Views.Manager.UpdateContactNumberPage"
+             x:DataType="vm:UpdateContactNumberViewModel"
+             NavigationPage.HasNavigationBar="False"
+             BackgroundColor="{DynamicResource ThemeSurface}">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20,0" Spacing="15" Margin="0,10">
+
+            <Label Text="Update Contact Number" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{DynamicResource LargaDarkText}" />
+
+            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <Entry Text="{Binding CurrentNumber}" Placeholder="Current Number" Keyboard="Telephone" BackgroundColor="Transparent"
+                       TextColor="{DynamicResource LargaDarkText}" PlaceholderColor="{DynamicResource ThemeTextSecondary}" />
+            </Border>
+
+            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <Entry Text="{Binding NewNumber}" Placeholder="New Number" Keyboard="Telephone" BackgroundColor="Transparent"
+                       TextColor="{DynamicResource LargaDarkText}" PlaceholderColor="{DynamicResource ThemeTextSecondary}" />
+            </Border>
+
+            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <Entry Text="{Binding ConfirmNewNumber}" Placeholder="Confirm New Number" Keyboard="Telephone" BackgroundColor="Transparent"
+                       TextColor="{DynamicResource LargaDarkText}" PlaceholderColor="{DynamicResource ThemeTextSecondary}" />
+            </Border>
+
+            <Button Text="CONFIRM &amp; SAVE" Command="{Binding SaveCommand}" IsEnabled="{Binding IsNotBusy}"
+                    BackgroundColor="{DynamicResource LargaPrimaryBlue}" TextColor="{DynamicResource LargaWhite}"
+                    CornerRadius="25" HeightRequest="55" FontSize="16" FontAttributes="Bold" Margin="0,15,0,20" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

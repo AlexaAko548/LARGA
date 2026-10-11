@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="LARGA.MobileApp.Views.Driver.OdometerScanPage"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="Black">
+
+    <Grid>
+        <!-- Change Aspect="AspectFill" to Aspect="Fill" to align the OCR coordinates -->
+        <Image x:Name="CapturedImage" Aspect="Fill" HorizontalOptions="Fill" VerticalOptions="Fill" />
+
+        <AbsoluteLayout x:Name="TextOverlayLayout" HorizontalOptions="Fill" VerticalOptions="Fill" />
+
+        <!-- LCD Reader mode: a draggable/resizable frame the driver positions over the
+             digital readout - drag to move, pinch to resize - since the app has no other way
+             to know where in the photo the digits actually are. Hidden in OCR-tap mode. -->
+        <AbsoluteLayout x:Name="CropOverlayLayout" HorizontalOptions="Fill" VerticalOptions="Fill" IsVisible="False">
+            <Border x:Name="CropBox" Background="Transparent" Stroke="Lime" StrokeThickness="3" StrokeShape="RoundRectangle 4">
+                <Border.GestureRecognizers>
+                    <PanGestureRecognizer PanUpdated="OnCropBoxPanUpdated" />
+                    <PinchGestureRecognizer PinchUpdated="OnCropBoxPinchUpdated" />
+                </Border.GestureRecognizers>
+            </Border>
+        </AbsoluteLayout>
+
+        <VerticalStackLayout VerticalOptions="Start" HorizontalOptions="Center" Spacing="8" Margin="0,20,0,0">
+            <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
+                <Button x:Name="OcrModeButton" Text="🔠 Tap a Number" Clicked="OnOcrModeClicked" BackgroundColor="#1E5C7A" TextColor="White" CornerRadius="16" FontSize="12" Padding="12,6" />
+                <Button x:Name="LcdModeButton" Text="🔢 Frame the Digits" Clicked="OnLcdModeClicked" BackgroundColor="#333333" TextColor="White" CornerRadius="16" FontSize="12" Padding="12,6" />
+            </HorizontalStackLayout>
+        </VerticalStackLayout>
+
+        <VerticalStackLayout VerticalOptions="End" HorizontalOptions="Center" Spacing="15" Margin="0,0,0,40">
+            <Label x:Name="InstructionLabel" Text="Tap the highlighted numbers above to select." TextColor="White" FontSize="12" HorizontalOptions="Center" />
+            <Button x:Name="ReadDigitsButton" Text="✓ Read Digits" Clicked="OnReadDigitsClicked" BackgroundColor="#1E7A3C" TextColor="White" CornerRadius="20" WidthRequest="180" IsVisible="False" />
+            <Button Text="⌨ Can't find it? Enter manually" Clicked="OnEnterManuallyClicked" BackgroundColor="#1E5C7A" TextColor="White" CornerRadius="20" WidthRequest="220" />
+            <Button Text="❌ Cancel" Clicked="OnCancelClicked" BackgroundColor="#333333" TextColor="White" CornerRadius="20" WidthRequest="150" />
+        </VerticalStackLayout>
+    </Grid>
+</ContentPage>

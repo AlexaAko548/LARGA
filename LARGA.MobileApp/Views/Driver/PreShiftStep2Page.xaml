@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
+             x:Class="LARGA.MobileApp.Views.Driver.PreShiftStep2Page"
+             x:DataType="vm:PreShiftStep2ViewModel"
+             NavigationPage.HasNavigationBar="False"
+             BackgroundColor="{DynamicResource ThemeSurface}">
+
+    <ContentPage.Resources>
+        <ResourceDictionary>
+            <ControlTemplate x:Key="FuelRadioTemplate">
+                <Grid WidthRequest="22" HeightRequest="22">
+                    <Ellipse Stroke="{DynamicResource ThemeTextGray}" StrokeThickness="2"
+                             WidthRequest="22" HeightRequest="22" HorizontalOptions="Center" VerticalOptions="Center" />
+                    <Ellipse x:Name="SelectedDot" Fill="{AppThemeBinding Light=#2B0B98, Dark=White}"
+                             WidthRequest="12" HeightRequest="12" HorizontalOptions="Center" VerticalOptions="Center" Opacity="0" />
+                    <VisualStateManager.VisualStateGroups>
+                        <VisualStateGroupList>
+                            <VisualStateGroup x:Name="CheckedStates">
+                                <VisualState x:Name="Checked">
+                                    <VisualState.Setters>
+                                        <Setter TargetName="SelectedDot" Property="Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Unchecked">
+                                    <VisualState.Setters>
+                                        <Setter TargetName="SelectedDot" Property="Opacity" Value="0" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateGroupList>
+                    </VisualStateManager.VisualStateGroups>
+                </Grid>
+            </ControlTemplate>
+        </ResourceDictionary>
+    </ContentPage.Resources>
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20,0" Spacing="12" Margin="0,10">
+
+            <Label Text="STEP 1 OF 2" Style="{StaticResource StatusDataStyle}" TextColor="{DynamicResource ThemeTextGray}" FontSize="12" />
+            <Label Text="Pre-Shift Inspection" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{DynamicResource ThemeTextBlack}" LineHeight="1.1" />
+            <Label Text="{Binding AssignedUnitPlate, StringFormat='{0} · Complete all items before starting your shift.'}" FontSize="12" TextColor="{DynamicResource ThemeTextGray}" />
+
+            <ProgressBar Progress="1.0" ProgressColor="#0099CC" HeightRequest="4" Margin="0,10,0,0" />
+            <Label Text="2 / 2 completed" FontSize="14" Style="{StaticResource StatusDataStyle}" TextColor="{DynamicResource ThemeTextBlack}" Margin="0,5,0,0" />
+
+            <!-- Starting Metrics Card -->
+            <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="20">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="Starting Metrics" FontAttributes="Bold" FontSize="18" FontFamily="Inter" TextColor="{DynamicResource ThemeTextBlack}" />
+                    <Label Text="Starting Odometer:" FontSize="13" TextColor="{DynamicResource ThemeTextGray}" />
+
+                    <Button Text="{Binding OdometerButtonText}" Command="{Binding ScanOdometerCommand}" 
+                            BackgroundColor="{DynamicResource ThemeSurface}" TextColor="{DynamicResource ThemeTextBlack}" CornerRadius="10" HeightRequest="45" HorizontalOptions="Fill">
+                        <Button.Triggers>
+                            <DataTrigger TargetType="Button" Binding="{Binding IsOdometerScanned}" Value="True">
+                                <Setter Property="BackgroundColor" Value="#0099CC" />
+                                <Setter Property="TextColor" Value="White" />
+                                <Setter Property="HorizontalOptions" Value="Start" />
+                            </DataTrigger>
+                        </Button.Triggers>
+                    </Button>
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Fuel Verification Card -->
+            <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="20">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="Fuel Verification" FontAttributes="Bold" FontSize="18" FontFamily="Inter" TextColor="{DynamicResource ThemeTextBlack}" />
+                    <Label Text="Checked fuel gauge dashboard" FontSize="13" TextColor="{DynamicResource ThemeTextGray}" />
+
+                    <HorizontalStackLayout Spacing="10" VerticalOptions="Center">
+                        <RadioButton GroupName="Fuel" IsChecked="{Binding IsHalfTankSelected}" ControlTemplate="{StaticResource FuelRadioTemplate}" />
+                        <Label Text="Half-tank" TextColor="{DynamicResource ThemeTextBlack}" VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+
+                    <HorizontalStackLayout Spacing="10" VerticalOptions="Center">
+                        <RadioButton GroupName="Fuel" IsChecked="{Binding IsBelowHalfTankSelected}" ControlTemplate="{StaticResource FuelRadioTemplate}" />
+                        <VerticalStackLayout>
+                            <Label Text="Below half-tank" TextColor="{DynamicResource ThemeTextBlack}" />
+                            <Label Text="(Penalty to the previous driver : ₱ 50.00)" TextColor="{DynamicResource LargaDanger}" TextDecorations="Underline" FontSize="10" IsVisible="{Binding PenaltyNoteVisible}" />
+                        </VerticalStackLayout>
+                    </HorizontalStackLayout>
+
+                    <Button Text="📷 Attach photo" Command="{Binding AttachPhotoCommand}" 
+                            BackgroundColor="{DynamicResource ThemeSurface}" TextColor="{DynamicResource ThemeTextBlack}" CornerRadius="10" HeightRequest="45" HorizontalOptions="Fill" Margin="0,10,0,0">
+                        <Button.Triggers>
+                            <DataTrigger TargetType="Button" Binding="{Binding HasPhoto}" Value="True">
+                                <Setter Property="BackgroundColor" Value="#0099CC" />
+                                <Setter Property="TextColor" Value="White" />
+                                <Setter Property="Text" Value="✅ Photo Attached" />
+                            </DataTrigger>
+                        </Button.Triggers>
+                    </Button>
+
+                    <Image Source="{Binding FuelPhoto}" IsVisible="{Binding HasPhoto}" HeightRequest="150" Aspect="AspectFill" Margin="0,10,0,0" />
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Confirm & Start Shift Button -->
+            <Button Text="🛡️ Confirm &amp; Start Shift" Command="{Binding ConfirmStartShiftCommand}" 
+                    BackgroundColor="{DynamicResource ThemePanel}" TextColor="#0099CC" CornerRadius="25" Style="{StaticResource LargaButtonStyle}" HeightRequest="60" FontSize="18" Margin="0,15,0,0">
+                <Button.Triggers>
+                    <DataTrigger TargetType="Button" Binding="{Binding CanStartShift}" Value="True">
+                        <Setter Property="BackgroundColor" Value="#0099CC" />
+                        <Setter Property="TextColor" Value="White" />
+                    </DataTrigger>
+                </Button.Triggers>
+            </Button>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

@@ -14,7 +14,10 @@ public class MessageManagerViewModel : INotifyPropertyChanged
 {
     private readonly IChatService _chatService;
     private string _newMessage = string.Empty;
-    private readonly string _driverId = Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser?.Uid ?? "unknown_driver";
+
+    // Updated property name
+    private string DriverId => Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser?.Uid ?? "unknown_driver";
+
     private IDisposable? _chatListener;
 
     public ObservableCollection<ChatMessage> Messages { get; set; } = new();
@@ -34,12 +37,31 @@ public class MessageManagerViewModel : INotifyPropertyChanged
     }
 
     public string SubmitIcon => string.IsNullOrWhiteSpace(NewMessage) ? "like_icon.png" : "send_icon.png";
+
+    // False until the first snapshot arrives, so the empty-state text doesn't flash before messages load.
+    private bool _hasLoadedMessages;
+    public bool HasLoadedMessages
+    {
+        get => _hasLoadedMessages;
+        private set
+        {
+            if (_hasLoadedMessages != value)
+            {
+                _hasLoadedMessages = value;
+                OnPropertyChanged();
+            }
+        }
+    }
     public ICommand SendMessageCommand { get; }
     public ICommand CallManagerCommand { get; }
+    public Action? ScrollToBottom { get; set; }
 
-    public MessageManagerViewModel(IChatService chatService)
+    private readonly LARGA.MobileApp.Services.IEmergencyAlertService _emergencyAlertService;
+
+    public MessageManagerViewModel(IChatService chatService, LARGA.MobileApp.Services.IEmergencyAlertService emergencyAlertService)
     {
         _chatService = chatService;
+        _emergencyAlertService = emergencyAlertService;
         SendMessageCommand = new Command(OnSendMessage);
         StartListening();
 
@@ -48,8 +70,8 @@ public class MessageManagerViewModel : INotifyPropertyChanged
 
     private void StartListening()
     {
-        // Automatically populates the UI whenever a new message is detected in Firestore
-        _chatListener = _chatService.ListenForMessages(_driverId, messages =>
+        // FIX 1: Replaced _driverId with DriverId
+        _chatListener = _chatService.ListenForMessages(DriverId, messages =>
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
@@ -58,61 +80,82 @@ public class MessageManagerViewModel : INotifyPropertyChanged
                 {
                     Messages.Add(msg);
                 }
+
+                HasLoadedMessages = true;
+                ScrollToBottom?.Invoke();
             });
         });
     }
 
     private async void OnSendMessage()
     {
-        // If the input is empty, send a thumbs-up emoji instead of text
-        if (string.IsNullOrWhiteSpace(NewMessage))
+        // An empty box sends a thumbs-up, like the manager's chat.
+        string text = string.IsNullOrWhiteSpace(NewMessage) ? "👍" : NewMessage;
+        bool typed = !string.IsNullOrWhiteSpace(NewMessage);
+        NewMessage = string.Empty;
+
+        bool sent;
+        try
         {
-            var likeMessage = new ChatMessage
-            {
-                Text = "👍",
-                IsDriver = true
-            };
-            await _chatService.SendMessageAsync(_driverId, likeMessage);
-            return;
+            sent = await _chatService.SendMessageAsync(DriverId, new ChatMessage { Text = text, IsDriver = true });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Send message failed: {ex.Message}");
+            sent = false;
         }
 
-        // Otherwise, send the standard typed text
-        var message = new ChatMessage
+        if (!sent)
         {
-            Text = NewMessage,
-            IsDriver = true
-        };
+            // Put the text back so nothing typed is lost, unless something new was typed meanwhile.
+            if (typed && string.IsNullOrEmpty(NewMessage)) NewMessage = text;
+            await ShowSendFailedAsync();
+        }
+    }
 
-        NewMessage = string.Empty;
-        await _chatService.SendMessageAsync(_driverId, message);
+    private static async Task ShowSendFailedAsync()
+    {
+        try
+        {
+            await Shell.Current.DisplayAlert("Message not sent", "Check your connection and try again.", "OK");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Send-failed alert error: {ex.Message}");
+        }
     }
 
     private async void OnCallManager()
     {
         try
         {
-            string managerPhoneNumber = "09123456789";
+            // Drivers can't read managers' users documents (firestore.rules), so the managers'
+            // numbers come from the same system_configs allowlist the SOS auto-answer uses.
+            string? managerPhoneNumber = (await _emergencyAlertService.GetManagerPhoneNumbersAsync()).FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(managerPhoneNumber))
+            {
+                await Shell.Current.DisplayAlert("Call Manager",
+                    "No manager phone number is on file yet. Send a message instead, or ask your manager to add their number.", "OK");
+                return;
+            }
 
-            // 1. Request the live calling permission from the driver
             var status = await Permissions.CheckStatusAsync<Permissions.Phone>();
             if (status != PermissionStatus.Granted)
             {
                 status = await Permissions.RequestAsync<Permissions.Phone>();
             }
 
-            // 2. If granted, execute the direct call
             if (status == PermissionStatus.Granted)
             {
-    #if ANDROID
-                // Bypasses the dialer UI and initiates the call instantly
+#if ANDROID
                 var uri = Android.Net.Uri.Parse($"tel:{managerPhoneNumber}");
                 var intent = new Android.Content.Intent(Android.Content.Intent.ActionCall, uri);
                 intent.AddFlags(Android.Content.ActivityFlags.NewTask);
                 Android.App.Application.Context.StartActivity(intent);
-    #else
+#else
             if (Microsoft.Maui.ApplicationModel.Communication.PhoneDialer.Default.IsSupported)
                 Microsoft.Maui.ApplicationModel.Communication.PhoneDialer.Default.Open(managerPhoneNumber);
-    #endif
+#endif
             }
         }
         catch (Exception ex)
