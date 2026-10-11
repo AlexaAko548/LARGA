@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.Messaging;
 using LARGA.MobileApp.Services;
 using LARGA.MobileApp.Views.Driver;
+using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
@@ -116,20 +117,23 @@ public class ReportsViewModel : BindableObject
             {
                 if (doc.Data == null) continue;
 
-                var parsedTimestamp = ParseTimestamp(doc.Data.ReceiptTimestamp);
-                if (!parsedTimestamp.HasValue)
-                {
-                    continue;
-                }
+                // The list shows when the report was submitted, not the date on the receipt.
+                // Reports filed before submittedAt existed fall back to the receipt date.
+                var receiptUtc = FirestoreDateTimeFix.ReadUtc(doc.Data.ReceiptTimestamp);
+                var submittedUtc = FirestoreDateTimeFix.ReadUtc(doc.Data.SubmittedAt);
 
-                var dateLogged = FirestoreDateTimeFix.Apply(parsedTimestamp.Value).ToLocalTime();
+                DateTime? dateLogged = submittedUtc.HasValue
+                    ? submittedUtc.Value.ToPhilippineTime()
+                    : receiptUtc.HasValue ? FuelReportDates.ReceiptDate(receiptUtc.Value) : null;
+
                 tempFuels.Add(new FuelReportItem
                 {
                     Id = doc.Reference.Id,
-                    DateLogged = dateLogged,
-                    DateDisplay = dateLogged.ToString("MMM d, yyyy"),
+                    DateLogged = dateLogged ?? DateTime.MinValue,
+                    DateDisplay = dateLogged?.ToString("MMM d, yyyy") ?? "Unknown date",
                     Cost = ParseFuelCost(doc.Data.FuelCost).ToString("N2"),
-                    Status = string.IsNullOrWhiteSpace(doc.Data.VerificationStatus) ? "Pending" : doc.Data.VerificationStatus
+                    Status = string.IsNullOrWhiteSpace(doc.Data.VerificationStatus) ? "Pending" : doc.Data.VerificationStatus,
+                    HasDateMismatch = FuelReportDates.MismatchNote(receiptUtc, submittedUtc) is not null
                 });
             }
 
@@ -162,25 +166,14 @@ public class ReportsViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("receiptTimestamp")]
         public object? ReceiptTimestamp { get; set; }
 
+        [Plugin.Firebase.Firestore.FirestoreProperty("submittedAt")]
+        public object? SubmittedAt { get; set; }
+
         [Plugin.Firebase.Firestore.FirestoreProperty("fuelCost")]
         public object? FuelCost { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("verificationStatus")]
         public string? VerificationStatus { get; set; }
-    }
-
-    private static DateTime? ParseTimestamp(object? value)
-    {
-        if (value is null)
-            return null;
-
-        if (value is DateTime dateTime)
-            return dateTime;
-
-        if (DateTime.TryParse(value.ToString(), out var parsed))
-            return parsed;
-
-        return null;
     }
 
     private static decimal ParseFuelCost(object? value)
@@ -227,5 +220,7 @@ public class FuelReportItem
     public string DateDisplay { get; set; } = string.Empty;
     public string Cost { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
+    // The receipt is dated on a different day than the report was submitted.
+    public bool HasDateMismatch { get; set; }
     public string DisplayText => $"{DateDisplay} - ₱ {Cost}";
 }

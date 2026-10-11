@@ -76,6 +76,15 @@ public partial class ManagerDashboardPage : ContentPage
         // after an automated SOS. Covers fresh logins and remember-me alike.
         _ = ManagerAllowlistSync.SyncCurrentManagerAsync();
 
+        // Saves this phone's FCM token on users/{uid}.fcmToken so ManagerWeb's SosPushService
+        // can reach this manager with SOS pushes even while the app is closed. Never throws.
+        string? uid = Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser?.Uid;
+        var notifications = IPlatformApplication.Current?.Services.GetService<LARGA.SharedCore.Services.INotificationService>();
+        if (!string.IsNullOrEmpty(uid) && notifications is not null)
+        {
+            _ = notifications.RegisterPushNotificationsAsync(uid);
+        }
+
         // SkiaSharp's WinUI native interop (which Mapsui's MapRenderer depends on) is broken
         // in *unpackaged* Windows builds - a known, currently-unresolved upstream limitation
         // (see dotnet/maui#23737, mono/SkiaSharp#2968/#3440), not anything specific to this

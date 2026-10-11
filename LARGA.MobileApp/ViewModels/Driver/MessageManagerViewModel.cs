@@ -56,9 +56,12 @@ public class MessageManagerViewModel : INotifyPropertyChanged
     public ICommand CallManagerCommand { get; }
     public Action? ScrollToBottom { get; set; }
 
-    public MessageManagerViewModel(IChatService chatService)
+    private readonly LARGA.MobileApp.Services.IEmergencyAlertService _emergencyAlertService;
+
+    public MessageManagerViewModel(IChatService chatService, LARGA.MobileApp.Services.IEmergencyAlertService emergencyAlertService)
     {
         _chatService = chatService;
+        _emergencyAlertService = emergencyAlertService;
         SendMessageCommand = new Command(OnSendMessage);
         StartListening();
 
@@ -86,36 +89,55 @@ public class MessageManagerViewModel : INotifyPropertyChanged
 
     private async void OnSendMessage()
     {
-        if (string.IsNullOrWhiteSpace(NewMessage))
-        {
-            var likeMessage = new ChatMessage
-            {
-                Text = "👍",
-                IsDriver = true
-            };
-
-            // FIX 2: Replaced _driverId with DriverId
-            await _chatService.SendMessageAsync(DriverId, likeMessage);
-            return;
-        }
-
-        var message = new ChatMessage
-        {
-            Text = NewMessage,
-            IsDriver = true
-        };
-
+        // An empty box sends a thumbs-up, like the manager's chat.
+        string text = string.IsNullOrWhiteSpace(NewMessage) ? "👍" : NewMessage;
+        bool typed = !string.IsNullOrWhiteSpace(NewMessage);
         NewMessage = string.Empty;
 
-        // FIX 3: Replaced _driverId with DriverId
-        await _chatService.SendMessageAsync(DriverId, message);
+        bool sent;
+        try
+        {
+            sent = await _chatService.SendMessageAsync(DriverId, new ChatMessage { Text = text, IsDriver = true });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Send message failed: {ex.Message}");
+            sent = false;
+        }
+
+        if (!sent)
+        {
+            // Put the text back so nothing typed is lost, unless something new was typed meanwhile.
+            if (typed && string.IsNullOrEmpty(NewMessage)) NewMessage = text;
+            await ShowSendFailedAsync();
+        }
+    }
+
+    private static async Task ShowSendFailedAsync()
+    {
+        try
+        {
+            await Shell.Current.DisplayAlert("Message not sent", "Check your connection and try again.", "OK");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Send-failed alert error: {ex.Message}");
+        }
     }
 
     private async void OnCallManager()
     {
         try
         {
-            string managerPhoneNumber = "09123456789";
+            // Drivers can't read managers' users documents (firestore.rules), so the managers'
+            // numbers come from the same system_configs allowlist the SOS auto-answer uses.
+            string? managerPhoneNumber = (await _emergencyAlertService.GetManagerPhoneNumbersAsync()).FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(managerPhoneNumber))
+            {
+                await Shell.Current.DisplayAlert("Call Manager",
+                    "No manager phone number is on file yet. Send a message instead, or ask your manager to add their number.", "OK");
+                return;
+            }
 
             var status = await Permissions.CheckStatusAsync<Permissions.Phone>();
             if (status != PermissionStatus.Granted)

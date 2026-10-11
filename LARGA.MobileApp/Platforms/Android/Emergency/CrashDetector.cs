@@ -3,9 +3,12 @@ using System;
 namespace LARGA.MobileApp.Platforms.Android.Emergency;
 
 /// <summary>
-/// LAR-87 Accident Protocol trigger: a Z-axis G-force spike above 4G immediately followed by
-/// the taxi's GPS speed dropping to zero. All times are seconds on the same clock
-/// (SystemClock.elapsedRealtime, which both sensor events and GPS fixes carry).
+/// LAR-87 Accident Protocol trigger: a G-force spike above 4G immediately followed by the taxi's
+/// GPS speed dropping to zero. The spike is the magnitude of the gravity-free acceleration on all
+/// three axes, not the Z axis alone: which phone axis a frontal or side impact lands on depends on
+/// how the phone is mounted (upright on the dash, flat in a tray, in a pocket), and a Z-only check
+/// missed impacts along the others. A Z-axis spike still counts, as before. All times are seconds
+/// on the same clock (SystemClock.elapsedRealtime, which both sensor events and GPS fixes carry).
 /// </summary>
 public sealed class CrashDetector
 {
@@ -26,16 +29,17 @@ public sealed class CrashDetector
     private int _stoppedFixes;
     private double _lastFiredAt = double.NegativeInfinity;
 
-    /// <summary>Gravity-free Z-axis acceleration, m/s².</summary>
-    public void OnAcceleration(double t, double z)
+    /// <summary>Gravity-free acceleration on each axis, m/s².</summary>
+    public void OnLinearAcceleration(double t, double x, double y, double z)
     {
         if (_spikeAt is double spike && t - spike > ConfirmWindowSeconds)
         {
             _spikeAt = null; // the taxi kept going - not a crash
         }
 
+        double magnitude = Math.Sqrt(x * x + y * y + z * z);
         if (_spikeAt is null
-            && Math.Abs(z) > SpikeThreshold
+            && magnitude > SpikeThreshold
             && t - _lastFiredAt > CooldownSeconds
             && t - _lastMovingAt <= MovingLookbackSeconds)
         {

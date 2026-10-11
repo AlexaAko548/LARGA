@@ -41,13 +41,21 @@ public partial class LandingPage : ContentPage
             }
 
             // 3. Auto-route them, bypassing the login screens completely
-            if (role?.Equals("Driver", StringComparison.OrdinalIgnoreCase) == true)
+            try
             {
-                await Shell.Current.GoToAsync("//driver-dashboard");
+                if (role?.Equals("Driver", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    await Shell.Current.GoToAsync("//driver-dashboard");
+                }
+                else if (role?.Equals("Manager", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    await Shell.Current.GoToAsync("//manager-dashboard");
+                }
             }
-            else if (role?.Equals("Manager", StringComparison.OrdinalIgnoreCase) == true)
+            catch (Exception ex)
             {
-                await Shell.Current.GoToAsync("//manager-dashboard");
+                // Stay on Landing; the user can still log in manually.
+                System.Diagnostics.Debug.WriteLine($"Auto-login routing failed: {ex}");
             }
         }
     }

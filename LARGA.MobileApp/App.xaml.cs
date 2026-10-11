@@ -12,12 +12,34 @@ public partial class App : Application
 	private Page? _countdownPage;
 	private bool _syncingCountdown;
 
-	public App(LARGA.MobileApp.Services.EmergencyCountdownCoordinator countdown, LARGA.MobileApp.Services.IThemeService themeService)
+	public App(LARGA.MobileApp.Services.EmergencyCountdownCoordinator countdown, LARGA.MobileApp.Services.IThemeService themeService,
+		LARGA.SharedCore.Services.IGpsTelemetryService telemetryService, LARGA.MobileApp.Services.IEmergencyMonitor emergencyMonitor)
 	{
 		InitializeComponent();
 
 		// Saved System / Light / Dark choice, before the first page is built.
 		themeService.Initialize();
+
+		// LAR-77 auto-cutoff: the shift was closed elsewhere (ManagerWeb's 6:00 AM auto-close, or a
+		// manager) - GPS tracking has already stopped; end emergency monitoring and forget the shift,
+		// the same cleanup a normal clock-out does (EndShiftStep2ViewModel).
+		telemetryService.ShiftClosedRemotely += async (_, shiftId) =>
+		{
+			emergencyMonitor.Stop();
+			try
+			{
+				if (await SecureStorage.GetAsync("ActiveShiftDocumentId") == shiftId)
+				{
+					SecureStorage.Remove("ActiveShiftDocumentId");
+				}
+				Preferences.Remove("IsShiftActive");
+				Preferences.Remove("CurrentShiftId");
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"Remote shift close cleanup failed: {ex.Message}");
+			}
+		};
 
 		// LAR-86/87: show the cancel pop-up whenever an automated SOS countdown starts, and close
 		// it when the countdown ends (sent or cancelled). Changed can fire from any thread.
@@ -29,6 +51,30 @@ public partial class App : Application
         {
             if (e.Notification?.Data != null)
             {
+                // SOS push to a manager (ManagerWeb SosPushService): open the Alert Center.
+                if (e.Notification.Data.TryGetValue("type", out var sosType) && sosType?.ToString() == "sos_alert")
+                {
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
+                    {
+                        while (Shell.Current == null)
+                        {
+                            await Task.Delay(100);
+                        }
+
+                        try
+                        {
+                            await Shell.Current.GoToAsync("//manager-dashboard/alerts");
+                        }
+                        catch (Exception ex)
+                        {
+                            // Not signed in as a manager yet (cold start on the landing page) -
+                            // the alert is still waiting in the Alert Center after login.
+                            System.Diagnostics.Debug.WriteLine($"SOS notification routing failed: {ex.Message}");
+                        }
+                    });
+                    return;
+                }
+
                 // Check payload key sent by the backend
                 if (e.Notification.Data.TryGetValue("type", out var type) && type?.ToString() == "pre_shift_reminder")
                 {

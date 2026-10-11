@@ -49,26 +49,56 @@ public partial class ScanEReceiptPage : ContentPage
         }
     }
 
+    // Never throw: these run from async void page events (appearing, cameras loaded, retake,
+    // cancel), where an exception would crash the app. A camera that won't start stays blank.
     private async Task StartCameraAsync()
     {
-        if (ReceiptCamera.Cameras.Count == 0) return;
+        try
+        {
+            if (ReceiptCamera.Cameras.Count == 0) return;
 
-        ReceiptCamera.Camera = ReceiptCamera.Cameras.FirstOrDefault(c => c.Position == Camera.MAUI.CameraPosition.Back)
-                               ?? ReceiptCamera.Cameras.FirstOrDefault();
-        ReceiptCamera.ZoomFactor = 0f;
-        await ReceiptCamera.StopCameraAsync();
-        await ReceiptCamera.StartCameraAsync();
+            ReceiptCamera.Camera = ReceiptCamera.Cameras.FirstOrDefault(c => c.Position == Camera.MAUI.CameraPosition.Back)
+                                   ?? ReceiptCamera.Cameras.FirstOrDefault();
+            ReceiptCamera.ZoomFactor = 0f;
+            await ReceiptCamera.StopCameraAsync();
+            await ReceiptCamera.StartCameraAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"E-receipt camera start failed: {ex.Message}");
+        }
     }
 
     private async Task StopCameraAsync()
     {
-        if (ReceiptCamera.Cameras.Count > 0)
+        try
         {
-            await ReceiptCamera.StopCameraAsync();
+            if (ReceiptCamera.Cameras.Count > 0)
+            {
+                await ReceiptCamera.StopCameraAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"E-receipt camera stop failed: {ex.Message}");
         }
     }
 
     private async void OnCaptureClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            await CaptureOrConfirmAsync();
+        }
+        catch (Exception ex)
+        {
+            // Snapshot, OCR or navigation failed: let the manager try again instead of crashing.
+            System.Diagnostics.Debug.WriteLine($"E-receipt capture failed: {ex}");
+            ResetCapture("Couldn't read the receipt. Please try again.");
+        }
+    }
+
+    private async Task CaptureOrConfirmAsync()
     {
         // Once the receipt has been read, the same button confirms it.
         if (_scanned is { IsComplete: true } complete)
@@ -118,7 +148,14 @@ public partial class ScanEReceiptPage : ContentPage
     private async void OnCancelClicked(object? sender, TappedEventArgs e)
     {
         await StopCameraAsync();
-        await Navigation.PopModalAsync();
+        try
+        {
+            await Navigation.PopModalAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Close e-receipt scan failed: {ex.Message}");
+        }
     }
 
     private void ShowScan(EReceiptData data)

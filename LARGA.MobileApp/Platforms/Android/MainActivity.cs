@@ -101,8 +101,28 @@ public class MainActivity : MauiAppCompatActivity
                 Description = "Direct incoming chat messages from fleet managers"
             };
 
+            // Manager phones: SOS pushes from ManagerWeb's SosPushService (its AndroidChannelId).
+            // Alarm sound and a long vibration so it's noticed in a pocket.
+            var sosChannel = new NotificationChannel(
+                "sos_alert_channel",
+                "Driver SOS Alerts",
+                NotificationImportance.High)
+            {
+                Description = "Emergency alerts raised by drivers (SOS button, hostile passenger, crash)",
+                LockscreenVisibility = NotificationVisibility.Public,
+            };
+            sosChannel.EnableVibration(true);
+            sosChannel.SetVibrationPattern(new long[] { 0, 800, 400, 800, 400, 800 });
+            sosChannel.SetSound(
+                Android.Media.RingtoneManager.GetDefaultUri(Android.Media.RingtoneType.Alarm),
+                new Android.Media.AudioAttributes.Builder()
+                    .SetUsage(Android.Media.AudioUsageKind.Alarm)!
+                    .SetContentType(Android.Media.AudioContentType.Sonification)!
+                    .Build());
+
             notificationManager?.CreateNotificationChannel(shiftChannel);
             notificationManager?.CreateNotificationChannel(chatChannel);
+            notificationManager?.CreateNotificationChannel(sosChannel);
         }
     }
 }

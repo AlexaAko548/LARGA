@@ -232,13 +232,26 @@ public class ProfileViewModel : BindableObject
             if (userPerformanceDoc?.Data != null)
             {
                 var data = userPerformanceDoc.Data;
-                var reliability = ResolvePaymentReliability(data);
+
+                // The live balance (same calculator as the Ledger screen), not users.currentArrears -
+                // nothing keeps that field up to date.
+                decimal? currentDebt = null;
+                try
+                {
+                    currentDebt = (await DriverDebtCalculator.LoadAsync(uid)).TotalDebt;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[ProfileViewModel] Debt Load Error: {ex.Message}");
+                }
+
+                var reliability = ResolvePaymentReliability(data, currentDebt);
                 var punctuality = ResolveShiftPunctuality(data);
                 var damage = ResolveDamageHistory(data.DamageHistory);
 
                 SetPropertyOnMainThread(() =>
                 {
-                    PaymentReliability = reliability;
+                    if (reliability is not null) PaymentReliability = reliability;
                     ShiftPunctualityDisplay = punctuality;
                     DamageHistoryDisplay = damage;
                 });
@@ -300,15 +313,17 @@ public class ProfileViewModel : BindableObject
         }
     }
 
-    private static string ResolvePaymentReliability(UserPerformanceProxy profile)
+    /// <summary>A rating set on the profile wins; otherwise it's graded from the driver's current
+    /// debt. Null (leave the display as it is) when neither is available.</summary>
+    private static string? ResolvePaymentReliability(UserPerformanceProxy profile, decimal? currentDebt)
     {
         if (!string.IsNullOrWhiteSpace(profile.PaymentReliability))
             return profile.PaymentReliability.ToUpperInvariant();
 
-        var arrears = profile.CurrentArrears ?? 0;
-        if (arrears <= 0) return "EXCELLENT";
-        if (arrears <= 100) return "GOOD";
-        if (arrears <= 300) return "FAIR";
+        if (currentDebt is not decimal debt) return null;
+        if (debt <= 0) return "EXCELLENT";
+        if (debt <= 100) return "GOOD";
+        if (debt <= 300) return "FAIR";
 
         return "POOR";
     }
@@ -353,9 +368,6 @@ public class ProfileViewModel : BindableObject
 
     public class UserPerformanceProxy
     {
-        [FirestoreProperty("currentArrears")]
-        public int? CurrentArrears { get; set; }
-
         [FirestoreProperty("paymentReliability")]
         public string PaymentReliability { get; set; } = string.Empty;
 

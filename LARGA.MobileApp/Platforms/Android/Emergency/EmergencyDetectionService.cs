@@ -219,13 +219,39 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
         try
         {
+            // GPS is the one that reports speed, which crash confirmation needs. The fused provider
+            // (Android 12+) blends GPS with Wi-Fi/cell and keeps fixes coming indoors and in
+            // tunnels; with GPS off, the network provider still gives coordinates for the alert.
+            var providers = new List<string>();
             if (_locationManager.IsProviderEnabled(LocationManager.GpsProvider))
             {
-                _locationManager.RequestLocationUpdates(LocationManager.GpsProvider, 1000, 0, this);
+                providers.Add(LocationManager.GpsProvider);
+            }
+            if (OperatingSystem.IsAndroidVersionAtLeast(31) && _locationManager.IsProviderEnabled(LocationManager.FusedProvider))
+            {
+                providers.Add(LocationManager.FusedProvider);
+            }
+            if (providers.Count == 0 && _locationManager.IsProviderEnabled(LocationManager.NetworkProvider))
+            {
+                providers.Add(LocationManager.NetworkProvider);
+            }
+
+            foreach (string provider in providers)
+            {
+                _locationManager.RequestLocationUpdates(provider, 1000, 0, this);
+            }
+
+            if (providers.Count == 0)
+            {
+                EmergencyLog.Warn("No location provider is on - crash confirmation and alert coordinates are unavailable.");
             }
             else
             {
-                EmergencyLog.Warn("GPS provider is off - crash confirmation and alert coordinates will be limited.");
+                EmergencyLog.Info($"Location providers: {string.Join(", ", providers)}.");
+                if (!providers.Contains(LocationManager.GpsProvider))
+                {
+                    EmergencyLog.Warn("GPS provider is off - crash confirmation needs speed and may not work.");
+                }
             }
         }
         catch (Exception ex)
@@ -277,7 +303,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
         double t = SystemClock.ElapsedRealtime() / 1000.0;
 
-        _crash.OnAcceleration(t, linZ);
+        _crash.OnLinearAcceleration(t, linX, linY, linZ);
 
         if (_hostile.OnSample(t, linX, linY, linZ))
         {
@@ -438,7 +464,11 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
             if (id == null)
             {
-                EmergencyLog.Warn($"{triggerType} alert NOT written (no active shift or no location).");
+                EmergencyLog.Warn($"{triggerType} alert NOT written (no active shift).");
+            }
+            else if (_alertService.LastSendQueued)
+            {
+                EmergencyLog.Warn($"{triggerType} alert queued offline (no signal): emergency_alerts/{id} - it syncs when the phone reconnects.");
             }
             else
             {

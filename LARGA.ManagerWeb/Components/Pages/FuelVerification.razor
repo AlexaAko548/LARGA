@@ -205,8 +205,16 @@ else
                                 </div>
                                 <div class="ocr-row">
                                     <span>Receipt Date</span>
-                                    <span>@(_reviewDetail.Timestamp.HasValue ? _reviewDetail.Timestamp.Value.ToLocalTime().ToString("MMM d, yyyy h:mm tt") : "—") @OcrTag(_reviewDetail.IsReceiptDateManuallyEdited)</span>
+                                    <span>@(_reviewDetail.Timestamp.HasValue ? FuelReportDates.ReceiptDate(_reviewDetail.Timestamp.Value).ToString("MMM d, yyyy") : "—") @OcrTag(_reviewDetail.IsReceiptDateManuallyEdited) @DateMismatchTag(_reviewDetail)</span>
                                 </div>
+                                <div class="ocr-row">
+                                    <span>Submitted</span>
+                                    <span>@(_reviewDetail.SubmittedAt.HasValue ? _reviewDetail.SubmittedAt.Value.ToPhilippineTime().ToString("MMM d, yyyy h:mm tt") : "Not recorded")</span>
+                                </div>
+                                @if (FuelReportDates.MismatchNote(_reviewDetail.Timestamp, _reviewDetail.SubmittedAt) is string dateNote)
+                                {
+                                    <div class="fact-sub">@dateNote</div>
+                                }
                                 <div class="ocr-row">
                                     <span>Total Cost</span>
                                     <span>₱@_reviewDetail.Cost.ToString("N2") @OcrTag(_reviewDetail.IsCostManuallyEdited)</span>
@@ -586,6 +594,12 @@ else
         manuallyEdited
             ? new MarkupString("<span class=\"ocr-tag ocr-edited\">edited by driver</span>")
             : new MarkupString("<span class=\"ocr-tag ocr-auto\">auto-read</span>");
+
+    // Receipt date and submission date fall on different days (FuelReportDates.MismatchNote).
+    private static MarkupString DateMismatchTag(FuelReviewDetail detail) =>
+        FuelReportDates.MismatchNote(detail.Timestamp, detail.SubmittedAt) is null
+            ? new MarkupString(string.Empty)
+            : new MarkupString("<span class=\"ocr-tag ocr-edited\">differs from submission date</span>");
 
     private void CloseReviewModal()
     {

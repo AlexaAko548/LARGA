@@ -12,6 +12,14 @@ public partial class EndShiftStep2Page : ContentPage
 
     private async void OnBackButtonClicked(object sender, EventArgs e)
     {
-        await Shell.Current.GoToAsync("..");
+        try
+        {
+            await Shell.Current.GoToAsync("..");
+        }
+        catch (Exception ex)
+        {
+            // Navigation can fail mid-transition; never let a back tap crash the app.
+            System.Diagnostics.Debug.WriteLine($"Back navigation failed: {ex.Message}");
+        }
     }
 }

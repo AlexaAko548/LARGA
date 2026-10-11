@@ -88,6 +88,9 @@ public class FuelReviewDetail
     public string RefuelLabel { get; set; } = string.Empty;
     public DateTime? Timestamp { get; set; }
 
+    /// <summary>Server time the driver sent the report; null on older reports.</summary>
+    public DateTime? SubmittedAt { get; set; }
+
     public decimal Cost { get; set; }
     public decimal Liters { get; set; }
     public int OdometerReading { get; set; }

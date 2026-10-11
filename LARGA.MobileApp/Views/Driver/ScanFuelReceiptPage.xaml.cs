@@ -60,32 +60,71 @@ public partial class ScanFuelReceiptPage : ContentPage
         await StartCameraSafelyAsync();
     }
 
+    // Never throw: these run from async void page events (appearing, cameras loaded, cancel),
+    // where an exception would crash the app. A camera that won't start just leaves the preview blank.
     private async Task StartCameraSafelyAsync()
     {
-        var camera = ReceiptCameraView;
-        if (camera == null || camera.Cameras.Count == 0)
+        try
         {
-            return;
+            var camera = ReceiptCameraView;
+            if (camera == null || camera.Cameras.Count == 0)
+            {
+                return;
+            }
+
+            camera.Camera = camera.Cameras.FirstOrDefault(c => c.Position == Camera.MAUI.CameraPosition.Back)
+                            ?? camera.Cameras.FirstOrDefault();
+
+            camera.ZoomFactor = 0f;
+            await camera.StopCameraAsync();
+            await camera.StartCameraAsync();
         }
-
-        camera.Camera = camera.Cameras.FirstOrDefault(c => c.Position == Camera.MAUI.CameraPosition.Back)
-                        ?? camera.Cameras.FirstOrDefault();
-
-        camera.ZoomFactor = 0f;
-        await camera.StopCameraAsync();
-        await camera.StartCameraAsync();
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Receipt camera start failed: {ex.Message}");
+        }
     }
 
     private async Task StopCameraSafelyAsync()
     {
-        var camera = ReceiptCameraView;
-        if (camera != null)
+        try
         {
-            await camera.StopCameraAsync();
+            var camera = ReceiptCameraView;
+            if (camera != null)
+            {
+                await camera.StopCameraAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Receipt camera stop failed: {ex.Message}");
         }
     }
 
     private async void OnCaptureClicked(object sender, EventArgs e)
+    {
+        try
+        {
+            await CaptureOrConfirmAsync();
+        }
+        catch (Exception ex)
+        {
+            // Snapshot, OCR or navigation failed: let the driver try again instead of crashing.
+            System.Diagnostics.Debug.WriteLine($"Receipt capture failed: {ex}");
+            BtnCapture.Text = _isScanned ? "Confirm" : "Capture";
+            BtnCapture.IsEnabled = true;
+            try
+            {
+                await DisplayAlert("Capture failed", "Something went wrong reading the receipt. Please try again.", "OK");
+            }
+            catch (Exception alertEx)
+            {
+                System.Diagnostics.Debug.WriteLine($"Capture-failed alert error: {alertEx.Message}");
+            }
+        }
+    }
+
+    private async Task CaptureOrConfirmAsync()
     {
         if (!_isScanned)
         {
@@ -216,7 +255,14 @@ public partial class ScanFuelReceiptPage : ContentPage
     private async void OnCancelClicked(object sender, EventArgs e)
     {
         await StopCameraSafelyAsync();
-        await Navigation.PopModalAsync();
+        try
+        {
+            await Navigation.PopModalAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Close receipt scan failed: {ex.Message}");
+        }
     }
 
     private async void OnRetakeClicked(object sender, EventArgs e)

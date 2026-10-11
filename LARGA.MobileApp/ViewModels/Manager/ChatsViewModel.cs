@@ -102,18 +102,33 @@ public class ChatsViewModel : INotifyPropertyChanged
         if (session == null) return;
 
         // No chats/{driverId} doc exists until the first message, so there is nothing to mark read.
+        // A failed read-receipt mustn't stop the chat from opening.
         if (session.HasConversation && session.IsUnread)
         {
             session.IsUnread = false;
-            await _chatService.MarkMessagesAsReadAsync(session.DriverId);
+            try
+            {
+                await _chatService.MarkMessagesAsReadAsync(session.DriverId);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Mark chat read failed: {ex.Message}");
+            }
         }
 
-        // Dictionary parameters keep names with spaces or '&' intact (unlike a query string).
-        await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+        try
         {
-            { "DriverId", session.DriverId },
-            { "DriverName", session.DriverName }
-        });
+            // Dictionary parameters keep names with spaces or '&' intact (unlike a query string).
+            await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+            {
+                { "DriverId", session.DriverId },
+                { "DriverName", session.DriverName }
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Open chat failed: {ex.Message}");
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

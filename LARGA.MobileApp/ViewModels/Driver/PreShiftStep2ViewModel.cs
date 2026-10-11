@@ -415,7 +415,9 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
                 IsBelowHalfTankSelected, _fuelPhotoLocalPath, _odometerPhotoLocalPath);
 
             // LAR-77 Contextual Auto-Cutoff Protocol: telemetry starts strictly on a
-            // successful clock-in, never before.
+            // successful clock-in, never before. The permission prompt is shown here, on the UI
+            // thread - the telemetry loop itself only checks it.
+            await LocationPermissionHelper.EnsureWhenInUseAsync();
             _telemetryService.Start(newDocumentId);
 
             // LAR-86/87: automated emergency detection runs for the length of the shift.

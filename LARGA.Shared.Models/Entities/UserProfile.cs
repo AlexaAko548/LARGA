@@ -40,6 +40,9 @@ public class UserProfile
     // Nullable: these don't apply to Manager-role accounts, whose documents legitimately
     // store an explicit Firestore null here rather than a number - a non-nullable int/double
     // throws ArgumentException("Unable to convert null value...") when that happens.
+    /// <summary>NOT MAINTAINED - only seed data writes it, so it's stale. Don't read it for a
+    /// driver's balance: use the ledgers (FinancialLedgerService on the web,
+    /// QuickLedgerCalculator.DriverDebt on the phones).</summary>
     [FirestoreProperty("currentArrears")]
     public double? CurrentArrears { get; set; }
 

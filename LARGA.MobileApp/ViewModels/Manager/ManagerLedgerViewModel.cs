@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using LARGA.MobileApp.Services;
 using LARGA.SharedCore;
+using LARGA.SharedCore.Ledger;
 using Microsoft.Maui.Controls;
 
 namespace LARGA.MobileApp.ViewModels.Manager;

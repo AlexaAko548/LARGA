@@ -23,12 +23,28 @@
                     <VerticalStackLayout Spacing="5">
                         <Label Text="Fuel Station" FontSize="12" TextColor="{DynamicResource LargaDarkText}" />
                         <Label Text="{Binding FuelStation}" FontSize="14" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" />
+                        <Label Text="Auto-read" IsVisible="{Binding IsLoaded}" FontSize="11" FontAttributes="Bold" TextColor="{DynamicResource LargaSuccess}">
+                            <Label.Triggers>
+                                <DataTrigger TargetType="Label" Binding="{Binding IsFuelStationEdited}" Value="True">
+                                    <Setter Property="Text" Value="Edited by driver" />
+                                    <Setter Property="TextColor" Value="{DynamicResource ThemeEditedText}" />
+                                </DataTrigger>
+                            </Label.Triggers>
+                        </Label>
                     </VerticalStackLayout>
                 </Border>
                 <Border Grid.Column="1" BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                     <VerticalStackLayout Spacing="5">
                         <Label Text="OR Number" FontSize="12" TextColor="{DynamicResource LargaDarkText}" />
                         <Label Text="{Binding OrNumber}" FontSize="14" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" />
+                        <Label Text="Auto-read" IsVisible="{Binding IsLoaded}" FontSize="11" FontAttributes="Bold" TextColor="{DynamicResource LargaSuccess}">
+                            <Label.Triggers>
+                                <DataTrigger TargetType="Label" Binding="{Binding IsOrNumberEdited}" Value="True">
+                                    <Setter Property="Text" Value="Edited by driver" />
+                                    <Setter Property="TextColor" Value="{DynamicResource ThemeEditedText}" />
+                                </DataTrigger>
+                            </Label.Triggers>
+                        </Label>
                     </VerticalStackLayout>
                 </Border>
             </Grid>
@@ -39,12 +55,28 @@
                     <VerticalStackLayout Spacing="5">
                         <Label Text="Total Cost" FontSize="12" TextColor="{DynamicResource LargaDarkText}" />
                         <Label Text="{Binding FuelCostDisplay}" FontSize="16" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" />
+                        <Label Text="Auto-read" IsVisible="{Binding IsLoaded}" FontSize="11" FontAttributes="Bold" TextColor="{DynamicResource LargaSuccess}">
+                            <Label.Triggers>
+                                <DataTrigger TargetType="Label" Binding="{Binding IsCostEdited}" Value="True">
+                                    <Setter Property="Text" Value="Edited by driver" />
+                                    <Setter Property="TextColor" Value="{DynamicResource ThemeEditedText}" />
+                                </DataTrigger>
+                            </Label.Triggers>
+                        </Label>
                     </VerticalStackLayout>
                 </Border>
                 <Border Grid.Column="1" BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                     <VerticalStackLayout Spacing="5">
                         <Label Text="Liters Refueled" FontSize="12" TextColor="{DynamicResource LargaDarkText}" />
                         <Label Text="{Binding LitersDisplay}" FontSize="16" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" />
+                        <Label Text="Auto-read" IsVisible="{Binding IsLoaded}" FontSize="11" FontAttributes="Bold" TextColor="{DynamicResource LargaSuccess}">
+                            <Label.Triggers>
+                                <DataTrigger TargetType="Label" Binding="{Binding IsQuantityEdited}" Value="True">
+                                    <Setter Property="Text" Value="Edited by driver" />
+                                    <Setter Property="TextColor" Value="{DynamicResource ThemeEditedText}" />
+                                </DataTrigger>
+                            </Label.Triggers>
+                        </Label>
                     </VerticalStackLayout>
                 </Border>
             </Grid>
@@ -59,11 +91,35 @@
                 </Border>
                 <Border Grid.Column="1" BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                     <VerticalStackLayout Spacing="5">
-                        <Label Text="Transaction Date" FontSize="12" TextColor="{DynamicResource LargaDarkText}" />
-                        <Label Text="{Binding DateLoggedDisplay}" FontSize="14" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" />
+                        <Label Text="Receipt Date" FontSize="12" TextColor="{DynamicResource LargaDarkText}" />
+                        <Label Text="{Binding ReceiptDateDisplay}" FontSize="14" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" />
+                        <Label Text="Auto-read" IsVisible="{Binding IsLoaded}" FontSize="11" FontAttributes="Bold" TextColor="{DynamicResource LargaSuccess}">
+                            <Label.Triggers>
+                                <DataTrigger TargetType="Label" Binding="{Binding IsReceiptDateEdited}" Value="True">
+                                    <Setter Property="Text" Value="Edited by driver" />
+                                    <Setter Property="TextColor" Value="{DynamicResource ThemeEditedText}" />
+                                </DataTrigger>
+                            </Label.Triggers>
+                        </Label>
                     </VerticalStackLayout>
                 </Border>
             </Grid>
+
+            <!-- Submitted -->
+            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                <VerticalStackLayout Spacing="5">
+                    <Label Text="Submitted" FontSize="12" TextColor="{DynamicResource LargaDarkText}" />
+                    <Label Text="{Binding SubmittedDisplay}" FontSize="14" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" />
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Receipt date vs. submission date -->
+            <Border IsVisible="{Binding HasDateMismatch}" BackgroundColor="{DynamicResource ThemeWarningSoft}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="12">
+                <VerticalStackLayout Spacing="3">
+                    <Label Text="Receipt date differs from submission date" FontSize="12" FontAttributes="Bold" TextColor="{DynamicResource ThemeWarningText}" />
+                    <Label Text="{Binding DateMismatchNote}" FontSize="12" TextColor="{DynamicResource ThemeWarningText}" />
+                </VerticalStackLayout>
+            </Border>
 
             <!-- Receipt Photo -->
             <Border IsVisible="{Binding HasPhoto}" BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="10">

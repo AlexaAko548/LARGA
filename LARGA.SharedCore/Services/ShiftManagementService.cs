@@ -297,38 +297,140 @@ public class ShiftManagementService : IShiftManagementService
             }
         }
 
-        var shiftProxy = new ShiftLogProxy
+        IFirebaseFirestore firestore = CrossFirebaseFirestore.Current;
+        IDocumentReference shiftDoc = firestore.GetCollection("shifts").CreateDocument();
+        IDocumentReference driverLock = firestore.GetCollection("shift_locks").GetDocument(DriverLockId(user.Uid));
+        IDocumentReference unitLock = firestore.GetCollection("shift_locks").GetDocument(UnitLockId(taxiId));
+
+        // shiftStart is stamped by the Firestore server, not the phone (firestore.rules refuse
+        // anything else), so a phone clock set back can't start a shift before 6:00 AM or move
+        // the late-fee deadline. A dictionary, because FieldValue doesn't fit a typed proxy.
+        // shiftId = the document ID from the start: everything else that points at a shift
+        // (fuel_logs, handover_checklists, boundary_payments, ManagerWeb) uses the two
+        // interchangeably. One value for the shift and both locks: firestore.rules check that a
+        // lock carries the same shiftStart as the shift it claims.
+        object shiftStart = ShiftTimestamp();
+        var shiftFields = new Dictionary<object, object>
         {
-            DriverId = user.Uid,
-            TaxiId = taxiId,
-            ShiftStart = now,
-            StartMileage = startMileage,
-            Status = "Active",
-            ShiftId = string.Empty,
-            IsOnBreak = false,
-            ManagerNote = ""
+            { "driverId", user.Uid },
+            { "taxiId", taxiId },
+            { "shiftStart", shiftStart },
+            { "startMileage", startMileage },
+            { "status", "Active" },
+            { "shiftId", shiftDoc.Id },
+            { "isOnBreak", false },
+            { "managerNote", string.Empty },
         };
 
-        var documentReference = await CrossFirebaseFirestore.Current
-            .GetCollection("shifts")
-            .AddDocumentAsync(shiftProxy);
-
-        // Everything else that points at a shift (fuel_logs, handover_checklists,
-        // boundary_payments, ManagerWeb's lookups) uses the shiftId field and the document ID
-        // interchangeably, so they must be the same value. The ID only exists once the
-        // document does, hence the follow-up write.
-        try
+        // One transaction checks and claims both the driver and the unit, so a double tap, two
+        // phones, or two drivers on the same unit at the same moment can't both start a shift:
+        // shift_locks/driver_{uid} and shift_locks/unit_{taxiId} point at the shift holding each
+        // (see LockHolder for when a lock still counts).
+        // The body returns a reason instead of throwing - see QuickLedgerService.SavePaymentPlanAsync.
+        string? refusal = await firestore.RunTransactionAsync(transaction =>
         {
-            await documentReference.UpdateDataAsync(new Dictionary<object, object> { { "shiftId", documentReference.Id } });
-        }
-        catch (Exception ex)
+            string? driverBusy = LockHolder(transaction, firestore, driverLock, user.Uid, now);
+            if (driverBusy is not null)
+            {
+                return "You still have an open shift. End that shift first.";
+            }
+
+            string? unitHolder = LockHolder(transaction, firestore, unitLock, user.Uid, now);
+            if (unitHolder is not null && unitHolder != user.Uid)
+            {
+                return $"{taxiId} is already out on another driver's shift. Ask your manager for a substitute unit.";
+            }
+
+            transaction.SetData(shiftDoc, shiftFields, SetOptions.Merge());
+            var lockFields = new Dictionary<object, object>
+            {
+                { "shiftId", shiftDoc.Id },
+                { "driverId", user.Uid },
+                { "shiftStart", shiftStart },
+                { "released", false },
+                { "updatedAt", FieldValue.ServerTimestamp() },
+            };
+            transaction.SetData(driverLock, lockFields, SetOptions.Merge());
+            transaction.SetData(unitLock, lockFields, SetOptions.Merge());
+            return (string?)null;
+        });
+
+        if (refusal is not null)
         {
-            // The shift itself is started - ManagerWeb falls back to the document ID when
-            // shiftId is missing, so this isn't worth failing the clock-in over.
-            System.Diagnostics.Debug.WriteLine($"Shift Id Backfill Error: {ex.Message}");
+            throw new InvalidOperationException(refusal);
         }
 
-        return documentReference.Id;
+        return shiftDoc.Id;
+    }
+
+    private static string DriverLockId(string driverId) => $"driver_{driverId}";
+
+    private static string UnitLockId(string taxiId) => $"unit_{taxiId}";
+
+    /// <summary>
+    /// The driver holding <paramref name="lockDoc"/>, or null when it's free: no lock yet, released
+    /// at clock-out (ClockOutAsync), or its shift is past its 6:00 AM auto-close (ShiftRules) - a
+    /// missed clock-out from an earlier day, not a live shift.
+    /// Decided from the lock itself when it's another driver's: firestore.rules don't let a driver
+    /// read someone else's shift, and inside a transaction that refusal fails the whole clock-in.
+    /// A lock of the caller's own is double-checked against their shift (which they can read).
+    /// </summary>
+    private static string? LockHolder(ITransaction transaction, IFirebaseFirestore firestore, IDocumentReference lockDoc,
+        string callerId, DateTime nowUtc)
+    {
+        ShiftLockProxy? shiftLock = transaction.GetDocument<ShiftLockProxy>(lockDoc)?.Data;
+        if (shiftLock is null || string.IsNullOrWhiteSpace(shiftLock.ShiftId) || string.IsNullOrWhiteSpace(shiftLock.DriverId)
+            || shiftLock.Released)
+        {
+            return null;
+        }
+
+        DateTime? start = ReadPluginDate(shiftLock.ShiftStart);
+        if (shiftLock.DriverId == callerId)
+        {
+            ShiftLockedShiftProxy? shift = transaction
+                .GetDocument<ShiftLockedShiftProxy>(firestore.GetCollection("shifts").GetDocument(shiftLock.ShiftId))?.Data;
+            if (shift is null || !string.Equals(shift.Status, "Active", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+            start = ReadPluginDate(shift.ShiftStart);
+        }
+        else if (start is null)
+        {
+            // Written before locks carried shiftStart (and never released): nothing to tell a live
+            // shift from an old one, so it doesn't block - the same as before shift_locks existed.
+            return null;
+        }
+
+        return start is DateTime started && nowUtc >= ShiftRules.AutoCloseAtUtc(started) ? null : shiftLock.DriverId;
+    }
+
+    private class ShiftLockProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
+        public string? ShiftId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
+        public string? DriverId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftStart")]
+        public DateTime ShiftStart { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("released")]
+        public bool Released { get; set; }
+    }
+
+    private class ShiftLockedShiftProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
+        public string? DriverId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
+        public string? Status { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftStart")]
+        public DateTime ShiftStart { get; set; }
     }
 
     public async Task<string?> GetClockInBlockReasonAsync(string taxiId)
@@ -435,47 +537,59 @@ public class ShiftManagementService : IShiftManagementService
         }
     }
 
-    /// <summary>Ends the shift and records its late-return fee (ShiftRules: the unit is timed on
-    /// return, i.e. now) and its low-fuel penalty (below half-tank at return). Returns both so
+    /// <summary>Ends the shift and records its low-fuel penalty (below half-tank at return).
+    /// shiftEnd is stamped by the Firestore server (firestore.rules refuse a phone-clock value),
+    /// and the late-return fee is NOT stored - every ledger works it out from shiftStart/shiftEnd
+    /// (ShiftRules.EffectiveLateFee), so the phone can't set its own fee. Returns both charges so
     /// the Shift Completed screen can show today's total.</summary>
     public async Task<ShiftEndCharges> ClockOutAsync(string activeShiftId, int endMileage, bool fuelBelowHalf, string managerNote = "")
     {
         try
         {
             await RefreshTestClockAsync();
-            DateTime now = ShiftClock.UtcNow;
             var shiftDoc = CrossFirebaseFirestore.Current.GetCollection("shifts").GetDocument(activeShiftId);
 
+            decimal fuelPenalty = fuelBelowHalf ? ShiftRules.LowFuelPenalty : 0m;
             var updateData = new Dictionary<object, object>
             {
-                { "shiftEnd", now },
+                { "shiftEnd", ShiftTimestamp() },
                 { "endMileage", endMileage },
                 { "status", "Completed" },
                 { "managerNote", managerNote },
                 { "isOnBreak", false },
+                { "fuelPenalty", (double)fuelPenalty },
             };
 
-            decimal fuelPenalty = fuelBelowHalf ? ShiftRules.LowFuelPenalty : 0m;
-            updateData["fuelPenalty"] = (double)fuelPenalty;
+            // The shift's driver and unit locks are released in the same commit, so the unit is
+            // free for the next driver the moment this shift ends (see LockHolder).
+            IWriteBatch batch = CrossFirebaseFirestore.Current.CreateBatch();
+            batch.UpdateData(shiftDoc, updateData);
+            foreach (IDocumentReference lockDoc in await LocksHeldByAsync(activeShiftId))
+            {
+                batch.SetData(lockDoc, new Dictionary<object, object>
+                {
+                    { "released", true },
+                    { "updatedAt", FieldValue.ServerTimestamp() },
+                }, SetOptions.Merge());
+            }
+            await batch.CommitAsync();
 
+            // Only for the Shift Completed screen: the same fee the ledgers will compute, from
+            // the server's own timestamps now that they're saved.
             decimal lateFee = 0m;
             try
             {
-                var snapshot = await shiftDoc.GetDocumentSnapshotAsync<ShiftReadProxy>();
-                if (snapshot?.Data != null)
-                {
-                    lateFee = ShiftRules.LateReturnFee(FixPluginDate(snapshot.Data.ShiftStart), now);
-                    updateData["lateFee"] = (double)lateFee;
-                }
+                var snapshot = await shiftDoc.GetDocumentSnapshotAsync<ShiftTimesProxy>();
+                DateTime? start = snapshot?.Data is null ? null : ReadPluginDate(snapshot.Data.ShiftStart);
+                DateTime? end = snapshot?.Data is null ? null : ReadPluginDate(snapshot.Data.ShiftEnd);
+                lateFee = ShiftRules.EffectiveLateFee(null, start, end ?? ShiftClock.UtcNow) ?? 0m;
             }
             catch (Exception ex)
             {
-                // Without the start time there's no fee to work out; the shift still ends, and
-                // the manager can add a late fee from the ledger if needed.
-                System.Diagnostics.Debug.WriteLine($"Late Fee Error: {ex.Message}");
+                // Display only - the ledgers still charge the right fee from the saved times.
+                System.Diagnostics.Debug.WriteLine($"Late Fee Preview Error: {ex.Message}");
             }
 
-            await shiftDoc.UpdateDataAsync(updateData);
             return new ShiftEndCharges(lateFee, fuelPenalty);
         }
         catch (Exception ex)
@@ -483,6 +597,40 @@ public class ShiftManagementService : IShiftManagementService
             System.Diagnostics.Debug.WriteLine($"Service Error: {ex.Message}");
             throw;
         }
+    }
+
+    /// <summary>The shift_locks documents that point at this shift - only those may be released
+    /// (firestore.rules refuse touching a lock that holds another shift). On a failed read none
+    /// are returned: the shift still ends, and its locks lapse at its 6:00 AM auto-close.</summary>
+    private static async Task<List<IDocumentReference>> LocksHeldByAsync(string shiftId)
+    {
+        var held = new List<IDocumentReference>();
+        try
+        {
+            IFirebaseFirestore firestore = CrossFirebaseFirestore.Current;
+            var shift = await firestore.GetCollection("shifts").GetDocument(shiftId).GetDocumentSnapshotAsync<ShiftReadProxy>();
+            string? driverId = CrossFirebaseAuth.Current.CurrentUser?.Uid;
+            string? taxiId = shift?.Data?.TaxiId;
+
+            var lockIds = new List<string>();
+            if (!string.IsNullOrWhiteSpace(driverId)) lockIds.Add(DriverLockId(driverId));
+            if (!string.IsNullOrWhiteSpace(taxiId)) lockIds.Add(UnitLockId(taxiId));
+
+            foreach (string lockId in lockIds)
+            {
+                IDocumentReference lockDoc = firestore.GetCollection("shift_locks").GetDocument(lockId);
+                var snapshot = await lockDoc.GetDocumentSnapshotAsync<ShiftLockProxy>();
+                if (snapshot?.Data?.ShiftId == shiftId)
+                {
+                    held.Add(lockDoc);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Shift lock lookup failed: {ex.Message}");
+        }
+        return held;
     }
 
     public const string AutoClosedStatus = "Auto-Closed";
@@ -531,6 +679,25 @@ public class ShiftManagementService : IShiftManagementService
         if (value.Year > 1700) return DateTime.SpecifyKind(value, DateTimeKind.Utc);
         long millis = value.Ticks - new DateTime(1601, 1, 1).Ticks;
         return DateTimeOffset.FromUnixTimeMilliseconds(millis).UtcDateTime;
+    }
+
+    /// <summary>The value to write for shiftStart/shiftEnd: Firestore server time, which
+    /// firestore.rules require. Debug builds running the test clock (system_configs/global
+    /// testClockPh - the rules accept any time only while it's set) write the pretend time.</summary>
+    private static object ShiftTimestamp() =>
+        ShiftClock.IsPretending ? ShiftClock.UtcNow : FieldValue.ServerTimestamp();
+
+    /// <summary>FixPluginDate for a field that may be missing (it then reads as default).</summary>
+    private static DateTime? ReadPluginDate(DateTime value) =>
+        value == default ? null : FixPluginDate(value);
+
+    private class ShiftTimesProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftStart")]
+        public DateTime ShiftStart { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftEnd")]
+        public DateTime ShiftEnd { get; set; }
     }
 
     private class ShiftReadProxy
@@ -809,31 +976,4 @@ public class ShiftManagementService : IShiftManagementService
         public DateTime Timestamp { get; set; }
     }
 
-    private class ShiftLogProxy
-    {
-        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
-        public string DriverId { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
-        public string TaxiId { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("shiftStart")]
-        public DateTime ShiftStart { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("startMileage")]
-        public int StartMileage { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
-        public string Status { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
-        public string ShiftId { get; set; }
-
-        // ADDED: Missing fields for initial clock-in
-        [Plugin.Firebase.Firestore.FirestoreProperty("isOnBreak")]
-        public bool IsOnBreak { get; set; }
-
-        [Plugin.Firebase.Firestore.FirestoreProperty("managerNote")]
-        public string ManagerNote { get; set; }
-    }
 }

@@ -16,7 +16,14 @@ public partial class LedgerPage : ContentPage
         base.OnAppearing();
         if (BindingContext is LedgerViewModel viewModel)
         {
-            await viewModel.LoadDynamicLedgerDataAsync();
+            try
+            {
+                await viewModel.LoadDynamicLedgerDataAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Ledger load failed: {ex.Message}");
+            }
         }
     }
 }

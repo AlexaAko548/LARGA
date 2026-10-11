@@ -17,7 +17,8 @@ public interface IChatService
     Task<bool> SendMessageAsync(string driverId, ChatMessage message, string? driverName = null);
     Task<IReadOnlyList<ChatDriver>> GetDriversAsync();
     IDisposable ListenForMessages(string driverId, Action<IList<ChatMessage>> onMessagesUpdated);
-    Task<string> GetDriverPhoneNumberAsync(string driverId);
+    /// <summary>The driver's users.phoneNumber, or null when none is on file or it can't be read.</summary>
+    Task<string?> GetDriverPhoneNumberAsync(string driverId);
     IDisposable ListenForChatSessions(Action<IEnumerable<ChatSession>> onSessionsUpdated);
     Task MarkMessagesAsReadAsync(string driverId);
 }
@@ -154,7 +155,7 @@ public class ChatService : IChatService
             });
     }
 
-    public async Task<string> GetDriverPhoneNumberAsync(string driverId)
+    public async Task<string?> GetDriverPhoneNumberAsync(string driverId)
     {
         try
         {
@@ -173,7 +174,8 @@ public class ChatService : IChatService
             System.Diagnostics.Debug.WriteLine($"Error fetching phone number: {ex.Message}");
         }
 
-        return "09123456789";
+        // No made-up fallback: dialling a placeholder would call a stranger.
+        return null;
     }
 
     public IDisposable ListenForChatSessions(Action<IEnumerable<ChatSession>> onSessionsUpdated)
