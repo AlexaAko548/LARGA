@@ -1,6 +1,7 @@
 @* Renders one Pre-Shift or Post-Shift inspection checklist. Used twice, side by side, by
    DriverShifts.razor's checklist modal - deliberately NOT merged into a single combined
    view, so a manager can compare the two directly instead of switching between tabs. *@
+@using LARGA.SharedCore
 @using LARGA.SharedCore.Models.DriverShifts
 
 <div class="checklist-column">
@@ -11,6 +12,8 @@
     }
     else
     {
+        <div class="checklist-timestamp">Submitted @Detail.Timestamp.ToPhilippineTime().ToString("MMM d, yyyy 'at' h:mm:ss tt")</div>
+
         <div class="checklist-summary @(Detail.AllPassed ? "pass" : "warn")">
             <strong>@(Detail.AllPassed ? "All Items Passed" : "Some Items Need Attention")</strong>
             <span>@Detail.PassedCount/@Detail.TotalCheckableCount checks completed</span>
