@@ -2409,6 +2409,12 @@ opacity: 0.4;
 cursor: not-allowed;
 }
 
+.checklist-timestamp {
+font-size: 0.72rem;
+color: var(--muted);
+margin-bottom: 0.6rem;
+}
+
 .checklist-summary {
 display: flex;
 flex-direction: column;

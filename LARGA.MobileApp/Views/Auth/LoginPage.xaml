@@ -49,7 +49,7 @@
 
         <!-- Bottom White Area -->
         <VerticalStackLayout Grid.Row="1" Padding="30,20,30,40" Spacing="15">
-            <Label Text="{Binding ErrorMessage}" TextColor="Red" HorizontalOptions="Center" HorizontalTextAlignment="Center" LineBreakMode="WordWrap" />
+            <Label Text="{Binding ErrorMessage}" TextColor="{DynamicResource LargaDanger}" HorizontalOptions="Center" HorizontalTextAlignment="Center" LineBreakMode="WordWrap" />
 
             <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" Color="#0099CC" HorizontalOptions="Center" />
 

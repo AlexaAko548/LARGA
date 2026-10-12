@@ -27,7 +27,7 @@
 
                 <Border BackgroundColor="{DynamicResource ThemeNoteBg}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15" IsVisible="{Binding HasManagerNote}">
                     <VerticalStackLayout Spacing="5">
-                        <Label Text="MANAGER'S NOTE" FontSize="12" TextColor="#B3261E" />
+                        <Label Text="MANAGER'S NOTE" FontSize="12" TextColor="{DynamicResource LargaDanger}" />
                         <Label Text="{Binding ManagerNote}" FontSize="14" TextColor="{DynamicResource ThemeTextBlack}" />
                     </VerticalStackLayout>
                 </Border>
@@ -38,7 +38,7 @@
             <Button Text="WITHDRAW REQUEST"
                     Command="{Binding CancelRequestCommand}"
                     IsVisible="{Binding IsWaiting}"
-                    BackgroundColor="{DynamicResource ThemeSurface}" TextColor="#B3261E" BorderColor="#B3261E" BorderWidth="1"
+                    BackgroundColor="{DynamicResource ThemeSurface}" TextColor="{DynamicResource LargaDanger}" BorderColor="{DynamicResource LargaDanger}" BorderWidth="1"
                     CornerRadius="25" HeightRequest="50" FontSize="14" FontAttributes="Bold" />
             <Button Text="BACK TO DASHBOARD"
                     Command="{Binding BackToDashboardCommand}"

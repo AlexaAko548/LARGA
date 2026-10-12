@@ -544,7 +544,7 @@ else
                                 @foreach (ChecklistHistoryEntry h in _selectedChecklists.PreviousChecklists)
                                 {
                                     <div class="history-mini-row">
-                                        <span>@h.Timestamp.ToPhilippineTime().ToString("MMM d") · @h.ChecklistType</span>
+                                        <span>@h.Timestamp.ToPhilippineTime().ToString("MMM d, yyyy h:mm tt") · @h.ChecklistType</span>
                                         <span class="status-pill small @(h.AllPassed ? "status-success" : "status-warning")">@h.PassedCount/@h.TotalCheckableCount passed</span>
                                     </div>
                                 }
@@ -556,7 +556,7 @@ else
                                 @foreach (DamageHistoryEntry d in _selectedChecklists.DamageHistory)
                                 {
                                     <div class="history-mini-row">
-                                        <span>@d.DateLogged.ToPhilippineTime().ToString("MMM d") · @d.IssueTitle</span>
+                                        <span>@d.DateLogged.ToPhilippineTime().ToString("MMM d, yyyy h:mm tt") · @d.IssueTitle</span>
                                         <span class="status-pill small status-neutral">@d.Status.ToUpperInvariant()</span>
                                     </div>
                                 }
