@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.Messaging;
+using LARGA.MobileApp.Controls;
 using LARGA.MobileApp.Services;
 using LARGA.MobileApp.Views.Manager;
 using LARGA.SharedCore;
@@ -321,6 +322,12 @@ public class RecordPaymentViewModel : BindableObject
                 return;
             }
         }
+
+        bool confirmed = await ConfirmationPopup.ShowAsync(Shell.Current,
+            "Confirm This Payment?",
+            $"Recording {Money(amount)} ({(IsEWallet ? "E-Wallet / GCash" : "Cash")}) for {DriverName}.",
+            confirmText: "Confirm Payment", isDangerous: false);
+        if (!confirmed) return;
 
         IsBusy = true;
         try

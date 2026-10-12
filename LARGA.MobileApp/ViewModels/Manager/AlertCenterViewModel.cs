@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using LARGA.MobileApp.Controls;
 using LARGA.MobileApp.Services;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.ApplicationModel.Communication;
@@ -374,8 +375,15 @@ public class AlertCenterViewModel : BindableObject
             switch (alert.Type)
             {
                 case AlertType.Sos:
-                    // Same writes as the web's SOS Dispatch (SosDispatchService.SetResolvedAsync):
-                    // the resolved time for its Resolved list, and the matching bell alert read.
+                    // Unlike the X on every other card, this one is a real decision (same writes
+                    // as the web's SOS Dispatch Resolved toggle) - confirm first so a stray tap on
+                    // the close icon can't silently close out an active emergency.
+                    bool confirmedResolved = await ConfirmationPopup.ShowAsync(Shell.Current,
+                        "Mark This SOS Resolved?",
+                        $"This marks the alert from {alert.DriverName} as handled. Make sure the situation is actually resolved first.",
+                        confirmText: "Mark Resolved", isDangerous: false);
+                    if (!confirmedResolved) return;
+
                     await CrossFirebaseFirestore.Current
                         .GetCollection("emergency_alerts")
                         .GetDocument(alert.Id)
@@ -392,7 +400,17 @@ public class AlertCenterViewModel : BindableObject
                 case AlertType.FuelDiscrepancy:
                 case AlertType.ShiftApproval:
                     // No status write here - Resolve (fuel) and Approve/Deny (defect) are the real
-                    // decisions; X just hides the card for this session.
+                    // decisions; X just hides the card for the rest of this session (AlertCenterPage
+                    // is a Shell tab, so this VM and _hiddenIds live until the app is closed). That
+                    // looks identical to actually handling it, so confirm first and say plainly that
+                    // it's still unresolved underneath.
+                    bool isFuel = alert.Type == AlertType.FuelDiscrepancy;
+                    bool confirmedHide = await ConfirmationPopup.ShowAsync(Shell.Current,
+                        "Hide This Alert?",
+                        $"This only hides the card from your Alert Center - it does not resolve the {(isFuel ? "fuel discrepancy" : "clock-in request")}. It stays unresolved until you handle it from {(isFuel ? "Fuel Verification" : "the pending clock-in approvals")}.",
+                        confirmText: "Hide");
+                    if (!confirmedHide) return;
+
                     _hiddenIds.Add(alert.Id);
                     RefreshCombinedAlerts();
                     break;
@@ -477,10 +495,10 @@ public class AlertCenterViewModel : BindableObject
         if (!string.IsNullOrWhiteSpace(alert.TaxiId))
         {
             string suggestion = alert.HasFailedItems || defectIds.Count > 0 ? "" : " (only fuel was flagged)";
-            markUnderMaintenance = await Shell.Current.DisplayAlert(
-                "Send unit to the Garage?",
+            markUnderMaintenance = await ConfirmationPopup.ShowAsync(Shell.Current,
+                "Send Unit to the Garage?",
                 $"Mark {alert.TaxiId} as Under Maintenance{suggestion}? The Shift Scheduler then offers a substitute unit.",
-                "Mark Under Maintenance", "No");
+                confirmText: "Mark Under Maintenance", cancelText: "No", isDangerous: false);
         }
 
         try
@@ -638,6 +656,8 @@ public class AlertCenterViewModel : BindableObject
                 ["verificationStatus"] = "Verified",
                 ["fuelLogDetails"] = combined,
             });
+            AuditLogWriter.Record("FuelFlagResolved",
+                $"Resolved the flag on shift {snapshot?.Data?.ShiftId ?? "unknown"}'s fuel submission: {note}");
         }
         catch (Exception ex)
         {

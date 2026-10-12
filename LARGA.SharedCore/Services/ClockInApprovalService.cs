@@ -84,7 +84,7 @@ public class ClockInApprovalService
     }
 
     /// <summary>"Approved despite the flagged concern": the driver's phone clocks in.</summary>
-    public async Task<ClockInDecisionResult> ApproveAsync(string requestId, string? note)
+    public async Task<ClockInDecisionResult> ApproveAsync(string requestId, string? note, string? actorUserId = null)
     {
         try
         {
@@ -101,12 +101,24 @@ public class ClockInApprovalService
                 return new ClockInDecisionResult { Ok = false, ErrorMessage = $"Can't approve: {blocked}. Deny it instead, or fix that first." };
             }
 
-            await docRef.UpdateAsync(new Dictionary<string, object>
+            string driverName = await GetDriverNameAsync(request.DriverId);
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Update(docRef, new Dictionary<string, object>
             {
                 ["status"] = ClockInRequest.Approved,
                 ["decidedAt"] = DateTime.UtcNow,
                 ["managerNote"] = note?.Trim() ?? string.Empty,
             });
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "ClockInApproved",
+                AuditLogDetails = $"Approved clock-in for driver {driverName} on {request.TaxiId}.",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
+
             await MarkAlertReadAsync(requestId);
             return new ClockInDecisionResult { Ok = true };
         }
@@ -123,7 +135,7 @@ public class ClockInApprovalService
     /// no report get one created. Optionally marks the unit Under Maintenance, which the Shift
     /// Scheduler shows (and offers a substitute unit for).
     /// </summary>
-    public async Task<ClockInDecisionResult> DenyAsync(string requestId, string note, bool markUnitUnderMaintenance)
+    public async Task<ClockInDecisionResult> DenyAsync(string requestId, string note, bool markUnitUnderMaintenance, string? actorUserId = null)
     {
         if (string.IsNullOrWhiteSpace(note))
         {
@@ -170,12 +182,24 @@ public class ClockInApprovalService
                 await Db.Collection("taxis").Document(request.TaxiId).UpdateAsync("status", TaxiStatusRules.UnderMaintenance);
             }
 
-            await docRef.UpdateAsync(new Dictionary<string, object>
+            string driverName = await GetDriverNameAsync(request.DriverId);
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Update(docRef, new Dictionary<string, object>
             {
                 ["status"] = ClockInRequest.Denied,
                 ["decidedAt"] = now,
                 ["managerNote"] = note.Trim(),
             });
+            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "ClockInDenied",
+                AuditLogDetails = $"Denied clock-in for driver {driverName} on {request.TaxiId}: {note.Trim()}",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
+
             await MarkAlertReadAsync(requestId);
             return new ClockInDecisionResult { Ok = true };
         }
@@ -237,6 +261,13 @@ public class ClockInApprovalService
             .OfType<MaintenanceRecord>()
             .Select(m => ((string?)m.Status, WorkOrderRules.ShopStartUtc(m.DateLogged, m.ScheduledDate), m.EstimatedCompletionDate, (string?)m.IssueTitle));
         return ShiftEligibilityRules.UnitBlockReason(taxiId, taxiStatus, unitJobs, todayPh);
+    }
+
+    /// <summary>Driver's display name for an audit log entry, falling back to their id if the profile is missing.</summary>
+    private async Task<string> GetDriverNameAsync(string driverId)
+    {
+        DocumentSnapshot doc = await Db.Collection("users").Document(driverId).GetSnapshotAsync();
+        return doc.Exists && doc.TryGetValue("fullName", out string? name) && !string.IsNullOrWhiteSpace(name) ? name : driverId;
     }
 
     private static async Task<ClockInRequest?> GetPendingRequestAsync(DocumentReference docRef)

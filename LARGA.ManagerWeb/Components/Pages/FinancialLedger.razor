@@ -401,7 +401,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="ClosePaymentModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingPayment || PaymentAmountError is not null || (PaymentExtra > 0 && _paymentOtherDebt is null) || (_paymentMethod == "EWallet" && !IsReceiptReady))" @onclick="ConfirmPaymentAsync">@(_isSavingPayment ? "Saving…" : "Confirm Payment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingPayment || PaymentAmountError is not null || (PaymentExtra > 0 && _paymentOtherDebt is null) || (_paymentMethod == "EWallet" && !IsReceiptReady))" @onclick='() => RequestConfirm("Confirm This Payment?", "Recording ₱" + _paymentAmountInput.ToString("N2") + " (" + (_paymentMethod == "EWallet" ? "E-Wallet / GCash" : "Cash") + ") for " + _paymentRow.DriverName + ".", "Confirm Payment", ConfirmPaymentAsync)'>@(_isSavingPayment ? "Saving…" : "Confirm Payment")</button>
             </div>
         </div>
     </div>
@@ -460,7 +460,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseAdjustmentModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingAdjustment || string.IsNullOrEmpty(_adjustmentDriverId) || AdjustmentAmountError is not null || AdjustmentReasonError is not null)" @onclick="ConfirmAdjustmentAsync">@(_isSavingAdjustment ? "Saving…" : "Save Adjustment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingAdjustment || string.IsNullOrEmpty(_adjustmentDriverId) || AdjustmentAmountError is not null || AdjustmentReasonError is not null)" @onclick='() => RequestConfirm("Save This Adjustment?", "Posting a ₱" + _adjustmentAmountInput.ToString("N2") + " " + (_adjustmentDirection == "Add" ? "penalty / debt addition" : "credit / write-off") + " to the driver ledger.", "Save Adjustment", ConfirmAdjustmentAsync)'>@(_isSavingAdjustment ? "Saving…" : "Save Adjustment")</button>
             </div>
         </div>
     </div>
@@ -521,7 +521,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseSettleModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingSettle || SettleAmountError is not null || (_settleMethod == "EWallet" && !IsReceiptReady))" @onclick="ConfirmSettleAsync">@(_isSavingSettle ? "Saving…" : "Confirm Payment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingSettle || SettleAmountError is not null || (_settleMethod == "EWallet" && !IsReceiptReady))" @onclick='() => RequestConfirm("Confirm This Payment?", "Recording ₱" + _settleAmountInput.ToString("N2") + " (" + (_settleMethod == "EWallet" ? "E-Wallet / GCash" : "Cash") + ") for " + _settleRow.DriverName + ".", "Confirm Payment", ConfirmSettleAsync)'>@(_isSavingSettle ? "Saving…" : "Confirm Payment")</button>
             </div>
         </div>
     </div>
@@ -632,9 +632,52 @@ else
     </div>
 }
 
+<ConfirmationModal Show="_showConfirm" Title="@_confirmTitle" Message="@_confirmMessage"
+    ConfirmText="@_confirmButtonText" IsBusy="_confirmBusy" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm" />
+
 @code {
     // Assistant Managers can view the ledger and record payments, but can't add debt adjustments.
     private bool _canManage;
+
+    private bool _showConfirm;
+    private bool _confirmBusy;
+    private string _confirmTitle = "";
+    private string _confirmMessage = "";
+    private string _confirmButtonText = "Confirm";
+    private Func<Task>? _confirmAction;
+
+    private void RequestConfirm(string title, string message, string confirmText, Func<Task> action)
+    {
+        _confirmTitle = title;
+        _confirmMessage = message;
+        _confirmButtonText = confirmText;
+        _confirmAction = action;
+        _showConfirm = true;
+    }
+
+    private async Task ConfirmActionAsync()
+    {
+        if (_confirmAction is Func<Task> action)
+        {
+            _confirmBusy = true;
+            try
+            {
+                await action();
+            }
+            finally
+            {
+                _confirmBusy = false;
+            }
+        }
+        _showConfirm = false;
+        _confirmAction = null;
+    }
+
+    private void CancelConfirm()
+    {
+        _showConfirm = false;
+        _confirmAction = null;
+    }
 
     protected override async Task OnInitializedAsync()
     {

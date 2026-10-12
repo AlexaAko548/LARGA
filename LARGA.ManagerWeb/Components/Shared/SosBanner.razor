@@ -3,34 +3,52 @@
    (whose SOS entries come from a 3-minute background check). Rendered by DashboardSidebar,
    which every authenticated page includes. Hidden on SOS Dispatch itself. *@
 @using LARGA.SharedCore.Services
+@using LARGA.ManagerWeb.Services
 @implements IAsyncDisposable
 @inject SosDispatchService SosDispatch
+@inject SosBannerState BannerState
 
-@if (_activeCount > 0 && !OnSosPage)
+@if (_activeCount > 0 && !OnSosPage && !BannerState.Dismissed)
 {
-    <a class="sos-banner" href="/sos-dispatch" role="alert">
-        <Icon Name="triangle-alert" Class="sos-banner-icon" />
-        <span class="sos-banner-text">
-            @(_activeCount == 1 ? "1 active SOS" : $"{_activeCount} active SOS alerts") - a driver needs help
-        </span>
-        <span class="sos-banner-action">Open SOS Dispatch</span>
-    </a>
+    <div class="sos-banner" role="alert">
+        <a class="sos-banner-link" href="/sos-dispatch">
+            <Icon Name="triangle-alert" Class="sos-banner-icon" />
+            <span class="sos-banner-text">
+                @(_activeCount == 1 ? "1 active SOS" : $"{_activeCount} active SOS alerts") - a driver needs help
+            </span>
+            <span class="sos-banner-action">Open SOS Dispatch</span>
+        </a>
+        <button type="button" class="sos-banner-dismiss" title="Hide until a new alert comes in" aria-label="Dismiss" @onclick="Dismiss">×</button>
+    </div>
 }
 
 @code {
     /// <summary>True on the SOS Dispatch page, which already lists the alerts.</summary>
     [Parameter] public bool OnSosPage { get; set; }
 
+    /// <summary>Fires whenever the active-SOS count is (re)loaded, so a host like DashboardSidebar can show its own indicator (e.g. a nav badge) independent of whether this banner is dismissed.</summary>
+    [Parameter] public EventCallback<int> OnActiveCountChanged { get; set; }
+
     // Same cadence as SOS Dispatch's own refresh.
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(10);
 
     private int _activeCount;
+
     private PeriodicTimer? _timer;
     private CancellationTokenSource? _timerCts;
+
+    // The dismiss button only hides the current situation - if the count changes at all (a new
+    // SOS comes in, or one gets resolved) since it was dismissed, it's a different situation, so
+    // the banner comes back. Tracked in BannerState (scoped per browser session) rather than on
+    // this component, since navigating to another page tears this component down and a fresh one
+    // would otherwise forget the dismissal was ever requested.
+    private void Dismiss() => BannerState.Dismiss(_activeCount);
 
     protected override async Task OnInitializedAsync()
     {
         await RefreshAsync();
+        BannerState.ReconcileCount(_activeCount);
+        await NotifyCountChangedAsync();
 
         _timerCts = new CancellationTokenSource();
         _timer = new PeriodicTimer(RefreshInterval);
@@ -47,7 +65,9 @@
                 await RefreshAsync();
                 if (before != _activeCount)
                 {
+                    BannerState.ReconcileCount(_activeCount);
                     await InvokeAsync(StateHasChanged);
+                    await NotifyCountChangedAsync();
                 }
             }
         }
@@ -69,6 +89,9 @@
             // rather than breaking the page.
         }
     }
+
+    private Task NotifyCountChangedAsync() =>
+        OnActiveCountChanged.HasDelegate ? OnActiveCountChanged.InvokeAsync(_activeCount) : Task.CompletedTask;
 
     public ValueTask DisposeAsync()
     {

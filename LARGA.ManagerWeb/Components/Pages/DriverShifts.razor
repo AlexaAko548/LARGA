@@ -614,10 +614,10 @@ else
                 }
             </div>
             <div class="report-actions">
-                <button class="cancel-btn" type="button" disabled="@_isSavingSub" @onclick="SubstituteDayOffAsync">Mark Day Off</button>
+                <button class="cancel-btn" type="button" disabled="@_isSavingSub" @onclick='() => RequestConfirm("Mark This Driver Off?", "This marks " + _subRow.FullName + " as off on " + _subCell.Date.ToString("dddd, MMM d") + " instead of assigning a substitute unit.", "Mark Day Off", SubstituteDayOffAsync)'>Mark Day Off</button>
                 @if (_subCell.SubstituteTaxiId is not null)
                 {
-                    <button class="cancel-btn" type="button" disabled="@_isSavingSub" @onclick="RemoveSubstituteAsync">Remove Substitute</button>
+                    <button class="cancel-btn" type="button" disabled="@_isSavingSub" @onclick='() => RequestConfirm("Remove Substitute Unit?", "This clears the substitute assignment for " + _subRow.FullName + " on " + _subCell.Date.ToString("dddd, MMM d") + ".", "Remove Substitute", RemoveSubstituteAsync)'>Remove Substitute</button>
                 }
                 <button class="download-btn" type="button" disabled="@(_isSavingSub || _subChoices.Count == 0)" @onclick="AssignSubstituteAsync">
                     @(_isSavingSub ? "Saving…" : _subCell.SubstituteTaxiId is null ? "Assign" : "Change")
@@ -878,7 +878,7 @@ else
                             <small class="receipt-hint">The driver's current password stops working immediately.</small>
                             <div class="profile-edit-actions">
                                 <button class="cancel-btn" type="button" disabled="@_isResettingPassword" @onclick="() => _showPasswordForm = false">Cancel</button>
-                                <button class="download-btn" type="button" disabled="@(_isResettingPassword || InputValidator.ValidatePassword(_newPasswordInput, required: false) is not null)" @onclick="ResetPasswordAsync">
+                                <button class="download-btn" type="button" disabled="@(_isResettingPassword || InputValidator.ValidatePassword(_newPasswordInput, required: false) is not null)" @onclick='() => RequestConfirm("Set New Password?", "The current mobile app password for this driver stops working immediately.", "Set Password", ResetPasswordAsync)'>
                                     @(_isResettingPassword ? "Saving…" : "Set Password")
                                 </button>
                             </div>
@@ -1025,9 +1025,52 @@ else
 }
 }
 
+<ConfirmationModal Show="_showConfirm" Title="@_confirmTitle" Message="@_confirmMessage"
+    ConfirmText="@_confirmButtonText" IsBusy="_confirmBusy" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm" />
+
 @code {
     // Assistant Managers can view drivers and shifts but can't approve clock-ins, edit the schedule, or add notes/drivers.
     private bool _canManage;
+
+    private bool _showConfirm;
+    private bool _confirmBusy;
+    private string _confirmTitle = "";
+    private string _confirmMessage = "";
+    private string _confirmButtonText = "Confirm";
+    private Func<Task>? _confirmAction;
+
+    private void RequestConfirm(string title, string message, string confirmText, Func<Task> action)
+    {
+        _confirmTitle = title;
+        _confirmMessage = message;
+        _confirmButtonText = confirmText;
+        _confirmAction = action;
+        _showConfirm = true;
+    }
+
+    private async Task ConfirmActionAsync()
+    {
+        if (_confirmAction is Func<Task> action)
+        {
+            _confirmBusy = true;
+            try
+            {
+                await action();
+            }
+            finally
+            {
+                _confirmBusy = false;
+            }
+        }
+        _showConfirm = false;
+        _confirmAction = null;
+    }
+
+    private void CancelConfirm()
+    {
+        _showConfirm = false;
+        _confirmAction = null;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -1181,7 +1224,7 @@ else
         _clockInError = null;
         try
         {
-            ClockInDecisionResult result = await ClockInApprovals.ApproveAsync(item.RequestId, null);
+            ClockInDecisionResult result = await ClockInApprovals.ApproveAsync(item.RequestId, null, _managerUserId);
             if (!result.Ok)
             {
                 _clockInError = result.ErrorMessage;
@@ -1216,7 +1259,7 @@ else
         _clockInError = null;
         try
         {
-            ClockInDecisionResult result = await ClockInApprovals.DenyAsync(_denyClockIn.RequestId, _denyNote, _denyMarkUnderMaintenance);
+            ClockInDecisionResult result = await ClockInApprovals.DenyAsync(_denyClockIn.RequestId, _denyNote, _denyMarkUnderMaintenance, _managerUserId);
             if (!result.Ok)
             {
                 _clockInError = result.ErrorMessage;
@@ -1461,13 +1504,13 @@ else
     private Task AssignSubstituteAsync() => RunSubstituteActionAsync(() =>
         string.IsNullOrEmpty(_subSelected)
             ? throw new InvalidOperationException("Pick a unit first.")
-            : DriverManagement.AssignSubstituteAsync(_subRow!.DriverId, _subCell!.Date, _subSelected));
+            : DriverManagement.AssignSubstituteAsync(_subRow!.DriverId, _subCell!.Date, _subSelected, _managerUserId));
 
     private Task RemoveSubstituteAsync() => RunSubstituteActionAsync(() =>
-        DriverManagement.ClearScheduleAsync(_subRow!.DriverId, _subCell!.Date));
+        DriverManagement.ClearScheduleAsync(_subRow!.DriverId, _subCell!.Date, _managerUserId));
 
     private Task SubstituteDayOffAsync() => RunSubstituteActionAsync(() =>
-        DriverManagement.MarkDayOffAsync(_subRow!.DriverId, _subCell!.Date));
+        DriverManagement.MarkDayOffAsync(_subRow!.DriverId, _subCell!.Date, _managerUserId));
 
     private async Task ToggleDayOffAsync(string driverId, DateTime date, bool wasDayOff)
     {
@@ -1475,11 +1518,11 @@ else
         {
             if (wasDayOff)
             {
-                await DriverManagement.ClearScheduleAsync(driverId, date);
+                await DriverManagement.ClearScheduleAsync(driverId, date, _managerUserId);
             }
             else
             {
-                await DriverManagement.MarkDayOffAsync(driverId, date);
+                await DriverManagement.MarkDayOffAsync(driverId, date, _managerUserId);
             }
             await ReloadCurrentWeekAsync();
         }
@@ -1631,7 +1674,7 @@ else
 
         try
         {
-            await DriverManagement.SetManagerNoteAsync(_managerNoteDriverId, _managerNoteText.Trim());
+            await DriverManagement.SetManagerNoteAsync(_managerNoteDriverId, _managerNoteText.Trim(), _managerUserId);
             _showManagerNoteModal = false;
         }
         catch (Exception ex)
@@ -1902,7 +1945,7 @@ else
             // address belongs to another account), and nothing else should be saved if it is.
             if (!string.Equals(_editEmail.Trim(), _selectedProfile.Email, StringComparison.OrdinalIgnoreCase))
             {
-                ResetPasswordResult emailResult = await DriverManagement.UpdateDriverLoginEmailAsync(_selectedProfile.DriverId, _editEmail);
+                ResetPasswordResult emailResult = await DriverManagement.UpdateDriverLoginEmailAsync(_selectedProfile.DriverId, _editEmail, _managerUserId);
                 if (!emailResult.Ok)
                 {
                     _profileError = emailResult.ErrorMessage;
@@ -1935,7 +1978,8 @@ else
                 _editLicenseExpiry,
                 _editAssignedTaxi,
                 ltoIdPhotoUrl,
-                profileImageUrl);
+                profileImageUrl,
+                _managerUserId);
 
             ResetLicenseScan();
             _isEditingProfile = false;
@@ -1979,7 +2023,8 @@ else
         {
             _lastResetPassword = await DriverManagement.ResetDriverPasswordAsync(
                 _selectedProfile.DriverId,
-                string.IsNullOrWhiteSpace(_newPasswordInput) ? null : _newPasswordInput);
+                string.IsNullOrWhiteSpace(_newPasswordInput) ? null : _newPasswordInput,
+                _managerUserId);
             if (!_lastResetPassword.Ok)
             {
                 _profileError = _lastResetPassword.ErrorMessage;
