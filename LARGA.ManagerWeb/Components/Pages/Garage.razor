@@ -518,12 +518,19 @@ else
 
     private async Task ConfirmActionAsync()
     {
-        if (_confirmAction is Func<Task> action)
+        try
         {
-            await action();
+            if (_confirmAction is Func<Task> action)
+            {
+                await action();
+            }
         }
-        _showConfirm = false;
-        _confirmAction = null;
+        finally
+        {
+            // Close even if the action throws, or the popup would be stuck open over the page.
+            _showConfirm = false;
+            _confirmAction = null;
+        }
     }
 
     private void CancelConfirm()

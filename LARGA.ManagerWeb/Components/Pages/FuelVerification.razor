@@ -488,7 +488,7 @@ else
 }
 
 <ConfirmationModal Show="_showConfirm" Title="@_confirmTitle" Message="@_confirmMessage"
-    ConfirmText="@_confirmButtonText" IsDangerous="_confirmIsDangerous" IsBusy="_isSavingReview" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm" />
+    ConfirmText="@_confirmButtonText" IsDangerous="_confirmIsDangerous" IsBusy="@(_isSavingReview || _isSavingResolve)" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm" />
 
 @code {
     // Assistant Managers can view fuel logs but can't verify, flag, or resolve them.
@@ -543,12 +543,19 @@ else
 
     private async Task ConfirmActionAsync()
     {
-        if (_confirmAction is Func<Task> action)
+        try
         {
-            await action();
+            if (_confirmAction is Func<Task> action)
+            {
+                await action();
+            }
         }
-        _showConfirm = false;
-        _confirmAction = null;
+        finally
+        {
+            // Close even if the action throws, or the popup would be stuck open over the page.
+            _showConfirm = false;
+            _confirmAction = null;
+        }
     }
 
     private void CancelConfirm()

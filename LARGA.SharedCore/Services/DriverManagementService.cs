@@ -336,6 +336,22 @@ public class DriverManagementService
     private static bool IsLicenseIneligibleOn(DateTime? licenseExpiry, DateTime date) =>
         ShiftEligibilityRules.IsLicenseIneligibleOn(licenseExpiry, date);
 
+    /// <summary>Driver's display name for an audit log entry. Falls back to their id if the
+    /// profile is missing or the read fails - a lookup problem must never block the action.</summary>
+    private async Task<string> GetDriverNameAsync(string driverId)
+    {
+        try
+        {
+            DocumentSnapshot doc = await Db.Collection("users").Document(driverId).GetSnapshotAsync();
+            return doc.Exists && doc.TryGetValue("fullName", out string? name) && !string.IsNullOrWhiteSpace(name) ? name : driverId;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Couldn't load the name of driver {DriverId} for an audit entry", driverId);
+            return driverId;
+        }
+    }
+
     /// <summary>Server-side backstop for the same rule the Schedule Planner UI enforces by
     /// disabling the cell - looked up fresh rather than trusting a value the caller might pass
     /// in, since this is a real business rule (an unlicensed/soon-to-be-unlicensed driver must
@@ -813,7 +829,7 @@ public class DriverManagementService
         {
             UserId = actorUserId ?? string.Empty,
             ActionType = "DriverProfileUpdated",
-            AuditLogDetails = $"Updated profile details for driver {driverId}.",
+            AuditLogDetails = $"Updated profile details for driver {await GetDriverNameAsync(driverId)}.",
             Timestamp = DateTime.UtcNow,
         });
         await batch.CommitAsync();
@@ -867,7 +883,7 @@ public class DriverManagementService
         {
             UserId = actorUserId ?? string.Empty,
             ActionType = "DriverManagerNoteUpdated",
-            AuditLogDetails = $"Updated the manager note for driver {driverId}.",
+            AuditLogDetails = $"Updated the manager note for driver {await GetDriverNameAsync(driverId)}.",
             Timestamp = DateTime.UtcNow,
         });
         await batch.CommitAsync();
@@ -1027,7 +1043,7 @@ public class DriverManagementService
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "DriverPasswordReset",
-                AuditLogDetails = $"Reset the mobile app password for driver {driverId}.",
+                AuditLogDetails = $"Reset the mobile app password for driver {await GetDriverNameAsync(driverId)}.",
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
@@ -1078,7 +1094,7 @@ public class DriverManagementService
                 {
                     UserId = actorUserId ?? string.Empty,
                     ActionType = "DriverLoginEmailUpdated",
-                    AuditLogDetails = $"Synced the profile email to match the login email for driver {driverId}.",
+                    AuditLogDetails = $"Synced the profile email to match the login email for driver {await GetDriverNameAsync(driverId)}.",
                     Timestamp = DateTime.UtcNow,
                 });
                 await syncBatch.CommitAsync();
@@ -1114,7 +1130,7 @@ public class DriverManagementService
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "DriverLoginEmailUpdated",
-                AuditLogDetails = $"Changed the mobile app login email for driver {driverId} to {email}.",
+                AuditLogDetails = $"Changed the mobile app login email for driver {await GetDriverNameAsync(driverId)} to {email}.",
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
