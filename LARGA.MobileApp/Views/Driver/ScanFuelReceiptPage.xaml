@@ -32,8 +32,8 @@
                 <RoundRectangle CornerRadius="20,20,0,0" />
             </Border.StrokeShape>
             
-            <!-- The OCR results are editable right here: the driver fixes a misread Amount, Liters,
-                 station or OR No. before confirming, instead of on the Fuel Report page. The fields
+            <!-- The OCR results are editable right here: the driver fixes a misread Amount, Liters
+                 or OR No. before confirming, instead of on the Fuel Report page. The fields
                  unlock once a receipt has been read; "Edited" marks a value changed from the scan. -->
             <VerticalStackLayout Spacing="12">
                 <Label x:Name="LblEditHint" Text="Capture the receipt, then check and correct the values below."
@@ -63,16 +63,10 @@
                     </Border>
                 </Grid>
 
-                <Grid ColumnDefinitions="*,Auto,1.3*" ColumnSpacing="8">
+                <!-- The station name is shown as OCR read it and is not editable by the driver. -->
+                <Grid ColumnDefinitions="*,*">
                     <Label Grid.Column="0" Text="Gasoline Name" TextColor="{DynamicResource ThemeTextGray}" VerticalOptions="Center"/>
-                    <Label Grid.Column="1" x:Name="TagVendorEdited" Text="Edited" IsVisible="False" FontSize="11" FontAttributes="Bold"
-                           TextColor="{DynamicResource ThemeEditedText}" VerticalOptions="Center"/>
-                    <Border Grid.Column="2" BackgroundColor="{DynamicResource ThemePanel}" StrokeThickness="0" StrokeShape="RoundRectangle 10" Padding="10,0" HeightRequest="40">
-                        <controls:LedgerEntry x:Name="EntVendor" Placeholder="--" IsEnabled="False" FontAttributes="Bold"
-                                              HorizontalTextAlignment="End" VerticalOptions="Center" BackgroundColor="Transparent"
-                                              TextColor="{DynamicResource ThemeTextBlack}" PlaceholderColor="{DynamicResource ThemeTextGray}"
-                                              TextChanged="OnScannedFieldChanged"/>
-                    </Border>
+                    <Label Grid.Column="1" x:Name="LblVendor" Text="--" HorizontalOptions="End" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}"/>
                 </Grid>
 
                 <Grid ColumnDefinitions="*,*">

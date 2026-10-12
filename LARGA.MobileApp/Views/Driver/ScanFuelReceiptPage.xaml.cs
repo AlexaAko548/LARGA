@@ -241,7 +241,9 @@ public partial class ScanFuelReceiptPage : ContentPage
 
                 string amountText = amount?.ToString("0.00", CultureInfo.InvariantCulture) ?? string.Empty;
                 string quantityText = quantity?.ToString("0.##", CultureInfo.InvariantCulture) ?? string.Empty;
-                string vendor = FieldText(EntVendor);
+                // The station isn't editable: always the OCR read. "UNKNOWN" when nothing was read,
+                // so the report can still be submitted (the parsing warning flags it).
+                string vendor = string.IsNullOrEmpty(_ocrVendor) ? "UNKNOWN" : _ocrVendor;
                 string orNumber = FieldText(EntOrNumber);
 
                 var payloadWarning = BuildParsingWarning(
@@ -256,7 +258,7 @@ public partial class ScanFuelReceiptPage : ContentPage
                     OrNumber = orNumber,
                     OriginalAmount = _ocrAmount,
                     OriginalQuantity = _ocrQuantity,
-                    OriginalVendor = _ocrVendor,
+                    OriginalVendor = vendor,
                     OriginalOrNumber = _ocrOrNumber,
                     ParsingWarning = payloadWarning,
                     ParsingUncertain = !string.IsNullOrWhiteSpace(payloadWarning),
@@ -311,6 +313,7 @@ public partial class ScanFuelReceiptPage : ContentPage
         }
         _isApplyingScan = false;
         _ocrAmount = _ocrQuantity = _ocrVendor = _ocrOrNumber = string.Empty;
+        LblVendor.Text = "--";
         RefreshEditedTags();
         ShowEditError(null);
         LblEditHint.Text = "Capture the receipt, then check and correct the values below.";
@@ -374,7 +377,7 @@ public partial class ScanFuelReceiptPage : ContentPage
         _isApplyingScan = true;
         EntAmount.Text = _ocrAmount;
         EntQuantity.Text = _ocrQuantity;
-        EntVendor.Text = _ocrVendor;
+        LblVendor.Text = string.IsNullOrEmpty(_ocrVendor) ? "--" : _ocrVendor;
         EntOrNumber.Text = _ocrOrNumber;
         foreach (Entry entry in ScannedFields)
         {
@@ -720,7 +723,7 @@ public partial class ScanFuelReceiptPage : ContentPage
         return text.Trim() == "--";
     }
 
-    private IEnumerable<Entry> ScannedFields => new Entry[] { EntAmount, EntQuantity, EntVendor, EntOrNumber };
+    private IEnumerable<Entry> ScannedFields => new Entry[] { EntAmount, EntQuantity, EntOrNumber };
 
     private static string FieldText(Entry entry) => (entry.Text ?? string.Empty).Trim();
 
@@ -740,7 +743,6 @@ public partial class ScanFuelReceiptPage : ContentPage
     {
         TagAmountEdited.IsVisible = EntAmount.IsEnabled && !SameNumber(FieldText(EntAmount), _ocrAmount);
         TagQuantityEdited.IsVisible = EntQuantity.IsEnabled && !SameNumber(FieldText(EntQuantity), _ocrQuantity);
-        TagVendorEdited.IsVisible = EntVendor.IsEnabled && !string.Equals(FieldText(EntVendor), _ocrVendor, StringComparison.OrdinalIgnoreCase);
         TagOrNumberEdited.IsVisible = EntOrNumber.IsEnabled && !string.Equals(FieldText(EntOrNumber), _ocrOrNumber, StringComparison.OrdinalIgnoreCase);
     }
 

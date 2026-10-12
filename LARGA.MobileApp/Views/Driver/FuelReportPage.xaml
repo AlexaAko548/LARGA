@@ -52,13 +52,8 @@
                         <Label Text="Edited" IsVisible="{Binding IsFuelStationManuallyEdited}" VerticalOptions="Center" TextColor="{DynamicResource ThemeEditedText}" FontSize="11" FontAttributes="Bold" />
                     </HorizontalStackLayout>
                     <Border Grid.Row="2" Grid.Column="1" BackgroundColor="{DynamicResource ThemeSurface}" StrokeThickness="0" StrokeShape="RoundRectangle 16" HeightRequest="45" Padding="14,0">
-                        <Entry Text="{Binding FuelStation}" IsReadOnly="True" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End">
-                            <Entry.Triggers>
-                                <DataTrigger TargetType="Entry" Binding="{Binding IsFuelStationEditable}" Value="True">
-                                    <Setter Property="IsReadOnly" Value="False" />
-                                </DataTrigger>
-                            </Entry.Triggers>
-                        </Entry>
+                        <!-- Read-only: the station name is always what the receipt scan read. -->
+                        <Entry Text="{Binding FuelStation}" IsReadOnly="True" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End" />
                     </Border>
 
                     <HorizontalStackLayout Grid.Row="3" Grid.Column="0" Spacing="6" VerticalOptions="Center">

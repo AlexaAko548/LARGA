@@ -263,14 +263,12 @@ public class FuelReportViewModel : BindableObject
             // differ from what OCR read) and stay editable here.
             bool costEditedInline = data.OriginalAmount is not null && !NumericEquivalent(Cost, data.OriginalAmount);
             bool quantityEditedInline = data.OriginalQuantity is not null && !NumericEquivalent(Quantity, data.OriginalQuantity);
-            bool stationEditedInline = data.OriginalVendor is not null
-                && !string.Equals(NormalizeText(FuelStation), NormalizeText(data.OriginalVendor), StringComparison.Ordinal);
             bool orNumberEditedInline = data.OriginalOrNumber is not null
                 && !string.Equals(NormalizeText(OrNumber), NormalizeText(data.OriginalOrNumber), StringComparison.Ordinal);
 
             IsCostEditable = data.IsCostUncertain || IsZeroOrEmpty(Cost) || costEditedInline;
             IsQuantityEditable = data.IsQuantityUncertain || IsZeroOrEmpty(Quantity) || quantityEditedInline;
-            IsFuelStationEditable = data.IsVendorUncertain || string.IsNullOrWhiteSpace(FuelStation) || FuelStation.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase) || stationEditedInline;
+            IsFuelStationEditable = false; // the station name is never editable: always what OCR read
             IsReceiptDateEditable = data.IsDateUncertain || !SelectedDate.HasValue;
             IsOrNumberEditable = data.IsOrNumberUncertain || string.IsNullOrWhiteSpace(OrNumber) || orNumberEditedInline;
 
@@ -289,7 +287,7 @@ public class FuelReportViewModel : BindableObject
 
             IsCostManuallyEdited = costEditedInline;
             IsQuantityManuallyEdited = quantityEditedInline;
-            IsFuelStationManuallyEdited = stationEditedInline;
+            IsFuelStationManuallyEdited = false;
             IsReceiptDateManuallyEdited = false;
             IsOrNumberManuallyEdited = orNumberEditedInline;
             _isApplyingScanResult = false;
@@ -582,7 +580,8 @@ public class FuelReportViewModel : BindableObject
 
         if (IsZeroOrEmpty(Cost)) IsCostEditable = true;
         if (IsZeroOrEmpty(Quantity)) IsQuantityEditable = true;
-        if (string.IsNullOrWhiteSpace(FuelStation) || FuelStation.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase)) IsFuelStationEditable = true;
+        // The station isn't editable, so a scanned draft with no station read falls back to "UNKNOWN".
+        if (string.IsNullOrWhiteSpace(FuelStation) && !string.IsNullOrWhiteSpace(Preferences.Get(PendingReceiptPathKey, string.Empty))) FuelStation = "UNKNOWN";
         if (!SelectedDate.HasValue) IsReceiptDateEditable = true;
         if (string.IsNullOrWhiteSpace(OrNumber)) IsOrNumberEditable = true;
 
