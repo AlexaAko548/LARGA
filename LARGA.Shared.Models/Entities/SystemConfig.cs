@@ -23,4 +23,11 @@ public class SystemConfig
     // managers' users documents to discover them.
     [FirestoreProperty("managerPhoneNumbers")]
     public List<string> ManagerPhoneNumbers { get; set; } = new();
+
+    // GCash numbers / bank account numbers boundary payments may be sent to. Quick Ledger
+    // (mobile) and the Financial Ledger (web) compare the receipt's recipient against these
+    // (PayoutAccountMatcher). Entries are free text such as "0917 123 4567" or
+    // "BDO 001234567890" - only the digits are compared.
+    [FirestoreProperty("authorizedPayoutAccounts")]
+    public List<string> AuthorizedPayoutAccounts { get; set; } = new();
 }

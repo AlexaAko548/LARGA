@@ -211,6 +211,14 @@
                                     <Label Grid.Column="1" Text="{Binding RecordPayment.ReferenceText}" Style="{StaticResource Ledger.FieldValue}" LineBreakMode="TailTruncation" />
                                 </Grid>
                             </Border>
+                            <Border Style="{StaticResource Ledger.Field}">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <Label Text="Sent To" Style="{StaticResource Ledger.Caption}" VerticalOptions="Center" />
+                                    <Label Grid.Column="1" Text="{Binding RecordPayment.TargetAccountText}" Style="{StaticResource Ledger.FieldValue}" LineBreakMode="TailTruncation" />
+                                </Grid>
+                            </Border>
+                            <Label Text="{Binding RecordPayment.TargetAccountWarning}" IsVisible="{Binding RecordPayment.HasTargetAccountWarning}"
+                                   Style="{StaticResource Ledger.Error}" />
                         </VerticalStackLayout>
 
                         <Label Text="{Binding RecordPayment.AllocationText}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />

@@ -1322,6 +1322,8 @@ internal static class Program
             // automated SOS protocols can auto-answer their callback. Stored normalized, the form
             // the contact-number update keeps this list in.
             ManagerPhoneNumbers = new List<string> { "+639171234567" },
+            // Target account verification: the GCash number boundary e-receipts must be sent to.
+            AuthorizedPayoutAccounts = new List<string> { "0917 123 4567" },
         });
     }
 }

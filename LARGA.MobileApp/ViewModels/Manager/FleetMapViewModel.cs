@@ -73,6 +73,13 @@ public class FleetPin
 
     public bool IsSos => Status == FleetDriverStatus.Sos;
 
+    /// <summary>The active SOS's emergency type ("Standard", "Hostile", "Crash") when IsSos.</summary>
+    public string SosTriggerType { get; set; } = string.Empty;
+
+    /// <summary>Popup warning naming the emergency type, e.g. "⚠ HOSTILE PROTOCOL — driver may need immediate assistance".</summary>
+    public string SosWarningText =>
+        $"⚠ {LARGA.SharedCore.Emergency.EmergencyTypes.Label(SosTriggerType).ToUpperInvariant()} — driver may need immediate assistance";
+
     /// <summary>Call button accent - green for an Active unit (easy to reach, on the road),
     /// the usual blue for every other status.</summary>
     public Color CallAccentColor => Status == FleetDriverStatus.Active ? StatusColor : Color.FromArgb("#019BCF");
@@ -208,6 +215,8 @@ public class FleetMapViewModel : BindableObject
     private IDisposable? _sosListener;
     private Dictionary<string, ShiftProxy> _activeShiftsById = new();
     private HashSet<string> _sosShiftIds = new();
+    // Emergency type of each shift's unresolved SOS (most severe if there are several).
+    private Dictionary<string, string> _sosTypeByShift = new();
 
     // Driver/taxi lookups rarely change, so these persist across rebuilds (cleared on each
     // StartListening) instead of being refetched every time any single shift's position
@@ -330,11 +339,17 @@ public class FleetMapViewModel : BindableObject
             .WhereEqualsTo("isResolved", false)
             .AddSnapshotListener<SosProxy>(snapshot =>
             {
-                _sosShiftIds = snapshot.Documents
-                    .Where(d => d.Data != null)
-                    .Select(d => d.Data!.ShiftId)
-                    .Where(id => !string.IsNullOrWhiteSpace(id))
-                    .ToHashSet();
+                var alerts = snapshot.Documents
+                    .Where(d => d.Data != null && !string.IsNullOrWhiteSpace(d.Data.ShiftId))
+                    .Select(d => d.Data!)
+                    .ToList();
+                _sosTypeByShift = alerts
+                    .GroupBy(a => a.ShiftId)
+                    .ToDictionary(g => g.Key, g => g
+                        .Select(a => LARGA.SharedCore.Emergency.EmergencyTypes.Normalize(a.TriggerType))
+                        .OrderByDescending(LARGA.SharedCore.Emergency.EmergencyTypes.Severity)
+                        .First());
+                _sosShiftIds = alerts.Select(a => a.ShiftId).ToHashSet();
                 _ = RebuildPinsAsync();
             });
     }
@@ -415,6 +430,7 @@ public class FleetMapViewModel : BindableObject
             // the loop below.
             var activeShifts = _activeShiftsById;
             var sosShiftIds = _sosShiftIds;
+            var sosTypeByShift = _sosTypeByShift;
             var version = Interlocked.Increment(ref _rebuildVersion);
 
             // Tallied locally and only published at the end - incrementing the bound properties
@@ -465,6 +481,7 @@ public class FleetMapViewModel : BindableObject
                     HeadingDegrees = data.CurrentHeading,
                     PositionTimestamp = positionTimestamp,
                     Status = status,
+                    SosTriggerType = hasSos ? sosTypeByShift.GetValueOrDefault(shiftId, string.Empty) : string.Empty,
                 });
             }
 
@@ -540,6 +557,19 @@ public class FleetMapViewModel : BindableObject
     private async Task LoadSelectedLocationAsync(FleetPin pin)
     {
         SelectedLocationText = "Locating…";
+
+        // MapTiler first (full street address, same source as the SOS alerts), then the phone's
+        // own geocoder, then plain coordinates.
+        string? address = await MapTilerGeocoding.Shared.ReverseGeocodeAsync(pin.Latitude, pin.Longitude);
+        if (!string.IsNullOrWhiteSpace(address))
+        {
+            if (SelectedPin == pin)
+            {
+                SelectedLocationText = address;
+            }
+            return;
+        }
+
         try
         {
             var placemarks = await Geocoding.Default.GetPlacemarksAsync(pin.Latitude, pin.Longitude);
@@ -662,6 +692,9 @@ public class FleetMapViewModel : BindableObject
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
         public string ShiftId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("triggerType")]
+        public string? TriggerType { get; set; }
     }
 
     private class SystemConfigProxy

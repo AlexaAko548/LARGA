@@ -258,6 +258,8 @@ public class QuickLedgerService
         if (evidence.ReceiptAmount.HasValue) fields["receiptAmount"] = (double)evidence.ReceiptAmount.Value;
         if (evidence.ReceiptDate.HasValue) fields["receiptDate"] = evidence.ReceiptDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         if (!string.IsNullOrEmpty(evidence.ReceiptPhotoUrl)) fields["ePayReceiptPhoto"] = evidence.ReceiptPhotoUrl!;
+        if (!string.IsNullOrEmpty(evidence.TargetAccount)) fields["receiptTargetAccount"] = evidence.TargetAccount!;
+        if (!string.IsNullOrEmpty(evidence.TargetAccountStatus)) fields["targetAccountStatus"] = evidence.TargetAccountStatus!;
     }
 
     /// <summary>
@@ -450,6 +452,31 @@ public class QuickLedgerService
         }
     }
 
+    /// <summary>
+    /// system_configs/global.authorizedPayoutAccounts - the GCash numbers / bank accounts boundary payments may be sent
+    /// to. Null when it can't be read (offline), so the scan says "couldn't check" instead of flagging every receipt.
+    /// </summary>
+    internal static async Task<IReadOnlyList<string>?> ReadAuthorizedPayoutAccountsAsync()
+    {
+        try
+        {
+            var snapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("system_configs")
+                .GetDocument("global")
+                .GetDocumentSnapshotAsync<SystemConfigProxy>();
+
+            return (snapshot?.Data?.AuthorizedPayoutAccounts ?? new List<object>())
+                .Select(StringOf)
+                .Where(a => a.Length > 0)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Quick Ledger: could not read authorized payout accounts: {ex.Message}");
+            return null;
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Value conversion. Firestore can return a number as an integer, a double, or (if it was written by hand) a string.
     // ---------------------------------------------------------------------
@@ -636,5 +663,8 @@ public class QuickLedgerService
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("defaultBoundaryRate")]
         public object? DefaultBoundaryRate { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("authorizedPayoutAccounts")]
+        public List<object>? AuthorizedPayoutAccounts { get; set; }
     }
 }

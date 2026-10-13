@@ -129,12 +129,20 @@ builder.Services.AddSingleton(sp => new Lazy<PhotoStorageTarget>(() =>
 
 builder.Services.AddSingleton<DriverManagementService>();
 builder.Services.AddSingleton<FinancialLedgerService>();
+// Authorized GCash / bank accounts for boundary payments (Manager Settings).
+builder.Services.AddSingleton<PayoutAccountService>();
 builder.Services.AddSingleton<GarageService>();
 builder.Services.AddSingleton<AlertService>();
 builder.Services.AddSingleton<InventoryAuditService>();
 builder.Services.AddSingleton<ShiftDeadlineService>();
 builder.Services.AddSingleton<ClockInApprovalService>();
 builder.Services.AddSingleton<SosDispatchService>();
+// SOS street addresses (MapTiler Geocoding API). Key: "MapTiler:ApiKey" in the untracked
+// appsettings.Local.json - the same key as the mobile app's MapTilerConfig. Without it the SOS
+// screens fall back to showing coordinates.
+builder.Services.AddSingleton(sp => new MapTilerGeocoder(sp.GetRequiredService<IConfiguration>()["MapTiler:ApiKey"]));
+// Checks each SOS came from the driver assigned to that unit's active shift.
+builder.Services.AddSingleton<SosCallerVerificationService>();
 builder.Services.AddSingleton<ManagerChatService>();
 builder.Services.AddSingleton<DriverNotifier>();
 builder.Services.AddScoped<LARGA.ManagerWeb.Services.ChatDrawerState>();
