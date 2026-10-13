@@ -369,7 +369,7 @@
                 <button class="cancel-btn" type="button" @onclick="CloseReportModal">Cancel</button>
                 <button class="download-btn" type="button"
                         disabled="@(_selectedExportFormat != CsvFormat || _isExportingReport || ReportRangeError is not null)"
-                        @onclick="DownloadReportAsync">
+                        @onclick="DownloadReportAsync" aria-busy="@_isExportingReport">
                     @(_isExportingReport ? "Preparing…" : _selectedExportFormat == CsvFormat ? "Download CSV" : "Export unavailable until data is available")
                 </button>
             </div>

@@ -25,6 +25,17 @@ public partial class DriverDashboardPage : ContentPage
             // Then confirm against Firestore (the shift may have been auto-closed, or started
             // on another phone) - see SyncOpenShiftAsync.
             _ = vm.SyncOpenShiftAsync();
+            vm.ResumeWatchingUnit();
+        }
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        // LAR-123: the unit's live maintenance listeners only run while the dashboard is showing.
+        if (BindingContext is DriverDashboardViewModel vm)
+        {
+            vm.StopWatchingUnit();
         }
     }
 }

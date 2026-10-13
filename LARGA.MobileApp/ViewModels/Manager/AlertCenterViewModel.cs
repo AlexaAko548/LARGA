@@ -123,11 +123,16 @@ public class AlertCenterViewModel : BindableObject
         if (_isListening) return;
         _isListening = true;
 
+        // LAR-117: the app-wide loading indicator until the first SOS snapshot arrives.
+        IDisposable? firstLoad = LARGA.MobileApp.Services.LoadingState.Begin();
+
         _sosListener = CrossFirebaseFirestore.Current
             .GetCollection("emergency_alerts")
             .WhereEqualsTo("isResolved", false)
             .AddSnapshotListener<EmergencyAlertProxy>(async snapshot =>
             {
+                firstLoad?.Dispose();
+                firstLoad = null;
                 var items = new List<AlertItem>();
                 foreach (var doc in snapshot.Documents)
                 {

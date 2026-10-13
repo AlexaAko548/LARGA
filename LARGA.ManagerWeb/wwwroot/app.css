@@ -5797,6 +5797,120 @@ background: rgba(255, 255, 255, 0.32);
 .sos-banner-action { display: none; }
 }
 
+/* LAR-117: loading states. One spinner everywhere something waits on Firestore. */
+@keyframes larga-spin {
+to { transform: rotate(360deg); }
+}
+
+.loading-state {
+display: flex;
+align-items: center;
+justify-content: center;
+gap: 0.6rem;
+padding: 1.2rem 1rem;
+color: var(--muted);
+font-size: 0.85rem;
+}
+
+.loading-state-lg {
+flex-direction: column;
+gap: 0.9rem;
+padding: 2.5rem 1rem;
+font-size: 0.95rem;
+}
+
+.loading-spinner {
+width: 1.1rem;
+height: 1.1rem;
+flex-shrink: 0;
+border-radius: 50%;
+border: 2px solid rgba(var(--accent-rgb), 0.22);
+border-top-color: var(--accent);
+animation: larga-spin 0.75s linear infinite;
+}
+
+.loading-state-lg .loading-spinner {
+width: 2.2rem;
+height: 2.2rem;
+border-width: 3px;
+}
+
+/* A button whose action is running (aria-busy) gets a small spinner before its "Saving…" text. */
+button[aria-busy]:not([aria-busy="false"])::before {
+content: "";
+display: inline-block;
+width: 0.85em;
+height: 0.85em;
+margin-right: 0.45em;
+vertical-align: -0.12em;
+border-radius: 50%;
+border: 2px solid currentColor;
+border-right-color: transparent;
+animation: larga-spin 0.75s linear infinite;
+}
+
+/* busy-indicator.js: the top bar while the server is answering a click. */
+#larga-busy-bar {
+position: fixed;
+top: 0;
+left: 0;
+right: 0;
+height: 3px;
+z-index: 2000;
+overflow: hidden;
+background: rgba(var(--accent-rgb), 0.18);
+pointer-events: none;
+}
+
+#larga-busy-bar[hidden] {
+display: none;
+}
+
+#larga-busy-bar::after {
+content: "";
+position: absolute;
+top: 0;
+bottom: 0;
+width: 40%;
+background: var(--accent);
+border-radius: var(--radius-pill);
+animation: larga-busy-slide 1.1s var(--ease-standard, ease-in-out) infinite;
+}
+
+@keyframes larga-busy-slide {
+from { left: -40%; }
+to { left: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner,
+  button[aria-busy]:not([aria-busy="false"])::before,
+  #larga-busy-bar::after {
+    animation-duration: 2.4s !important;
+  }
+}
+
+/* LAR-114: Inventory variants - same part, another brand / supplier / price. */
+.variant-pill {
+display: inline-block;
+margin-left: 0.45rem;
+padding: 0.1rem 0.45rem;
+border-radius: var(--radius-pill);
+border: 1px solid var(--accent-border);
+color: var(--accent-text, var(--accent));
+font-size: 0.65rem;
+font-weight: 700;
+vertical-align: middle;
+white-space: nowrap;
+}
+
+.part-variant-detail {
+margin-top: 0.15rem;
+color: var(--muted);
+font-size: 0.75rem;
+font-weight: 500;
+}
+
 /* Manager Settings: authorized payout accounts (target account verification). */
 .payout-accounts .manager-menu-hint {
 display: block;

@@ -73,7 +73,7 @@
                     }
 
                     <div class="manager-menu-form-actions">
-                        <button class="download-btn" type="submit" disabled="@_isSavingContact">@(_isSavingContact ? "Saving…" : "Update Number")</button>
+                        <button class="download-btn" type="submit" disabled="@_isSavingContact" aria-busy="@_isSavingContact">@(_isSavingContact ? "Saving…" : "Update Number")</button>
                     </div>
                 </EditForm>
 
@@ -143,7 +143,7 @@
 
                     <div class="manager-menu-form-actions">
                         <span class="manager-menu-hint">You'll be signed out after changing it.</span>
-                        <button class="download-btn" type="submit" disabled="@_isSavingPassword">@(_isSavingPassword ? "Saving…" : "Save Password")</button>
+                        <button class="download-btn" type="submit" disabled="@_isSavingPassword" aria-busy="@_isSavingPassword">@(_isSavingPassword ? "Saving…" : "Save Password")</button>
                     </div>
                 </EditForm>
             </div>

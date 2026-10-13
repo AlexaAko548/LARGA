@@ -112,6 +112,8 @@ public partial class App : Application
 		// Brought forward by the countdown's full-screen notification (screen off / app in the
 		// background): the countdown may have started before the page could be shown.
 		window.Resumed += (_, _) => _ = SyncCountdownPageAsync();
+		// LAR-117: one loading indicator over every page (added once the window has its platform view).
+		window.Created += (_, _) => window.AddOverlay(new LARGA.MobileApp.Controls.LoadingWindowOverlay(window));
 		return window;
 	}
 

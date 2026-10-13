@@ -177,6 +177,7 @@ public class ManagerDriverProfileViewModel : BindableObject
 
     private async Task LoadDriverAsync()
     {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         if (string.IsNullOrWhiteSpace(DriverId)) return;
 
         try

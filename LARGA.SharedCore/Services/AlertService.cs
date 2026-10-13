@@ -140,7 +140,7 @@ public class AlertService
             var alert = new SystemAlert
             {
                 Type = "LowStock",
-                Message = $"{part.PartName} is low on stock: {part.StockQuantity} {part.Unit} left (minimum {part.ReorderLevel}).",
+                Message = $"{part.DisplayName} is low on stock: {part.StockQuantity} {part.Unit} left (minimum {part.ReorderLevel}).",
                 Timestamp = DateTime.UtcNow,
                 IsRead = false,
             };

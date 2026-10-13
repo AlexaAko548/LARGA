@@ -440,6 +440,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
 
     private async Task InitializeDynamicTaxiAsync()
     {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         var user = CrossFirebaseAuth.Current.CurrentUser;
         if (user != null)
         {

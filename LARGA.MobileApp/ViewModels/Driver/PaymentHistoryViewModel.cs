@@ -25,6 +25,7 @@ public class PaymentHistoryViewModel : BindableObject
 
     private async Task LoadDynamicPaymentDataAsync()
     {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         var user = CrossFirebaseAuth.Current.CurrentUser;
         if (user == null) return;
 

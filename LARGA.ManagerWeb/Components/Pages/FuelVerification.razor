@@ -21,7 +21,7 @@
 {
     <div class="auth-page">
         <div class="auth-card">
-            <h2>Loading...</h2>
+            <LoadingSpinner Text="Loading…" Size="lg" />
         </div>
     </div>
 }
@@ -91,7 +91,7 @@ else
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Date &amp; Time</th>
+                        <th>@(_activeTab == FuelVerificationStatus.Flagged ? "Flagged On" : "Date & Time")</th>
                         <th>Refuel Instance</th>
                         <th>Driver</th>
                         <th>Unit</th>
@@ -104,7 +104,7 @@ else
                 <tbody>
                     @if (_snapshot is null)
                     {
-                        <tr><td colspan="8" class="table-empty">Loading fuel submissions...</td></tr>
+                        <tr><td colspan="8" class="table-empty"><LoadingSpinner Text="Loading fuel submissions…" /></td></tr>
                     }
                     else if (VisibleEntries.Count == 0)
                     {
@@ -115,7 +115,7 @@ else
                         @foreach (FuelLogEntry e in VisibleEntries)
                         {
                             <tr>
-                                <td>@(e.StatusTimestamp.HasValue ? e.StatusTimestamp.Value.ToLocalTime().ToString("MMM d, h:mm tt") : "—")</td>
+                                <td>@(e.StatusTimestamp.HasValue ? e.StatusTimestamp.Value.ToPhilippineTime().ToString("MMM d, h:mm tt") : "—")</td>
                                 <td><span class="unit-pill">@e.RefuelLabel</span></td>
                                 <td>@e.DriverName</td>
                                 <td>@e.TaxiId</td>
@@ -162,7 +162,7 @@ else
             <div class="report-body">
                 @if (_isLoadingReview)
                 {
-                    <div class="table-empty">Loading submission...</div>
+                    <div class="table-empty"><LoadingSpinner Text="Loading submission…" /></div>
                 }
                 else if (_reviewDetail is null)
                 {
@@ -309,7 +309,7 @@ else
                         <button class="cancel-btn" type="button" disabled="@_isSavingReview" @onclick='() => RequestConfirm("Reset to Pending?", "This clears the current decision and sends the submission back to the pending queue for re-review.", "Reset to Pending", () => ResolveAsync(ResolveAction.ResetToPending))'>Reset to Pending</button>
                     }
                     <button class="cancel-btn" type="button" disabled="@(_isSavingReview || FlagReasonError is not null)" title="@(FlagReasonError is null ? "" : "Write a flag reason first")" @onclick='() => RequestConfirm("Flag This Submission?", "This flags the fuel submission as irregular and notifies the driver. Make sure the flag reason above is accurate.", "Flag Irregularity", () => ResolveAsync(ResolveAction.Flag))'><Icon Name="flag" /> Flag Irregularity</button>
-                    <button class="download-btn" type="button" disabled="@_isSavingReview" @onclick='() => RequestConfirm("Verify & Approve This Submission?", "This marks the fuel submission as verified and approved.", "Verify & Approve", () => ResolveAsync(ResolveAction.Verify), isDangerous: false)'>@if (_isSavingReview) { <text>Saving…</text> } else { <Icon Name="check" /> <text>Verify &amp; Approve</text> }</button>
+                    <button class="download-btn" type="button" disabled="@_isSavingReview" @onclick='() => RequestConfirm("Verify & Approve This Submission?", "This marks the fuel submission as verified and approved.", "Verify & Approve", () => ResolveAsync(ResolveAction.Verify), isDangerous: false)' aria-busy="@_isSavingReview">@if (_isSavingReview) { <text>Saving…</text> } else { <Icon Name="check" /> <text>Verify &amp; Approve</text> }</button>
                 }
             </div>
         </div>
@@ -349,7 +349,7 @@ else
 
                 @if (_isLoadingReview)
                 {
-                    <div class="table-empty">Loading submission...</div>
+                    <div class="table-empty"><LoadingSpinner Text="Loading submission…" /></div>
                 }
                 else if (_reviewDetail is null)
                 {
@@ -481,7 +481,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn pull-left" type="button" disabled="@_isSavingResolve" @onclick="CloseResolveModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingResolve || ResolutionNoteError is not null)" @onclick='() => RequestConfirm("Mark This Flag Resolved?", "This marks the fuel flag for " + _resolveEntry!.DriverName + " as resolved with the note above. This cannot be undone.", "Mark Resolved", ConfirmResolveAsync)'>@(_isSavingResolve ? "Saving…" : "Mark Resolved")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingResolve || ResolutionNoteError is not null)" @onclick='() => RequestConfirm("Mark This Flag Resolved?", "This marks the fuel flag for " + _resolveEntry!.DriverName + " as resolved with the note above. This cannot be undone.", "Mark Resolved", ConfirmResolveAsync)' aria-busy="@_isSavingResolve">@(_isSavingResolve ? "Saving…" : "Mark Resolved")</button>
             </div>
         </div>
     </div>
@@ -568,7 +568,9 @@ else
     private enum ResolveAction { Verify, Flag, ResetToPending }
 
     private List<FuelLogEntry> VisibleEntries =>
-        _snapshot?.Entries.Where(e => e.Status == _activeTab).ToList() ?? new List<FuelLogEntry>();
+        _snapshot?.Entries.Where(e => e.Status == _activeTab)
+            .OrderByDescending(e => e.StatusTimestamp ?? DateTime.MinValue) // newest first by the time shown
+            .ToList() ?? new List<FuelLogEntry>();
 
     // LAR-106: live Firestore listener instead of a one-shot load, so a new driver
     // submission or another manager's verify/flag/resolve shows up on this page immediately

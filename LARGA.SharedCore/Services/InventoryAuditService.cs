@@ -51,6 +51,8 @@ public class InventoryAuditService
     public async Task<SparePart> AddSparePartAsync(SparePart part, string? actorUserId = null)
     {
         part.PartName = part.PartName.Trim();
+        part.Brand = (part.Brand ?? string.Empty).Trim();
+        part.Supplier = (part.Supplier ?? string.Empty).Trim();
         part.Unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit.Trim();
         part.StockQuantity = Math.Max(0, part.StockQuantity);
         part.ReorderLevel = Math.Max(0, part.ReorderLevel);
@@ -63,7 +65,7 @@ public class InventoryAuditService
         {
             UserId = actorUserId ?? string.Empty,
             ActionType = "InventoryPartCreated",
-            AuditLogDetails = $"Logged new spare part '{part.PartName}' with {part.StockQuantity} {part.Unit} (reorder level: {part.ReorderLevel}).",
+            AuditLogDetails = $"Logged new spare part '{part.DisplayName}' at ₱{part.UnitPrice:0.00} with {part.StockQuantity} {part.Unit} (reorder level: {part.ReorderLevel}).",
             Timestamp = DateTime.UtcNow,
         };
 
@@ -72,6 +74,94 @@ public class InventoryAuditService
         batch.Set(auditDoc, audit, SetOptions.Overwrite);
         await batch.CommitAsync();
         return part;
+    }
+
+    /// <summary>
+    /// Corrects a part's details (the same ones asked for when it was logged). Usage history is
+    /// keyed by the part's id, so it stays with the part. The audit entry lists what changed;
+    /// nothing is written when nothing changed. Returns null when the part no longer exists.
+    /// </summary>
+    public async Task<SparePart?> UpdateSparePartAsync(SparePart edited, string? actorUserId = null)
+    {
+        if (string.IsNullOrWhiteSpace(edited.PartId))
+        {
+            return null;
+        }
+
+        string name = edited.PartName.Trim();
+        string brand = (edited.Brand ?? string.Empty).Trim();
+        string supplier = (edited.Supplier ?? string.Empty).Trim();
+        string unit = string.IsNullOrWhiteSpace(edited.Unit) ? "pcs" : edited.Unit.Trim();
+        int stock = Math.Max(0, edited.StockQuantity);
+        int reorder = Math.Max(0, edited.ReorderLevel);
+        decimal price = Math.Max(0m, edited.UnitPrice);
+
+        bool stockDropped = false;
+        SparePart? updated = await Db.RunTransactionAsync(async transaction =>
+        {
+            stockDropped = false; // the transaction can re-run
+            DocumentReference doc = Db.Collection("spare_parts").Document(edited.PartId);
+            DocumentSnapshot snapshot = await transaction.GetSnapshotAsync(doc);
+            if (!snapshot.Exists)
+            {
+                return null;
+            }
+
+            SparePart part = snapshot.ConvertTo<SparePart>();
+            part.PartId = snapshot.Id;
+            string oldName = part.DisplayName;
+            string oldUnit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+
+            var updates = new Dictionary<string, object>();
+            var changes = new List<string>();
+            void Change(string field, object value, string label, string from, string to)
+            {
+                if (from == to) return;
+                updates[field] = value;
+                changes.Add($"{label}: {(from.Length == 0 ? "(none)" : from)} -> {(to.Length == 0 ? "(none)" : to)}");
+            }
+
+            Change("partName", name, "Name", part.PartName, name);
+            Change("brand", brand, "Brand", part.Brand ?? string.Empty, brand);
+            Change("supplier", supplier, "Supplier", part.Supplier ?? string.Empty, supplier);
+            Change("unit", unit, "Unit", oldUnit, unit);
+            Change("stockQuantity", stock, "Stock", part.StockQuantity.ToString(), stock.ToString());
+            Change("reorderLevel", reorder, "Min stock", part.ReorderLevel.ToString(), reorder.ToString());
+            Change("unitPrice", (double)price, "Unit price", $"₱{part.UnitPrice:0.00}", $"₱{price:0.00}");
+
+            if (updates.Count == 0)
+            {
+                part.Unit = oldUnit;
+                return part;
+            }
+
+            stockDropped = stock < part.StockQuantity || reorder > part.ReorderLevel;
+            transaction.Update(doc, updates);
+            transaction.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "InventoryPartEdited",
+                AuditLogDetails = $"Edited spare part '{oldName}'. {string.Join("; ", changes)}.",
+                Timestamp = DateTime.UtcNow,
+            });
+
+            part.PartName = name;
+            part.Brand = brand;
+            part.Supplier = supplier;
+            part.Unit = unit;
+            part.StockQuantity = stock;
+            part.ReorderLevel = reorder;
+            part.UnitPrice = price;
+            return part;
+        });
+
+        // Outside the transaction: a failed notification must not roll back the edit.
+        if (updated is not null && stockDropped && updated.StockQuantity <= updated.ReorderLevel)
+        {
+            await _alerts.CreateLowStockAlertAsync(updated);
+        }
+
+        return updated;
     }
 
     /// <summary>
@@ -137,7 +227,7 @@ public class InventoryAuditService
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "InventoryStockDeducted",
-                AuditLogDetails = $"Deducted {deduction} {unit} from '{part.PartName}'{usedFor}. Stock: {part.StockQuantity} -> {updatedQuantity}.",
+                AuditLogDetails = $"Deducted {deduction} {unit} from '{part.DisplayName}'{usedFor}. Stock: {part.StockQuantity} -> {updatedQuantity}.",
                 Timestamp = DateTime.UtcNow,
             };
             transaction.Set(auditDoc, audit);
@@ -201,7 +291,7 @@ public class InventoryAuditService
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "InventoryStockAdded",
-                AuditLogDetails = $"Added {increment} {unit} to '{part.PartName}'. Stock: {part.StockQuantity} -> {updatedQuantity}.{priceNote}",
+                AuditLogDetails = $"Added {increment} {unit} to '{part.DisplayName}'. Stock: {part.StockQuantity} -> {updatedQuantity}.{priceNote}",
                 Timestamp = DateTime.UtcNow,
             };
             transaction.Set(auditDoc, audit);

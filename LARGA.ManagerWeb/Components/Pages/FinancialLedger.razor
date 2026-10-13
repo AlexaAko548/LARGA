@@ -22,7 +22,7 @@
 {
     <div class="auth-page">
         <div class="auth-card">
-            <h2>Loading...</h2>
+            <LoadingSpinner Text="Loading…" Size="lg" />
         </div>
     </div>
 }
@@ -61,7 +61,7 @@ else
             </div>
             <div class="tab-actions">
                 @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenAdjustmentModal">+ Adjustment</button> }
-                @if (_canManage) { <button class="outline-btn" type="button" disabled="@_isExportingCsv" @onclick="ExportCsvAsync">@if (_isExportingCsv) { <text>Exporting…</text> } else { <Icon Name="download" /> <text>Export</text> }</button> }
+                @if (_canManage) { <button class="outline-btn" type="button" disabled="@_isExportingCsv" @onclick="ExportCsvAsync" aria-busy="@_isExportingCsv">@if (_isExportingCsv) { <text>Exporting…</text> } else { <Icon Name="download" /> <text>Export</text> }</button> }
             </div>
         </section>
 
@@ -74,7 +74,7 @@ else
         {
         @if (_snapshot is null)
         {
-            <div class="table-empty">Loading settlements...</div>
+            <div class="table-empty"><LoadingSpinner Text="Loading settlements…" /></div>
         }
         else
         {
@@ -211,7 +211,7 @@ else
         {
             @if (_ledgerSnapshot is null)
             {
-                <div class="table-empty">Loading the debt ledger...</div>
+                <div class="table-empty"><LoadingSpinner Text="Loading the debt ledger…" /></div>
             }
             else
             {
@@ -402,7 +402,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="ClosePaymentModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingPayment || PaymentAmountError is not null || (PaymentExtra > 0 && _paymentOtherDebt is null) || (_paymentMethod == "EWallet" && !IsReceiptReady))" @onclick='() => RequestConfirm("Confirm This Payment?", "Recording ₱" + _paymentAmountInput.ToString("N2") + " (" + (_paymentMethod == "EWallet" ? "E-Wallet / GCash" : "Cash") + ") for " + _paymentRow.DriverName + ".", "Confirm Payment", ConfirmPaymentAsync)'>@(_isSavingPayment ? "Saving…" : "Confirm Payment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingPayment || PaymentAmountError is not null || (PaymentExtra > 0 && _paymentOtherDebt is null) || (_paymentMethod == "EWallet" && !IsReceiptReady))" @onclick='() => RequestConfirm("Confirm This Payment?", "Recording ₱" + _paymentAmountInput.ToString("N2") + " (" + (_paymentMethod == "EWallet" ? "E-Wallet / GCash" : "Cash") + ") for " + _paymentRow.DriverName + ".", "Confirm Payment", ConfirmPaymentAsync)' aria-busy="@_isSavingPayment">@(_isSavingPayment ? "Saving…" : "Confirm Payment")</button>
             </div>
         </div>
     </div>
@@ -461,7 +461,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseAdjustmentModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingAdjustment || string.IsNullOrEmpty(_adjustmentDriverId) || AdjustmentAmountError is not null || AdjustmentReasonError is not null)" @onclick='() => RequestConfirm("Save This Adjustment?", "Posting a ₱" + _adjustmentAmountInput.ToString("N2") + " " + (_adjustmentDirection == "Add" ? "penalty / debt addition" : "credit / write-off") + " to the driver ledger.", "Save Adjustment", ConfirmAdjustmentAsync)'>@(_isSavingAdjustment ? "Saving…" : "Save Adjustment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingAdjustment || string.IsNullOrEmpty(_adjustmentDriverId) || AdjustmentAmountError is not null || AdjustmentReasonError is not null)" @onclick='() => RequestConfirm("Save This Adjustment?", "Posting a ₱" + _adjustmentAmountInput.ToString("N2") + " " + (_adjustmentDirection == "Add" ? "penalty / debt addition" : "credit / write-off") + " to the driver ledger.", "Save Adjustment", ConfirmAdjustmentAsync)' aria-busy="@_isSavingAdjustment">@(_isSavingAdjustment ? "Saving…" : "Save Adjustment")</button>
             </div>
         </div>
     </div>
@@ -522,7 +522,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseSettleModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingSettle || SettleAmountError is not null || (_settleMethod == "EWallet" && !IsReceiptReady))" @onclick='() => RequestConfirm("Confirm This Payment?", "Recording ₱" + _settleAmountInput.ToString("N2") + " (" + (_settleMethod == "EWallet" ? "E-Wallet / GCash" : "Cash") + ") for " + _settleRow.DriverName + ".", "Confirm Payment", ConfirmSettleAsync)'>@(_isSavingSettle ? "Saving…" : "Confirm Payment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingSettle || SettleAmountError is not null || (_settleMethod == "EWallet" && !IsReceiptReady))" @onclick='() => RequestConfirm("Confirm This Payment?", "Recording ₱" + _settleAmountInput.ToString("N2") + " (" + (_settleMethod == "EWallet" ? "E-Wallet / GCash" : "Cash") + ") for " + _settleRow.DriverName + ".", "Confirm Payment", ConfirmSettleAsync)' aria-busy="@_isSavingSettle">@(_isSavingSettle ? "Saving…" : "Confirm Payment")</button>
             </div>
         </div>
     </div>
@@ -539,7 +539,7 @@ else
             <div class="report-body">
                 @if (_history is null)
                 {
-                    <div class="table-empty">Loading history...</div>
+                    <div class="table-empty"><LoadingSpinner Text="Loading history…" /></div>
                 }
                 else
                 {

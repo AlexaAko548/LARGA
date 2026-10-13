@@ -23,7 +23,7 @@
                 @if (UnreadCount > 0)
                 {
                     <span class="notification-unread-count">@UnreadCount unread</span>
-                    <button type="button" class="notification-mark-all" disabled="@_isMarkingAll" @onclick="MarkAllReadAsync">
+                    <button type="button" class="notification-mark-all" disabled="@_isMarkingAll" @onclick="MarkAllReadAsync" aria-busy="@_isMarkingAll">
                         <Icon Name="check" /> @(_isMarkingAll ? "Marking…" : "Mark all as read")
                     </button>
                 }

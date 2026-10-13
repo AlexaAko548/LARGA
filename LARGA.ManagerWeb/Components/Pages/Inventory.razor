@@ -16,7 +16,7 @@
 {
     <div class="auth-page">
         <div class="auth-card">
-            <h2>Loading...</h2>
+            <LoadingSpinner Text="Loading…" Size="lg" />
         </div>
     </div>
 }
@@ -56,7 +56,7 @@ else
             <span class="filter-pill">@parts.Count(p => GetStatus(p) == "Normal") Normal</span>
             <span class="filter-pill active-pill">@parts.Count(p => GetStatus(p) != "Normal") Low / Critical</span>
         </div>
-        <button class="btn-log-part" @onclick="() => showAddModal = true">
+        <button class="btn-log-part" @onclick="OpenNewPartModal">
             + LOG NEW SPARE PART
         </button>
     </div>
@@ -92,7 +92,19 @@ else
                         <tr class="part-row @(status == "Normal" ? "row-highlighted" : "")" title="Click to show this part's usage history"
                             @onclick="() => TogglePartHistoryAsync(item)">
                             <td class="col-id font-mono"><span class="part-expander"><Icon Name="@(isExpanded ? "chevron-down" : "chevron-right")" /></span>@ToDisplayPartId(i + 1)</td>
-                            <td class="col-name fw-bold">@item.PartName</td>
+                            <td class="col-name">
+                                <span class="fw-bold">@item.PartName</span>
+                                @if (VariantCount(item) > 1)
+                                {
+                                    <span class="variant-pill" title="Same part from another brand or supplier, or at another price - each kept as its own row">@VariantCount(item) variants</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(item.Brand) || !string.IsNullOrWhiteSpace(item.Supplier))
+                                {
+                                    <div class="part-variant-detail">
+                                        @(string.IsNullOrWhiteSpace(item.Brand) ? "No brand" : item.Brand) · @(string.IsNullOrWhiteSpace(item.Supplier) ? "No supplier" : item.Supplier)
+                                    </div>
+                                }
+                            </td>
                             <td class="col-qty">
                                 <span class="qty-number">@item.StockQuantity</span>
                                 <span class="qty-unit font-mono">@item.Unit</span>
@@ -108,6 +120,7 @@ else
                             <td class="col-actions" @onclick:stopPropagation="true">
                                 <button class="btn-table-action" type="button" @onclick="() => OpenAdjustStockModal(item, true)">+ Add</button>
                                 <button class="btn-table-action" type="button" @onclick="() => OpenAdjustStockModal(item, false)"><Icon Name="minus" /> Deduct</button>
+                                <button class="btn-table-action" type="button" title="Edit this part's details" @onclick="() => OpenEditPartModal(item)"><Icon Name="pencil" /> Edit</button>
                             </td>
                         </tr>
                         @if (isExpanded)
@@ -118,7 +131,7 @@ else
                                     <div class="part-history">
                                         @if (_historyLoading)
                                         {
-                                            <div class="part-history-empty">Loading usage history...</div>
+                                            <div class="part-history-empty"><LoadingSpinner Text="Loading usage history…" /></div>
                                         }
                                         else if (_historyError is not null)
                                         {
@@ -198,17 +211,27 @@ else
 <!-- Log New Part Modal Dialog -->
 @if (showAddModal)
 {
-    <div class="modal-overlay" @onclick="() => showAddModal = false">
+    <div class="modal-overlay" @onclick="ClosePartModal">
         <div class="modal-card" @onclick:stopPropagation="true">
             <div class="modal-header">
-                <h3>Log New Part</h3>
-                <button class="modal-close-btn" aria-label="Close" @onclick="() => showAddModal = false"><Icon Name="x" /></button>
+                <h3>@(IsEditingPart ? "Edit Part" : "Log New Part")</h3>
+                <button class="modal-close-btn" aria-label="Close" @onclick="ClosePartModal"><Icon Name="x" /></button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
                     <label>Part Name</label>
                     <input type="text" maxlength="60" placeholder="e.g. Brake Pads" @bind="newPart.PartName" @bind:event="oninput" />
                     <FieldError Show="_partAttempted || newPart.PartName.Length > 0" Message="@PartNameError" />
+                </div>
+                <div class="form-group">
+                    <label>Brand <span class="field-optional">(optional)</span></label>
+                    <input type="text" maxlength="40" placeholder="e.g. Bendix" @bind="newPart.Brand" @bind:event="oninput" />
+                    <FieldError Message="@PartBrandError" />
+                </div>
+                <div class="form-group">
+                    <label>Supplier <span class="field-optional">(optional)</span></label>
+                    <input type="text" maxlength="60" placeholder="e.g. AutoParts PH" @bind="newPart.Supplier" @bind:event="oninput" />
+                    <FieldError Message="@PartSupplierError" />
                 </div>
                 <div class="form-group">
                     <label>Quantity</label>
@@ -230,7 +253,17 @@ else
                     <input type="number" min="0" max="@MaxUnitPrice" step="0.01" placeholder="e.g. 1500" @bind="newPart.UnitPrice" @bind:event="oninput" />
                     <FieldError Message="@PartPriceError" />
                 </div>
-                <button class="btn-save-part" type="button" disabled="@(_partAttempted && NewPartError is not null)" @onclick="SavePartAsync">SAVE PART</button>
+                @if (NewPartError is null && SameNameCount > 0)
+                {
+                    <div class="info-banner">@SameNameCount other row@(SameNameCount == 1 ? "" : "s") named "@newPart.PartName.Trim()" already - this one is kept as a separate variant (its own brand, supplier or price).</div>
+                }
+                @if (IsEditingPart)
+                {
+                    <small class="receipt-hint">Changing the quantity here corrects the count without recording it as used. To take stock out for a repair, use Deduct.</small>
+                }
+                <button class="btn-save-part" type="button" disabled="@(_isSavingPart || (_partAttempted && NewPartError is not null))" @onclick="SavePartAsync" aria-busy="@_isSavingPart">
+                    @(_isSavingPart ? "SAVING..." : IsEditingPart ? "SAVE CHANGES" : "SAVE PART")
+                </button>
             </div>
         </div>
     </div>
@@ -247,7 +280,7 @@ else
             <div class="modal-body">
                 <div class="form-group">
                     <label>Part</label>
-                    <input type="text" value="@selectedPart.PartName" disabled />
+                    <input type="text" value="@selectedPart.DisplayName" disabled />
                 </div>
                 <div class="form-group">
                     <label>Quantity (@selectedPart.Unit)</label>
@@ -261,6 +294,22 @@ else
                         <input type="number" min="0" max="@MaxUnitPrice" step="0.01" @bind="adjustUnitPrice" @bind:event="oninput" />
                         <FieldError Message="@AdjustPriceError" />
                     </div>
+                    @if (IsNewPrice)
+                    {
+                        @* LAR-114: stock bought at another price doesn't get lumped in at one price. *@
+                        <div class="form-group">
+                            <label>This batch costs a different price</label>
+                            <div class="payment-method-toggle">
+                                <button type="button" class="payment-method-btn @(addAsNewVariant ? "active" : "")" @onclick="() => addAsNewVariant = true">New row at ₱@adjustUnitPrice.ToString("#,##0.00")</button>
+                                <button type="button" class="payment-method-btn @(!addAsNewVariant ? "active" : "")" @onclick="() => addAsNewVariant = false">Update price here</button>
+                            </div>
+                            <small class="receipt-hint">
+                                @(addAsNewVariant
+                                    ? $"The {selectedPart.StockQuantity} {selectedPart.Unit} already in stock keep ₱{selectedPart.UnitPrice:#,##0.00}; these {adjustAmount} go in a separate row at the new price."
+                                    : $"All {selectedPart.StockQuantity + adjustAmount} {selectedPart.Unit} will be valued at ₱{adjustUnitPrice:#,##0.00} from now on.")
+                            </small>
+                        </div>
+                    }
                 }
                 else
                 {
@@ -279,7 +328,7 @@ else
                         <input type="text" maxlength="200" placeholder="e.g. replaced front-left tire" @bind="adjustNote" />
                     </div>
                 }
-                <button class="btn-save-part" type="button" disabled="@(isApplyingAdjustment || AdjustAmountError is not null || (isAddMode && AdjustPriceError is not null))" @onclick="ApplyStockAdjustmentAsync">
+                <button class="btn-save-part" type="button" disabled="@(isApplyingAdjustment || AdjustAmountError is not null || (isAddMode && AdjustPriceError is not null))" @onclick="ApplyStockAdjustmentAsync" aria-busy="@isApplyingAdjustment">
                     @(isApplyingAdjustment ? "PROCESSING..." : isAddMode ? "CONFIRM ADD" : "CONFIRM DEDUCT")
                 </button>
             </div>
@@ -313,9 +362,30 @@ else
     private string? PartUnitError => InputValidator.ValidateText(newPart.Unit, "the unit", 10, required: true);
     private string? PartReorderError => InputValidator.ValidateWholeNumber(newPart.ReorderLevel, "the min stock level", 0, MaxStock);
     private string? PartPriceError => InputValidator.ValidateAmount(newPart.UnitPrice, "the unit price", MaxUnitPrice, allowZero: true);
-    private string? NewPartError => PartNameError ?? PartQuantityError ?? PartUnitError ?? PartReorderError ?? PartPriceError
-        ?? (parts.Any(p => string.Equals(p.PartName.Trim(), newPart.PartName.Trim(), StringComparison.OrdinalIgnoreCase))
-            ? $"\"{newPart.PartName.Trim()}\" is already in the inventory - use + Add on it instead." : null);
+    private string? PartBrandError => InputValidator.ValidateText(newPart.Brand, "the brand", 40);
+    private string? PartSupplierError => InputValidator.ValidateText(newPart.Supplier, "the supplier", 60);
+    // LAR-114: only an exact repeat (same name, brand, supplier and price) is refused - anything
+    // that differs is a separate variant row.
+    private string? NewPartError => PartNameError ?? PartBrandError ?? PartSupplierError ?? PartQuantityError ?? PartUnitError ?? PartReorderError ?? PartPriceError
+        ?? (parts.Any(p => p.PartId != _editingPartId && p.IsSameVariant(newPart.PartName, newPart.Brand, newPart.Supplier, Math.Max(0m, newPart.UnitPrice)))
+            ? $"This exact part (same name, brand, supplier and price) is already in the inventory - use + Add on it instead." : null);
+    private int SameNameCount => string.IsNullOrWhiteSpace(newPart.PartName) ? 0
+        : parts.Count(p => p.PartId != _editingPartId && string.Equals(p.PartName.Trim(), newPart.PartName.Trim(), StringComparison.OrdinalIgnoreCase));
+    private int VariantCount(SparePart part) =>
+        parts.Count(p => string.Equals(p.PartName.Trim(), part.PartName.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    // Add Stock at a price other than the row's: a new variant row (default) or update the price.
+    private bool addAsNewVariant = true;
+    private bool IsNewPrice => isAddMode && selectedPart is not null && selectedPart.StockQuantity > 0
+        && selectedPart.UnitPrice > 0 && adjustUnitPrice != selectedPart.UnitPrice;
+
+    /// <summary>Variants of one part sit together: by name, then brand, supplier, price.</summary>
+    private static List<SparePart> SortParts(IEnumerable<SparePart> list) => list
+        .OrderBy(p => p.PartName, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(p => p.Brand, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(p => p.Supplier, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(p => p.UnitPrice)
+        .ToList();
     private string? AdjustAmountError => selectedPart is null ? null
         : !isAddMode && selectedPart.StockQuantity <= 0 ? "There's no stock left to deduct."
         : InputValidator.ValidateWholeNumber(adjustAmount, "the quantity", 1, isAddMode ? MaxStock : selectedPart.StockQuantity) is string e
@@ -357,7 +427,7 @@ else
         try
         {
             _loadError = null;
-            parts = await InventoryAudit.GetSparePartsAsync();
+            parts = SortParts(await InventoryAudit.GetSparePartsAsync());
         }
         catch (Exception ex)
         {
@@ -430,6 +500,7 @@ else
         isAddMode = addMode;
         adjustAmount = 1;
         adjustUnitPrice = item.UnitPrice;
+        addAsNewVariant = true;
         adjustTicketId = string.Empty;
         adjustNote = string.Empty;
         showAdjustModal = true;
@@ -482,6 +553,13 @@ else
                 return;
             }
 
+            if (IsNewPrice && addAsNewVariant)
+            {
+                await AddStockAsNewVariantAsync(selectedPart, adjustAmount, adjustUnitPrice);
+                CloseAdjustStockModal();
+                return;
+            }
+
             SparePart? updated = isAddMode
                 ? await InventoryAudit.AddPartStockAsync(selectedPart.PartId, adjustAmount, actorUserId: _managerUserId, unitPrice: adjustUnitPrice)
                 : await InventoryAudit.DeductPartAsync(selectedPart.PartId, adjustAmount, actorUserId: _managerUserId,
@@ -518,6 +596,83 @@ else
         }
     }
 
+    /// <summary>LAR-114: stock bought at a new price goes to the row for that exact variant - an
+    /// existing one if there is one, otherwise a new row - instead of repricing what's on hand.</summary>
+    private async Task AddStockAsNewVariantAsync(SparePart from, int amount, decimal price)
+    {
+        SparePart? existing = parts.FirstOrDefault(p => p.IsSameVariant(from.PartName, from.Brand, from.Supplier, price));
+        if (existing is not null)
+        {
+            SparePart? updated = await InventoryAudit.AddPartStockAsync(existing.PartId, amount, actorUserId: _managerUserId);
+            if (updated is not null)
+            {
+                parts[parts.FindIndex(p => p.PartId == updated.PartId)] = updated;
+            }
+            return;
+        }
+
+        SparePart created = await InventoryAudit.AddSparePartAsync(new SparePart
+        {
+            PartName = from.PartName,
+            Brand = from.Brand,
+            Supplier = from.Supplier,
+            Unit = from.Unit,
+            ReorderLevel = from.ReorderLevel,
+            StockQuantity = amount,
+            UnitPrice = price,
+        }, actorUserId: _managerUserId);
+        parts = SortParts(parts.Append(created));
+    }
+
+    // The Log New Part form doubles as Edit Part: set while editing an existing row.
+    private string? _editingPartId;
+    private bool _isSavingPart;
+    private bool IsEditingPart => _editingPartId is not null;
+
+    private void OpenNewPartModal()
+    {
+        _actionError = null;
+        if (IsEditingPart)
+        {
+            // Don't carry an edited part's details into a new one.
+            newPart = new SparePart { Unit = "pcs" };
+            _editingPartId = null;
+        }
+        _partAttempted = false;
+        showAddModal = true;
+    }
+
+    private void OpenEditPartModal(SparePart item)
+    {
+        _actionError = null;
+        _editingPartId = item.PartId;
+        newPart = new SparePart
+        {
+            PartId = item.PartId,
+            PartName = item.PartName,
+            Brand = item.Brand ?? string.Empty,
+            Supplier = item.Supplier ?? string.Empty,
+            StockQuantity = item.StockQuantity,
+            ReorderLevel = item.ReorderLevel,
+            Unit = string.IsNullOrWhiteSpace(item.Unit) ? "pcs" : item.Unit,
+            UnitPrice = item.UnitPrice,
+        };
+        _partAttempted = true; // existing details: show any problem right away
+        showAddModal = true;
+    }
+
+    private void ClosePartModal()
+    {
+        showAddModal = false;
+        if (IsEditingPart)
+        {
+            // A half-typed new part is kept for next time; an edit isn't.
+            newPart = new SparePart { Unit = "pcs" };
+            _editingPartId = null;
+            _partAttempted = false;
+        }
+    }
+
     private async Task SavePartAsync()
     {
         _actionError = null;
@@ -529,26 +684,55 @@ else
             return;
         }
 
+        var details = new SparePart
+        {
+            PartId = _editingPartId ?? string.Empty,
+            PartName = InputValidator.NormalizeSpaces(newPart.PartName),
+            Brand = InputValidator.NormalizeSpaces(newPart.Brand),
+            Supplier = InputValidator.NormalizeSpaces(newPart.Supplier),
+            StockQuantity = newPart.StockQuantity,
+            ReorderLevel = newPart.ReorderLevel,
+            Unit = newPart.Unit,
+            UnitPrice = Math.Max(0m, newPart.UnitPrice),
+        };
+
+        _isSavingPart = true;
         try
         {
-            SparePart saved = await InventoryAudit.AddSparePartAsync(new SparePart
+            if (IsEditingPart)
             {
-                PartName = InputValidator.NormalizeSpaces(newPart.PartName),
-                StockQuantity = newPart.StockQuantity,
-                ReorderLevel = newPart.ReorderLevel,
-                Unit = newPart.Unit,
-                UnitPrice = Math.Max(0m, newPart.UnitPrice),
-            }, actorUserId: _managerUserId);
+                SparePart? updated = await InventoryAudit.UpdateSparePartAsync(details, actorUserId: _managerUserId);
+                if (updated is null)
+                {
+                    _actionError = "This part no longer exists in Firestore.";
+                    return;
+                }
 
-            parts.Add(saved);
-            parts = parts.OrderBy(p => p.PartName, StringComparer.OrdinalIgnoreCase).ToList();
+                parts = SortParts(parts.Select(p => p.PartId == updated.PartId ? updated : p));
+                if (_expandedPartId == updated.PartId)
+                {
+                    await LoadHistoryAsync(updated);
+                }
+            }
+            else
+            {
+                details.PartId = string.Empty;
+                SparePart saved = await InventoryAudit.AddSparePartAsync(details, actorUserId: _managerUserId);
+                parts = SortParts(parts.Append(saved));
+            }
+
             newPart = new SparePart { Unit = "pcs" };
+            _editingPartId = null;
             _partAttempted = false;
             showAddModal = false;
         }
         catch (Exception ex)
         {
             _actionError = $"Couldn't save part: {ex.Message}";
+        }
+        finally
+        {
+            _isSavingPart = false;
         }
     }
 }

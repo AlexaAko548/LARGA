@@ -50,6 +50,7 @@ public class ChatsViewModel : INotifyPropertyChanged
     /// <summary>Reloads the driver list. Called by ManagerChatsPage each time it appears.</summary>
     public async Task LoadDriversAsync()
     {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         _drivers = await _chatService.GetDriversAsync();
         MainThread.BeginInvokeOnMainThread(Rebuild);
     }

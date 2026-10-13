@@ -82,6 +82,7 @@ public class DefectReportDetailViewModel : BindableObject
 
     private async Task LoadReportAsync()
     {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         if (string.IsNullOrWhiteSpace(ReportId)) return;
 
         IsLoading = true;
