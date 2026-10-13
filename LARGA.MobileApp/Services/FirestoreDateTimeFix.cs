@@ -15,12 +15,19 @@ namespace LARGA.MobileApp.Services;
 public static class FirestoreDateTimeFix
 {
     private static readonly long FileTimeEpochTicks = new DateTime(1601, 1, 1).Ticks;
+    private static readonly long MinUnixMillis = DateTimeOffset.MinValue.ToUnixTimeMilliseconds();
+    private static readonly long MaxUnixMillis = DateTimeOffset.MaxValue.ToUnixTimeMilliseconds();
 
     public static DateTime Apply(DateTime value)
     {
         if (value.Year > 1700) return value; // not affected - already a sane date
 
         var millis = value.Ticks - FileTimeEpochTicks;
+
+        // Not a value the plugin produced (e.g. DateTime.MinValue when the field is missing): there's nothing to
+        // reverse, and FromUnixTimeMilliseconds would throw - inside a snapshot listener that crashes the app.
+        if (millis < MinUnixMillis || millis > MaxUnixMillis) return value;
+
         return DateTimeOffset.FromUnixTimeMilliseconds(millis).UtcDateTime;
     }
 
