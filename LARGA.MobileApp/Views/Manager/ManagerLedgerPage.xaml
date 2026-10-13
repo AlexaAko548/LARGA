@@ -18,6 +18,8 @@
 
     <Grid>
         <!-- MAIN PAGE -->
+        <RefreshView IsRefreshing="{Binding IsRefreshing}" Command="{Binding RefreshCommand}"
+                     RefreshColor="{DynamicResource LargaPrimaryBlue}">
         <ScrollView>
             <VerticalStackLayout Padding="20,10,20,30" Spacing="14">
 
@@ -107,6 +109,7 @@
                        IsVisible="{Binding HasPaymentsDoneToday, Converter={StaticResource InverseBool}}" />
             </VerticalStackLayout>
         </ScrollView>
+        </RefreshView>
 
         <!-- RECORD PAYMENT / RECORD OTHER PAYMENT OVERLAY -->
         <Grid BackgroundColor="#99000000" IsVisible="{Binding RecordPayment.IsOpen}" Padding="14">

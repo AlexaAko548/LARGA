@@ -7,6 +7,8 @@
              NavigationPage.HasNavigationBar="False"
              BackgroundColor="{DynamicResource ThemeSurface}">
 
+    <RefreshView IsRefreshing="{Binding IsRefreshing}" Command="{Binding RefreshCommand}"
+                 RefreshColor="{DynamicResource LargaPrimaryBlue}">
     <ScrollView>
         <VerticalStackLayout Padding="20,0" Spacing="15">
 
@@ -35,4 +37,5 @@
 
         </VerticalStackLayout>
     </ScrollView>
+    </RefreshView>
 </ContentPage>

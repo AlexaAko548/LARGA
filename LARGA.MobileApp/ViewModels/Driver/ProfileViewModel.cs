@@ -105,10 +105,19 @@ public class ProfileViewModel : BindableObject
     public ICommand ChangePasswordCommand { get; }
     public ICommand UpdateContactNumberCommand { get; }
     public ICommand LogoutCommand { get; }
+    public ICommand RefreshCommand { get; }
+
+    private bool _isRefreshing;
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        set { _isRefreshing = value; OnPropertyChanged(); }
+    }
 
     public ProfileViewModel(IGpsTelemetryService telemetryService, IEmergencyMonitor emergencyMonitor)
     {
         LoadProfileCommand = new Command(async () => await LoadProfileAsync());
+        RefreshCommand = new Command(async () => await RefreshAsync());
         ChangePasswordCommand = new Command(async () => await Shell.Current.GoToAsync("driver-change-password"));
         UpdateContactNumberCommand = new Command(async () => await Shell.Current.GoToAsync("driver-update-contact-number"));
 
@@ -138,6 +147,19 @@ public class ProfileViewModel : BindableObject
 
         // Automatically load profile on instantiation
         Task.Run(async () => await LoadProfileAsync());
+    }
+
+    private async Task RefreshAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            await LoadProfileAsync();
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
     }
 
     public async Task LoadProfileAsync()

@@ -109,6 +109,14 @@ public class ManagerDriverProfileViewModel : BindableObject
     public ICommand GoBackCommand { get; }
     public ICommand UploadLicensePhotoCommand { get; }
     public ICommand ReloadCommand { get; }
+    public ICommand RefreshCommand { get; }
+
+    private bool _isRefreshing;
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        private set { _isRefreshing = value; OnPropertyChanged(); }
+    }
 
     public ManagerDriverProfileViewModel(IOcrService ocrService, IFaceCropService faceCropService)
     {
@@ -118,6 +126,20 @@ public class ManagerDriverProfileViewModel : BindableObject
         GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
         UploadLicensePhotoCommand = new Command(async () => await UploadLicensePhotoAsync());
         ReloadCommand = new Command(async () => await LoadDriverAsync());
+        RefreshCommand = new Command(async () => await RefreshAsync());
+    }
+
+    private async Task RefreshAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            await LoadDriverAsync();
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
     }
 
     private async Task UploadLicensePhotoAsync()

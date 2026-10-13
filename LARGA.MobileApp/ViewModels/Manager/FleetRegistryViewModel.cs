@@ -15,11 +15,33 @@ public class FleetRegistryViewModel : BindableObject
 
     public ICommand LoadTaxisCommand { get; }
     public ICommand GoBackCommand { get; }
+    public ICommand RefreshCommand { get; }
+
+    private bool _isRefreshing;
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        private set { _isRefreshing = value; OnPropertyChanged(); }
+    }
 
     public FleetRegistryViewModel()
     {
         LoadTaxisCommand = new Command(async () => await LoadTaxisAsync());
+        RefreshCommand = new Command(async () => await RefreshAsync());
         GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
+    }
+
+    private async Task RefreshAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            await LoadTaxisAsync();
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
     }
 
     private async Task LoadTaxisAsync()

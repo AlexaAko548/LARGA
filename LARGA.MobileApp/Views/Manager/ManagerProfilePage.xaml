@@ -7,6 +7,8 @@
              x:DataType="vm:ManagerProfileViewModel"
              BackgroundColor="{DynamicResource ThemeSurface}">
 
+    <RefreshView IsRefreshing="{Binding IsRefreshing}" Command="{Binding RefreshCommand}"
+                 RefreshColor="{DynamicResource LargaPrimaryBlue}">
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="15">
             <Label Text="My Profile" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{DynamicResource LargaDarkText}" Margin="0,10,0,0" />
@@ -74,4 +76,5 @@
 
         </VerticalStackLayout>
     </ScrollView>
+    </RefreshView>
 </ContentPage>

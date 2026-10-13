@@ -17,16 +17,38 @@ public class DriverManagementViewModel : BindableObject
     public ICommand LoadDriversCommand { get; }
     public ICommand ViewDriverCommand { get; }
     public ICommand GoBackCommand { get; }
+    public ICommand RefreshCommand { get; }
+
+    private bool _isRefreshing;
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        private set { _isRefreshing = value; OnPropertyChanged(); }
+    }
 
     public DriverManagementViewModel()
     {
         LoadDriversCommand = new Command(async () => await LoadDriversAsync());
+        RefreshCommand = new Command(async () => await RefreshAsync());
         ViewDriverCommand = new Command<DriverListItem>(async (item) =>
         {
             if (item == null || string.IsNullOrEmpty(item.Id)) return;
             await Shell.Current.GoToAsync($"manager-driver-profile?id={item.Id}");
         });
         GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
+    }
+
+    private async Task RefreshAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            await LoadDriversAsync();
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
     }
 
     private async Task LoadDriversAsync()

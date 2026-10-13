@@ -99,6 +99,14 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     public ICommand ToggleShiftCommand { get; }
     public ICommand ActiveShiftCommand { get; }
     public ICommand MessageManagerCommand { get; }
+    public ICommand RefreshCommand { get; }
+
+    private bool _isRefreshing;
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        private set { _isRefreshing = value; OnPropertyChanged(); }
+    }
 
     public DriverDashboardViewModel(INotificationService notificationService, IShiftManagementService shiftService, IGpsTelemetryService telemetryService, IEmergencyMonitor emergencyMonitor)
     {
@@ -149,9 +157,26 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
         });
         ActiveShiftCommand = new Command(async () => await Shell.Current.GoToAsync("active-shift"));
         MessageManagerCommand = new Command(async () => await Shell.Current.GoToAsync("message-manager"));
+        RefreshCommand = new Command(async () => await RefreshAsync());
 
         _ = InitializeDashboardDataAsync();
         _ = SyncOpenShiftAsync();
+    }
+
+    // Re-checks the shift state against Firestore, same as OnAppearing. The unit's assigned-taxi details and
+    // maintenance status are already kept live by WatchUnitMaintenance (LAR-123), so they aren't reloaded here -
+    // doing so would start a second listener on top of the one OnAppearing/OnDisappearing already manage.
+    private async Task RefreshAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            await SyncOpenShiftAsync();
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
     }
 
     /// <summary>

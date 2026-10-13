@@ -42,6 +42,14 @@ public class ReportsViewModel : BindableObject
     public ICommand LoadReportsCommand { get; }
     public ICommand ViewReportDetailsCommand { get; }
     public ICommand ViewFuelReportDetailsCommand { get; }
+    public ICommand RefreshCommand { get; }
+
+    private bool _isRefreshing;
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        private set { _isRefreshing = value; OnPropertyChanged(); }
+    }
 
     public ReportsViewModel()
     {
@@ -54,6 +62,7 @@ public class ReportsViewModel : BindableObject
         SelectFuelTabCommand = new Command(() => IsVehicleDefectTabSelected = false);
         AddVehicleReportCommand = new Command(async () => await Shell.Current.GoToAsync("vehicle-defect-page"));
         LoadReportsCommand = new Command(async () => await LoadReportsAsync());
+        RefreshCommand = new Command(async () => await RefreshAsync());
         AddFuelReportCommand = new Command(async () => await Shell.Current.GoToAsync("fuel-report-page"));
         ViewReportDetailsCommand = new Command<DefectReportItem>(async (item) =>
         {
@@ -70,6 +79,19 @@ public class ReportsViewModel : BindableObject
     private void RefreshReportsAfterFuelSubmission()
     {
         MainThread.BeginInvokeOnMainThread(async () => await LoadReportsAsync());
+    }
+
+    private async Task RefreshAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            await LoadReportsAsync();
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
     }
 
     private async Task LoadReportsAsync()

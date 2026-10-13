@@ -15,7 +15,9 @@
 
         <!-- Chat List -->
         <!-- FIX 1: Removed native Selection properties and set SelectionMode to None -->
-        <CollectionView Grid.Row="1" ItemsSource="{Binding ChatSessions}" SelectionMode="None">
+        <RefreshView Grid.Row="1" IsRefreshing="{Binding IsRefreshing}" Command="{Binding RefreshCommand}"
+                     RefreshColor="{DynamicResource LargaPrimaryBlue}">
+        <CollectionView ItemsSource="{Binding ChatSessions}" SelectionMode="None">
             <CollectionView.EmptyView>
                 <Label Text="No drivers registered yet." TextColor="{DynamicResource ThemeTextGray}" FontSize="14" HorizontalOptions="Center" VerticalOptions="Center" />
             </CollectionView.EmptyView>
@@ -83,5 +85,6 @@
                 </DataTemplate>
             </CollectionView.ItemTemplate>
         </CollectionView>
+        </RefreshView>
     </Grid>
 </ContentPage>
