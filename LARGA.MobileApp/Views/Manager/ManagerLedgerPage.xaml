@@ -138,15 +138,23 @@
 
                         <!-- Other payment: pick the driver and category -->
                         <Grid ColumnDefinitions="*,*" ColumnSpacing="8" IsVisible="{Binding RecordPayment.IsOtherMode}">
-                            <Border Grid.Column="0" Style="{StaticResource Ledger.Field}" Padding="6,0">
-                                <lc:LedgerPicker Style="{StaticResource Ledger.Picker}" Title="Select Driver"
-                                                 ItemsSource="{Binding RecordPayment.DriverOptions}"
-                                                 SelectedIndex="{Binding RecordPayment.SelectedDriverIndex, Mode=TwoWay}" />
+                            <Border Grid.Column="0" Style="{StaticResource Ledger.Field}">
+                                <Border.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding RecordPayment.PickDriverCommand}" />
+                                </Border.GestureRecognizers>
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
+                                    <Label Text="{Binding RecordPayment.SelectedDriverText}" Style="{StaticResource Ledger.DropdownText}" />
+                                    <Label Grid.Column="1" Text="&#xe5cf;" Style="{StaticResource Ledger.Icon}" />
+                                </Grid>
                             </Border>
-                            <Border Grid.Column="1" Style="{StaticResource Ledger.Field}" Padding="6,0">
-                                <lc:LedgerPicker Style="{StaticResource Ledger.Picker}" Title="Category"
-                                                 ItemsSource="{Binding RecordPayment.CategoryOptions}"
-                                                 SelectedIndex="{Binding RecordPayment.SelectedCategoryIndex, Mode=TwoWay}" />
+                            <Border Grid.Column="1" Style="{StaticResource Ledger.Field}">
+                                <Border.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding RecordPayment.PickCategoryCommand}" />
+                                </Border.GestureRecognizers>
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
+                                    <Label Text="{Binding RecordPayment.SelectedCategoryText}" Style="{StaticResource Ledger.DropdownText}" />
+                                    <Label Grid.Column="1" Text="&#xe5cf;" Style="{StaticResource Ledger.Icon}" />
+                                </Grid>
                             </Border>
                         </Grid>
 

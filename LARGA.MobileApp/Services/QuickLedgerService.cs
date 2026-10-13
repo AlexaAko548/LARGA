@@ -144,6 +144,10 @@ public class QuickLedgerService
             {
                 credit["notes"] = plan.Evidence!.Notes!;
             }
+            if (!string.IsNullOrEmpty(plan.Evidence?.Category))
+            {
+                credit["paymentCategory"] = plan.Evidence!.Category!;
+            }
         }
 
         IDocumentReference creditDoc = firestore.GetCollection("debt_adjustments").CreateDocument();
@@ -260,6 +264,7 @@ public class QuickLedgerService
         if (!string.IsNullOrEmpty(evidence.ReceiptPhotoUrl)) fields["ePayReceiptPhoto"] = evidence.ReceiptPhotoUrl!;
         if (!string.IsNullOrEmpty(evidence.TargetAccount)) fields["receiptTargetAccount"] = evidence.TargetAccount!;
         if (!string.IsNullOrEmpty(evidence.TargetAccountStatus)) fields["targetAccountStatus"] = evidence.TargetAccountStatus!;
+        if (!string.IsNullOrEmpty(evidence.Category)) fields["paymentCategory"] = evidence.Category!;
     }
 
     /// <summary>

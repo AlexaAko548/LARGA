@@ -571,6 +571,10 @@ public class FinancialLedgerService
             string where = isLegacy ? "recorded before itemized history"
                 : !string.IsNullOrEmpty(first.RecordedVia) ? $"recorded in {first.RecordedVia}"
                 : string.IsNullOrEmpty(first.TransactionId) ? "recorded in the manager app" : "recorded in the manager app's Quick Ledger";
+            if (!string.IsNullOrWhiteSpace(first.PaymentCategory))
+            {
+                details.Add($"Category: {first.PaymentCategory}");
+            }
             if (!string.IsNullOrWhiteSpace(first.Notes))
             {
                 details.Add($"Note: {first.Notes}");

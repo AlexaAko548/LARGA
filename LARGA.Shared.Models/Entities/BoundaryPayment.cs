@@ -138,6 +138,11 @@ public class BoundaryPayment
     [FirestoreProperty("notes")]
     public string? Notes { get; set; }
 
+    /// <summary>Quick Ledger Other Payment: what the payment was for ("Debt" or "Penalty"). Empty on
+    /// boundary payments and on payments recorded elsewhere.</summary>
+    [FirestoreProperty("paymentCategory")]
+    public string? PaymentCategory { get; set; }
+
     /// <summary>When the payment was recorded, as ISO text - written together with timestamp
     /// and never changed afterwards (older code overwrote timestamp on later payments).</summary>
     [FirestoreProperty("recordedAtUtc")]
