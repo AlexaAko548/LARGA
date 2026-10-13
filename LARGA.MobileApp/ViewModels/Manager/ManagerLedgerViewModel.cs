@@ -119,6 +119,7 @@ public class ManagerLedgerViewModel : BindableObject
 
     private async Task LoadOnceAsync()
     {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         DateText = PhilippineTime.Now.ToString("dddd, MMM d", CultureInfo.InvariantCulture);
 
         try

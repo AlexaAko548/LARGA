@@ -47,7 +47,7 @@
                 <a href="/forgot-password">Forgot password?</a>
             </div>
 
-            <button class="primary-btn full-width" type="submit" disabled="@_isSubmitting">
+            <button class="primary-btn full-width" type="submit" disabled="@_isSubmitting" aria-busy="@_isSubmitting">
                 @(_isSubmitting ? "SIGNING IN..." : "SIGN IN TO DASHBOARD")
             </button>
 

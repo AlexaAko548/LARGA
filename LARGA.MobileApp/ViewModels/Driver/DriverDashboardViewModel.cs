@@ -205,6 +205,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
 
     private async Task InitializeDashboardDataAsync()
     {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         var user = CrossFirebaseAuth.Current.CurrentUser;
         if (user != null)
         {
@@ -236,17 +237,12 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                     {
                         AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber) ? taxi.Model : taxi.PlateNumber.Replace("-", " • ");
                         AssignedUnitDetails = $"{taxi.YearManufactured} {taxi.Model}";
-                        MaintenanceStatus = taxi.Status;
-
-                        if (LARGA.SharedCore.TaxiStatusRules.IsUnderMaintenance(taxi.Status))
-                        {
-                            await LoadMaintenanceDayLabelAsync(dynamicTaxiId);
-                        }
-                        else
-                        {
-                            MaintenanceDayLabel = string.Empty;
-                        }
+                        _taxiStatus = taxi.Status;
+                        RefreshMaintenanceStatus();
                     }
+
+                    // LAR-123: keep the unit's maintenance status live from here on.
+                    WatchUnitMaintenance(dynamicTaxiId);
                 }
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Dashboard Data Error: {ex.Message}"); }
@@ -278,49 +274,128 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
         }
     }
 
-    /// <summary>Single equality filter on taxiId (auto-indexed) - same index-avoidance
-    /// pattern used elsewhere in this codebase - with the "InProgress" filter and picking
-    /// the most recent record done client-side.</summary>
-    private async Task LoadMaintenanceDayLabelAsync(string taxiId)
+    // -- LAR-123: live maintenance status -----------------------------------------------------
+    // Two listeners for the unit being driven today: its taxis/{id} document (the manager marking
+    // it Under Maintenance or back in service) and its Garage jobs in maintenance_logs (a ticket
+    // created, scheduled, started, resolved). Either change re-renders the status card at once.
+    // Single equality filter on taxiId (auto-indexed); the rest is client-side.
+
+    private IDisposable? _taxiListener;
+    private IDisposable? _unitJobsListener;
+    private string? _watchedTaxiId;
+    private string? _taxiStatus;
+    private List<MaintenanceRecordProxy> _unitJobs = new();
+
+    private void WatchUnitMaintenance(string taxiId)
     {
+        if (_watchedTaxiId == taxiId && _taxiListener is not null)
+        {
+            return;
+        }
+
+        StopWatchingUnit();
+        _watchedTaxiId = taxiId;
+
         try
         {
-            var snapshot = await CrossFirebaseFirestore.Current
+            _taxiListener = CrossFirebaseFirestore.Current
+                .GetCollection("taxis")
+                .GetDocument(taxiId)
+                .AddSnapshotListener<TaxiStatusProxy>(
+                    snapshot =>
+                    {
+                        _taxiStatus = snapshot?.Data?.Status;
+                        MainThread.BeginInvokeOnMainThread(RefreshMaintenanceStatus);
+                    },
+                    ex => System.Diagnostics.Debug.WriteLine($"Unit status listener error: {ex.Message}"));
+
+            _unitJobsListener = CrossFirebaseFirestore.Current
                 .GetCollection("maintenance_logs")
                 .WhereEqualsTo("taxiId", taxiId)
-                .GetDocumentsAsync<MaintenanceRecordProxy>();
+                .AddSnapshotListener<MaintenanceRecordProxy>(
+                    snapshot =>
+                    {
+                        _unitJobs = snapshot.Documents.Select(d => d.Data).Where(d => d is not null).ToList()!;
+                        MainThread.BeginInvokeOnMainThread(RefreshMaintenanceStatus);
+                    },
+                    ex => System.Diagnostics.Debug.WriteLine($"Unit maintenance listener error: {ex.Message}"));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Couldn't watch unit maintenance: {ex.Message}");
+        }
+    }
 
-            MaintenanceRecordProxy active = snapshot.Documents
-                .Select(d => d.Data)
-                // In the shop now - a Scheduled job only once its day comes.
-                .Where(m => m != null && WorkOrderRules.IsInShopNow(m!.Status, m.DateLogged.UtcDateTime, m.ScheduledDate?.UtcDateTime, ShiftClock.UtcNow.ToPhilippineTime().Date))
-                .OrderByDescending(m => m!.DateLogged)
-                .FirstOrDefault();
+    /// <summary>Called when the dashboard is hidden - no listeners left running in the background.</summary>
+    public void StopWatchingUnit()
+    {
+        _taxiListener?.Dispose();
+        _unitJobsListener?.Dispose();
+        _taxiListener = null;
+        _unitJobsListener = null;
+    }
 
-            if (active is null)
-            {
-                MaintenanceDayLabel = string.Empty;
-                return;
-            }
+    /// <summary>Called when the dashboard shows again: picks the listeners back up.</summary>
+    public void ResumeWatchingUnit()
+    {
+        if (_watchedTaxiId is string taxiId && _taxiListener is null)
+        {
+            WatchUnitMaintenance(taxiId);
+        }
+    }
 
+    /// <summary>
+    /// The status card: "In the Garage" with "Day X of Y" while a job has the unit in the shop
+    /// (also when only the Garage, not the unit's status, says so), "Garage on Sat, Oct 10" for a
+    /// booked job, otherwise the unit's own status.
+    /// </summary>
+    private void RefreshMaintenanceStatus()
+    {
+        DateTime todayPh = ShiftClock.UtcNow.ToPhilippineTime().Date;
+
+        MaintenanceRecordProxy? inShop = _unitJobs
+            .Where(m => WorkOrderRules.IsInShopNow(m.Status, m.DateLogged.UtcDateTime, m.ScheduledDate?.UtcDateTime, todayPh))
+            .OrderByDescending(m => m.DateLogged)
+            .FirstOrDefault();
+
+        if (inShop is not null)
+        {
+            MaintenanceStatus = "In the Garage";
             // Counted from the shop day (the scheduled date), not the day the driver reported it.
-            DateTime shopStart = WorkOrderRules.ShopStartUtc(active.DateLogged.UtcDateTime, active.ScheduledDate?.UtcDateTime);
-            int currentDay = WorkOrderRules.ShopDayNumber(active.DateLogged.UtcDateTime, active.ScheduledDate?.UtcDateTime, ShiftClock.UtcNow.ToPhilippineTime().Date);
-
-            if (active.EstimatedCompletionDate.HasValue)
+            DateTime shopStart = WorkOrderRules.ShopStartUtc(inShop.DateLogged.UtcDateTime, inShop.ScheduledDate?.UtcDateTime);
+            int currentDay = WorkOrderRules.ShopDayNumber(inShop.DateLogged.UtcDateTime, inShop.ScheduledDate?.UtcDateTime, todayPh);
+            if (inShop.EstimatedCompletionDate.HasValue)
             {
-                int totalDays = Math.Max(currentDay, (int)(active.EstimatedCompletionDate.Value.UtcDateTime.Date - shopStart.Date).TotalDays + 1);
+                int totalDays = Math.Max(currentDay, (int)(inShop.EstimatedCompletionDate.Value.UtcDateTime.Date - shopStart.Date).TotalDays + 1);
                 MaintenanceDayLabel = $"Day {Math.Min(currentDay, totalDays)} of {totalDays}";
             }
             else
             {
                 MaintenanceDayLabel = $"Day {currentDay}";
             }
+            return;
         }
-        catch (Exception ex)
+
+        MaintenanceRecordProxy? booked = _unitJobs
+            .Where(m => string.Equals(m.Status, WorkOrderRules.Scheduled, StringComparison.OrdinalIgnoreCase) && m.ScheduledDate.HasValue)
+            .OrderBy(m => m.ScheduledDate)
+            .FirstOrDefault();
+
+        if (booked?.ScheduledDate is DateTimeOffset shopDay)
         {
-            System.Diagnostics.Debug.WriteLine($"Maintenance Day Lookup Error: {ex.Message}");
+            MaintenanceStatus = _taxiStatus ?? "Active Unit";
+            MaintenanceDayLabel = $"Garage on {shopDay.UtcDateTime:ddd, MMM d}";
+            return;
         }
+
+        MaintenanceStatus = _taxiStatus ?? "Checking...";
+        MaintenanceDayLabel = string.Empty;
+    }
+
+    public class TaxiStatusProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
+        public string Status { get; set; } = string.Empty;
     }
 
     // Add this proxy class to the bottom of the file

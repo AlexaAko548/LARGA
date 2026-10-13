@@ -25,7 +25,7 @@
 {
     <div class="auth-page">
         <div class="auth-card">
-            <h2>Loading...</h2>
+            <LoadingSpinner Text="Loading…" Size="lg" />
         </div>
     </div>
 }
@@ -63,7 +63,7 @@ else
 
         @if (_isLoading && _active.Count == 0)
         {
-            <div class="table-empty">Loading SOS alerts...</div>
+            <div class="table-empty"><LoadingSpinner Text="Loading SOS alerts…" /></div>
         }
 
         <section class="sos-list">
@@ -130,7 +130,7 @@ else
         @if (_recentlyResolved.Count > 0)
         {
             <section class="sos-resolved">
-                <h2>Resolved in the last 24 hours <span class="sos-resolved-count">· @_recentlyResolved.Count</span></h2>
+                <h2>Resolved in the last 7 days <span class="sos-resolved-count">· @_recentlyResolved.Count</span></h2>
                 @* Shows up to 10 rows; past that the table scrolls inside its box (header stays put)
                    instead of pushing the page longer with every resolved alert. *@
                 <div class="data-table-wrap sos-resolved-scroll @(_recentlyResolved.Count > ResolvedRowsVisible ? "is-scrolling" : "")">
@@ -193,7 +193,7 @@ else
     // other pages' 20 s refresh.
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(10);
 
-    // Resolved-in-24h rows shown before the table scrolls (app.css .sos-resolved-scroll).
+    // Resolved-in-7-days rows shown before the table scrolls (app.css .sos-resolved-scroll).
     private const int ResolvedRowsVisible = 10;
 
     // True until the first data load finishes (LoadAsync clears it). Access itself is enforced

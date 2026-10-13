@@ -21,7 +21,7 @@
             </div>
             <div class="confirm-actions">
                 <button class="cancel-btn" type="button" disabled="@IsBusy" @onclick="HandleCancel">@CancelText</button>
-                <button class="@(IsDangerous ? "danger-btn" : "download-btn")" type="button" disabled="@IsBusy" @onclick="HandleConfirm">
+                <button class="@(IsDangerous ? "danger-btn" : "download-btn")" type="button" disabled="@IsBusy" @onclick="HandleConfirm" aria-busy="@IsBusy">
                     @if (IsBusy) { <text>Working…</text> } else { @ConfirmText }
                 </button>
             </div>

@@ -40,7 +40,7 @@ public class SosDispatchService
     public const string SosAlertType = "SOS";
 
     // Resolved alerts stay listed this long, so a mis-click can be undone.
-    private static readonly TimeSpan RecentlyResolvedWindow = TimeSpan.FromHours(24);
+    private static readonly TimeSpan RecentlyResolvedWindow = TimeSpan.FromDays(7);
 
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly ILogger<SosDispatchService> _logger;
@@ -64,7 +64,7 @@ public class SosDispatchService
         return (int)(count.Count ?? 0);
     }
 
-    /// <summary>Unresolved alerts (newest first) and those resolved in the last 24 hours.</summary>
+    /// <summary>Unresolved alerts (newest first) and those resolved in the last 7 days.</summary>
     public async Task<(List<SosAlertView> Active, List<SosAlertView> RecentlyResolved)> GetAlertsAsync()
     {
         QuerySnapshot active = await Db.Collection("emergency_alerts").WhereEqualTo("isResolved", false).GetSnapshotAsync();

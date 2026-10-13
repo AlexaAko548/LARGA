@@ -25,9 +25,12 @@ public class FuelLogEntry
     public DateTime? VerifiedAt { get; set; }
     public DateTime? FlaggedAt { get; set; }
 
-    /// <summary>Submission time, on every tab. Falls back to the receipt timestamp for rows
-    /// written before SubmittedAt existed.</summary>
-    public DateTime? StatusTimestamp => SubmittedAt ?? Timestamp;
+    /// <summary>Submission time - except on the Flagged tab, which shows when the manager
+    /// flagged it. Falls back to the submission (then receipt) time for rows written before
+    /// those timestamps existed.</summary>
+    public DateTime? StatusTimestamp => Status == FuelVerificationStatus.Flagged
+        ? FlaggedAt ?? SubmittedAt ?? Timestamp
+        : SubmittedAt ?? Timestamp;
 
     public decimal Cost { get; set; }
     public decimal Liters { get; set; }

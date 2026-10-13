@@ -54,6 +54,7 @@ public class DriverUpdateContactViewModel : BindableObject
 
     private async Task LoadCurrentNumberAsync()
     {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         try
         {
             var user = CrossFirebaseAuth.Current.CurrentUser;

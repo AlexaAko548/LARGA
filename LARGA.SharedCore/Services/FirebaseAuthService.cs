@@ -30,14 +30,28 @@ public class FirebaseAuthService : IFirebaseAuthService
     // previously left the Login button looking dead. Fail loudly instead.
     private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(20);
 
+    private const string NoConnectionMessage =
+        "Can't reach the sign-in server. Check that this phone is online (Wi-Fi or mobile data), then try again.";
+
     public async Task<string> LoginAsync(string email, string password)
     {
+        // No connection at all: say so right away instead of waiting for Firebase to give up.
+        if (Microsoft.Maui.Networking.Connectivity.Current.NetworkAccess is Microsoft.Maui.Networking.NetworkAccess.None)
+        {
+            throw new AuthFailedException(NoConnectionMessage);
+        }
+
         try
         {
             var user = await CrossFirebaseAuth.Current
                 .SignInWithEmailAndPasswordAsync(email.Trim(), password)
                 .WaitAsync(CallTimeout);
             return user.Uid;
+        }
+        catch (Exception ex) when (IsNetworkFailure(ex))
+        {
+            System.Diagnostics.Debug.WriteLine($"Firebase Auth network error: {ex}");
+            throw new AuthFailedException(NoConnectionMessage, ex);
         }
         catch (FirebaseAuthException ex)
         {
@@ -54,7 +68,7 @@ public class FirebaseAuthService : IFirebaseAuthService
         catch (TimeoutException ex)
         {
             System.Diagnostics.Debug.WriteLine($"Firebase Auth Timeout: {ex}");
-            throw new AuthFailedException("Could not reach the sign-in server. Check this device's network connection and try again.", ex);
+            throw new AuthFailedException(NoConnectionMessage, ex);
         }
         catch (Exception ex)
         {
@@ -62,6 +76,25 @@ public class FirebaseAuthService : IFirebaseAuthService
             System.Diagnostics.Debug.WriteLine($"Firebase Auth Error: {ex}");
             throw new AuthFailedException($"Sign-in failed: {ex.Message}", ex);
         }
+    }
+
+    /// <summary>
+    /// Firebase's "A network error (such as timeout, interrupted connection or unreachable host)"
+    /// - Android's FirebaseNetworkException, which Plugin.Firebase doesn't give its own error code.
+    /// The phone couldn't reach Google at all (offline, captive Wi-Fi, a stuck emulator network).
+    /// </summary>
+    private static bool IsNetworkFailure(Exception ex)
+    {
+        for (Exception? e = ex; e is not null; e = e.InnerException)
+        {
+            if (e.GetType().Name.Contains("FirebaseNetworkException", StringComparison.Ordinal)
+                || e.Message.Contains("network error", StringComparison.OrdinalIgnoreCase)
+                || e.Message.Contains("unreachable host", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     public async Task<string> GetUserRoleAsync(string userId)

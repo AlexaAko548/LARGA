@@ -349,6 +349,7 @@ public class FleetMapViewModel : BindableObject
 
     private async Task InitializeStaticDataAsync()
     {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         _idleThresholdMinutes = await GetIdleThresholdMinutesAsync();
 
         try
@@ -539,6 +540,7 @@ public class FleetMapViewModel : BindableObject
 
     private async Task LoadSelectedLocationAsync(FleetPin pin)
     {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         SelectedLocationText = "Locating…";
         try
         {

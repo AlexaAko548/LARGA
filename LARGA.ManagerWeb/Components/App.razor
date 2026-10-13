@@ -43,6 +43,9 @@
 <body>
     <Routes />
     <script src="_framework/blazor.web.js"></script>
+    @* LAR-117: top progress bar while the server answers a click (every Firestore call goes through it). *@
+    <script src="@Assets["busy-indicator.js"]"></script>
+    <script src="@Assets["modal-backdrop.js"]"></script>
     @* Enhanced navigation can patch <html>'s attributes back to the server's markup. *@
     <script>Blazor.addEventListener('enhancedload', window.largaTheme.apply);</script>
 </body>

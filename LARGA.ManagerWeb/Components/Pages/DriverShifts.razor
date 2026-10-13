@@ -20,7 +20,7 @@
 {
     <div class="auth-page">
         <div class="auth-card">
-            <h2>Loading...</h2>
+            <LoadingSpinner Text="Loading…" Size="lg" />
         </div>
     </div>
 }
@@ -184,7 +184,7 @@ else
                     <tbody>
                         @if (_roster is null)
                         {
-                            <tr><td colspan="6" class="table-empty">Loading roster...</td></tr>
+                            <tr><td colspan="6" class="table-empty"><LoadingSpinner Text="Loading roster…" /></td></tr>
                         }
                         else if (_roster.Drivers.Count == 0)
                         {
@@ -243,7 +243,7 @@ else
 
                 @if (_weekSchedule is null)
                 {
-                    <div class="table-empty">Loading schedule...</div>
+                    <div class="table-empty"><LoadingSpinner Text="Loading schedule…" /></div>
                 }
                 else
                 {
@@ -421,7 +421,7 @@ else
                         <tbody>
                             @if (_shiftLogs is null)
                             {
-                                <tr><td colspan="6" class="table-empty">Loading shift logs...</td></tr>
+                                <tr><td colspan="6" class="table-empty"><LoadingSpinner Text="Loading shift logs…" /></td></tr>
                             }
                             else if (!FilteredLogs.Any())
                             {
@@ -508,7 +508,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseDenyClockIn">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isDecidingClockIn || string.IsNullOrWhiteSpace(_denyNote))" @onclick="ConfirmDenyClockInAsync">@(_isDecidingClockIn ? "Saving…" : "Deny Clock-in")</button>
+                <button class="download-btn" type="button" disabled="@(_isDecidingClockIn || string.IsNullOrWhiteSpace(_denyNote))" @onclick="ConfirmDenyClockInAsync" aria-busy="@_isDecidingClockIn">@(_isDecidingClockIn ? "Saving…" : "Deny Clock-in")</button>
             </div>
         </div>
     </div>
@@ -579,19 +579,30 @@ else
     <div class="report-overlay" @onclick="CloseSubstituteModal">
         <div class="report-modal" @onclick:stopPropagation="true">
             <div class="report-header">
-                <h3>Assign Substitute Unit</h3>
+                <h3>@(SubIsLending ? "Lend a Unit for the Day" : "Assign Substitute Unit")</h3>
                 <button type="button" class="close-modal" @onclick="CloseSubstituteModal">×</button>
             </div>
             <div class="report-body">
                 <div class="settlement-modal-subject">@_subRow.FullName · @_subCell.Date.ToString("dddd, MMM d")</div>
 
-                <div class="info-banner">
-                    <Icon Name="wrench" /> <strong>@_subRow.DefaultTaxiId</strong> is under maintenance: @_subCell.MaintenanceNote.
-                    A substitute applies to this day only - the driver goes back to @_subRow.DefaultTaxiId once the Garage finishes.
-                </div>
+                @if (SubIsLending)
+                {
+                    <div class="info-banner">
+                        <Icon Name="repeat" /> @_subRow.FullName has no unit of their own. Lend them one that's free on this day - for
+                        example a unit whose driver is off. It applies to this day only, and stops counting if that unit's own driver
+                        ends up working that day after all.
+                    </div>
+                }
+                else
+                {
+                    <div class="info-banner">
+                        <Icon Name="wrench" /> <strong>@_subRow.DefaultTaxiId</strong> is under maintenance: @_subCell.MaintenanceNote.
+                        A substitute applies to this day only - the driver goes back to @_subRow.DefaultTaxiId once the Garage finishes.
+                    </div>
+                }
 
                 <div class="report-section">
-                    <label>Substitute Unit</label>
+                    <label>@(SubIsLending ? "Unit for the Day" : "Substitute Unit")</label>
                     @if (_subChoices.Count == 0)
                     {
                         <div class="field-error">No free units on this day - every other unit is under maintenance or already driven by someone.</div>
@@ -619,7 +630,7 @@ else
                 {
                     <button class="cancel-btn" type="button" disabled="@_isSavingSub" @onclick='() => RequestConfirm("Remove Substitute Unit?", "This clears the substitute assignment for " + _subRow.FullName + " on " + _subCell.Date.ToString("dddd, MMM d") + ".", "Remove Substitute", RemoveSubstituteAsync)'>Remove Substitute</button>
                 }
-                <button class="download-btn" type="button" disabled="@(_isSavingSub || _subChoices.Count == 0)" @onclick="AssignSubstituteAsync">
+                <button class="download-btn" type="button" disabled="@(_isSavingSub || _subChoices.Count == 0)" @onclick="AssignSubstituteAsync" aria-busy="@_isSavingSub">
                     @(_isSavingSub ? "Saving…" : _subCell.SubstituteTaxiId is null ? "Assign" : "Change")
                 </button>
             </div>
@@ -698,7 +709,7 @@ else
                 else
                 {
                     <button class="cancel-btn" type="button" @onclick="CloseAddDriverModal">Cancel</button>
-                    <button class="download-btn" type="button" disabled="@_isCreatingDriver" @onclick="RegisterDriverAsync">@(_isCreatingDriver ? "Registering…" : "Register Driver")</button>
+                    <button class="download-btn" type="button" disabled="@_isCreatingDriver" @onclick="RegisterDriverAsync" aria-busy="@_isCreatingDriver">@(_isCreatingDriver ? "Registering…" : "Register Driver")</button>
                 }
             </div>
         </div>
@@ -740,7 +751,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseManagerNoteModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingNote || string.IsNullOrEmpty(_managerNoteDriverId))" @onclick="SaveManagerNoteAsync">@(_isSavingNote ? "Saving…" : "Confirm")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingNote || string.IsNullOrEmpty(_managerNoteDriverId))" @onclick="SaveManagerNoteAsync" aria-busy="@_isSavingNote">@(_isSavingNote ? "Saving…" : "Confirm")</button>
             </div>
         </div>
     </div>
@@ -1017,7 +1028,7 @@ else
 
                 <div class="profile-section profile-edit-actions">
                     <button class="cancel-btn" type="button" @onclick="CancelEditProfile">Cancel</button>
-                    <button class="download-btn" type="button" disabled="@(_isSavingProfile || EditFormError is not null)" title="@EditFormError" @onclick="SaveProfileAsync">@(_isSavingProfile ? "Saving…" : "Save Changes")</button>
+                    <button class="download-btn" type="button" disabled="@(_isSavingProfile || EditFormError is not null)" title="@EditFormError" @onclick="SaveProfileAsync" aria-busy="@_isSavingProfile">@(_isSavingProfile ? "Saving…" : "Save Changes")</button>
                 </div>
             }
         </aside>
@@ -1420,11 +1431,11 @@ else
     }
 
     /// <summary>Normally a click toggles working/day off. When the driver's own unit is in
-    /// the shop that day, it opens the substitute window instead - the manager's choice
-    /// there includes marking the day off.</summary>
+    /// the shop that day - or (LAR-110) they have no unit and it's today or later - it opens the
+    /// substitute window instead; the manager's choice there includes marking the day off.</summary>
     private async Task OnScheduleCellClickedAsync(DriverScheduleRow row, ScheduleDayCell cell)
     {
-        if (cell.IsOwnUnitUnderMaintenance && !cell.IsDayOff)
+        if ((cell.IsOwnUnitUnderMaintenance || CanLendUnit(row, cell)) && !cell.IsDayOff)
         {
             OpenSubstituteModal(row, cell);
             return;
@@ -1447,8 +1458,21 @@ else
                 ? $"{row.DefaultTaxiId} is under maintenance ({cell.MaintenanceNote}) - driving {cell.SubstituteTaxiId} instead. Click to change."
                 : $"{row.DefaultTaxiId} is under maintenance ({cell.MaintenanceNote}). Click to assign a substitute.";
         }
+        if (CanLendUnit(row, cell) && !cell.IsDayOff)
+        {
+            return cell.SubstituteTaxiId is not null
+                ? $"Driving {cell.SubstituteTaxiId} for the day (no unit of their own). Click to change it or mark the day off."
+                : "No unit of their own - click to lend a unit that's free this day (e.g. one whose driver is off), or mark the day off.";
+        }
         return null;
     }
+
+    /// <summary>LAR-110: a driver with no unit of their own can be lent a free unit for today or a
+    /// later day. The license rule still applies - ineligible cells are locked before this runs.</summary>
+    private static bool CanLendUnit(DriverScheduleRow row, ScheduleDayCell cell) =>
+        row.DefaultTaxiId is null && !cell.IsLicenseIneligible && cell.Date.Date >= PhilippineTime.Now.Date;
+
+    private bool SubIsLending => _subRow is not null && _subRow.DefaultTaxiId is null;
 
     // -- Substitute unit (driver's own unit under maintenance) --------------
 

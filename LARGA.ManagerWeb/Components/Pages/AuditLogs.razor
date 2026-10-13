@@ -14,7 +14,7 @@
 {
     <div class="auth-page">
         <div class="auth-card">
-            <h2>Loading...</h2>
+            <LoadingSpinner Text="Loading…" Size="lg" />
         </div>
     </div>
 }
@@ -54,7 +54,7 @@ else
         </div>
         <div class="toolbar-right">
             <span class="entry-counter font-mono">@FilteredLogs.Count() entries</span>
-            <button class="btn-export" type="button" disabled="@_isExporting" @onclick="ExportLogsAsync">
+            <button class="btn-export" type="button" disabled="@_isExporting" @onclick="ExportLogsAsync" aria-busy="@_isExporting">
                 <span class="export-icon"><Icon Name="download" /></span> @(_isExporting ? "Exporting..." : "Export")
             </button>
         </div>

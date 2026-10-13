@@ -92,6 +92,7 @@ public class PreShiftStep1ViewModel : BindableObject, IQueryAttributable
 
     private async Task LoadAssignedUnitAsync()
     {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         try
         {
             var taxi = await _shiftService.GetCurrentUserAssignedTaxiAsync();

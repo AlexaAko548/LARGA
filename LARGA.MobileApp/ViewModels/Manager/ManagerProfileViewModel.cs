@@ -61,6 +61,7 @@ public class ManagerProfileViewModel : BindableObject
 
     private async Task LoadProfileAsync()
     {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         try
         {
             var currentUser = CrossFirebaseAuth.Current.CurrentUser;

@@ -142,6 +142,7 @@ public class ProfileViewModel : BindableObject
 
     public async Task LoadProfileAsync()
     {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         if (IsBusy) return;
 
         try

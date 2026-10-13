@@ -12,6 +12,10 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Options;
 using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -172,10 +176,35 @@ builder.Services.AddAuthorization(options =>
         .RequireRole(ManagerSignInService.ManagerRole));
 });
 builder.Services.AddCascadingAuthenticationState();
+
+// Hosted on Cloud Run (K_SERVICE is set there): Google ends HTTPS in front of the app and forwards
+// plain HTTP, so trust its X-Forwarded-Proto/For (the proxy's address isn't fixed, hence the
+// cleared lists), and keep the login-cookie keys in Firestore so a restart or redeploy doesn't
+// sign every manager out. Running locally, neither applies.
+bool onCloudRun = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("K_SERVICE"));
+if (onCloudRun)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+
+    builder.Services.AddDataProtection().SetApplicationName("LARGA.ManagerWeb");
+    builder.Services.AddSingleton<IConfigureOptions<KeyManagementOptions>>(sp =>
+        new ConfigureOptions<KeyManagementOptions>(options =>
+            options.XmlRepository = new FirestoreDataProtectionRepository(sp.GetRequiredService<Lazy<FirestoreDb>>())));
+}
 // Same 10-minute re-check for open Blazor circuits, which make no new HTTP requests.
 builder.Services.AddScoped<AuthenticationStateProvider, ManagerRevalidatingAuthStateProvider>();
 
 var app = builder.Build();
+
+if (onCloudRun)
+{
+    app.UseForwardedHeaders();
+}
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

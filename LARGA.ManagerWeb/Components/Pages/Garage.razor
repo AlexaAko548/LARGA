@@ -21,7 +21,7 @@
 {
     <div class="auth-page">
         <div class="auth-card">
-            <h2>Loading...</h2>
+            <LoadingSpinner Text="Loading…" Size="lg" />
         </div>
     </div>
 }
@@ -59,7 +59,7 @@ else
 
         @if (_snapshot is null)
         {
-            <div class="table-empty">Loading the garage...</div>
+            <div class="table-empty"><LoadingSpinner Text="Loading the garage…" /></div>
         }
         else
         {
@@ -273,7 +273,7 @@ else
                     }
                     else
                     {
-                        <input class="text-input" type="date" min="@PhilippineTime.Now.ToString("yyyy-MM-dd")" max="@PhilippineTime.Now.AddYears(1).ToString("yyyy-MM-dd")" @bind="_ticketShopDate" />
+                        <input class="text-input" type="date" min="@PhilippineTime.Now.ToString("yyyy-MM-dd")" max="@PhilippineTime.Now.AddYears(1).ToString("yyyy-MM-dd")" @bind="_ticketShopDate" @bind:after="KeepExpectedFinishOnOrAfterShopDay" />
                         <FieldError Message="@TicketShopDateError" />
                         <div class="info-banner">Listed under Upcoming Work Orders until that day; the unit stays in service until then. Not checked against the shop's daily capacity.</div>
                     }
@@ -292,7 +292,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseCreateTicketModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingTicket || _isLoadingTicketAutoDate || TicketShopDay is null || TicketInstructionsError is not null || TicketShopDateError is not null || TicketDateError is not null)" @onclick="ConfirmCreateTicketAsync">@(_isSavingTicket ? "Saving…" : _ticketShopMode == "Today" ? "Confirm & Start Today" : "Confirm & Schedule")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingTicket || _isLoadingTicketAutoDate || TicketShopDay is null || TicketInstructionsError is not null || TicketShopDateError is not null || TicketDateError is not null)" @onclick="ConfirmCreateTicketAsync" aria-busy="@_isSavingTicket">@(_isSavingTicket ? "Saving…" : _ticketShopMode == "Today" ? "Confirm & Start Today" : "Confirm & Schedule")</button>
             </div>
         </div>
     </div>
@@ -344,7 +344,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseScheduleModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingSchedule || _isLoadingAutoDate || !_scheduleDate.HasValue || ScheduleDateError is not null)" @onclick="ConfirmScheduleAsync">@(_isSavingSchedule ? "Saving…" : "Confirm Schedule")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingSchedule || _isLoadingAutoDate || !_scheduleDate.HasValue || ScheduleDateError is not null)" @onclick="ConfirmScheduleAsync" aria-busy="@_isSavingSchedule">@(_isSavingSchedule ? "Saving…" : "Confirm Schedule")</button>
             </div>
         </div>
     </div>
@@ -366,7 +366,7 @@ else
 
                 @if (_availableParts is null)
                 {
-                    <div class="table-empty">Loading spare parts...</div>
+                    <div class="table-empty"><LoadingSpinner Text="Loading spare parts…" /></div>
                 }
                 else if (_availableParts.Count == 0)
                 {
@@ -383,7 +383,7 @@ else
                                     <option value="">Select a part</option>
                                     @foreach (SparePart part in _availableParts)
                                     {
-                                        <option value="@part.PartId">@part.PartName (@part.StockQuantity @part.Unit left)</option>
+                                        <option value="@part.PartId">@part.DisplayName@(part.UnitPrice > 0 ? $" · ₱{part.UnitPrice:#,##0.00}" : "") (@part.StockQuantity @part.Unit left)</option>
                                     }
                                 </select>
                                 <input class="text-input" style="width:90px" type="number" min="1" @bind="row.Quantity" />
@@ -402,7 +402,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseLogPartsModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingParts || _availableParts is null || _availableParts.Count == 0)" @onclick="ValidateAndRequestLogPartsConfirm">@(_isSavingParts ? "Saving…" : "Confirm & Deduct")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingParts || _availableParts is null || _availableParts.Count == 0)" @onclick="ValidateAndRequestLogPartsConfirm" aria-busy="@_isSavingParts">@(_isSavingParts ? "Saving…" : "Confirm & Deduct")</button>
             </div>
         </div>
     </div>
@@ -422,7 +422,7 @@ else
             <div class="report-body history-body">
                 @if (_history is null)
                 {
-                    <div class="table-empty">Loading history...</div>
+                    <div class="table-empty"><LoadingSpinner Text="Loading history…" /></div>
                 }
                 else
                 {
@@ -631,7 +631,9 @@ else
         _ticketReport = report;
         _ticketPriority = report.Priority;
         _ticketInstructions = string.Empty;
-        _ticketEstimatedDate = null;
+        // LAR-115: start from today rather than an empty "mm/dd/yyyy" box (kept optional - clear
+        // it if the finish is unknown); moves along with the shop date below.
+        _ticketEstimatedDate = PhilippineTime.Now.Date;
         _ticketShopMode = "Today";
         _ticketShopDate = null;
         _ticketError = null;
@@ -666,6 +668,18 @@ else
         else if (mode == "Manual")
         {
             _ticketShopDate ??= PhilippineTime.Now.Date.AddDays(1);
+        }
+
+        KeepExpectedFinishOnOrAfterShopDay();
+    }
+
+    /// <summary>A later shop date carries the expected finish with it, so the default never
+    /// turns into "finish before the shop date".</summary>
+    private void KeepExpectedFinishOnOrAfterShopDay()
+    {
+        if (_ticketEstimatedDate is DateTime finish && TicketShopDay is DateTime start && finish.Date < start)
+        {
+            _ticketEstimatedDate = start;
         }
     }
 
@@ -882,11 +896,11 @@ else
             }
             if (quantity > part.StockQuantity)
             {
-                _partsError = $"Only {part.StockQuantity} {part.Unit} of {part.PartName} left in stock.";
+                _partsError = $"Only {part.StockQuantity} {part.Unit} of {part.DisplayName} left in stock.";
                 return;
             }
             usage.Add((partId, quantity));
-            summaryParts.Add($"{quantity} {part.Unit} of {part.PartName}");
+            summaryParts.Add($"{quantity} {part.Unit} of {part.DisplayName}");
         }
 
         RequestConfirm("Log These Parts?", "This deducts the following from inventory stock. This cannot be undone.", "Confirm & Deduct", () => DeductPartsAsync(usage), listItems: summaryParts);

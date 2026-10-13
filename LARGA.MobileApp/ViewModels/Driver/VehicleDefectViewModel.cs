@@ -88,7 +88,37 @@ public class VehicleDefectViewModel : BindableObject
 
         AttachPhotoCommand = new Command(async () => await AttachPhotoAsync());
 
-        SubmitReportCommand = new Command(async () =>
+        // LAR-124: one submit at a time - on a slow connection drivers tap again thinking it didn't go.
+        SubmitReportCommand = new Command(async () => await SubmitAsync(), () => !IsSubmitting);
+    }
+
+    private bool _isSubmitting;
+    public bool IsSubmitting
+    {
+        get => _isSubmitting;
+        private set
+        {
+            _isSubmitting = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SubmitButtonText));
+            ((Command)SubmitReportCommand).ChangeCanExecute();
+        }
+    }
+
+    public string SubmitButtonText => IsSubmitting ? "Submitting…" : "Submit Report";
+
+    // A matching open report this recent is the same report sent twice, not a new defect.
+    private static readonly TimeSpan DuplicateWindow = TimeSpan.FromMinutes(30);
+
+    private async Task SubmitAsync()
+    {
+        if (IsSubmitting)
+        {
+            return;
+        }
+
+        IsSubmitting = true;
+        try
         {
             if (string.IsNullOrWhiteSpace(TitleReport) || string.IsNullOrWhiteSpace(Description))
             {
@@ -103,6 +133,15 @@ public class VehicleDefectViewModel : BindableObject
 
             var assignedTaxi = await _shiftManagementService.GetCurrentUserAssignedTaxiAsync();
             var taxiId = assignedTaxi?.TaxiId ?? string.Empty;
+
+            // Already went through on an earlier tap (or before the app was reopened): treat it as
+            // sent instead of filing - and uploading the photo for - a second copy.
+            string? existingId = await _maintenanceService.FindRecentDuplicateReportAsync(driverId, taxiId, TitleReport, DuplicateWindow);
+            if (existingId is not null)
+            {
+                await Shell.Current.GoToAsync($"..?defectSubmitted=true&reportId={existingId}");
+                return;
+            }
 
             // Only set when reported mid-shift (end-shift inspection) - a pre-shift defect is
             // reported before clock-in, so there's no shift to link it to yet.
@@ -156,7 +195,11 @@ public class VehicleDefectViewModel : BindableObject
                 $"Vehicle defect report submitted for {taxiId}: {record.IssueTitle}.");
 
             await Shell.Current.GoToAsync($"..?defectSubmitted=true&reportId={recordId}");
-        });
+        }
+        finally
+        {
+            IsSubmitting = false;
+        }
     }
 
     private async Task AttachPhotoAsync()

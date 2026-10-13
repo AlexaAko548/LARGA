@@ -199,6 +199,23 @@ public class DriverManagementService
 
         var rows = new List<DriverScheduleRow>();
 
+        // LAR-110: units each regular driver is actually driving per day (not off, not ineligible,
+        // not in the shop). A unit lent to a driver with no unit of their own only counts on a
+        // day its regular driver isn't driving it - e.g. their day off - so taking that day off
+        // back never leaves two drivers on one unit.
+        var drivenByOwner = new HashSet<string>[7];
+        for (int i = 0; i < 7; i++)
+        {
+            DateTime day = weekStart.AddDays(i);
+            drivenByOwner[i] = drivers
+                .Where(d => !string.IsNullOrWhiteSpace(d.AssignedTaxiId)
+                    && exceptions.FirstOrDefault(s => s.DriverId == d.UserId && s.ScheduledStartTime.Date == day.Date)?.Status != "DayOff"
+                    && !IsLicenseIneligibleOn(d.LicenseExpiryDate, day)
+                    && maintenanceNote(d.AssignedTaxiId, day) is null)
+                .Select(d => d.AssignedTaxiId)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
         foreach (UserProfile driver in drivers)
         {
             string? defaultTaxiId = string.IsNullOrWhiteSpace(driver.AssignedTaxiId) ? null : driver.AssignedTaxiId;
@@ -223,8 +240,13 @@ public class DriverManagementService
                 // - once the Garage finishes the job, the cell falls back to their own unit on
                 // its own, even if the substitute entry is still there. A substitute that has
                 // itself gone into maintenance is ignored too, so the cell asks for a new one.
+                // LAR-110: a driver with no unit of their own can be lent one for the day, while its
+                // regular driver isn't using it.
+                bool lendable = defaultTaxiId is null
+                    && exception?.TaxiId is string lentId
+                    && !drivenByOwner[i].Contains(lentId);
                 string? substitute = exception?.Status == "Substitute"
-                    && ownUnitNote is not null
+                    && (ownUnitNote is not null || lendable)
                     && !string.IsNullOrWhiteSpace(exception.TaxiId)
                     && maintenanceNote(exception.TaxiId, day) is null
                         ? exception.TaxiId
@@ -404,10 +426,11 @@ public class DriverManagementService
         await batch.CommitAsync();
     }
 
-    /// <summary>Gives the driver a temporary unit for this one day because their own is under
-    /// maintenance. Checked server-side against a fresh schedule, not just the page's
-    /// dropdown: the driver's unit must really be in the shop that day, and the substitute
-    /// must be free (not under maintenance, not driven by anyone else).</summary>
+    /// <summary>Gives the driver a temporary unit for this one day - because their own is under
+    /// maintenance, or (LAR-110) because they have no unit and one is free that day (e.g. its
+    /// driver is off). Checked server-side against a fresh schedule, not just the page's dropdown:
+    /// the driver must need a unit that day, the date can't be past, the driver's license must
+    /// allow a shift, and the unit must be free (not under maintenance, not driven by anyone else).</summary>
     public async Task AssignSubstituteAsync(string driverId, DateTime dateUtc, string taxiId, string? actorUserId = null)
     {
         string driverName = await EnsureLicenseEligibleOnAsync(driverId, dateUtc);
@@ -416,9 +439,15 @@ public class DriverManagementService
         int dayIndex = (dateUtc.Date - week.WeekStart.Date).Days;
         ScheduleDayCell? cell = week.Rows.FirstOrDefault(r => r.DriverId == driverId)?.Days[dayIndex];
 
-        if (cell is null || !cell.IsOwnUnitUnderMaintenance)
+        DriverScheduleRow? row = week.Rows.FirstOrDefault(r => r.DriverId == driverId);
+        bool hasNoUnit = row is not null && row.DefaultTaxiId is null;
+        if (cell is null || (!cell.IsOwnUnitUnderMaintenance && !hasNoUnit))
         {
             throw new InvalidOperationException("This driver's own unit isn't under maintenance on this date - no substitute needed.");
+        }
+        if (dateUtc.Date < PhilippineTime.Now.Date)
+        {
+            throw new InvalidOperationException("That date has passed - units can only be lent for today or a later day.");
         }
 
         bool keepingSameSubstitute = string.Equals(cell.SubstituteTaxiId, taxiId, StringComparison.OrdinalIgnoreCase);
@@ -441,7 +470,9 @@ public class DriverManagementService
         {
             UserId = actorUserId ?? string.Empty,
             ActionType = "SubstituteUnitAssigned",
-            AuditLogDetails = $"Assigned {taxiId} as a substitute unit for {driverName} on {dateUtc:yyyy-MM-dd}.",
+            AuditLogDetails = hasNoUnit
+                ? $"Lent {taxiId} to {driverName} for {dateUtc:yyyy-MM-dd} (no unit of their own)."
+                : $"Assigned {taxiId} as a substitute unit for {driverName} on {dateUtc:yyyy-MM-dd}.",
             Timestamp = DateTime.UtcNow,
         });
         await batch.CommitAsync();
