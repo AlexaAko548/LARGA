@@ -1,11 +1,14 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.Messaging;
 using LARGA.MobileApp.Services;
 using LARGA.SharedCore;
+using LARGA.SharedCore.Ledger;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Graphics;
 using Microsoft.Maui.Storage;
 
 namespace LARGA.MobileApp.Views.Manager;
@@ -19,6 +22,7 @@ public partial class ScanEReceiptPage : ContentPage
     private readonly EReceiptOcrService _ocr;
     private string? _photoPath;
     private EReceiptData? _scanned;
+    private PayoutAccountCheck? _accountCheck;
 
     public ScanEReceiptPage(EReceiptOcrService ocr)
     {
@@ -125,12 +129,17 @@ public partial class ScanEReceiptPage : ContentPage
         await StopCameraAsync();
 
         _scanned = await _ocr.ReadAsync(path, PhilippineTime.Now);
+
+        // Target account verification: was the money sent to one of the manager's authorized accounts?
+        IReadOnlyList<string>? authorized = await QuickLedgerService.ReadAuthorizedPayoutAccountsAsync();
+        _accountCheck = authorized is null ? null : PayoutAccountMatcher.Check(_scanned.Target, authorized);
         ShowScan(_scanned);
     }
 
     private async void OnRetakeClicked(object? sender, EventArgs e)
     {
         _scanned = null;
+        _accountCheck = null;
         _photoPath = null;
         CapturedReceiptPreview.IsVisible = false;
         CapturedReceiptPreview.Source = null;
@@ -139,6 +148,8 @@ public partial class ScanEReceiptPage : ContentPage
         LblAmount.Text = "---";
         LblDate.Text = "---";
         LblReference.Text = "---";
+        LblTarget.Text = "---";
+        LblTargetStatus.IsVisible = false;
         BtnRetake.IsVisible = false;
         ResetCapture("Line up the receipt and capture it.");
 
@@ -163,6 +174,7 @@ public partial class ScanEReceiptPage : ContentPage
         LblAmount.Text = data.Amount?.ToString("#,##0.00") ?? "---";
         LblDate.Text = data.Date?.ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture) ?? "---";
         LblReference.Text = data.ReferenceNumber ?? "---";
+        ShowAccountCheck(data);
 
         BtnRetake.IsVisible = true;
         BtnRetake.IsEnabled = true;
@@ -181,6 +193,31 @@ public partial class ScanEReceiptPage : ContentPage
         }
     }
 
+    private void ShowAccountCheck(EReceiptData data)
+    {
+        LblTarget.Text = data.Target?.Display ?? "---";
+        LblTargetStatus.IsVisible = true;
+
+        string colorKey;
+        if (_accountCheck is null)
+        {
+            LblTargetStatus.Text = "Couldn't load the authorized accounts to check the recipient (offline?).";
+            colorKey = "ThemeTextTertiary";
+        }
+        else
+        {
+            LblTargetStatus.Text = (_accountCheck.Status == PayoutAccountStatus.Verified ? "✓ " : _accountCheck.NeedsWarning ? "⚠ " : string.Empty)
+                                   + _accountCheck.Message;
+            colorKey = _accountCheck.Status switch
+            {
+                PayoutAccountStatus.Verified => "LargaSuccess",
+                PayoutAccountStatus.Mismatch or PayoutAccountStatus.NotFound => "LargaDanger",
+                _ => "ThemeTextTertiary",
+            };
+        }
+        LblTargetStatus.TextColor = ThemeColors.Get(colorKey, Colors.Gray);
+    }
+
     private void ResetCapture(string message)
     {
         BtnCapture.Text = "CAPTURE";
@@ -194,7 +231,8 @@ public partial class ScanEReceiptPage : ContentPage
             Amount: data.Amount!.Value,
             Date: data.Date!.Value,
             ReferenceNumber: data.ReferenceNumber!,
-            PhotoFilePath: _photoPath ?? string.Empty));
+            PhotoFilePath: _photoPath ?? string.Empty,
+            AccountCheck: _accountCheck));
 
         await StopCameraAsync();
         await Navigation.PopModalAsync();

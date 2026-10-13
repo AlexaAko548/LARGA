@@ -145,6 +145,14 @@ public class LedgerTransaction
     public string? ReceiptUrl { get; set; }
     public string? ReceiptReferenceNo { get; set; }
 
+    /// <summary>Who the receipt says the money went to, and PayoutAccountStatus of that against the
+    /// authorized payout accounts. Null on cash payments and receipts from before the check existed.</summary>
+    public string? ReceiptTargetAccount { get; set; }
+    public string? TargetAccountStatus { get; set; }
+
+    /// <summary>The receipt went to an account that isn't authorized (or couldn't be read).</summary>
+    public bool IsTargetAccountFlagged => LARGA.SharedCore.Ledger.PayoutAccountStatus.NeedsWarning(TargetAccountStatus);
+
     /// <summary>The line under the type: which day a boundary is for, or for a payment its
     /// method and where it came from ("Cash · Daily Settlements").</summary>
     public string? Subtitle { get; set; }
@@ -155,7 +163,8 @@ public class LedgerTransaction
 
 /// <summary>A GCash receipt attached to an E-Wallet payment: the uploaded image, stored in
 /// Firebase Storage and linked from the boundary_payments document(s) it paid.</summary>
-public record PaymentReceipt(byte[] Image, string ContentType, string? ReferenceNo);
+public record PaymentReceipt(byte[] Image, string ContentType, string? ReferenceNo,
+    string? TargetAccount = null, string? TargetAccountStatus = null);
 
 public class DriverLedgerHistory
 {

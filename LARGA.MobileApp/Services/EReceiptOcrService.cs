@@ -4,18 +4,22 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using LARGA.SharedCore.Ledger;
 
 namespace LARGA.MobileApp.Services;
 
-/// <summary>Fields read from a GCash e-receipt. A null field means OCR didn't find it.</summary>
-public sealed record EReceiptData(decimal? Amount, DateTime? Date, string? ReferenceNumber)
+/// <summary>Fields read from a GCash e-receipt. A null field means OCR didn't find it. <paramref name="Target"/> is the
+/// GCash number / bank account the money was sent to (checked against the authorized payout accounts).</summary>
+public sealed record EReceiptData(decimal? Amount, DateTime? Date, string? ReferenceNumber, TargetAccount? Target = null)
 {
     /// <summary>All three fields are needed before a scan can be used to record an e-wallet payment.</summary>
     public bool IsComplete => Amount is > 0 && Date.HasValue && !string.IsNullOrEmpty(ReferenceNumber);
 }
 
-/// <summary>Sent from the scan page to the payment form once the manager confirms a scan.</summary>
-public sealed record EReceiptScanResult(decimal Amount, DateTime Date, string ReferenceNumber, string PhotoFilePath);
+/// <summary>Sent from the scan page to the payment form once the manager confirms a scan. <paramref name="AccountCheck"/>
+/// is the receipt's recipient checked against system_configs/global.authorizedPayoutAccounts.</summary>
+public sealed record EReceiptScanResult(decimal Amount, DateTime Date, string ReferenceNumber, string PhotoFilePath,
+    PayoutAccountCheck? AccountCheck = null);
 
 /// <summary>
 /// Reads a GCash "Sent via GCash" e-receipt photo. OCR returns text in block order, and right-aligned values
@@ -62,8 +66,12 @@ public sealed class EReceiptOcrService
     }
 
     /// <summary>Pure parsing of OCR lines. Kept static so it can be tested without a camera.</summary>
-    public static EReceiptData Parse(IReadOnlyList<string> lines, DateTime philippineToday) =>
-        new(ParseAmount(lines), ParseDate(lines, philippineToday), ParseReference(lines));
+    public static EReceiptData Parse(IReadOnlyList<string> lines, DateTime philippineToday)
+    {
+        string? reference = ParseReference(lines);
+        return new(ParseAmount(lines), ParseDate(lines, philippineToday), reference,
+            PayoutAccountMatcher.ExtractTarget(lines, reference));
+    }
 
     private static decimal? ParseAmount(IReadOnlyList<string> lines)
     {

@@ -36,6 +36,10 @@ public interface IEmergencyAlertService
     /// </summary>
     Task PrepareForShiftAsync(string shiftId);
 
+    /// <summary>Drops the cached driver details (name, unit, phone), e.g. after the driver changes
+    /// their contact number, so the next SOS carries the new number for caller validation.</summary>
+    void ForgetCachedDriverDetails();
+
     /// <summary>Where the last alert's coordinates came from: "live", "lastShiftFix" or "none".</summary>
     string LastLocationSource { get; }
 
@@ -132,8 +136,12 @@ public class EmergencyAlertService : IEmergencyAlertService
     // The taxi unit is looked up once per shift: an automated alert fires from a background
     // service, where shaving Firestore round trips off the write matters.
     private string? _cachedShiftId;
-    private string? _cachedTaxiUnit;
-    private string? _cachedDriverName;
+    private DriverContext? _cachedContext;
+
+    // Driver and unit details carried on every alert. TaxiId and Phone are what SOS caller
+    // validation (ManagerWeb SosPushService) checks against the unit's active shift and the
+    // driver's registered number.
+    private sealed record DriverContext(string DriverName, string TaxiUnit, string TaxiId, string Phone);
 
     public EmergencyAlertService(IShiftManagementService shiftService, IEmergencyFeedback feedback)
     {
@@ -154,7 +162,7 @@ public class EmergencyAlertService : IEmergencyAlertService
 
         // Started now, alongside the location lookup below, instead of after it. Usually already
         // cached by PrepareForShiftAsync.
-        Task<(string DriverName, string TaxiUnit)> driverAndUnitLookup = GetDriverAndUnitAsync(shiftId, user);
+        Task<DriverContext> driverAndUnitLookup = GetDriverAndUnitAsync(shiftId, user);
 
         // An SOS is never dropped for lack of GPS: live fix, else the shift's last telemetry
         // point, else no location at all (0/0 - ManagerWeb and the Alert Center show
@@ -184,7 +192,10 @@ public class EmergencyAlertService : IEmergencyAlertService
         LastLocationSource = locationSource;
 
         string fallbackName = string.IsNullOrWhiteSpace(user?.DisplayName) ? "Unknown Driver" : user.DisplayName;
-        (string driverName, string taxiUnit) = await WithinAsync(driverAndUnitLookup, DriverAndUnitLookupLimit, (fallbackName, string.Empty));
+        DriverContext context = await WithinAsync(driverAndUnitLookup, DriverAndUnitLookupLimit,
+            new DriverContext(fallbackName, string.Empty, string.Empty, string.Empty));
+        string driverName = context.DriverName;
+        string taxiUnit = context.TaxiUnit;
 
         var alert = new EmergencyAlertProxy
         {
@@ -198,6 +209,9 @@ public class EmergencyAlertService : IEmergencyAlertService
             Timestamp = DateTime.UtcNow,
             TriggerType = triggerType,
             LocationSource = locationSource,
+            TaxiId = context.TaxiId,
+            CallerPhone = context.Phone,
+            DevicePhone = GetDevicePhone() ?? string.Empty,
         };
 
         // The document ID exists before the write, so an alert that can't reach the server yet still
@@ -242,6 +256,16 @@ public class EmergencyAlertService : IEmergencyAlertService
 
         // GetDriverAndUnitAsync caches the result for this shift and never throws.
         await GetDriverAndUnitAsync(shiftId, CrossFirebaseAuth.Current.CurrentUser);
+    }
+
+    /// <summary>The SIM's own number when Android exposes it (best effort, never throws).</summary>
+    private static string? GetDevicePhone()
+    {
+#if ANDROID
+        return Platforms.Android.Emergency.DevicePhoneNumber.TryGet();
+#else
+        return null;
+#endif
     }
 
     /// <summary><paramref name="task"/>'s result if it finishes within <paramref name="limit"/>,
@@ -338,20 +362,26 @@ public class EmergencyAlertService : IEmergencyAlertService
         }
     }
 
-    private async Task<(string DriverName, string TaxiUnit)> GetDriverAndUnitAsync(string shiftId, IFirebaseUser? user)
+    private async Task<DriverContext> GetDriverAndUnitAsync(string shiftId, IFirebaseUser? user)
     {
-        if (_cachedShiftId == shiftId && _cachedTaxiUnit != null && _cachedDriverName != null)
+        if (_cachedShiftId == shiftId && _cachedContext != null)
         {
-            return (_cachedDriverName, _cachedTaxiUnit);
+            return _cachedContext;
         }
 
         string driverName = string.IsNullOrWhiteSpace(user?.DisplayName) ? string.Empty : user.DisplayName;
         string taxiUnit = string.Empty;
+        string resolvedTaxiId = string.Empty;
+        string phone = string.Empty;
 
         if (user != null)
         {
             try
             {
+                // The shift's own unit (what clock-in recorded) is read alongside the profile: it's
+                // what SOS caller validation compares against, and unlike "today's" schedule it
+                // stays right on a shift that runs past midnight or after a substitute change.
+                Task<string?> shiftTaxiLookup = TryGetShiftTaxiIdAsync(shiftId);
                 var profile = await CrossFirebaseFirestore.Current
                     .GetCollection("users")
                     .GetDocument(user.Uid)
@@ -361,12 +391,20 @@ public class EmergencyAlertService : IEmergencyAlertService
                 {
                     driverName = profile?.Data?.FullName ?? string.Empty;
                 }
+                // Stored as text, or as a number on some older profiles (hence object).
+                phone = InputValidator.NormalizePhilippineMobile(
+                    Convert.ToString(profile?.Data?.PhoneNumber, System.Globalization.CultureInfo.InvariantCulture)) ?? string.Empty;
 
-                // Same lookup as the Active Shift screen: the unit actually being driven today
-                // (a substitute, if one was assigned).
-                string? taxiId = await _shiftService.GetTodaysTaxiIdAsync(profile?.Data?.AssignedTaxiId);
+                // Else the same lookup as the Active Shift screen: the unit being driven today (a
+                // substitute, if one was assigned).
+                string? taxiId = await shiftTaxiLookup;
+                if (string.IsNullOrWhiteSpace(taxiId))
+                {
+                    taxiId = await _shiftService.GetTodaysTaxiIdAsync(profile?.Data?.AssignedTaxiId);
+                }
                 if (!string.IsNullOrWhiteSpace(taxiId))
                 {
+                    resolvedTaxiId = taxiId;
                     var taxi = await _shiftService.GetTaxiUnitAsync(taxiId);
                     if (taxi != null)
                     {
@@ -385,14 +423,44 @@ public class EmergencyAlertService : IEmergencyAlertService
 
         if (string.IsNullOrWhiteSpace(driverName)) driverName = "Unknown Driver";
 
+        var context = new DriverContext(driverName, taxiUnit, resolvedTaxiId, phone);
         if (!string.IsNullOrWhiteSpace(taxiUnit))
         {
             _cachedShiftId = shiftId;
-            _cachedTaxiUnit = taxiUnit;
-            _cachedDriverName = driverName;
+            _cachedContext = context;
         }
 
-        return (driverName, taxiUnit);
+        return context;
+    }
+
+    /// <summary>shifts/{shiftId}.taxiId, or null when it has none or can't be read.</summary>
+    private static async Task<string?> TryGetShiftTaxiIdAsync(string shiftId)
+    {
+        try
+        {
+            var snapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .GetDocument(shiftId)
+                .GetDocumentSnapshotAsync<ShiftUnitProxy>();
+            return string.IsNullOrWhiteSpace(snapshot?.Data?.TaxiId) ? null : snapshot.Data.TaxiId;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Emergency shift unit lookup failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    public void ForgetCachedDriverDetails()
+    {
+        _cachedShiftId = null;
+        _cachedContext = null;
+    }
+
+    private class ShiftUnitProxy
+    {
+        [FirestoreProperty("taxiId")]
+        public string TaxiId { get; set; } = string.Empty;
     }
 
     private class EmergencyAlertProxy
@@ -426,6 +494,15 @@ public class EmergencyAlertService : IEmergencyAlertService
 
         [FirestoreProperty("locationSource")]
         public string LocationSource { get; set; } = string.Empty;
+
+        [FirestoreProperty("taxiId")]
+        public string TaxiId { get; set; } = string.Empty;
+
+        [FirestoreProperty("callerPhone")]
+        public string CallerPhone { get; set; } = string.Empty;
+
+        [FirestoreProperty("devicePhone")]
+        public string DevicePhone { get; set; } = string.Empty;
     }
 
     private class ShiftPositionProxy
@@ -444,6 +521,9 @@ public class EmergencyAlertService : IEmergencyAlertService
 
         [FirestoreProperty("assignedTaxiId")]
         public string AssignedTaxiId { get; set; } = string.Empty;
+
+        [FirestoreProperty("phoneNumber")]
+        public object? PhoneNumber { get; set; }
     }
 
     private class ManagerPhonesProxy

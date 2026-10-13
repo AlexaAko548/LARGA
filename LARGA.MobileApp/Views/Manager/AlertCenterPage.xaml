@@ -14,13 +14,52 @@
         <ResourceDictionary>
 
             <!-- SOS TEMPLATE -->
+            <!-- The emergency type (emergency_alerts.triggerType, also in the SOS push payload) drives
+                 the colour of the accent stripe and the badge: Standard Breakdown amber, Hostile
+                 Protocol red, Crash Protocol magenta. -->
             <DataTemplate x:Key="SosTemplate" x:DataType="vm:AlertItem">
-                <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
+                <Border BackgroundColor="{DynamicResource LargaWarning}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="5,0,0,0" Margin="0,0,0,12">
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsHostileSos}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{DynamicResource LargaDanger}" />
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsCrashSos}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{DynamicResource SosCrash}" />
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsCallerRejected}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{DynamicResource ThemeTextTertiary}" />
+                        </DataTrigger>
+                    </Border.Triggers>
+                <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 0,12,0,12" StrokeThickness="0" Padding="16">
                     <VerticalStackLayout Spacing="8">
                         <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
-                            <Label Grid.Column="1" Text="EMERGENCY SOS ALERT" FontAttributes="Bold" FontSize="13"
-                                   TextColor="#D32F2F" Margin="8,0,0,0" VerticalOptions="Center" />
+                            <Border Grid.Column="0" StrokeThickness="0" StrokeShape="RoundRectangle 14" Padding="10,4"
+                                    BackgroundColor="{DynamicResource LargaWarningBg}" HorizontalOptions="Start" VerticalOptions="Center">
+                                <Border.Triggers>
+                                    <DataTrigger TargetType="Border" Binding="{Binding IsHostileSos}" Value="True">
+                                        <Setter Property="BackgroundColor" Value="{DynamicResource LargaDangerBg}" />
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Border" Binding="{Binding IsCrashSos}" Value="True">
+                                        <Setter Property="BackgroundColor" Value="{DynamicResource SosCrashBg}" />
+                                    </DataTrigger>
+                                </Border.Triggers>
+                                <HorizontalStackLayout Spacing="6">
+                                    <Image controls:ThemedIcon.IsEnabled="True" Source="warning_icon.png" WidthRequest="14" HeightRequest="14" VerticalOptions="Center" />
+                                    <Label Text="{Binding EmergencyLabel}" FontAttributes="Bold" FontSize="12" CharacterSpacing="0.5"
+                                           TextColor="{DynamicResource LargaWarning}" VerticalOptions="Center">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding IsHostileSos}" Value="True">
+                                                <Setter Property="TextColor" Value="{DynamicResource LargaDanger}" />
+                                            </DataTrigger>
+                                            <DataTrigger TargetType="Label" Binding="{Binding IsCrashSos}" Value="True">
+                                                <Setter Property="TextColor" Value="{DynamicResource SosCrash}" />
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
+                                </HorizontalStackLayout>
+                            </Border>
+                            <Label Grid.Column="1" Text="SOS" FontAttributes="Bold" FontSize="13"
+                                   TextColor="{DynamicResource ThemeTextTertiary}" Margin="8,0,0,0" VerticalOptions="Center" />
                             <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
                                 <Grid.GestureRecognizers>
                                     <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
@@ -29,6 +68,8 @@
                                 <Image controls:ThemedIcon.IsEnabled="True" Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                             </Grid>
                         </Grid>
+                        <Label Text="{Binding CallerFlagText}" IsVisible="{Binding IsCallerFlagged}" FontSize="12" FontAttributes="Bold"
+                               TextColor="{DynamicResource ThemeTextTertiary}" />
                         <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
                         <Label Text="{Binding Subtitle}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />
                         <Label Text="{Binding Timestamp}" FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" />
@@ -57,6 +98,7 @@
                             </Border>
                         </Grid>
                     </VerticalStackLayout>
+                </Border>
                 </Border>
             </DataTemplate>
 
@@ -209,7 +251,7 @@
             <Label Text="Alert Center" FontSize="28" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}" />
             <Label Text="{Binding Alerts.Count, StringFormat='{0} active notifications'}" FontSize="14" TextColor="{DynamicResource ThemeTextGray}" Margin="0,0,0,8" />
 
-            <CollectionView ItemsSource="{Binding AlertGroups}" IsGrouped="True" ItemTemplate="{StaticResource AlertSelector}">
+            <CollectionView x:Name="AlertsList" ItemsSource="{Binding AlertGroups}" IsGrouped="True" ItemTemplate="{StaticResource AlertSelector}">
                 <CollectionView.GroupHeaderTemplate>
                     <DataTemplate x:DataType="vm:AlertGroup">
                         <Label Text="{Binding Title}" FontAttributes="Bold" FontSize="14" TextColor="{DynamicResource ThemeTextSecondary}" Margin="0,8,0,4" />
