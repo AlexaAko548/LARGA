@@ -64,13 +64,15 @@ public class RecordPaymentViewModel : BindableObject
     public event EventHandler? Saved;
 
     public ObservableCollection<string> DriverOptions { get; } = new();
-    public IReadOnlyList<string> CategoryOptions { get; } = new[] { "Debt" };
+    public IReadOnlyList<string> CategoryOptions { get; } = QuickLedgerCalculator.OtherPaymentCategories;
 
     public ICommand CloseCommand { get; }
     public ICommand CashCommand { get; }
     public ICommand EWalletCommand { get; }
     public ICommand ScanCommand { get; }
     public ICommand ConfirmCommand { get; }
+    public ICommand PickDriverCommand { get; }
+    public ICommand PickCategoryCommand { get; }
 
     public RecordPaymentViewModel(QuickLedgerService service)
     {
@@ -81,6 +83,8 @@ public class RecordPaymentViewModel : BindableObject
         EWalletCommand = new Command(() => IsEWallet = true);
         ScanCommand = new Command(async () => await OpenScannerAsync());
         ConfirmCommand = new Command(async () => await ConfirmAsync());
+        PickDriverCommand = new Command(async () => await PickAsync("Select Driver", DriverOptions, SelectedDriverIndex, i => SelectedDriverIndex = i));
+        PickCategoryCommand = new Command(async () => await PickAsync("Category", CategoryOptions, SelectedCategoryIndex, i => SelectedCategoryIndex = i));
 
         WeakReferenceMessenger.Default.Register<RecordPaymentViewModel, EReceiptScanResult>(this, static (r, scan) => r.ApplyScan(scan));
     }
@@ -154,11 +158,31 @@ public class RecordPaymentViewModel : BindableObject
         set
         {
             Set(ref _selectedDriverIndex, value);
+            OnPropertyChanged(nameof(SelectedDriverText));
             if (IsOtherMode) RefreshOtherSelection();
         }
     }
 
-    public int SelectedCategoryIndex { get => _selectedCategoryIndex; set => Set(ref _selectedCategoryIndex, value); }
+    public int SelectedCategoryIndex
+    {
+        get => _selectedCategoryIndex;
+        set
+        {
+            Set(ref _selectedCategoryIndex, value);
+            OnPropertyChanged(nameof(SelectedCategoryText));
+        }
+    }
+
+    // What the dropdown fields show: the current choice, or the prompt when there's nothing to pick.
+    public string SelectedDriverText =>
+        SelectedDriverIndex >= 0 && SelectedDriverIndex < DriverOptions.Count ? DriverOptions[SelectedDriverIndex] : "Select Driver";
+    public string SelectedCategoryText => SelectedCategory;
+
+    // Debt when nothing valid is picked, so an Other Payment always carries a category.
+    private string SelectedCategory =>
+        SelectedCategoryIndex >= 0 && SelectedCategoryIndex < CategoryOptions.Count
+            ? CategoryOptions[SelectedCategoryIndex]
+            : QuickLedgerCalculator.DebtCategory;
 
     public Color CashBackground => IsEWallet ? LightBlue : PrimaryBlue;
     public Color CashTextColor => IsEWallet ? DarkText : White;
@@ -199,6 +223,8 @@ public class RecordPaymentViewModel : BindableObject
         int index = driverId is null ? -1 : IndexOfDriver(driverId);
         _selectedDriverIndex = index >= 0 ? index : 0;
         OnPropertyChanged(nameof(SelectedDriverIndex));
+        OnPropertyChanged(nameof(SelectedDriverText));
+        SelectedCategoryIndex = 0;
 
         ResetForm();
         RefreshOtherSelection();
@@ -300,6 +326,14 @@ public class RecordPaymentViewModel : BindableObject
         ErrorText = string.Empty;
     }
 
+    private static async Task PickAsync(string title, IReadOnlyList<string> options, int selectedIndex, Action<int> select)
+    {
+        if (options.Count == 0 || Shell.Current is null) return;
+
+        int? picked = await OptionPickerPopup.ShowAsync(Shell.Current, title, options, selectedIndex);
+        if (picked is int index) select(index);
+    }
+
     private async Task OpenScannerAsync()
     {
         var page = Application.Current!.Handler.MauiContext!.Services.GetRequiredService<ScanEReceiptPage>();
@@ -361,7 +395,8 @@ public class RecordPaymentViewModel : BindableObject
 
         bool confirmed = await ConfirmationPopup.ShowAsync(Shell.Current,
             "Confirm This Payment?",
-            $"Recording {Money(amount)} ({(IsEWallet ? "E-Wallet / GCash" : "Cash")}) for {DriverName}.",
+            $"Recording {Money(amount)} ({(IsEWallet ? "E-Wallet / GCash" : "Cash")}) " +
+            $"{(IsOtherMode ? SelectedCategory.ToLowerInvariant() + " payment " : string.Empty)}for {DriverName}.",
             confirmText: "Confirm Payment", isDangerous: false);
         if (!confirmed) return;
 
@@ -391,7 +426,8 @@ public class RecordPaymentViewModel : BindableObject
                     return;
                 }
 
-                PaymentEvidence evidence = await BuildEvidenceAsync(note.Length > 0 ? note : null, nowUtc, debtor.DriverId);
+                PaymentEvidence evidence = await BuildEvidenceAsync(note.Length > 0 ? note : null, nowUtc, debtor.DriverId)
+                    with { Category = SelectedCategory };
                 PaymentPlan plan = PlanFor(amount, method, evidence, nowUtc)!;
 
                 await _service.SavePaymentPlanAsync(plan, debtor.DriverId, nowUtc, _snapshot.LedgerVersionFor(debtor.DriverId));
@@ -474,7 +510,8 @@ public class RecordPaymentViewModel : BindableObject
             : string.Empty;
         string advance = plan.Advance > 0 ? $", and {Money(plan.Advance)} kept as advance credit" : string.Empty;
 
-        return $"Recorded {Money(amount)} {method} debt payment from {driverName} (transaction {plan.TransactionId}), " +
+        string category = (evidence?.Category ??QuickLedgerCalculator.DebtCategory).ToLowerInvariant();
+        return $"Recorded {Money(amount)} {method} {category} payment from {driverName} (transaction {plan.TransactionId}), " +
                $"applied to {plan.PaymentUpdates.Count} shift(s){credit}{advance}." + EvidenceSuffix(evidence);
     }
 

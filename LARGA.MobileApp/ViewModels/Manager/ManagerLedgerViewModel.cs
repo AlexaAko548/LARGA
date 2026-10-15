@@ -17,6 +17,7 @@ public class ManagerLedgerViewModel : BindableObject
     private QuickLedgerSnapshot? _snapshot;
     private bool _isLoading;
     private bool _reloadRequested;
+    private bool _isRefreshing;
     private string? _auditWarning;
     private string _warningText = string.Empty;
     private bool _hasError;
@@ -30,6 +31,7 @@ public class ManagerLedgerViewModel : BindableObject
     public RecordPaymentViewModel RecordPayment { get; }
 
     public ICommand LoadCommand { get; }
+    public ICommand RefreshCommand { get; }
     public ICommand OpenOtherPaymentCommand { get; }
     public ICommand OpenPendingCommand { get; }
 
@@ -44,6 +46,7 @@ public class ManagerLedgerViewModel : BindableObject
         };
 
         LoadCommand = new Command(async () => await LoadAsync());
+        RefreshCommand = new Command(async () => await RefreshAsync());
         OpenOtherPaymentCommand = new Command(() => OpenOther(null));
         OpenPendingCommand = new Command<PendingBoundaryItem>(item => OpenPending(item));
     }
@@ -80,6 +83,14 @@ public class ManagerLedgerViewModel : BindableObject
     // The warning label takes no space when there is nothing to warn about.
     public bool HasWarning => !string.IsNullOrEmpty(_warningText);
 
+    // Drives RefreshView's own spinner on a pull-down. Separate from LoadingState's app-wide overlay, which still
+    // covers OnAppearing and other loads that don't come from a pull.
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        private set { _isRefreshing = value; OnPropertyChanged(); }
+    }
+
     public string DateText
     {
         get => _dateText;
@@ -114,6 +125,21 @@ public class ManagerLedgerViewModel : BindableObject
         finally
         {
             _isLoading = false;
+        }
+    }
+
+    // Pull-to-refresh: same reload, but tracked separately so RefreshView can turn its spinner off once this
+    // particular pull's reload is done, even if LoadAsync's dedupe (_reloadRequested) runs it again right after.
+    private async Task RefreshAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            IsRefreshing = false;
         }
     }
 

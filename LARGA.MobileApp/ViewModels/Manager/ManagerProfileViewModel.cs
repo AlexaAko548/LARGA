@@ -44,10 +44,19 @@ public class ManagerProfileViewModel : BindableObject
     public ICommand ChangePasswordCommand { get; }
     public ICommand UpdateContactNumberCommand { get; }
     public ICommand LogoutCommand { get; }
+    public ICommand RefreshCommand { get; }
+
+    private bool _isRefreshing;
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        private set { _isRefreshing = value; OnPropertyChanged(); }
+    }
 
     public ManagerProfileViewModel()
     {
         LoadProfileCommand = new Command(async () => await LoadProfileAsync());
+        RefreshCommand = new Command(async () => await RefreshAsync());
         ViewDriverManagementCommand = new Command(async () => await Shell.Current.GoToAsync("driver-management"));
         ViewFleetRegistryCommand = new Command(async () => await Shell.Current.GoToAsync("fleet-registry"));
         ChangePasswordCommand = new Command(async () => await Shell.Current.GoToAsync("change-password"));
@@ -57,6 +66,19 @@ public class ManagerProfileViewModel : BindableObject
             await CrossFirebaseAuth.Current.SignOutAsync();
             await Shell.Current.GoToAsync("//landing");
         });
+    }
+
+    private async Task RefreshAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            await LoadProfileAsync();
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
     }
 
     private async Task LoadProfileAsync()

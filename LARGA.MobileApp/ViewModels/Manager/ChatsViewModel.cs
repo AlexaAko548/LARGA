@@ -39,11 +39,25 @@ public class ChatsViewModel : INotifyPropertyChanged
     }
 
     public ICommand OpenChatCommand { get; }
+    public ICommand RefreshCommand { get; }
+
+    private bool _isRefreshing;
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        private set
+        {
+            if (_isRefreshing == value) return;
+            _isRefreshing = value;
+            OnPropertyChanged();
+        }
+    }
 
     public ChatsViewModel(IChatService chatService)
     {
         _chatService = chatService;
         OpenChatCommand = new Command<ChatSession>(OnOpenChat);
+        RefreshCommand = new Command(async () => await RefreshAsync());
         LoadChatSessions();
     }
 
@@ -53,6 +67,21 @@ public class ChatsViewModel : INotifyPropertyChanged
         using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         _drivers = await _chatService.GetDriversAsync();
         MainThread.BeginInvokeOnMainThread(Rebuild);
+    }
+
+    // Chat previews themselves stay live via ListenForChatSessions; a pull only re-reads the driver roster
+    // (new/removed drivers), same as LoadDriversAsync on appearing.
+    private async Task RefreshAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            await LoadDriversAsync();
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
     }
 
     private void LoadChatSessions()

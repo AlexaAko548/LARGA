@@ -490,9 +490,9 @@ public class FinancialLedgerService
         // What each shift owes, on the day it was driven.
         foreach (ShiftCharge c in charges.Where(c => c.Expected != 0))
         {
-            var parts = new List<string> { $"Boundary ₱{c.Expected - c.Extras.Total:N0}" };
-            if (c.Extras.LateFee > 0) parts.Add($"late fee ₱{c.Extras.LateFee:N0}");
-            if (c.Extras.FuelPenalty > 0) parts.Add($"low-fuel penalty ₱{c.Extras.FuelPenalty:N0}");
+            var parts = new List<string> { $"Boundary ₱{c.Expected - c.Extras.Total:N2}" };
+            if (c.Extras.LateFee > 0) parts.Add($"late fee ₱{c.Extras.LateFee:N2}");
+            if (c.Extras.FuelPenalty > 0) parts.Add($"low-fuel penalty ₱{c.Extras.FuelPenalty:N2}");
 
             transactions.Add(new LedgerTransaction
             {
@@ -553,8 +553,8 @@ public class FinancialLedgerService
                 .OrderBy(p => p.Charge.Date)
                 .SelectMany(p => new[]
                 {
-                    p.ToShift > 0 ? $"₱{p.ToShift:N0} → {DayLabel(p.Charge.Date)} boundary{UnitSuffix(p.Charge)}" : null,
-                    p.ToCredit > 0 ? $"₱{p.ToCredit:N0} → advance credit (covers their next boundary)" : null,
+                    p.ToShift > 0 ? $"₱{p.ToShift:N2} → {DayLabel(p.Charge.Date)} boundary{UnitSuffix(p.Charge)}" : null,
+                    p.ToCredit > 0 ? $"₱{p.ToCredit:N2} → advance credit (covers their next boundary)" : null,
                 })
                 .OfType<string>()
                 .ToList();
@@ -563,7 +563,7 @@ public class FinancialLedgerService
             if (creditsByTxn.Remove(handover.Key, out List<DebtAdjustment>? credits))
             {
                 toAdjustments = -credits.Sum(a => a.Amount);
-                details.Add($"₱{toAdjustments:N0} → penalties / manual adjustments");
+                details.Add($"₱{toAdjustments:N2} → penalties / manual adjustments");
             }
 
             decimal amount = handover.Sum(p => p.Doc.AmountPaid) + toAdjustments;
@@ -571,6 +571,10 @@ public class FinancialLedgerService
             string where = isLegacy ? "recorded before itemized history"
                 : !string.IsNullOrEmpty(first.RecordedVia) ? $"recorded in {first.RecordedVia}"
                 : string.IsNullOrEmpty(first.TransactionId) ? "recorded in the manager app" : "recorded in the manager app's Quick Ledger";
+            if (!string.IsNullOrWhiteSpace(first.PaymentCategory))
+            {
+                details.Add($"Category: {first.PaymentCategory}");
+            }
             if (!string.IsNullOrWhiteSpace(first.Notes))
             {
                 details.Add($"Note: {first.Notes}");
@@ -1010,7 +1014,7 @@ public class FinancialLedgerService
                         TaxiId = oldest.Shift?.TaxiId ?? string.Empty,
                         UnitLabel = oldest.Shift?.TaxiId ?? string.Empty,
                         ShiftId = oldest.Shift?.DocumentId ?? string.Empty,
-                        Message = $"{driver.FullName} hasn't settled their balance for {daysUnpaid} days (since {oldest.Date.ToPhilippineTime():MMM d}) - ₱{owed:N0} unpaid boundary. Their account is flagged for review.",
+                        Message = $"{driver.FullName} hasn't settled their balance for {daysUnpaid} days (since {oldest.Date.ToPhilippineTime():MMM d}) - ₱{owed:N2} unpaid boundary. Their account is flagged for review.",
                         Timestamp = now,
                         IsRead = false,
                     });

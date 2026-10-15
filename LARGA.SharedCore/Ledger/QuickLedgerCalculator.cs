@@ -24,6 +24,12 @@ public static class QuickLedgerCalculator
     public const string CashMethod = "Cash";
     public const string EWalletMethod = "E-Wallet";
 
+    // What an Other Payment is for, picked by the manager. A label for the records only: it doesn't change how the
+    // money is split (Allocate).
+    public const string DebtCategory = "Debt";
+    public const string PenaltyCategory = "Penalty";
+    public static readonly IReadOnlyList<string> OtherPaymentCategories = new[] { DebtCategory, PenaltyCategory };
+
     private const string PaidStatus = "Paid";
     private const string PartialStatus = "Partial";
 
@@ -617,7 +623,9 @@ public sealed record PaymentEvidence(
     // Who the receipt says the money went to, and how that compared with the authorized payout
     // accounts (PayoutAccountStatus). Kept so a misrouted payment stays flagged in the ledger.
     string? TargetAccount = null,
-    string? TargetAccountStatus = null);
+    string? TargetAccountStatus = null,
+    // Other Payment only: what the payment is for (QuickLedgerCalculator.OtherPaymentCategories).
+    string? Category = null);
 
 /// <summary>
 /// Where one payment goes, mirroring the web's PaymentBooking: <paramref name="ToFirst"/> to the shift being paid,

@@ -109,13 +109,6 @@ public static class MauiProgram
                 handler.PlatformView.Background = null;
             }
         });
-        Microsoft.Maui.Handlers.PickerHandler.Mapper.AppendToMapping("LedgerPickerNoUnderline", (handler, view) =>
-        {
-            if (view is LARGA.MobileApp.Controls.LedgerPicker)
-            {
-                handler.PlatformView.Background = null;
-            }
-        });
 #endif
 
         // Register ViewModels 

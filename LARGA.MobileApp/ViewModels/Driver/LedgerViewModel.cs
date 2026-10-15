@@ -37,11 +37,33 @@ public class LedgerViewModel : INotifyPropertyChanged
 
     public ICommand ViewDebtDetailsCommand { get; }
     public ICommand ViewAllHistoryCommand { get; }
+    public ICommand RefreshCommand { get; }
 
     public LedgerViewModel()
     {
         ViewDebtDetailsCommand = new Command(async () => await Shell.Current.GoToAsync("debt-details"));
         ViewAllHistoryCommand = new Command(async () => await Shell.Current.GoToAsync("payment-history"));
+        RefreshCommand = new Command(async () => await RefreshAsync());
+    }
+
+    private bool _isRefreshing;
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        private set { _isRefreshing = value; OnPropertyChanged(); }
+    }
+
+    private async Task RefreshAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            await LoadDynamicLedgerDataAsync();
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
     }
 
     private bool _isLoading;

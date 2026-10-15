@@ -102,19 +102,19 @@ else
                 <div class="settlement-figures">
                     <div class="settlement-figure">
                         <div class="settlement-figure-label">EXPECTED COLLECTION</div>
-                        <div class="settlement-figure-value">₱ @_snapshot.ExpectedCollection.ToString("N0")</div>
+                        <div class="settlement-figure-value">₱ @_snapshot.ExpectedCollection.ToString("N2")</div>
                     </div>
                     <div class="settlement-figure">
                         <div class="settlement-figure-label">COLLECTED SO FAR</div>
-                        <div class="settlement-figure-value">₱ @_snapshot.CollectedSoFar.ToString("N0")</div>
+                        <div class="settlement-figure-value">₱ @_snapshot.CollectedSoFar.ToString("N2")</div>
                         @if (_snapshot.CreditApplied > 0)
                         {
-                            <div class="settlement-credit-note">+ ₱ @_snapshot.CreditApplied.ToString("N0") covered by credit</div>
+                            <div class="settlement-credit-note">+ ₱ @_snapshot.CreditApplied.ToString("N2") covered by credit</div>
                         }
                     </div>
                     <div class="settlement-figure">
                         <div class="settlement-figure-label">STILL OUTSTANDING</div>
-                        <div class="settlement-figure-value">₱ @_snapshot.StillOutstanding.ToString("N0")</div>
+                        <div class="settlement-figure-value">₱ @_snapshot.StillOutstanding.ToString("N2")</div>
                     </div>
                 </div>
 
@@ -152,18 +152,18 @@ else
                                     <td class="driver-cell"><div class="table-avatar">@Initials(row.DriverName)</div><span>@row.DriverName</span></td>
                                     <td>@row.TaxiId</td>
                                     <td>@(row.ShiftEnd.HasValue ? row.ShiftEnd.Value.ToPhilippineTime().ToString("h:mm tt") : "On road")</td>
-                                    <td>₱ @row.ExpectedTotal.ToString("N0")</td>
+                                    <td>₱ @row.ExpectedTotal.ToString("N2")</td>
                                     <td>
                                         @if (row.AmountPaid > 0 || row.CreditApplied > 0)
                                         {
-                                            <span>@(row.AmountPaid > 0 ? $"₱ {row.AmountPaid:N0}" : "–")</span>
+                                            <span>@(row.AmountPaid > 0 ? $"₱ {row.AmountPaid:N2}" : "–")</span>
                                             @if (row.Status == SettlementStatus.Cleared)
                                             {
                                                 <span class="settlement-check"><Icon Name="check" /></span>
                                             }
                                             @if (row.CreditApplied > 0)
                                             {
-                                                <div class="settlement-credit-note" title="Covered by money the driver paid above another shift's boundary">+ ₱ @row.CreditApplied.ToString("N0") credit</div>
+                                                <div class="settlement-credit-note" title="Covered by money the driver paid above another shift's boundary">+ ₱ @row.CreditApplied.ToString("N2") credit</div>
                                             }
                                         }
                                         else
@@ -178,7 +178,7 @@ else
                                         }
                                         else
                                         {
-                                            <span>₱ @row.Balance.ToString("N0")</span>
+                                            <span>₱ @row.Balance.ToString("N2")</span>
                                         }
                                     </td>
                                     <td>
@@ -196,9 +196,9 @@ else
                         <tfoot>
                             <tr class="totals-row">
                                 <td colspan="4">TOTAL</td>
-                                <td>₱ @_snapshot.ExpectedCollection.ToString("N0")</td>
-                                <td>₱ @_snapshot.CollectedSoFar.ToString("N0")</td>
-                                <td>₱ @_snapshot.StillOutstanding.ToString("N0")</td>
+                                <td>₱ @_snapshot.ExpectedCollection.ToString("N2")</td>
+                                <td>₱ @_snapshot.CollectedSoFar.ToString("N2")</td>
+                                <td>₱ @_snapshot.StillOutstanding.ToString("N2")</td>
                                 <td></td>
                             </tr>
                         </tfoot>
@@ -226,7 +226,7 @@ else
                     <article class="stat-card">
                         <div class="stat-icon"><Icon Name="wallet" /></div>
                         <div class="stat-body">
-                            <div class="stat-value">₱ @_ledgerSnapshot.TotalOutstandingDebt.ToString("N0")</div>
+                            <div class="stat-value">₱ @_ledgerSnapshot.TotalOutstandingDebt.ToString("N2")</div>
                             <div class="stat-label">Total Outstanding Debt</div>
                         </div>
                     </article>
@@ -283,12 +283,12 @@ else
                                             }
                                         </td>
                                         <td>@(row.LastPaymentDate.HasValue ? row.LastPaymentDate.Value.ToPhilippineTime().ToString("MMM d") : "–")</td>
-                                        <td>@(row.LastPaymentAmount.HasValue ? $"₱ {row.LastPaymentAmount.Value:N0}" : "–")</td>
+                                        <td>@(row.LastPaymentAmount.HasValue ? $"₱ {row.LastPaymentAmount.Value:N2}" : "–")</td>
                                         <td>
-                                            ₱ @row.TotalDebt.ToString("N0")
+                                            ₱ @row.TotalDebt.ToString("N2")
                                             @if (row.AdvanceCredit > 0)
                                             {
-                                                <div class="settlement-credit-note">₱ @row.AdvanceCredit.ToString("N0") advance credit</div>
+                                                <div class="settlement-credit-note">₱ @row.AdvanceCredit.ToString("N2") advance credit</div>
                                             }
                                         </td>
                                         <td class="ledger-actions">
@@ -307,7 +307,7 @@ else
                             <tfoot>
                                 <tr class="totals-row">
                                     <td colspan="5">TOTAL</td>
-                                    <td>₱ @_ledgerSnapshot.TotalOutstandingDebt.ToString("N0")</td>
+                                    <td>₱ @_ledgerSnapshot.TotalOutstandingDebt.ToString("N2")</td>
                                     <td></td>
                                 </tr>
                             </tfoot>
@@ -335,23 +335,23 @@ else
                 <div class="settlement-modal-figures">
                     @if (_paymentRow.LateFee > 0 || _paymentRow.FuelPenalty > 0)
                     {
-                        <div class="settlement-modal-figure-row"><span>Boundary</span><span>₱ @((_paymentRow.ExpectedTotal - _paymentRow.LateFee - _paymentRow.FuelPenalty).ToString("N0"))</span></div>
+                        <div class="settlement-modal-figure-row"><span>Boundary</span><span>₱ @((_paymentRow.ExpectedTotal - _paymentRow.LateFee - _paymentRow.FuelPenalty).ToString("N2"))</span></div>
                         @if (_paymentRow.LateFee > 0)
                         {
-                            <div class="settlement-modal-figure-row"><span>+ Late return fee</span><span>₱ @_paymentRow.LateFee.ToString("N0")</span></div>
+                            <div class="settlement-modal-figure-row"><span>+ Late return fee</span><span>₱ @_paymentRow.LateFee.ToString("N2")</span></div>
                         }
                         @if (_paymentRow.FuelPenalty > 0)
                         {
-                            <div class="settlement-modal-figure-row"><span>+ Low fuel penalty (below ½ tank)</span><span>₱ @_paymentRow.FuelPenalty.ToString("N0")</span></div>
+                            <div class="settlement-modal-figure-row"><span>+ Low fuel penalty (below ½ tank)</span><span>₱ @_paymentRow.FuelPenalty.ToString("N2")</span></div>
                         }
                     }
-                    <div class="settlement-modal-figure-row"><span>Total Due</span><strong>₱ @_paymentRow.ExpectedTotal.ToString("N0")</strong></div>
-                    <div class="settlement-modal-figure-row"><span>Already Paid</span><strong>₱ @_paymentRow.AmountPaid.ToString("N0")</strong></div>
+                    <div class="settlement-modal-figure-row"><span>Total Due</span><strong>₱ @_paymentRow.ExpectedTotal.ToString("N2")</strong></div>
+                    <div class="settlement-modal-figure-row"><span>Already Paid</span><strong>₱ @_paymentRow.AmountPaid.ToString("N2")</strong></div>
                     @if (_paymentRow.CreditApplied > 0)
                     {
-                        <div class="settlement-modal-figure-row"><span>Covered by credit</span><strong>₱ @_paymentRow.CreditApplied.ToString("N0")</strong></div>
+                        <div class="settlement-modal-figure-row"><span>Covered by credit</span><strong>₱ @_paymentRow.CreditApplied.ToString("N2")</strong></div>
                     }
-                    <div class="settlement-modal-figure-row"><span>Remaining</span><strong>₱ @PaymentRemaining.ToString("N0")</strong></div>
+                    <div class="settlement-modal-figure-row"><span>Remaining</span><strong>₱ @PaymentRemaining.ToString("N2")</strong></div>
                 </div>
 
                 <div class="report-section">
@@ -371,7 +371,7 @@ else
                     <span class="status-pill small @StatusCss(PreviewStatus)">@PreviewStatus.ToString().ToUpperInvariant()</span>
                     @if (PreviewStatus == SettlementStatus.Partial)
                     {
-                        <span class="settlement-remaining-note">₱ @PreviewShortfall.ToString("N0") → Master Ledger</span>
+                        <span class="settlement-remaining-note">₱ @PreviewShortfall.ToString("N2") → Master Ledger</span>
                     }
                 </div>
 
@@ -380,11 +380,11 @@ else
                     <div class="settlement-allocation">
                         @if (Math.Min(PaymentExtra, otherDebt) > 0)
                         {
-                            <div>₱ @Math.Min(PaymentExtra, otherDebt).ToString("N0") → @_paymentRow.DriverName's older unpaid debt</div>
+                            <div>₱ @Math.Min(PaymentExtra, otherDebt).ToString("N2") → @_paymentRow.DriverName's older unpaid debt</div>
                         }
                         @if (PaymentAdvance > 0)
                         {
-                            <div>₱ @PaymentAdvance.ToString("N0") → advance credit (covers their next boundary)</div>
+                            <div>₱ @PaymentAdvance.ToString("N2") → advance credit (covers their next boundary)</div>
                         }
                     </div>
                 }
@@ -480,7 +480,7 @@ else
                 <div class="settlement-modal-subject">@_settleRow.DriverName · @(_settleRow.TaxiId ?? "No unit assigned")</div>
 
                 <div class="settlement-modal-figures">
-                    <div class="settlement-modal-figure-row"><span>Current Debt Balance</span><strong>₱ @_settleRow.TotalDebt.ToString("N0")</strong></div>
+                    <div class="settlement-modal-figure-row"><span>Current Debt Balance</span><strong>₱ @_settleRow.TotalDebt.ToString("N2")</strong></div>
                 </div>
 
                 <div class="report-section">
@@ -497,7 +497,7 @@ else
 
 
                 <div class="settlement-modal-figures">
-                    <div class="settlement-modal-figure-row"><span>New Remaining Balance</span><strong>₱ @SettlePreviewRemaining.ToString("N0")</strong></div>
+                    <div class="settlement-modal-figure-row"><span>New Remaining Balance</span><strong>₱ @SettlePreviewRemaining.ToString("N2")</strong></div>
                 </div>
 
                 <div class="settlement-status-preview">
@@ -505,7 +505,7 @@ else
                     <span class="status-pill small @(SettlePreviewRemaining <= 0 ? "status-success" : "status-warning")">@(SettlePreviewRemaining <= 0 ? "CLEARED" : "OUTSTANDING")</span>
                     @if (SettlePreviewOverpaid > 0)
                     {
-                        <span class="settlement-remaining-note">₱ @SettlePreviewOverpaid.ToString("N0") → advance credit (covers their next boundary)</span>
+                        <span class="settlement-remaining-note">₱ @SettlePreviewOverpaid.ToString("N2") → advance credit (covers their next boundary)</span>
                     }
                 </div>
 
@@ -545,7 +545,7 @@ else
                 {
                     <div class="settlement-modal-subject">@_history.DriverName</div>
                     <div class="settlement-modal-figures">
-                        <div class="settlement-modal-figure-row"><span>Current Outstanding Debt</span><strong>₱ @_history.CurrentOutstandingDebt.ToString("N0")</strong></div>
+                        <div class="settlement-modal-figure-row"><span>Current Outstanding Debt</span><strong>₱ @_history.CurrentOutstandingDebt.ToString("N2")</strong></div>
                     </div>
 
                     <div class="history-toolbar">
@@ -593,22 +593,22 @@ else
                                                     <div class="history-allocation">@line</div>
                                                 }
                                             </td>
-                                            <td>@(tx.Expected.HasValue ? $"₱ {tx.Expected.Value:N0}" : "–")</td>
+                                            <td>@(tx.Expected.HasValue ? $"₱ {tx.Expected.Value:N2}" : "–")</td>
                                             <td>
                                                 @if (tx.AmountPaid.HasValue)
                                                 {
-                                                    @($"₱ {tx.AmountPaid.Value:N0}")
+                                                    @($"₱ {tx.AmountPaid.Value:N2}")
                                                 }
                                                 else if (tx.AdjustmentAmount.HasValue)
                                                 {
-                                                    @($"{(tx.AdjustmentAmount.Value >= 0 ? "+" : "-")}₱ {Math.Abs(tx.AdjustmentAmount.Value):N0}")
+                                                    @($"{(tx.AdjustmentAmount.Value >= 0 ? "+" : "-")}₱ {Math.Abs(tx.AdjustmentAmount.Value):N2}")
                                                 }
                                                 else
                                                 {
                                                     @:–
                                                 }
                                             </td>
-                                            <td>₱ @tx.RunningDebt.ToString("N0")</td>
+                                            <td>₱ @tx.RunningDebt.ToString("N2")</td>
                                             <td>
                                                 @if (tx.ReceiptUrl is not null)
                                                 {
