@@ -17,13 +17,33 @@ namespace LARGA.MobileApp.ViewModels.Manager;
 public class ChatsViewModel : INotifyPropertyChanged
 {
     private readonly IChatService _chatService;
-    private string _unreadMessagesText = "0 unread messages";
+    private string _unreadMessagesText = string.Empty;
+
+    // The chat-session listener can fire (and call Rebuild) before the driver roster has
+    // loaded even once, which would otherwise publish a premature "0 unread messages" - true
+    // zero and "don't know yet" look identical to a manager unless this is gated.
+    private bool _hasLoadedDrivers;
 
     // Inbox = every registered driver (users) cross-referenced with existing chats/* docs.
     private IReadOnlyList<ChatDriver> _drivers = Array.Empty<ChatDriver>();
     private IReadOnlyList<ChatSession> _sessions = Array.Empty<ChatSession>();
 
     public ObservableCollection<ChatSession> ChatSessions { get; set; } = new();
+
+    // The driver roster is fetched async on appearing (LoadDriversAsync); until that first
+    // fetch finishes, CollectionView's EmptyView would otherwise show "No drivers registered
+    // yet." for the couple of seconds it takes to load, even when drivers do exist.
+    private string _emptyStateText = "Loading drivers…";
+    public string EmptyStateText
+    {
+        get => _emptyStateText;
+        private set
+        {
+            if (_emptyStateText == value) return;
+            _emptyStateText = value;
+            OnPropertyChanged();
+        }
+    }
 
     public string UnreadMessagesText
     {
@@ -66,7 +86,12 @@ public class ChatsViewModel : INotifyPropertyChanged
     {
         using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         _drivers = await _chatService.GetDriversAsync();
-        MainThread.BeginInvokeOnMainThread(Rebuild);
+        _hasLoadedDrivers = true;
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            EmptyStateText = "No drivers registered yet.";
+            Rebuild();
+        });
     }
 
     // Chat previews themselves stay live via ListenForChatSessions; a pull only re-reads the driver roster
@@ -122,6 +147,8 @@ public class ChatsViewModel : INotifyPropertyChanged
         {
             ChatSessions.Add(row);
         }
+
+        if (!_hasLoadedDrivers) return;
 
         int unreadCount = rows.Count(r => r.IsUnread);
         UnreadMessagesText = unreadCount == 1 ? "1 unread message" : $"{unreadCount} unread messages";
