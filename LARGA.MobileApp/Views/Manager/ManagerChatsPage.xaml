@@ -19,7 +19,7 @@
                      RefreshColor="{DynamicResource LargaPrimaryBlue}">
         <CollectionView ItemsSource="{Binding ChatSessions}" SelectionMode="None">
             <CollectionView.EmptyView>
-                <Label Text="No drivers registered yet." TextColor="{DynamicResource ThemeTextGray}" FontSize="14" HorizontalOptions="Center" VerticalOptions="Center" />
+                <Label Text="{Binding EmptyStateText}" TextColor="{DynamicResource ThemeTextGray}" FontSize="14" HorizontalOptions="Center" VerticalOptions="Center" />
             </CollectionView.EmptyView>
             <CollectionView.ItemTemplate>
                 <DataTemplate>

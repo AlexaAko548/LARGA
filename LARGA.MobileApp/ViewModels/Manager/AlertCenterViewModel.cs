@@ -189,11 +189,20 @@ public class AlertCenterViewModel : BindableObject
                 {
                     if (doc.Data == null) continue;
                     var shift = await GetShiftAsync(doc.Data.ShiftId);
-                    var driver = shift != null ? await GetDriverAsync(shift.DriverId) : null;
+                    // A log with no real shift (mobile falls back to "UNKNOWN_SHIFT" when it
+                    // can't find an active one) has no shift-level driver to borrow, so resolve
+                    // the log's own driverId instead of showing "Unknown Driver".
+                    var driver = shift != null
+                        ? await GetDriverAsync(shift.DriverId)
+                        : (!string.IsNullOrWhiteSpace(doc.Data.DriverId) ? await GetDriverAsync(doc.Data.DriverId!) : null);
 
                     var subtitle = !string.IsNullOrWhiteSpace(doc.Data.FuelLogDetails)
                         ? doc.Data.FuelLogDetails
                         : $"Fuel receipt flagged for review ({doc.Data.LitersRefueled}L, ₱{doc.Data.FuelCost}).";
+
+                    // Submission time, not the receipt's own date (OCR-read or edited, and
+                    // sometimes never set at all - see LAR-107 on the web Fuel Verification page).
+                    DateTimeOffset? eventTime = doc.Data.SubmittedAt ?? doc.Data.ReceiptTimestamp;
 
                     items.Add(new AlertItem
                     {
@@ -201,11 +210,11 @@ public class AlertCenterViewModel : BindableObject
                         Type = AlertType.FuelDiscrepancy,
                         DriverName = BuildDriverLabel(driver, shift),
                         Subtitle = subtitle,
-                        SortTime = doc.Data.ReceiptTimestamp != null
-                            ? FirestoreDateTimeFix.Apply(doc.Data.ReceiptTimestamp.Value.UtcDateTime)
+                        SortTime = eventTime != null
+                            ? FirestoreDateTimeFix.Apply(eventTime.Value.UtcDateTime)
                             : DateTime.MinValue,
-                        Timestamp = doc.Data.ReceiptTimestamp != null
-                            ? FormatAlertTime(FirestoreDateTimeFix.Apply(doc.Data.ReceiptTimestamp.Value.UtcDateTime))
+                        Timestamp = eventTime != null
+                            ? FormatAlertTime(FirestoreDateTimeFix.Apply(eventTime.Value.UtcDateTime))
                             : "--",
                         PhoneNumber = driver?.PhoneNumber?.ToString()
                     });
@@ -799,6 +808,18 @@ public class AlertCenterViewModel : BindableObject
 
         [Plugin.Firebase.Firestore.FirestoreProperty("receiptTimestamp")]
         public DateTimeOffset? ReceiptTimestamp { get; set; }
+
+        // A log submitted without a real shift (mobile writes "UNKNOWN_SHIFT" when it can't
+        // find an active shift) still carries its own driverId, so the alert can fall back to
+        // that instead of showing "Unknown Driver" - see the fuel listener above.
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
+        public string? DriverId { get; set; }
+
+        // Server-stamped at upload (FuelService) - the real event time, unlike ReceiptTimestamp
+        // (whatever date the receipt itself was printed with, OCR-read or edited, and sometimes
+        // never set at all).
+        [Plugin.Firebase.Firestore.FirestoreProperty("submittedAt")]
+        public DateTimeOffset? SubmittedAt { get; set; }
     }
 
     private class MaintenanceLogProxy

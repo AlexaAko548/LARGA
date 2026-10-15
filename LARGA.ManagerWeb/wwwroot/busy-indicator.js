@@ -49,10 +49,25 @@
     document.addEventListener('click', e => { if (isInteractive(e.target)) start(); }, true);
     document.addEventListener('change', e => { if (e.target instanceof Element && e.target.matches('select, input[type="date"], input[type="checkbox"], input[type="radio"], input[type="file"]')) start(); }, true);
 
-    // Any page update other than our own bar is the server's answer.
+    // A mutation inside an element currently marked aria-busy="true" is that element's own
+    // "I'm working" render (e.g. a Saving… button swapping its label and lighting its spinner
+    // the instant a click starts) - not the server's answer. By the time this callback runs the
+    // DOM is already in its post-mutation state, so a button whose busy flag has since cleared
+    // (or one that never had it) still counts as a real update.
+    function isOwnBusyRender(node) {
+        const el = node instanceof Element ? node : node.parentElement;
+        return !!(el && el.closest('[aria-busy="true"]'));
+    }
+
+    // Any page update other than our own bar, or a still-busy element's own rendering, is the
+    // server's answer.
     const observer = new MutationObserver(mutations => {
         if (!waiting) return;
-        if (mutations.some(m => m.target !== bar && !(m.target instanceof Node && bar && bar.contains(m.target)))) stop();
+        if (mutations.some(m =>
+            m.target !== bar
+            && !(m.target instanceof Node && bar && bar.contains(m.target))
+            && !isOwnBusyRender(m.target)
+        )) stop();
     });
     function observe() { observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'disabled', 'aria-busy', 'value'] }); }
     if (document.body) observe(); else document.addEventListener('DOMContentLoaded', observe);
