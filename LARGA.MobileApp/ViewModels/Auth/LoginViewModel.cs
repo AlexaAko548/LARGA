@@ -134,6 +134,17 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
                 return;
             }
 
+            // DSM-006: the account must belong to the tile it was signed in from - a Manager can't
+            // get in through the Driver tile or the other way round. Signed out straight away, and
+            // the tile's remembered credentials are left as they were.
+            if (!role.Trim().Equals(_expectedRole, StringComparison.OrdinalIgnoreCase))
+            {
+                await SignOutQuietlyAsync();
+                string otherTile = _expectedRole.Equals("Driver", StringComparison.OrdinalIgnoreCase) ? "Manager" : "Driver";
+                ShowError($"This account is not registered as a {_expectedRole}. Please use the {otherTile} login.");
+                return;
+            }
+
             // Only persist credentials once the login fully succeeded.
             await SaveOrClearCredentialsAsync();
 
