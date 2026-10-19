@@ -56,8 +56,10 @@
     // inside one either) - not the server's answer. By the time this callback runs the DOM is
     // already in its post-mutation state, so once the busy element's flag actually clears (or it
     // gets removed entirely, e.g. a confirmation modal closing), this stops ignoring updates.
+    // Blazor renders aria-busy="@true" as aria-busy="" (bool true -> empty value), so match
+    // "present and not false" - the same selector app.css uses for the button spinner.
     function anyElementBusy() {
-        return !!document.querySelector('[aria-busy="true"]');
+        return !!document.querySelector('[aria-busy]:not([aria-busy="false"])');
     }
 
     // Any page update other than our own bar, while nothing is still (locally) busy, is the
