@@ -883,7 +883,8 @@ else
             totals[row.PartId] = totals.GetValueOrDefault(row.PartId) + row.Quantity;
         }
 
-        // The service clamps stock at zero rather than refusing, so block over-use here.
+        // Early feedback from the stock shown in this form; LogPartsUsedAsync checks again against
+        // current stock and refuses an over-deduction itself (INV-006).
         var usage = new List<(string PartId, int Quantity)>();
         var summaryParts = new List<string>();
         foreach ((string partId, int quantity) in totals)

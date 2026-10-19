@@ -512,8 +512,10 @@ public class GarageService
     /// InventoryAuditService.DeductPartAsync, which also writes the InventoryStockDeducted audit
     /// entry and the maintenance_parts_used row for this ticket. If the part then sits at or below its
     /// ReorderLevel, DeductPartAsync raises the LowStock alert (the same as a manual deduction).
-    /// All quantities are validated before anything is deducted. Parts are then processed in order
-    /// and are not rolled back as a group: if one fails, the parts before it stay deducted and logged.
+    /// All quantities are validated - including against current stock (INV-006) - before anything
+    /// is deducted. Parts are then processed in order and are not rolled back as a group: if one
+    /// fails (e.g. another manager used the stock in between), the parts before it stay deducted
+    /// and logged, and the message names the part that was short.
     /// </summary>
     public async Task<GarageActionResult> LogPartsUsedAsync(string maintenanceId, IReadOnlyList<(string PartId, int Quantity)> parts, string? actorUserId = null)
     {
@@ -524,6 +526,24 @@ public class GarageService
 
         try
         {
+            // Stock check up front, so a job that asks for more than is on hand changes nothing.
+            foreach (IGrouping<string, (string PartId, int Quantity)> group in parts.GroupBy(p => p.PartId))
+            {
+                DocumentSnapshot partDoc = await Db.Collection("spare_parts").Document(group.Key).GetSnapshotAsync();
+                if (!partDoc.Exists)
+                {
+                    return new GarageActionResult { Ok = false, ErrorMessage = "One of the selected parts no longer exists." };
+                }
+
+                SparePart part = partDoc.ConvertTo<SparePart>();
+                int requested = group.Sum(p => p.Quantity);
+                if (requested > part.StockQuantity)
+                {
+                    string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+                    return new GarageActionResult { Ok = false, ErrorMessage = $"Only {Math.Max(0, part.StockQuantity)} {unit} of {part.DisplayName} in stock." };
+                }
+            }
+
             foreach ((string partId, int quantity) in parts)
             {
                 // DeductPartAsync writes the maintenance_parts_used row itself (in the same
@@ -536,6 +556,10 @@ public class GarageService
             }
 
             return new GarageActionResult { Ok = true };
+        }
+        catch (InventoryAuditService.InsufficientStockException ex)
+        {
+            return new GarageActionResult { Ok = false, ErrorMessage = ex.Message };
         }
         catch (Exception ex)
         {

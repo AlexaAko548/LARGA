@@ -584,6 +584,11 @@ else
                 await LoadHistoryAsync(updated);
             }
         }
+        catch (InventoryAuditService.InsufficientStockException ex)
+        {
+            // INV-006: nothing was deducted - say how many are actually left.
+            _actionError = ex.Message;
+        }
         catch (Exception ex)
         {
             _actionError = isAddMode

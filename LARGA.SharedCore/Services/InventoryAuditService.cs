@@ -167,7 +167,9 @@ public class InventoryAuditService
     /// <summary>
     /// Takes stock out (it was used) and records the usage in maintenance_parts_used - the
     /// part's usage history - at the part's current unit price, linked to the maintenance
-    /// ticket it went into when one is given.
+    /// ticket it went into when one is given. The stock read and the deduction are one
+    /// transaction: asking for more than is in stock throws <see cref="InsufficientStockException"/>
+    /// and changes nothing (INV-006), so the audit entry always matches what was taken out.
     /// </summary>
     public async Task<SparePart?> DeductPartAsync(string partId, int amount = 1, string? actorUserId = null,
         string? maintenanceId = null, string? note = null)
@@ -201,33 +203,36 @@ public class InventoryAuditService
             SparePart part = snapshot.ConvertTo<SparePart>();
             part.PartId = snapshot.Id;
 
-            // Only what was actually in stock counts as used.
-            int used = Math.Min(deduction, Math.Max(0, part.StockQuantity));
-            int updatedQuantity = Math.Max(0, part.StockQuantity - deduction);
-            transaction.Update(doc, "stockQuantity", updatedQuantity);
-
-            if (used > 0)
+            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+            int inStock = Math.Max(0, part.StockQuantity);
+            if (deduction > inStock)
             {
-                transaction.Set(usageDoc, new MaintenancePartsUsed
-                {
-                    MaintenanceId = ticket?.MaintenanceId ?? string.Empty,
-                    PartId = part.PartId,
-                    QuantityUsed = used,
-                    UsedAt = DateTime.UtcNow,
-                    UnitCost = (double)part.UnitPrice,
-                    TaxiId = string.IsNullOrWhiteSpace(ticket?.TaxiId) ? null : ticket.TaxiId,
-                    RecordedBy = string.IsNullOrWhiteSpace(actorUserId) ? null : actorUserId,
-                    Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim(),
-                });
+                // Thrown out of the transaction callback, so nothing is written.
+                throw new InsufficientStockException(part.DisplayName, inStock, unit);
             }
 
-            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+            int used = deduction;
+            int updatedQuantity = inStock - used;
+            transaction.Update(doc, "stockQuantity", updatedQuantity);
+
+            transaction.Set(usageDoc, new MaintenancePartsUsed
+            {
+                MaintenanceId = ticket?.MaintenanceId ?? string.Empty,
+                PartId = part.PartId,
+                QuantityUsed = used,
+                UsedAt = DateTime.UtcNow,
+                UnitCost = (double)part.UnitPrice,
+                TaxiId = string.IsNullOrWhiteSpace(ticket?.TaxiId) ? null : ticket.TaxiId,
+                RecordedBy = string.IsNullOrWhiteSpace(actorUserId) ? null : actorUserId,
+                Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim(),
+            });
+
             string usedFor = ticket is null ? string.Empty : $" for {ticket.TaxiId} - {ticket.IssueTitle}";
             var audit = new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "InventoryStockDeducted",
-                AuditLogDetails = $"Deducted {deduction} {unit} from '{part.DisplayName}'{usedFor}. Stock: {part.StockQuantity} -> {updatedQuantity}.",
+                AuditLogDetails = $"Deducted {used} {unit} from '{part.DisplayName}'{usedFor}. Stock: {inStock} -> {updatedQuantity}.",
                 Timestamp = DateTime.UtcNow,
             };
             transaction.Create(auditDoc, audit);
@@ -534,6 +539,21 @@ public class InventoryAuditService
         }
 
         return results;
+    }
+
+    /// <summary>A deduction asked for more than the part has in stock; nothing was changed.
+    /// Message is safe to show to the manager.</summary>
+    public class InsufficientStockException : InvalidOperationException
+    {
+        public InsufficientStockException(string partName, int inStock, string unit)
+            : base($"Only {inStock} {unit} of {partName} in stock.")
+        {
+            PartName = partName;
+            InStock = inStock;
+        }
+
+        public string PartName { get; }
+        public int InStock { get; }
     }
 
     public class PartUsageEntry
