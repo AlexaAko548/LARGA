@@ -69,15 +69,32 @@ public class QuickLedgerService
         // version at save time, never as balances that silently miss it.
         IReadOnlyDictionary<string, long> ledgerVersions = await Step(ReadLedgerVersionsAsync(warnings), "Reading payment versions");
 
-        // Each read has a timeout. A read that never returns would otherwise keep the page loading forever. A failed
-        // read is rethrown as a QuickLedgerLoadException naming the step, so the log says which collection failed.
-        IReadOnlyList<ShiftRecord> shifts = await Step(ReadShiftsAsync(warnings), "Reading shifts");
-        IReadOnlyList<BoundaryPaymentRecord> payments = await Step(ReadPaymentsAsync(warnings), "Reading boundary payments");
-        IReadOnlyList<DebtAdjustmentRecord> adjustments = await Step(ReadAdjustmentsAsync(warnings), "Reading debt adjustments");
-        UserDirectory users = await Step(ReadUsersAsync(), "Reading users");
-        decimal defaultRate = await Step(ReadDefaultBoundaryRateAsync(), "Reading boundary rate");
+        // The rest run together (they don't depend on each other), so the page waits for the slowest read rather than
+        // the sum of all of them. Each read has a timeout. A read that never returns would otherwise keep the page
+        // loading forever. A failed read is rethrown as a QuickLedgerLoadException naming the step, so the log says
+        // which collection failed. List<T> is not thread-safe, so each reader gets its own warnings list, merged after.
+        var shiftWarnings = new List<string>();
+        var paymentWarnings = new List<string>();
+        var adjustmentWarnings = new List<string>();
+        Task<IReadOnlyList<ShiftRecord>> shiftsTask = Step(ReadShiftsAsync(shiftWarnings), "Reading shifts");
+        Task<IReadOnlyList<BoundaryPaymentRecord>> paymentsTask = Step(ReadPaymentsAsync(paymentWarnings), "Reading boundary payments");
+        Task<IReadOnlyList<DebtAdjustmentRecord>> adjustmentsTask = Step(ReadAdjustmentsAsync(adjustmentWarnings), "Reading debt adjustments");
+        Task<UserDirectory> usersTask = Step(ReadUsersAsync(), "Reading users");
+        Task<decimal> rateTask = Step(ReadDefaultBoundaryRateAsync(), "Reading boundary rate");
+        // Plates are only labels: if taxis can't be read, rows show the taxi ID instead of failing the whole page.
+        Task<IReadOnlyDictionary<string, string>> platesTask = ReadTaxiPlatesBestEffortAsync();
 
-        IReadOnlyDictionary<string, string> taxiPlates = await Step(ReadTaxiPlatesAsync(), "Reading taxis");
+        await Task.WhenAll(shiftsTask, paymentsTask, adjustmentsTask, usersTask, rateTask, platesTask);
+
+        IReadOnlyList<ShiftRecord> shifts = shiftsTask.Result;
+        IReadOnlyList<BoundaryPaymentRecord> payments = paymentsTask.Result;
+        IReadOnlyList<DebtAdjustmentRecord> adjustments = adjustmentsTask.Result;
+        UserDirectory users = usersTask.Result;
+        decimal defaultRate = rateTask.Result;
+        IReadOnlyDictionary<string, string> taxiPlates = platesTask.Result;
+        warnings.AddRange(shiftWarnings);
+        warnings.AddRange(paymentWarnings);
+        warnings.AddRange(adjustmentWarnings);
 
         var input = new QuickLedgerInput(shifts, payments, adjustments, users.Names, users.DriverIds, taxiPlates, defaultRate);
         QuickLedgerResult result = QuickLedgerCalculator.Build(input, PhilippineTime.Now);
@@ -481,6 +498,19 @@ public class QuickLedgerService
         }
 
         return plates;
+    }
+
+    private static async Task<IReadOnlyDictionary<string, string>> ReadTaxiPlatesBestEffortAsync()
+    {
+        try
+        {
+            return await Timed(ReadTaxiPlatesAsync(), "Reading taxis");
+        }
+        catch (Exception ex)
+        {
+            FirestoreErrors.Log("Quick Ledger taxi plates (showing taxi IDs instead)", ex);
+            return new Dictionary<string, string>();
+        }
     }
 
     // Falls back to the same default the web ledger uses when the config is missing or unreadable.
