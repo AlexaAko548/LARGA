@@ -44,7 +44,8 @@ public static class AuditLogWriter
             // Debug.WriteLine is stripped from Release builds, so write to the Android log instead
             // to make failures visible in logcat (tag LARGA_AUDIT).
 #if ANDROID
-            Android.Util.Log.Error("LARGA_AUDIT", $"Write failed ({actionType}) for uid '{uid}': {ex}");
+            // No uid: logcat survives Release builds, and the user isn't needed to diagnose a failed write (audit F-06).
+            Android.Util.Log.Error("LARGA_AUDIT", $"Write failed ({actionType}): {ex}");
 #else
             System.Diagnostics.Debug.WriteLine($"Audit Log Error ({actionType}): {ex}");
 #endif
