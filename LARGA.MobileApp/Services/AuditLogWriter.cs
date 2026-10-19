@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
@@ -25,14 +26,17 @@ public static class AuditLogWriter
         string uid = CrossFirebaseAuth.Current.CurrentUser?.Uid ?? string.Empty;
         try
         {
+            // Server time, not the phone's: firestore.rules accept only an entry stamped by the server
+            // (audit A-05), so a phone clock can't backdate one. A dictionary, because FieldValue
+            // doesn't fit a typed proxy - the same shape QuickLedgerService.WriteAuditAsync writes.
             await CrossFirebaseFirestore.Current
                 .GetCollection("audit_logs")
-                .AddDocumentAsync(new AuditLogProxy
+                .AddDocumentAsync(new Dictionary<object, object>
                 {
-                    UserId = uid,
-                    ActionType = actionType,
-                    AuditLogDetails = details,
-                    Timestamp = DateTime.UtcNow,
+                    ["userId"] = uid,
+                    ["actionType"] = actionType,
+                    ["auditLogDetails"] = details,
+                    ["timestamp"] = FieldValue.ServerTimestamp(),
                 });
         }
         catch (Exception ex)
@@ -45,22 +49,5 @@ public static class AuditLogWriter
             System.Diagnostics.Debug.WriteLine($"Audit Log Error ({actionType}): {ex}");
 #endif
         }
-    }
-
-    // Class-based, like the other mobile Firestore writes: the plugin serializes these
-    // [FirestoreProperty] fields reliably, where a Dictionary payload may not reach Firestore.
-    private class AuditLogProxy
-    {
-        [FirestoreProperty("userId")]
-        public string UserId { get; set; } = string.Empty;
-
-        [FirestoreProperty("actionType")]
-        public string ActionType { get; set; } = string.Empty;
-
-        [FirestoreProperty("auditLogDetails")]
-        public string AuditLogDetails { get; set; } = string.Empty;
-
-        [FirestoreProperty("timestamp")]
-        public DateTime Timestamp { get; set; }
     }
 }

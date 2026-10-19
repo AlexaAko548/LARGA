@@ -167,6 +167,25 @@ describe('Driver tampering with their own money and records', () => {
     await assertFails(updateDoc(doc(as(DRIVER_A), 'taxis', 'TX-01'), { status: 'Active Unit' }));
   });
   it('cannot delete a shift', async () => assertFails(deleteDoc(doc(as(DRIVER_A), 'shifts', 'shiftA'))));
+  it('can clock out with exactly the fields the app writes', async () =>
+    assertSucceeds(updateDoc(doc(as(DRIVER_A), 'shifts', 'shiftA'), {
+      shiftEnd: serverTimestamp(), endMileage: 1300, status: 'Completed', managerNote: '', isOnBreak: false, fuelPenalty: 50 })));
+  it('can submit a fuel receipt for their own shift', async () =>
+    assertSucceeds(addDoc(collection(as(DRIVER_A), 'fuel_logs'), {
+      driverId: DRIVER_A, shiftId: 'shiftA', verificationStatus: 'Pending', submittedAt: serverTimestamp(),
+      litersRefueled: 30.5, fuelCost: 1950 })));
+  it('can submit a fuel receipt with the app\'s "UNKNOWN_SHIFT" placeholder', async () =>
+    assertSucceeds(addDoc(collection(as(DRIVER_A), 'fuel_logs'), {
+      driverId: DRIVER_A, shiftId: 'UNKNOWN_SHIFT', verificationStatus: 'Pending', submittedAt: serverTimestamp(),
+      litersRefueled: 30.5, fuelCost: 1950 })));
+  it('[GAP D-03] cannot submit a fuel receipt with a negative cost', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), {
+      driverId: DRIVER_A, shiftId: 'shiftA', verificationStatus: 'Pending', submittedAt: serverTimestamp(),
+      litersRefueled: 30, fuelCost: -1950 })));
+  it("[GAP D-03] cannot submit a fuel receipt against B's shift", async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), {
+      driverId: DRIVER_A, shiftId: 'shiftB', verificationStatus: 'Pending', submittedAt: serverTimestamp(),
+      litersRefueled: 30, fuelCost: 1950 })));
   it('cannot backdate a new shift while the test clock is off', async () =>
     assertFails(setDoc(doc(as(DRIVER_A), 'shifts', 'newShift'), {
       ...appClockIn('newShift'), shiftStart: Timestamp.fromDate(new Date('2026-10-01T00:30:00Z')) })));
@@ -197,6 +216,9 @@ describe('Audit logs', () => {
       userId: MANAGER, actionType: 'X', timestamp: Timestamp.fromDate(new Date('2020-01-01T00:00:00Z')) })));
   it('driver can log their own SOS', async () =>
     assertSucceeds(addDoc(collection(as(DRIVER_A), 'audit_logs'), { userId: DRIVER_A, actionType: 'SosTriggered', timestamp: serverTimestamp() })));
+  it('[GAP A-05] driver cannot log their SOS with a phone-clock time', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'audit_logs'), {
+      userId: DRIVER_A, actionType: 'SosTriggered', timestamp: Timestamp.fromDate(new Date('2026-01-01T00:00:00Z')) })));
   it('driver cannot log other actions', async () =>
     assertFails(addDoc(collection(as(DRIVER_A), 'audit_logs'), { userId: DRIVER_A, actionType: 'PaymentRecorded' })));
   it('driver cannot read audit logs', async () => assertFails(getDoc(doc(as(DRIVER_A), 'audit_logs', 'log1'))));

@@ -87,6 +87,8 @@ service cloud.firestore {
         && (!changed.hasAny(['shiftEnd']) || after.shiftEnd == request.time)
         && (!changed.hasAny(['status']) || (before.status == 'Active' && after.status in ['Completed', 'Auto-Closed']))
         && (!changed.hasAny(['fuelPenalty']) || after.fuelPenalty == 0 || after.fuelPenalty == 50)
+        // ClockOutAsync writes managerNote as "" - the note itself is the manager's (A-04).
+        && (!changed.hasAny(['managerNote']) || after.managerNote == '')
         && (!changed.hasAny(['endMileage']) || after.status != 'Completed'
             || before.get('startMileage', 0) == 0 || after.endMileage >= before.startMileage)
         && (!changed.hasAny(['shiftId']) || after.shiftId == shiftId);
@@ -191,10 +193,18 @@ service cloud.firestore {
     // Payments are recorded by managers and Assistant Managers (ManagerWeb's Financial Ledger, the
     // app's Quick Ledger). Only a Manager may delete one. A driver reads only their own, read-only
     // on their Ledger screen - driverId is set on every payment document (older ones are backfilled
-    // by ManagerWeb on startup).
+    // by ManagerWeb on startup, Admin SDK).
+    // Create-only from the apps (A-06): every payment is its own new document (QuickLedgerService,
+    // FinancialLedgerService), so a recorded amount can't be rewritten afterwards. The amount must
+    // be a positive number below a sanity cap that only catches typos and tampering (₱1,000,000).
     match /boundary_payments/{paymentId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
-      allow create, update: if isStaff();
+      allow create: if isStaff()
+                    && request.resource.data.amountPaid is number
+                    && request.resource.data.amountPaid > 0
+                    && request.resource.data.amountPaid < 1000000
+                    && request.resource.data.driverId is string && request.resource.data.driverId.size() > 0
+                    && request.resource.data.shiftId is string;
       allow delete: if isManager();
     }
 
@@ -232,7 +242,15 @@ service cloud.firestore {
                         || (request.resource.data.verificationStatus == 'Flagged'
                             && request.resource.data.get('autoFlagged', false) == true
                             && request.resource.data.get('flaggedAt', null) == request.time))
-                    && request.resource.data.submittedAt == request.time;
+                    && request.resource.data.submittedAt == request.time
+                    // D-03: plausible amounts (sanity caps, not business rules), and the driver's own
+                    // shift - or the app's "UNKNOWN_SHIFT" placeholder when it had none.
+                    && request.resource.data.litersRefueled is number
+                    && request.resource.data.litersRefueled > 0 && request.resource.data.litersRefueled <= 200
+                    && request.resource.data.fuelCost is number
+                    && request.resource.data.fuelCost > 0 && request.resource.data.fuelCost <= 20000
+                    && (request.resource.data.shiftId == 'UNKNOWN_SHIFT'
+                        || get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid);
       allow update: if isManager();
     }
 
@@ -254,9 +272,11 @@ service cloud.firestore {
       // SOS caller validation: a driver may only raise an SOS for a shift that is theirs - an
       // unassigned device can't write one for someone else's unit. (The full check - active
       // shift, unit, registered phone number - runs in ManagerWeb's SosPushService.)
+      // C-03: only while that shift is Active - not on one that ended (each SOS pushes to every manager).
       allow create: if isDriver() && request.resource.data.driverId == request.auth.uid
                     && exists(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId))
-                    && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid;
+                    && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid
+                    && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.status == 'Active';
       allow update: if isManager();
     }
 
@@ -266,12 +286,20 @@ service cloud.firestore {
 
     // Append-only (ANA-014): an entry can be added but never changed or removed, by any role.
     // ManagerWeb and the SeedTool use the Admin SDK (rules don't apply) and also only create.
+    // A-05: every entry is in the writer's own name and stamped with server time
+    // (FieldValue.ServerTimestamp - AuditLogWriter, QuickLedgerService.WriteAuditAsync), so it
+    // can't be attributed to someone else or backdated.
     match /audit_logs/{logId} {
-      allow read, create: if isManager();
+      allow read: if isManager();
+      allow create: if isManager() && ownAuditEntry();
       // Drivers log only their own SOS and defect reports (EmergencyAlertService, VehicleDefectViewModel).
-      allow create: if isDriver()
-         && request.resource.data.userId == request.auth.uid
+      allow create: if isDriver() && ownAuditEntry()
          && request.resource.data.actionType in ['SosTriggered', 'VehicleDefectReported'];
+    }
+
+    function ownAuditEntry() {
+      return request.resource.data.userId == request.auth.uid
+        && request.resource.data.timestamp == request.time;
     }
 
     // One Pre and one End checklist per shift ({shiftId}_PRE / {shiftId}_END - the IDs
