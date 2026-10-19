@@ -71,6 +71,8 @@ builder.Services.AddSingleton(sp => new Lazy<FirestoreDb>(() =>
     return FirestoreDb.Create(projectId, client);
 }));
 
+// Listener-backed collections for the background checks (PERFORMANCE_REPORT.md P2).
+builder.Services.AddSingleton<CollectionCache>();
 builder.Services.AddSingleton<FleetReportingService>();
 
 // Firebase Admin SDK - lets ManagerWeb create/manage driver Auth accounts server-side

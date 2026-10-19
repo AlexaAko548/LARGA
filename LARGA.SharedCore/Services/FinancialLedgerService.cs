@@ -26,14 +26,17 @@ public class FinancialLedgerService
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly Lazy<PhotoStorageTarget> _storageLazy;
     private readonly ILogger<FinancialLedgerService> _logger;
+    private readonly CollectionCache _cache;
 
     private FirestoreDb Db => _dbLazy.Value;
 
-    public FinancialLedgerService(Lazy<FirestoreDb> dbLazy, Lazy<PhotoStorageTarget> storageLazy, ILogger<FinancialLedgerService> logger)
+    public FinancialLedgerService(Lazy<FirestoreDb> dbLazy, Lazy<PhotoStorageTarget> storageLazy, ILogger<FinancialLedgerService> logger,
+        CollectionCache cache)
     {
         _dbLazy = dbLazy;
         _storageLazy = storageLazy;
         _logger = logger;
+        _cache = cache;
     }
 
     /// <summary>A receipt's link fields for a boundary_payments document, after uploading its
@@ -1033,7 +1036,8 @@ public class FinancialLedgerService
     /// </summary>
     public async Task ProcessDebtFlagsAsync()
     {
-        (List<ShiftLog> shifts, List<BoundaryPayment> payments, _, List<UserProfile> drivers) = await GetFullLedgerDataAsync();
+        // Background check (every 30 min): from the listener cache, not a full re-read (PERFORMANCE_REPORT.md P2).
+        (List<ShiftLog> shifts, List<BoundaryPayment> payments, _, List<UserProfile> drivers) = await GetFullLedgerDataAsync(fromCache: true);
         List<ShiftCharge> charges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync());
         DateTime now = DateTime.UtcNow;
 
@@ -1317,12 +1321,15 @@ public class FinancialLedgerService
         return ConvertDocuments<T>(snapshot, collection);
     }
 
-    private async Task<(List<ShiftLog> Shifts, List<BoundaryPayment> Payments, List<DebtAdjustment> Adjustments, List<UserProfile> Drivers)> GetFullLedgerDataAsync()
+    /// <param name="fromCache">Background checks only: the same documents from CollectionCache's listeners
+    /// (falls back to a direct read if the cache isn't ready). Pages read directly, so a list never misses
+    /// a payment they have just saved.</param>
+    private async Task<(List<ShiftLog> Shifts, List<BoundaryPayment> Payments, List<DebtAdjustment> Adjustments, List<UserProfile> Drivers)> GetFullLedgerDataAsync(bool fromCache = false)
     {
-        List<ShiftLog> shifts = await GetAllAsync<ShiftLog>("shifts");
-        List<BoundaryPayment> payments = await GetAllAsync<BoundaryPayment>("boundary_payments");
-        List<DebtAdjustment> adjustments = await GetAllAsync<DebtAdjustment>("debt_adjustments");
-        List<UserProfile> drivers = await GetDriversAsync();
+        List<ShiftLog> shifts = await GetAllAsync<ShiftLog>("shifts", fromCache);
+        List<BoundaryPayment> payments = await GetAllAsync<BoundaryPayment>("boundary_payments", fromCache);
+        List<DebtAdjustment> adjustments = await GetAllAsync<DebtAdjustment>("debt_adjustments", fromCache);
+        List<UserProfile> drivers = await GetDriversAsync(fromCache);
         return (shifts, payments, adjustments, drivers);
     }
 
@@ -1367,13 +1374,18 @@ public class FinancialLedgerService
         }
     }
 
-    private async Task<List<UserProfile>> GetDriversAsync() =>
-        (await GetAllAsync<UserProfile>("users"))
+    private async Task<List<UserProfile>> GetDriversAsync(bool fromCache = false) =>
+        (await GetAllAsync<UserProfile>("users", fromCache))
             .Where(u => string.Equals(u.Role, "Driver", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-    private async Task<List<T>> GetAllAsync<T>(string collection) where T : class
+    private async Task<List<T>> GetAllAsync<T>(string collection, bool fromCache = false) where T : class
     {
+        if (fromCache && await _cache.GetDocumentsAsync(collection) is IReadOnlyList<DocumentSnapshot> cached)
+        {
+            return ConvertDocuments<T>(cached, collection);
+        }
+
         QuerySnapshot snapshot = await Db.Collection(collection).GetSnapshotAsync();
         PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
@@ -1396,10 +1408,13 @@ public class FinancialLedgerService
         return ConvertDocuments<T>(snapshot, collection);
     }
 
-    private List<T> ConvertDocuments<T>(QuerySnapshot snapshot, string collection) where T : class
+    private List<T> ConvertDocuments<T>(QuerySnapshot snapshot, string collection) where T : class =>
+        ConvertDocuments<T>(snapshot.Documents, collection);
+
+    private List<T> ConvertDocuments<T>(IReadOnlyList<DocumentSnapshot> documents, string collection) where T : class
     {
-        var results = new List<T>(snapshot.Documents.Count);
-        foreach (DocumentSnapshot doc in snapshot.Documents)
+        var results = new List<T>(documents.Count);
+        foreach (DocumentSnapshot doc in documents)
         {
             try
             {

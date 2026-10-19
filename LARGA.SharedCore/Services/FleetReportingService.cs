@@ -41,13 +41,15 @@ public class FleetReportingService
     // time - see the comment on this service's registration in ManagerWeb's Program.cs.
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly ILogger<FleetReportingService> _logger;
+    private readonly CollectionCache _cache;
 
     private FirestoreDb Db => _dbLazy.Value;
 
-    public FleetReportingService(Lazy<FirestoreDb> dbLazy, ILogger<FleetReportingService> logger)
+    public FleetReportingService(Lazy<FirestoreDb> dbLazy, ILogger<FleetReportingService> logger, CollectionCache cache)
     {
         _dbLazy = dbLazy;
         _logger = logger;
+        _cache = cache;
     }
 
     public async Task<DashboardSnapshot> GetDashboardSnapshotAsync()
@@ -448,9 +450,11 @@ public class FleetReportingService
     {
         DateTime now = DateTime.UtcNow;
 
-        List<TaxiUnit> taxis = await GetAllAsync<TaxiUnit>("taxis");
-        List<UserProfile> drivers = await GetAllAsync<UserProfile>("users");
-        List<EmergencyAlert> alerts = await GetAllAsync<EmergencyAlert>("emergency_alerts");
+        // Background check every 3 minutes (PERFORMANCE_REPORT.md P2): taxis and users from the listener
+        // cache; only unresolved SOS alerts (the only ones the check looks at) instead of all of them.
+        List<TaxiUnit> taxis = await GetAllAsync<TaxiUnit>("taxis", fromCache: true);
+        List<UserProfile> drivers = await GetAllAsync<UserProfile>("users", fromCache: true);
+        List<EmergencyAlert> alerts = await GetWhereEqualAsync<EmergencyAlert>("emergency_alerts", "isResolved", false);
         List<ShiftLog> activeShifts = await GetWhereEqualAsync<ShiftLog>("shifts", "status", "Active");
         double idleThresholdMinutes = await GetIdleThresholdMinutesAsync();
 
@@ -809,8 +813,15 @@ public class FleetReportingService
         }
     }
 
-    private async Task<List<T>> GetAllAsync<T>(string collection) where T : class
+    /// <param name="fromCache">Background checks only: the same documents from CollectionCache's listeners
+    /// (falls back to a direct read if the cache isn't ready).</param>
+    private async Task<List<T>> GetAllAsync<T>(string collection, bool fromCache = false) where T : class
     {
+        if (fromCache && await _cache.GetDocumentsAsync(collection) is IReadOnlyList<DocumentSnapshot> cached)
+        {
+            return ConvertDocuments<T>(cached, collection);
+        }
+
         QuerySnapshot snapshot = await Db.Collection(collection).GetSnapshotAsync();
         PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
@@ -853,11 +864,14 @@ public class FleetReportingService
         return ConvertDocuments<T>(snapshot, collection);
     }
 
-    private List<T> ConvertDocuments<T>(QuerySnapshot snapshot, string collection) where T : class
-    {
-        var results = new List<T>(snapshot.Documents.Count);
+    private List<T> ConvertDocuments<T>(QuerySnapshot snapshot, string collection) where T : class =>
+        ConvertDocuments<T>(snapshot.Documents, collection);
 
-        foreach (DocumentSnapshot doc in snapshot.Documents)
+    private List<T> ConvertDocuments<T>(IReadOnlyList<DocumentSnapshot> documents, string collection) where T : class
+    {
+        var results = new List<T>(documents.Count);
+
+        foreach (DocumentSnapshot doc in documents)
         {
             try
             {
