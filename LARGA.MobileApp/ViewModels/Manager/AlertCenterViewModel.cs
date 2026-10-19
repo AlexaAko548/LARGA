@@ -171,7 +171,12 @@ public class AlertCenterViewModel : BindableObject
                 foreach (var doc in snapshot.Documents)
                 {
                     if (doc.Data == null) continue;
-                    var shift = await GetShiftAsync(doc.Data.ShiftId);
+                    // The alert carries its driver and unit (EmergencyAlertService), so the shift is only
+                    // looked up for older alerts without them (PERFORMANCE_REPORT.md P9). The driver lookup
+                    // (cached) still supplies the name and phone shown, exactly as before.
+                    var shift = !string.IsNullOrWhiteSpace(doc.Data.DriverId) && !string.IsNullOrWhiteSpace(doc.Data.TaxiId)
+                        ? new ShiftProxy { DriverId = doc.Data.DriverId!, TaxiId = doc.Data.TaxiId! }
+                        : await GetShiftAsync(doc.Data.ShiftId);
                     var driver = shift != null ? await GetDriverAsync(shift.DriverId) : null;
 
                     // 0/0 = the driver's phone had no GPS fix (EmergencyAlertService still sends
@@ -873,6 +878,12 @@ public class AlertCenterViewModel : BindableObject
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
         public string ShiftId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
+        public string? DriverId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
+        public string? TaxiId { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("latitude")]
         public double Latitude { get; set; }
