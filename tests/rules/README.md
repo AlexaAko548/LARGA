@@ -14,7 +14,8 @@ npm install
 npm test
 ```
 
-`npm test` starts the Firestore emulator, runs `firestore.test.js` against the repo's `../../firestore.rules`, and stops the emulator.
+`npm test` starts the Firestore and Storage emulators, runs `firestore.test.js` (against `../../firestore.rules`) and
+`storage.test.js` (against `../../storage.rules`, which reads roles from Firestore), then stops the emulators.
 The first run downloads the emulator (about 60 MB) into your user profile.
 
 ## Reading the results
@@ -29,5 +30,6 @@ The `PERMISSION_DENIED` lines in the output are expected. They are the denied wr
 | Date | Rules version | Passing | Failing | Notes |
 |---|---|---|---|---|
 | 2026-10-19 | `0a2a5bd` (before Part 2 fixes) | 53 | 14 | All 14 failures are `[GAP]` tests: A-01 ×2, A-02 ×3, A-03 ×2, A-04, A-05 ×2, A-06 ×2, B-03, C-03 |
+| 2026-10-19 | `e3eb5f9` (after Part 2 fixes) | Firestore 80, Storage 22 | 0 | Added tests for the app's real clock-in, clock-out and fuel writes, plus `storage.test.js` |
 
-Storage rules: no `storage.rules` exists in the repo yet (finding A-07), so there are no storage tests yet.
+
