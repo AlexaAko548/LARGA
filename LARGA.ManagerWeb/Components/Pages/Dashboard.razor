@@ -424,7 +424,7 @@
 
         // The snapshot and the collection trend are independent, so both load at once (PERFORMANCE_REPORT.md P3).
         Task<DashboardSnapshot> snapshotTask = FleetReporting.GetDashboardSnapshotAsync();
-        Task<List<LARGA.SharedCore.Models.FinancialLedger.DailySettlementSnapshot>> collectionTask = Ledger.GetCollectionTrendAsync(FleetUtilization.WindowDays);
+        Task<List<LARGA.SharedCore.Models.FinancialLedger.DailySettlementSnapshot>> collectionTask = Ledger.GetCollectionTrendAsync(FleetUtilization.WindowDays, fromCache: true);
 
         try
         {

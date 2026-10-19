@@ -52,6 +52,12 @@ public class FleetReportingService
         _cache = cache;
     }
 
+    /// <summary>
+    /// The Executive Dashboard. Its whole-collection reads (taxis, users, maintenance, SOS alerts, fuel logs)
+    /// come from CollectionCache's listeners (PERFORMANCE_REPORT.md P4): the same documents, so the same
+    /// figures, without re-reading them on every visit. The dashboard only reads, so it can't miss a write of
+    /// its own. The date-window queries (active / recent shifts, recent payments) stay direct.
+    /// </summary>
     public async Task<DashboardSnapshot> GetDashboardSnapshotAsync()
     {
         DateTime now = DateTime.UtcNow;
@@ -61,13 +67,13 @@ public class FleetReportingService
         // slowest one instead of the sum of all nine (PERFORMANCE_REPORT.md P3). Same queries as before.
 
         // Bounded by fleet/team size, not history - safe to fetch in full forever.
-        Task<List<TaxiUnit>> taxisTask = GetAllAsync<TaxiUnit>("taxis");
-        Task<List<UserProfile>> usersTask = GetAllAsync<UserProfile>("users");
+        Task<List<TaxiUnit>> taxisTask = GetAllAsync<TaxiUnit>("taxis", fromCache: true);
+        Task<List<UserProfile>> usersTask = GetAllAsync<UserProfile>("users", fromCache: true);
 
         // Incident-driven, low volume even over years of real operation - see the class
         // comment above for why these stay full fetches instead of a null-filter query.
-        Task<List<MaintenanceRecord>> maintenanceTask = GetAllAsync<MaintenanceRecord>("maintenance_logs");
-        Task<List<EmergencyAlert>> alertsTask = GetAllAsync<EmergencyAlert>("emergency_alerts");
+        Task<List<MaintenanceRecord>> maintenanceTask = GetAllAsync<MaintenanceRecord>("maintenance_logs", fromCache: true);
+        Task<List<EmergencyAlert>> alertsTask = GetAllAsync<EmergencyAlert>("emergency_alerts", fromCache: true);
 
         // High-frequency, unbounded-by-history - query narrowly instead of fetching all.
         Task<List<ShiftLog>> activeShiftsTask = GetWhereEqualAsync<ShiftLog>("shifts", "status", "Active");
@@ -78,7 +84,7 @@ public class FleetReportingService
         // the date printed on the receipt (read by OCR), which can be weeks old by the time it's
         // verified - or misread entirely - so a 14-day window left most verified receipts out.
         // One document per refuel, so this stays small.
-        Task<List<FuelLog>> fuelLogsTask = GetAllAsync<FuelLog>("fuel_logs");
+        Task<List<FuelLog>> fuelLogsTask = GetAllAsync<FuelLog>("fuel_logs", fromCache: true);
 
         Task<double> idleThresholdTask = GetIdleThresholdMinutesAsync();
 

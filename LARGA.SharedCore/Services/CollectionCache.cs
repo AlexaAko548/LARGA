@@ -15,8 +15,9 @@ namespace LARGA.SharedCore.Services;
 /// payment every 30 minutes (and every SOS alert every 3 minutes), day and night.
 ///
 /// The documents are the same ones a direct read would return - the listener holds the latest committed
-/// state - so totals and alerts don't change. Used by the background checks only: a page that has just
-/// saved something reads Firestore directly, so it can't show a list from before its own write.
+/// state - so totals and alerts don't change. Used by the background checks and the read-only Executive
+/// Dashboard (P4). Pages that save something read Firestore directly, so they can't show a list from before
+/// their own write.
 /// If a listener can't deliver (not started in time, or failed), the caller gets null and reads
 /// Firestore directly, exactly as before.
 /// </summary>

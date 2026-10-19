@@ -82,9 +82,12 @@ public class FinancialLedgerService
     /// calendar days (oldest first, ending today) - the Executive Dashboard's boundary
     /// collection chart. Same figures as opening each day in Daily Settlements.
     /// </summary>
-    public async Task<List<DailySettlementSnapshot>> GetCollectionTrendAsync(int days = 7)
+    /// <param name="fromCache">The read-only Dashboard: the full ledger history (still all of it - credit from
+    /// any day changes which shifts are paid) from CollectionCache's listeners instead of re-reading every
+    /// shift and payment on each visit (PERFORMANCE_REPORT.md P4).</param>
+    public async Task<List<DailySettlementSnapshot>> GetCollectionTrendAsync(int days = 7, bool fromCache = false)
     {
-        SettlementContext context = await LoadSettlementContextAsync();
+        SettlementContext context = await LoadSettlementContextAsync(fromCache);
         DateTime today = ShiftClock.UtcNow.ToPhilippineTime().Date;
         return Enumerable.Range(0, Math.Max(1, days))
             .Select(i => BuildDailySettlement(today.AddDays(i - days + 1), context))
@@ -100,9 +103,9 @@ public class FinancialLedgerService
         Dictionary<string, ShiftCharge> ChargeByShift,
         Dictionary<string, decimal> OwedAfterCredit);
 
-    private async Task<SettlementContext> LoadSettlementContextAsync()
+    private async Task<SettlementContext> LoadSettlementContextAsync(bool fromCache = false)
     {
-        (List<ShiftLog> allShifts, List<BoundaryPayment> payments, _, List<UserProfile> drivers) = await GetFullLedgerDataAsync();
+        (List<ShiftLog> allShifts, List<BoundaryPayment> payments, _, List<UserProfile> drivers) = await GetFullLedgerDataAsync(fromCache);
         decimal defaultRate = await GetDefaultBoundaryRateAsync();
 
         // Per shift: what it still owes after credit (shifts not listed owe nothing).
