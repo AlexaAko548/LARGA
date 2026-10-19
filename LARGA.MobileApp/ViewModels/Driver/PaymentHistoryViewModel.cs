@@ -57,7 +57,7 @@ public class PaymentHistoryViewModel : BindableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Payment Fetch Error: {ex.Message}");
+            await FirestoreErrors.ShowLoadFailureAsync("Payment history", ex, "your payment history", canPullToRefresh: false);
         }
     }
 }

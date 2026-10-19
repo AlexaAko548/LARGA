@@ -113,9 +113,10 @@ public class LedgerViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Ledger Firebase Error: {ex.Message}");
-            OutstandingDebtBalance = "₱ 0.00";
+            // Not "₱ 0.00": a failed read must not look like the driver owes nothing.
+            OutstandingDebtBalance = "--";
             CurrentShiftPayment = "ERROR";
+            await FirestoreErrors.ShowLoadFailureAsync("Driver ledger", ex, "your ledger", canPullToRefresh: true);
         }
         finally
         {

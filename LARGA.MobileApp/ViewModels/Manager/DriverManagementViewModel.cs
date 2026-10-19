@@ -85,7 +85,7 @@ public class DriverManagementViewModel : BindableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Driver Management Load Error: {ex.Message}");
+            await FirestoreErrors.ShowLoadFailureAsync("Driver management", ex, "the driver list", canPullToRefresh: true);
         }
     }
 

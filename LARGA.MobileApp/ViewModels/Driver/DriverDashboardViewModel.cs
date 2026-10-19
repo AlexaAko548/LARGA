@@ -23,6 +23,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     private readonly IGpsTelemetryService _telemetryService;
     private readonly IEmergencyMonitor _emergencyMonitor;
     private bool _isOffline = true;
+    private readonly BusyGate _clockInGate = new();
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -115,7 +116,9 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
         _telemetryService = telemetryService;
         _emergencyMonitor = emergencyMonitor;
 
-        ToggleShiftCommand = new Command(async () =>
+        // The checks below make network calls before the checklist opens; the gate ignores a second tap meanwhile
+        // (it would open the pre-shift checklist twice) and shows the loading indicator.
+        ToggleShiftCommand = new Command(async () => await _clockInGate.RunAsync(async () =>
         {
             // A clock-in already waiting for the manager's evaluation - go back to it rather
             // than starting another inspection.
@@ -154,7 +157,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
             }
 
             await Shell.Current.GoToAsync("pre-shift-step1");
-        });
+        }));
         ActiveShiftCommand = new Command(async () => await Shell.Current.GoToAsync("active-shift"));
         MessageManagerCommand = new Command(async () => await Shell.Current.GoToAsync("message-manager"));
         RefreshCommand = new Command(async () => await RefreshAsync());

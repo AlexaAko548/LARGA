@@ -63,6 +63,13 @@ public class ManagerProfileViewModel : BindableObject
         UpdateContactNumberCommand = new Command(async () => await Shell.Current.GoToAsync("update-contact-number"));
         LogoutCommand = new Command(async () =>
         {
+            if (!await LARGA.MobileApp.Controls.ConfirmationPopup.ShowAsync(Shell.Current,
+                    "Log Out?", "You will stop seeing live alerts on this phone until you log in again.",
+                    confirmText: "Log Out", isDangerous: false))
+            {
+                return;
+            }
+
             // Live listeners (Alert Center) stop before the account they read with goes away.
             LARGA.MobileApp.Services.SessionEvents.RaiseSigningOut();
             await CrossFirebaseAuth.Current.SignOutAsync();

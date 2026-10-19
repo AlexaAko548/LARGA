@@ -19,6 +19,9 @@
                     <BoxView HeightRequest="1" Color="{DynamicResource ThemeDivider}" Margin="0,5,0,10"/>
 
                     <VerticalStackLayout BindableLayout.ItemsSource="{Binding DebtHistory}" Spacing="15">
+                        <BindableLayout.EmptyView>
+                            <Label Text="No debt records yet." FontSize="14" TextColor="{DynamicResource ThemeTextTertiary}" HorizontalOptions="Center" Margin="0,16" />
+                        </BindableLayout.EmptyView>
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:DebtRecord">
                                 <VerticalStackLayout Spacing="15">

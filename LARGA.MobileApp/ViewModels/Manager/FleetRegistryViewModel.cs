@@ -72,7 +72,7 @@ public class FleetRegistryViewModel : BindableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Fleet Registry Load Error: {ex.Message}");
+            await LARGA.MobileApp.Services.FirestoreErrors.ShowLoadFailureAsync("Fleet registry", ex, "the fleet list", canPullToRefresh: true);
         }
     }
 

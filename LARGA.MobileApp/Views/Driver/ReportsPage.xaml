@@ -51,6 +51,9 @@
             <Label Text="PAST VEHICLE REPORTS" FontSize="12" TextColor="{DynamicResource ThemeTextGray}" Margin="0,10,0,0" />
 
             <VerticalStackLayout BindableLayout.ItemsSource="{Binding DefectReports}" Spacing="8">
+                <BindableLayout.EmptyView>
+                    <Label Text="No defect reports yet." FontSize="14" TextColor="{DynamicResource ThemeTextTertiary}" HorizontalOptions="Center" Margin="0,16" />
+                </BindableLayout.EmptyView>
                 <BindableLayout.ItemTemplate>
                     <DataTemplate x:DataType="vm:DefectReportItem">
                         <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
@@ -78,6 +81,9 @@
                 <Label Text="PAST FUEL REPORTS" FontSize="12" TextColor="{DynamicResource ThemeTextGray}" Margin="0,10,0,0" />
 
                 <VerticalStackLayout BindableLayout.ItemsSource="{Binding FuelReports}" Spacing="8">
+                    <BindableLayout.EmptyView>
+                        <Label Text="No fuel reports yet." FontSize="14" TextColor="{DynamicResource ThemeTextTertiary}" HorizontalOptions="Center" Margin="0,16" />
+                    </BindableLayout.EmptyView>
                     <BindableLayout.ItemTemplate>
                         <DataTemplate x:DataType="vm:FuelReportItem">
                             <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">

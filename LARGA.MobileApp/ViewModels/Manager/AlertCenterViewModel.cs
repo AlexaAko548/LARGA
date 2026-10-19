@@ -39,6 +39,7 @@ public class AlertCenterViewModel : BindableObject
     private IDisposable? _bellListener;
     private IDisposable? _firstLoad;
 
+    private readonly BusyGate _actionGate = new();
     private string _errorMessage = string.Empty;
     private int _unreadCount;
     private bool _hasLoaded;
@@ -96,10 +97,13 @@ public class AlertCenterViewModel : BindableObject
             StartListening();
         });
 
-        DismissAlertCommand = new Command<AlertItem>(async (alert) => await DismissAsync(alert));
-        ApproveShiftCommand = new Command<AlertItem>(async (alert) => await ApproveClockInAsync(alert));
-        DenyShiftCommand = new Command<AlertItem>(async (alert) => await DenyClockInAsync(alert));
-        ResolveFuelCommand = new Command<AlertItem>(async (alert) => await ResolveFuelFlagAsync(alert));
+        // One card action at a time: a second tap (or a tap on another card) while one is saving is ignored, so an
+        // approval or a denial's garage report can't be written twice. No loading pill here - these actions wait on
+        // the manager's own answers (notes, confirmations); the writes themselves show it.
+        DismissAlertCommand = new Command<AlertItem>(async (alert) => await _actionGate.RunAsync(() => DismissAsync(alert), showLoading: false));
+        ApproveShiftCommand = new Command<AlertItem>(async (alert) => await _actionGate.RunAsync(() => ApproveClockInAsync(alert), showLoading: false));
+        DenyShiftCommand = new Command<AlertItem>(async (alert) => await _actionGate.RunAsync(() => DenyClockInAsync(alert), showLoading: false));
+        ResolveFuelCommand = new Command<AlertItem>(async (alert) => await _actionGate.RunAsync(() => ResolveFuelFlagAsync(alert), showLoading: false));
 
         CallDriverCommand = new Command<AlertItem>((alert) =>
         {
@@ -540,6 +544,7 @@ public class AlertCenterViewModel : BindableObject
                         confirmText: "Mark Resolved", isDangerous: false);
                     if (!confirmedResolved) return;
 
+                    using (LoadingState.Begin())
                     await CrossFirebaseFirestore.Current
                         .GetCollection("emergency_alerts")
                         .GetDocument(alert.Id)
@@ -570,7 +575,10 @@ public class AlertCenterViewModel : BindableObject
                     break;
 
                 default:
-                    await MarkAlertReadAsync(alert.Id);
+                    using (LoadingState.Begin())
+                    {
+                        await MarkAlertReadAsync(alert.Id);
+                    }
                     break;
             }
         }
@@ -590,6 +598,15 @@ public class AlertCenterViewModel : BindableObject
     {
         if (alert == null || alert.Type != AlertType.ShiftApproval) return;
 
+        // Approving lets a unit with a flagged inspection go out - confirm, like Deny asks for a note.
+        string flagged = string.IsNullOrWhiteSpace(alert.FailedItem) ? "the flagged items" : alert.FailedItem.Replace("\n", ", ");
+        bool confirmed = await ConfirmationPopup.ShowAsync(Shell.Current,
+            "Approve This Clock-in?",
+            $"{alert.DriverName} will start the shift even though the inspection flagged: {flagged}.",
+            confirmText: "Approve", isDangerous: false);
+        if (!confirmed) return;
+
+        using IDisposable loading = LoadingState.Begin();
         try
         {
             var (blocked, _) = await LARGA.SharedCore.Services.ShiftManagementService.GetBlockReasonAsync(
@@ -616,11 +633,12 @@ public class AlertCenterViewModel : BindableObject
             await MarkBellReadAsync($"{alert.Id}_CLOCKIN");
             AuditLogWriter.Record("ClockInApproved",
                 $"Clock-in approved for {alert.DriverName} on {alert.TaxiId} despite: {alert.FailedItem?.Replace("\n", "; ")}.");
+            await Shell.Current.DisplayAlert("Clock-in approved", $"{alert.DriverName} can now start the shift.", "OK");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Approve Clock-in Error: {ex.Message}");
-            await Shell.Current.DisplayAlert("Error", "Could not save the approval. Please try again.", "OK");
+            FirestoreErrors.Log("Approve clock-in", ex);
+            await Shell.Current.DisplayAlert("Not saved", FirestoreErrors.FriendlyMessage(ex, "save the approval"), "OK");
         }
     }
 
@@ -655,6 +673,7 @@ public class AlertCenterViewModel : BindableObject
                 confirmText: "Mark Under Maintenance", cancelText: "No", isDangerous: false);
         }
 
+        using IDisposable loading = LoadingState.Begin();
         try
         {
             var request = CrossFirebaseFirestore.Current.GetCollection("clockin_requests").GetDocument(alert.Id);
@@ -715,8 +734,8 @@ public class AlertCenterViewModel : BindableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Deny Clock-in Error: {ex.Message}");
-            await Shell.Current.DisplayAlert("Error", "Could not save the decision. Please try again.", "OK");
+            FirestoreErrors.Log("Deny clock-in", ex);
+            await Shell.Current.DisplayAlert("Not saved", FirestoreErrors.FriendlyMessage(ex, "save the decision"), "OK");
         }
     }
 
@@ -798,6 +817,7 @@ public class AlertCenterViewModel : BindableObject
             return;
         }
 
+        using IDisposable loading = LoadingState.Begin();
         try
         {
             var document = CrossFirebaseFirestore.Current.GetCollection("fuel_logs").GetDocument(alert.Id);
@@ -814,11 +834,12 @@ public class AlertCenterViewModel : BindableObject
             await MarkBellReadAsync(AlertFeed.FuelBellId(alert.Id));
             AuditLogWriter.Record("FuelFlagResolved",
                 $"Resolved the flag on shift {snapshot?.Data?.ShiftId ?? "unknown"}'s fuel submission: {note}");
+            await Shell.Current.DisplayAlert("Fuel flag resolved", "The receipt is now marked Verified with your note.", "OK");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Resolve fuel flag error: {ex.Message}");
-            await Shell.Current.DisplayAlert("Error", "Could not resolve this flag. Please try again.", "OK");
+            FirestoreErrors.Log("Resolve fuel flag", ex);
+            await Shell.Current.DisplayAlert("Not saved", FirestoreErrors.FriendlyMessage(ex, "resolve this flag"), "OK");
         }
     }
 

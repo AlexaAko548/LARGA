@@ -72,7 +72,7 @@ public class DebtDetailViewModel : BindableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Debt Fetch Error: {ex.Message}");
+            await FirestoreErrors.ShowLoadFailureAsync("Debt details", ex, "your debt details", canPullToRefresh: false);
         }
     }
 }

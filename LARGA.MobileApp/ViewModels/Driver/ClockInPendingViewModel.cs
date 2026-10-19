@@ -188,7 +188,11 @@ public class ClockInPendingViewModel : BindableObject
         await ShiftNavigation.GoToActiveShiftAsync();
     }
 
-    private async Task CancelRequestAsync()
+    private readonly BusyGate _withdrawGate = new();
+
+    private Task CancelRequestAsync() => _withdrawGate.RunAsync(CancelRequestCoreAsync);
+
+    private async Task CancelRequestCoreAsync()
     {
         string requestId = Preferences.Get(PendingRequestKey, string.Empty);
         bool confirm = await Shell.Current.DisplayAlert("Withdraw request?",
@@ -206,7 +210,11 @@ public class ClockInPendingViewModel : BindableObject
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Cancel Clock-in Request Error: {ex.Message}");
+                // Still Pending on the server, so the manager could still approve it. Stay here and say so,
+                // rather than leaving as if it had been withdrawn.
+                FirestoreErrors.Log("Withdraw clock-in request", ex);
+                await Shell.Current.DisplayAlert("Not withdrawn", FirestoreErrors.FriendlyMessage(ex, "withdraw your request"), "OK");
+                return;
             }
         }
 
