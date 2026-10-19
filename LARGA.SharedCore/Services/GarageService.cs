@@ -199,7 +199,7 @@ public class GarageService
             // The status change and its audit entry commit together, so a dismiss can't land unlogged.
             WriteBatch batch = Db.StartBatch();
             batch.Update(docRef, new Dictionary<string, object> { ["status"] = "Dismissed" });
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "MaintenanceDismissed",
@@ -255,7 +255,7 @@ public class GarageService
 
             WriteBatch batch = Db.StartBatch();
             batch.Update(docRef, updates);
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "MaintenanceTicketCreated",
@@ -287,7 +287,7 @@ public class GarageService
                 ["status"] = WorkOrderRules.InProgress,
                 ["scheduledDate"] = DateTime.SpecifyKind(PhilippineTime.Now.Date, DateTimeKind.Utc),
             });
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "MaintenanceStartedEarly",
@@ -344,7 +344,7 @@ public class GarageService
                 ["scheduledDate"] = FieldValue.Delete,
                 ["estimatedCompletionDate"] = FieldValue.Delete,
             });
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "MaintenanceUnscheduled",
@@ -378,7 +378,7 @@ public class GarageService
 
             WriteBatch batch = Db.StartBatch();
             batch.Update(docRef, updates);
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "MaintenanceResolved",
@@ -489,7 +489,7 @@ public class GarageService
             WriteBatch batch = Db.StartBatch();
             batch.Create(Db.Collection("maintenance_logs").Document(), record);
             batch.Delete(Db.Collection("routine_checks").Document(checkId));
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "RoutineCheckScheduled",

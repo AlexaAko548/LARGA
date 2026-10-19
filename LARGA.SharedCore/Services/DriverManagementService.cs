@@ -416,7 +416,7 @@ public class DriverManagementService
 
         WriteBatch batch = Db.StartBatch();
         batch.Set(Db.Collection("shift_schedules").Document(ScheduleDocId(driverId, dateUtc)), schedule, SetOptions.Overwrite);
-        batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+        batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
         {
             UserId = actorUserId ?? string.Empty,
             ActionType = "DriverMarkedDayOff",
@@ -466,7 +466,7 @@ public class DriverManagementService
 
         WriteBatch batch = Db.StartBatch();
         batch.Set(Db.Collection("shift_schedules").Document(ScheduleDocId(driverId, dateUtc)), schedule, SetOptions.Overwrite);
-        batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+        batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
         {
             UserId = actorUserId ?? string.Empty,
             ActionType = "SubstituteUnitAssigned",
@@ -486,7 +486,7 @@ public class DriverManagementService
 
         WriteBatch batch = Db.StartBatch();
         batch.Delete(Db.Collection("shift_schedules").Document(ScheduleDocId(driverId, dateUtc)));
-        batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+        batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
         {
             UserId = actorUserId ?? string.Empty,
             ActionType = "DriverScheduleCleared",
@@ -856,7 +856,7 @@ public class DriverManagementService
 
         WriteBatch batch = Db.StartBatch();
         batch.Update(userRef, updates);
-        batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+        batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
         {
             UserId = actorUserId ?? string.Empty,
             ActionType = "DriverProfileUpdated",
@@ -910,7 +910,7 @@ public class DriverManagementService
 
         WriteBatch batch = Db.StartBatch();
         batch.Update(Db.Collection("users").Document(driverId), new Dictionary<string, object> { ["managerNote"] = note });
-        batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+        batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
         {
             UserId = actorUserId ?? string.Empty,
             ActionType = "DriverManagerNoteUpdated",
@@ -1027,7 +1027,7 @@ public class DriverManagementService
 
             WriteBatch batch = Db.StartBatch();
             batch.Set(profileDoc, profile, SetOptions.Overwrite);
-            batch.Set(auditDoc, audit);
+            batch.Create(auditDoc, audit);
             await batch.CommitAsync();
         }
         catch (Exception ex)
@@ -1070,7 +1070,7 @@ public class DriverManagementService
 
             WriteBatch batch = Db.StartBatch();
             batch.Update(Db.Collection("users").Document(driverId), new Dictionary<string, object> { ["mustChangePassword"] = true });
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "DriverPasswordReset",
@@ -1121,7 +1121,7 @@ public class DriverManagementService
             {
                 WriteBatch syncBatch = Db.StartBatch();
                 syncBatch.Update(Db.Collection("users").Document(driverId), new Dictionary<string, object> { ["email"] = email });
-                syncBatch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+                syncBatch.Create(Db.Collection("audit_logs").Document(), new AuditLog
                 {
                     UserId = actorUserId ?? string.Empty,
                     ActionType = "DriverLoginEmailUpdated",
@@ -1157,7 +1157,7 @@ public class DriverManagementService
         {
             WriteBatch batch = Db.StartBatch();
             batch.Update(Db.Collection("users").Document(driverId), new Dictionary<string, object> { ["email"] = email });
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "DriverLoginEmailUpdated",

@@ -290,7 +290,7 @@ public class FuelVerificationService
 
             WriteBatch batch = Db.StartBatch();
             batch.Update(docRef, updates);
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "FuelVerified",
@@ -327,7 +327,7 @@ public class FuelVerificationService
 
             WriteBatch batch = Db.StartBatch();
             batch.Update(docRef, updates);
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "FuelFlagged",
@@ -373,7 +373,7 @@ public class FuelVerificationService
 
             WriteBatch batch = Db.StartBatch();
             batch.Update(docRef, updates);
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "FuelFlagResolved",
@@ -405,7 +405,7 @@ public class FuelVerificationService
             {
                 ["verificationStatus"] = new FuelVerificationStatusConverter().ToFirestore(FuelVerificationStatus.Pending),
             });
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "FuelResetToPending",

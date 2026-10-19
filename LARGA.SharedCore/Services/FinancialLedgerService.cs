@@ -384,7 +384,7 @@ public class FinancialLedgerService
 
             WriteBatch batch = Db.StartBatch();
             batch.Set(adjustmentDoc, adjustment);
-            batch.Set(auditDoc, audit);
+            batch.Create(auditDoc, audit);
             // The balance changed, so a payment planned against the old one must re-read it.
             batch.Set(LedgerLockRef(driverId), LedgerLockBump(), SetOptions.MergeAll);
             await batch.CommitAsync();

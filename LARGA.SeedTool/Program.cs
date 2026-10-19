@@ -136,6 +136,21 @@ internal static class Program
         Console.WriteLine($"  wrote {collection}/{docId}");
     }
 
+    /// <summary>For append-only collections (audit_logs, ANA-014): writes the document only if it
+    /// isn't there yet, so a re-run never overwrites an existing entry.</summary>
+    private static async Task CreateIfMissingAsync<T>(FirestoreDb db, string collection, string docId, T entity) where T : class
+    {
+        try
+        {
+            await db.Collection(collection).Document(docId).CreateAsync(entity);
+            Console.WriteLine($"  wrote {collection}/{docId}");
+        }
+        catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
+        {
+            Console.WriteLine($"  kept existing {collection}/{docId}");
+        }
+    }
+
     // ---------------------------------------------------------------------
     // users
     // ---------------------------------------------------------------------
@@ -1122,7 +1137,7 @@ internal static class Program
     {
         Console.WriteLine("Seeding audit_logs...");
 
-        await SetAsync(db, "audit_logs", "AUDIT_001", new AuditLog
+        await CreateIfMissingAsync(db, "audit_logs", "AUDIT_001", new AuditLog
         {
             UserId = SampleManagerUid,
             ActionType = "Login",
@@ -1131,7 +1146,7 @@ internal static class Program
             Timestamp = DateTime.UtcNow.AddHours(-2),
         });
 
-        await SetAsync(db, "audit_logs", "AUDIT_002", new AuditLog
+        await CreateIfMissingAsync(db, "audit_logs", "AUDIT_002", new AuditLog
         {
             UserId = SampleManagerUid,
             ActionType = "ResolveMaintenanceTicket",
@@ -1140,7 +1155,7 @@ internal static class Program
             Timestamp = new DateTime(2026, 8, 21, 10, 0, 33, DateTimeKind.Utc),
         });
 
-        await SetAsync(db, "audit_logs", "AUDIT_003", new AuditLog
+        await CreateIfMissingAsync(db, "audit_logs", "AUDIT_003", new AuditLog
         {
             UserId = SampleManagerUid,
             ActionType = "VerifyFuelReceipt",
@@ -1149,7 +1164,7 @@ internal static class Program
             Timestamp = new DateTime(2026, 8, 31, 19, 0, 0, DateTimeKind.Utc),
         });
 
-        await SetAsync(db, "audit_logs", "AUDIT_004", new AuditLog
+        await CreateIfMissingAsync(db, "audit_logs", "AUDIT_004", new AuditLog
         {
             UserId = DriverAna,
             ActionType = "EmergencyAlertTriggered",
@@ -1158,7 +1173,7 @@ internal static class Program
             Timestamp = DateTime.UtcNow.AddMinutes(-15),
         });
 
-        await SetAsync(db, "audit_logs", "AUDIT_005", new AuditLog
+        await CreateIfMissingAsync(db, "audit_logs", "AUDIT_005", new AuditLog
         {
             UserId = SampleManagerUid,
             ActionType = "FlagFuelReceipt",

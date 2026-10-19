@@ -233,8 +233,10 @@ service cloud.firestore {
       allow read, write: if isManager();
     }
 
+    // Append-only (ANA-014): an entry can be added but never changed or removed, by any role.
+    // ManagerWeb and the SeedTool use the Admin SDK (rules don't apply) and also only create.
     match /audit_logs/{logId} {
-      allow read, write: if isManager();
+      allow read, create: if isManager();
       // Drivers log only their own SOS and defect reports (EmergencyAlertService, VehicleDefectViewModel).
       allow create: if isDriver()
          && request.resource.data.userId == request.auth.uid

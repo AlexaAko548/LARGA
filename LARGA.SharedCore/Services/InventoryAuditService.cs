@@ -71,7 +71,7 @@ public class InventoryAuditService
 
         WriteBatch batch = Db.StartBatch();
         batch.Set(partDoc, part, SetOptions.Overwrite);
-        batch.Set(auditDoc, audit, SetOptions.Overwrite);
+        batch.Create(auditDoc, audit);
         await batch.CommitAsync();
         return part;
     }
@@ -137,7 +137,7 @@ public class InventoryAuditService
 
             stockDropped = stock < part.StockQuantity || reorder > part.ReorderLevel;
             transaction.Update(doc, updates);
-            transaction.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            transaction.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "InventoryPartEdited",
@@ -230,7 +230,7 @@ public class InventoryAuditService
                 AuditLogDetails = $"Deducted {deduction} {unit} from '{part.DisplayName}'{usedFor}. Stock: {part.StockQuantity} -> {updatedQuantity}.",
                 Timestamp = DateTime.UtcNow,
             };
-            transaction.Set(auditDoc, audit);
+            transaction.Create(auditDoc, audit);
 
             part.StockQuantity = updatedQuantity;
             if (string.IsNullOrWhiteSpace(part.Unit))
@@ -294,7 +294,7 @@ public class InventoryAuditService
                 AuditLogDetails = $"Added {increment} {unit} to '{part.DisplayName}'. Stock: {part.StockQuantity} -> {updatedQuantity}.{priceNote}",
                 Timestamp = DateTime.UtcNow,
             };
-            transaction.Set(auditDoc, audit);
+            transaction.Create(auditDoc, audit);
 
             part.StockQuantity = updatedQuantity;
             if (string.IsNullOrWhiteSpace(part.Unit))
