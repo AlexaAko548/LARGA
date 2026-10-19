@@ -70,9 +70,9 @@ public class ManagerProfileViewModel : BindableObject
                 return;
             }
 
-            // Live listeners (Alert Center) stop before the account they read with goes away.
-            LARGA.MobileApp.Services.SessionEvents.RaiseSigningOut();
-            await CrossFirebaseAuth.Current.SignOutAsync();
+            // Signs out and leaves nothing of this manager on the phone (ledgers, driver details in
+            // the Firestore cache) - see SignOutService.
+            await LARGA.MobileApp.Services.SignOutService.SignOutAsync();
             await Shell.Current.GoToAsync("//landing");
         });
     }

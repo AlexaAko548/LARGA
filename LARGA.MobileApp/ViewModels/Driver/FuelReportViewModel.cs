@@ -624,7 +624,7 @@ public class FuelReportViewModel : BindableObject
         OnPropertyChanged(nameof(CanSubmit));
     }
 
-    private static void ClearPendingDraft()
+    internal static void ClearPendingDraft()
     {
         Preferences.Remove(PendingCostKey);
         Preferences.Remove(PendingQuantityKey);

@@ -148,9 +148,8 @@ public class ProfileViewModel : BindableObject
             telemetryService.Stop();
             // LAR-86/87: likewise stop emergency detection when the driver signs out.
             emergencyMonitor.Stop();
-            // Live listeners (Alert Center) stop before the account they read with goes away.
-            LARGA.MobileApp.Services.SessionEvents.RaiseSigningOut();
-            await CrossFirebaseAuth.Current.SignOutAsync();
+            // Signs out and leaves nothing of this driver on the (shared) phone - see SignOutService.
+            await LARGA.MobileApp.Services.SignOutService.SignOutAsync();
             await Shell.Current.GoToAsync("//landing");
         });
 
