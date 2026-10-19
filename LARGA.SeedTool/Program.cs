@@ -19,15 +19,18 @@ namespace LARGA.SeedTool;
 /// instead of creating duplicates - safe to run again before a demo to reset state.
 ///
 /// Usage:
-///   dotnet run --project LARGA.SeedTool -- <path-to-service-account-key.json> [projectId]
+///   dotnet run --project LARGA.SeedTool -- <path-to-service-account-key.json | -> <projectId> [--production]
 ///
-/// If no key path is given, falls back to Application Default Credentials
+/// "-" instead of a key path uses Application Default Credentials
 /// (GOOGLE_APPLICATION_CREDENTIALS env var or `gcloud auth application-default login`).
-/// Default project id is "larga-blmtaxi" (from firebase-auth.js).
+/// The project ID is required - there is no default (audit E-03). The live project
+/// ("larga-blmtaxi") is refused unless --production is passed, because the fixed IDs below
+/// overwrite real users, shifts and payments that share them.
 /// </summary>
 internal static class Program
 {
-    private const string DefaultProjectId = "larga-blmtaxi";
+    private const string ProductionProjectId = "larga-blmtaxi";
+    private const string ProductionFlag = "--production";
 
     // Fixed, meaningful IDs so reruns are idempotent and console records are easy to read.
     // Note: "WD2nFT8xngMPNYQb0xEeIyPAenl1" (the real Firebase Auth manager) is intentionally
@@ -47,12 +50,32 @@ internal static class Program
 
     private static async Task<int> Main(string[] args)
     {
-        string? keyPath = args.Length > 0 ? args[0] : null;
-        string projectId = args.Length > 1 ? args[1] : DefaultProjectId;
+        bool allowProduction = args.Contains(ProductionFlag);
+        string[] positional = args.Where(a => a != ProductionFlag).ToArray();
+        string? keyPath = positional.Length > 0 && positional[0] != "-" ? positional[0] : null;
+        string? projectId = positional.Length > 1 ? positional[1] : null;
+
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+            Console.WriteLine("Usage: dotnet run --project LARGA.SeedTool -- <service-account-key.json | -> <projectId> [--production]");
+            Console.WriteLine("The project ID is required. Seed a dev/test project, not the live one.");
+            return 1;
+        }
+
+        if (projectId == ProductionProjectId && !allowProduction)
+        {
+            Console.WriteLine($"Refusing to seed the live project \"{ProductionProjectId}\": it would overwrite real records.");
+            Console.WriteLine($"Use a dev project, or add {ProductionFlag} if you really mean it.");
+            return 1;
+        }
 
         Console.WriteLine("LARGA Firestore Seed Tool");
         Console.WriteLine("=========================");
         Console.WriteLine($"Target project : {projectId}");
+        if (projectId == ProductionProjectId)
+        {
+            Console.WriteLine("!! THIS IS THE LIVE PROJECT - real data with the same IDs will be overwritten !!");
+        }
         Console.WriteLine($"Credentials    : {(keyPath is null ? "Application Default Credentials" : keyPath)}");
         Console.WriteLine();
         Console.WriteLine("This will write/overwrite fixed-ID documents in: users, taxis, shifts,");
