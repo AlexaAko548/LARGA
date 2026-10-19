@@ -114,6 +114,7 @@ public class FuelVerificationService
                     ReceiptImageUrl = log.ReceiptImageUrl,
                     OdometerPhotoUrl = log.OdometerPhotoUrl,
                     FuelLogDetails = log.FuelLogDetails,
+                    IsAutoFlagged = log.AutoFlagged,
                     SubmittedAt = log.SubmittedAt,
                     VerifiedAt = log.VerifiedAt,
                     FlaggedAt = log.FlaggedAt,

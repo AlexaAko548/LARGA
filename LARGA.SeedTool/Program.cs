@@ -693,7 +693,7 @@ internal static class Program
         await SetAsync(db, "fuel_logs", $"{ShiftMariaAug29}_FUEL", new FuelLog
         {
             ShiftId = ShiftMariaAug29,
-            FuelStation = "Caltex - Bicutan",
+            FuelStation = "Petron - Bicutan",
             LitersRefueled = 8.0m,
             FuelCost = 496,
             ORNumber = "OR-2026-000103",
@@ -709,7 +709,7 @@ internal static class Program
         await SetAsync(db, "fuel_logs", $"{ShiftMariaSep4}_FUEL", new FuelLog
         {
             ShiftId = ShiftMariaSep4,
-            FuelStation = "Caltex - Bicutan",
+            FuelStation = "Petron - Bicutan",
             LitersRefueled = 7.5m,
             FuelCost = 465,
             ORNumber = "OR-2026-000106",
@@ -725,7 +725,7 @@ internal static class Program
         await SetAsync(db, "fuel_logs", $"{ShiftPedroSep3}_FUEL", new FuelLog
         {
             ShiftId = ShiftPedroSep3,
-            FuelStation = "Phoenix - Ortigas",
+            FuelStation = "Shell - Ortigas",
             LitersRefueled = 9.0m,
             FuelCost = 558,
             ORNumber = "OR-2026-000105",
@@ -780,8 +780,12 @@ internal static class Program
             ReceiptImageUrl = "https://storage.googleapis.com/larga-blmtaxi.appspot.com/fuel_receipts/SHIFT_2026090502.jpg",
             ReceiptTimestamp = DateTime.UtcNow.Date.AddHours(5).AddMinutes(50),
             SubmittedAt = DateTime.UtcNow.Date.AddHours(5).AddMinutes(50).AddMinutes(10),
-            VerificationStatus = FuelVerificationStatus.Pending,
-            FuelLogDetails = string.Empty,
+            // FUEL-004 example: not a Petron/Shell receipt, so the app submitted it already
+            // Flagged with the reason (FuelStations.NotAllowedReason).
+            VerificationStatus = FuelVerificationStatus.Flagged,
+            FuelLogDetails = "Station is not Petron or Shell",
+            AutoFlagged = true,
+            FlaggedAt = DateTime.UtcNow.Date.AddHours(5).AddMinutes(50).AddMinutes(10),
             OdometerReading = 95475,
             OdometerPhotoUrl = "https://storage.googleapis.com/larga-blmtaxi.appspot.com/odometer/SHIFT_2026090502.jpg",
         });

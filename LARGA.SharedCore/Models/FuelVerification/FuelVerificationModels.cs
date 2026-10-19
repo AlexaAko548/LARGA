@@ -42,6 +42,10 @@ public class FuelLogEntry
     public string? OdometerPhotoUrl { get; set; }
     public string? FuelLogDetails { get; set; }
 
+    /// <summary>Flagged by the system (non-Petron/Shell station, odometer vs GPS) rather than a
+    /// manager - FuelLog.AutoFlagged; the reason is FuelLogDetails.</summary>
+    public bool IsAutoFlagged { get; set; }
+
     /// <summary>The same driver's previous refuel (or, if this is their first, the shift's
     /// starting odometer) - lets the review modal show distance covered and an efficiency
     /// estimate rather than just the raw numbers on their own.</summary>

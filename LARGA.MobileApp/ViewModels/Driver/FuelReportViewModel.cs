@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using LARGA.MobileApp.Services;
+using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
 using LARGA.Shared.Models.Entities;
 using Microsoft.Maui.ApplicationModel;
@@ -355,6 +356,11 @@ public class FuelReportViewModel : BindableObject
                     return;
                 }
 
+                // FUEL-004: a receipt from a station other than Petron or Shell still goes in, but
+                // Flagged with the reason, so it lands straight in the manager's flagged queue and
+                // Alert Center (the same path as any other fuel discrepancy).
+                bool stationAllowed = FuelStations.IsAllowed(FuelStation);
+
                 var fuelRecord = new FuelLog
                 {
                     DriverId = currentUser.Uid,
@@ -365,7 +371,9 @@ public class FuelReportViewModel : BindableObject
                     ORNumber = OrNumber?.Trim() ?? string.Empty,
                     ReceiptTimestamp = NormalizeReceiptTimestamp(SelectedDate.Value),
                     OdometerReading = int.TryParse(Odometer.Replace(",", ""), out var odoVal) ? odoVal : 0,
-                    VerificationStatus = FuelVerificationStatus.Pending,
+                    VerificationStatus = stationAllowed ? FuelVerificationStatus.Pending : FuelVerificationStatus.Flagged,
+                    FuelLogDetails = stationAllowed ? null : FuelStations.NotAllowedReason,
+                    AutoFlagged = !stationAllowed,
                     ReceiptImageUrl = receiptImageUrl,
                     OdometerPhotoUrl = odometerPhotoUrl,
                     IsCostManuallyEdited = IsCostManuallyEdited,
@@ -398,7 +406,9 @@ public class FuelReportViewModel : BindableObject
                 WeakReferenceMessenger.Default.Send(new FuelReportSubmittedMessage());
                 ResetState();
 
-                await Shell.Current.DisplayAlert("Success", "Fuel report submitted for verification.", "OK");
+                await Shell.Current.DisplayAlert("Success", stationAllowed
+                    ? "Fuel report submitted for verification."
+                    : $"Fuel report submitted, but flagged for the manager's review: {FuelStations.NotAllowedReason}.", "OK");
                 await Shell.Current.GoToAsync("..");
             }
             catch (Exception ex)

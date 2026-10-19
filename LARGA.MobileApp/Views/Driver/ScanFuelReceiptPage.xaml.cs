@@ -1,6 +1,7 @@
 ﻿using CommunityToolkit.Mvvm.Messaging;
 using LARGA.MobileApp.Services;
 using LARGA.MobileApp.ViewModels.Driver;
+using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Storage;
@@ -174,7 +175,7 @@ public partial class ScanFuelReceiptPage : ContentPage
 
                 string fullText = string.Join(" ", lines);
 
-                var vendor = TryParseVendor(fullText, lines);
+                var vendor = TryParseVendor(fullText);
                 var amount = TryParseAmount(fullText, lines, detectedBlocks);
                 var quantity = TryParseLiters(fullText, lines);
                 var receiptDate = TryParseReceiptDate(fullText, lines);
@@ -342,21 +343,11 @@ public partial class ScanFuelReceiptPage : ContentPage
         await StartCameraSafelyAsync();
     }
 
-    private static string? TryParseVendor(string fullText, List<string> lines)
-    {
-        var upper = NormalizeVendorText(fullText);
-        string[] knownStations = ["PETRON", "SHELL", "CALTEX", "SEAOIL", "TOTAL", "PHOENIX", "UNIOIL", "JETTI"];
-        var hit = knownStations.FirstOrDefault(upper.Contains);
-        if (!string.IsNullOrWhiteSpace(hit))
-            return hit;
-
-        var firstLine = lines.FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(firstLine))
-            return null;
-
-        var cleaned = Regex.Replace(firstLine, "[^A-Za-z0-9 .&-]", "").Trim();
-        return string.IsNullOrWhiteSpace(cleaned) ? null : cleaned;
-    }
+    /// <summary>FUEL-004: only Petron and Shell (FuelStations, shared with the rest of the app). Any
+    /// other receipt reads as UNKNOWN - the first OCR line is no longer taken as the station - and
+    /// is submitted Flagged unless the driver corrects it to one of the two.</summary>
+    private static string? TryParseVendor(string fullText) =>
+        FuelStations.Match(fullText) ?? FuelStations.Match(NormalizeVendorText(fullText));
 
     private void ApplyScanResult(ReceiptScanSnapshot scan)
     {
@@ -695,7 +686,7 @@ public partial class ScanFuelReceiptPage : ContentPage
         var issues = new List<string>();
 
         if (string.IsNullOrWhiteSpace(vendor) || vendor.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase))
-            issues.Add("Station name may be incorrect.");
+            issues.Add("Station not recognized as Petron or Shell.");
 
         if (!amount.HasValue || amount.Value <= 0)
             issues.Add("Total amount was not confidently detected.");

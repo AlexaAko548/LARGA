@@ -117,4 +117,10 @@ public class FuelLog
 
     [FirestoreProperty("isAnyFieldManuallyEdited")]
     public bool IsAnyFieldManuallyEdited { get; set; }
+
+    /// <summary>Flagged by the system rather than a manager - on submit for a station other than
+    /// Petron/Shell (FUEL-004), or by ManagerWeb's odometer-vs-GPS check (FUEL-017). The reason is in
+    /// FuelLogDetails. Stays true after a manager verifies it, as a record of why it was flagged.</summary>
+    [FirestoreProperty("autoFlagged")]
+    public bool AutoFlagged { get; set; }
 }
