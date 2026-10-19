@@ -250,17 +250,22 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
 
             try
             {
-                var userProfileDoc = await CrossFirebaseFirestore.Current
+                // The profile and today's schedule entry don't depend on each other, so both are read at
+                // once (PERFORMANCE_REPORT.md P8).
+                var profileTask = CrossFirebaseFirestore.Current
                     .GetCollection("users")
                     .GetDocument(user.Uid)
                     .GetDocumentSnapshotAsync<UserProfileProxy>(); // FIX: Use the mobile proxy
+                Task<string?> substituteTask = _shiftService.GetTodaysTaxiIdAsync(null);
+                var userProfileDoc = await profileTask;
 
                 DateTimeOffset? licenseExpiryOffset = userProfileDoc?.Data?.LicenseExpiryDate;
                 EvaluateLicenseAlert(licenseExpiryOffset?.UtcDateTime);
 
                 // Today's unit - a substitute the manager assigned while the driver's own unit is
                 // under maintenance, otherwise their permanent one.
-                var dynamicTaxiId = await _shiftService.GetTodaysTaxiIdAsync(userProfileDoc?.Data?.AssignedTaxiId);
+                // (GetTodaysTaxiIdAsync(null) returns the substitute, or null when there is none.)
+                var dynamicTaxiId = await substituteTask ?? userProfileDoc?.Data?.AssignedTaxiId;
 
                 if (!string.IsNullOrWhiteSpace(dynamicTaxiId))
                 {

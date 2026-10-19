@@ -102,6 +102,9 @@ describe('LARGA users still read the shared lists', () => {
 describe('Driver A vs Driver B', () => {
   it("cannot read B's shift", async () => assertFails(getDoc(doc(as(DRIVER_A), 'shifts', 'shiftB'))));
   it('cannot list all shifts', async () => assertFails(getDocs(collection(as(DRIVER_A), 'shifts'))));
+  it("can list their own open shifts (driver dashboard's query)", async () =>
+    assertSucceeds(getDocs(query(collection(as(DRIVER_A), 'shifts'),
+      where('driverId', '==', DRIVER_A), where('status', 'in', ['Active', 'Auto-Closed'])))));
   it('can list only their own shifts', async () =>
     assertSucceeds(getDocs(query(collection(as(DRIVER_A), 'shifts'), where('driverId', '==', DRIVER_A)))));
   it("cannot read B's payment", async () => assertFails(getDoc(doc(as(DRIVER_A), 'boundary_payments', 'payB'))));

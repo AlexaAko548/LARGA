@@ -675,11 +675,28 @@ public class ShiftManagementService : IShiftManagementService
 
     private static async Task<List<DriverShiftSummary>> GetMyShiftsAsync(string driverId)
     {
-        // Single equality filter (auto-indexed); status is checked client-side.
-        var query = await CrossFirebaseFirestore.Current
-            .GetCollection("shifts")
-            .WhereEqualsTo("driverId", driverId)
-            .GetDocumentsAsync<ShiftReadProxy>();
+        // Only the driver's open (Active) and Auto-Closed shifts, filtered by Firestore instead of reading every
+        // shift the driver ever had (PERFORMANCE_REPORT.md P8). Equality filters only (== and in), which
+        // Firestore serves from its automatic single-field indexes - no composite index.
+        IQuerySnapshot<ShiftReadProxy> query;
+        try
+        {
+            query = await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .WhereEqualsTo("driverId", driverId)
+                .WhereFieldIn("status", new object[] { "Active", AutoClosedStatus })
+                .GetDocumentsAsync<ShiftReadProxy>();
+        }
+        catch (Exception ex) when (ex.ToString().Contains("FAILED_PRECONDITION", StringComparison.OrdinalIgnoreCase))
+        {
+            // The project wants a composite index for this query (firestore.indexes.json) and it isn't
+            // deployed yet: read all of the driver's shifts as before, so clock-in never breaks on it.
+            query = await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .WhereEqualsTo("driverId", driverId)
+                .GetDocumentsAsync<ShiftReadProxy>();
+        }
+        PerfLog.Reads("shifts (own, open)", query.Documents.Count());
 
         return query.Documents
             .Where(d => d.Data != null && (d.Data.Status == "Active" || d.Data.Status == AutoClosedStatus))
