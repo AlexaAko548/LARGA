@@ -233,6 +233,13 @@ public class FinancialLedgerService
                 return new RecordPaymentResult { Ok = false, ErrorMessage = "This shift no longer exists." };
             }
 
+            // BRP-008: a reference already on another payment is refused before the photo goes up.
+            // (BookPaymentAsync checks again in its transaction - that's the one that counts.)
+            if (await IsReferenceRecordedAsync(receipt?.ReferenceNo))
+            {
+                return new RecordPaymentResult { Ok = false, ErrorMessage = PaymentReferenceRules.DuplicateMessage };
+            }
+
             // Uploaded once, before the attempts below - a retry re-reads balances, not the photo.
             var receiptLink = await UploadReceiptAsync(shift.DriverId, receipt);
 
@@ -275,6 +282,10 @@ public class FinancialLedgerService
         catch (LedgerConflictException)
         {
             return new RecordPaymentResult { Ok = false, ErrorMessage = ConflictMessage };
+        }
+        catch (DuplicatePaymentReferenceException ex)
+        {
+            return new RecordPaymentResult { Ok = false, ErrorMessage = ex.Message };
         }
         catch (Exception ex)
         {
@@ -688,6 +699,12 @@ public class FinancialLedgerService
                 // off several shifts - each document links it.
                 if (!receiptUploaded)
                 {
+                    // BRP-008: same up-front check as RecordPaymentAsync.
+                    if (await IsReferenceRecordedAsync(receipt?.ReferenceNo))
+                    {
+                        return new SettleDebtResult { Ok = false, ErrorMessage = PaymentReferenceRules.DuplicateMessage };
+                    }
+
                     receiptLink = await UploadReceiptAsync(driverId, receipt);
                     receiptUploaded = true;
                 }
@@ -731,6 +748,10 @@ public class FinancialLedgerService
         catch (LedgerConflictException)
         {
             return new SettleDebtResult { Ok = false, ErrorMessage = ConflictMessage };
+        }
+        catch (DuplicatePaymentReferenceException ex)
+        {
+            return new SettleDebtResult { Ok = false, ErrorMessage = ex.Message };
         }
         catch (Exception ex)
         {
@@ -839,13 +860,37 @@ public class FinancialLedgerService
         // balances above were read at: another cashier's payment in between (web or the app's
         // Quick Ledger, which bump the same version) makes this throw LedgerConflictException,
         // and the caller re-reads the balances and allocates again.
+        //
+        // BRP-008: an E-Wallet payment also claims payment_references/{normalized reference} in
+        // the same commit. If another payment already holds that reference, nothing is saved
+        // (DuplicatePaymentReferenceException).
         DocumentReference lockRef = LedgerLockRef(driverId);
+        string? reference = PaymentReferenceRules.Normalize(receiptLink?.ReferenceNo);
+        DocumentReference? referenceRef = reference is null ? null : Db.Collection(PaymentReferenceRules.Collection).Document(reference);
         await Db.RunTransactionAsync(async transaction =>
         {
             DocumentSnapshot lockSnapshot = await transaction.GetSnapshotAsync(lockRef);
             if (LedgerVersionOf(lockSnapshot) != expectedLedgerVersion)
             {
                 throw new LedgerConflictException();
+            }
+
+            if (referenceRef is not null)
+            {
+                DocumentSnapshot referenceSnapshot = await transaction.GetSnapshotAsync(referenceRef);
+                if (referenceSnapshot.Exists)
+                {
+                    throw new DuplicatePaymentReferenceException();
+                }
+
+                transaction.Create(referenceRef, new Dictionary<string, object>
+                {
+                    ["paymentId"] = paymentDocs.Count > 0 ? paymentDocs[0].Doc.Id : transactionId,
+                    ["driverId"] = driverId,
+                    ["transactionId"] = transactionId,
+                    ["referenceNumber"] = receiptLink!.Value.ReferenceNo!,
+                    ["createdAt"] = now,
+                });
             }
 
             foreach ((DocumentReference doc, Dictionary<string, object> fields) in paymentDocs)
@@ -889,6 +934,20 @@ public class FinancialLedgerService
     }
 
     private DocumentReference LedgerLockRef(string driverId) => Db.Collection("ledger_locks").Document(driverId);
+
+    /// <summary>Whether payment_references already holds this GCash reference (BRP-008). No
+    /// reference (cash): false.</summary>
+    private async Task<bool> IsReferenceRecordedAsync(string? referenceNo)
+    {
+        string? reference = PaymentReferenceRules.Normalize(referenceNo);
+        if (reference is null)
+        {
+            return false;
+        }
+
+        DocumentSnapshot snapshot = await Db.Collection(PaymentReferenceRules.Collection).Document(reference).GetSnapshotAsync();
+        return snapshot.Exists;
+    }
 
     /// <summary>The fields that bump a driver's ledger version (merged, so the doc is created on first use).</summary>
     private static Dictionary<string, object> LedgerLockBump() => new()

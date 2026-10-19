@@ -153,14 +153,41 @@ public class QuickLedgerService
         IDocumentReference creditDoc = firestore.GetCollection("debt_adjustments").CreateDocument();
         IDocumentReference lockDoc = firestore.GetCollection("ledger_locks").GetDocument(driverId);
 
+        // BRP-008: an E-Wallet payment claims payment_references/{normalized reference} in the same commit, so one
+        // GCash reference can't be recorded twice (here or on the web). Cash has no reference and isn't checked.
+        string? reference = PaymentReferenceRules.Normalize(plan.Evidence?.ReferenceNumber);
+        IDocumentReference? referenceDoc = reference is null
+            ? null
+            : firestore.GetCollection(PaymentReferenceRules.Collection).GetDocument(reference);
+        Dictionary<object, object>? referenceFields = referenceDoc is null ? null : new Dictionary<object, object>
+        {
+            ["paymentId"] = payments.Count > 0 ? payments[0].Doc.Id : plan.TransactionId,
+            ["driverId"] = driverId,
+            ["transactionId"] = plan.TransactionId,
+            ["referenceNumber"] = plan.Evidence!.ReferenceNumber!,
+            ["createdAt"] = FieldValue.ServerTimestamp(),
+        };
+        bool duplicateReference = false;
+
         // The transaction body runs on a native thread and may be retried by Firestore, so it returns a flag rather than
         // throwing: a .NET exception thrown in there doesn't reliably come back out as itself.
         bool committed = await Timed(firestore.RunTransactionAsync(transaction =>
         {
+            duplicateReference = false; // the body can be retried
             long current = LedgerVersionOf(transaction.GetDocument<LedgerLockProxy>(lockDoc)?.Data);
             if (current != expectedLedgerVersion)
             {
                 return false; // nothing written - the whole transaction is a no-op
+            }
+
+            if (referenceDoc is not null)
+            {
+                // All reads before any write. Every claim carries a paymentId, so a missing one means no claim.
+                if (!string.IsNullOrEmpty(transaction.GetDocument<PaymentReferenceProxy>(referenceDoc)?.Data?.PaymentId))
+                {
+                    duplicateReference = true;
+                    return false;
+                }
             }
 
             // Dictionary + Merge creates the document. The tuple-array overload stored no amount on the document
@@ -175,6 +202,12 @@ public class QuickLedgerService
                 transaction.SetData(creditDoc, credit, SetOptions.Merge());
             }
 
+            if (referenceDoc is not null)
+            {
+                // Lands as a create; firestore.rules refuse it as an update if the document appeared in the meantime.
+                transaction.SetData(referenceDoc, referenceFields!, SetOptions.Merge());
+            }
+
             transaction.SetData(lockDoc, new Dictionary<object, object>
             {
                 ["version"] = current + 1,
@@ -185,7 +218,7 @@ public class QuickLedgerService
 
         if (!committed)
         {
-            throw new LedgerConflictException();
+            throw duplicateReference ? new DuplicatePaymentReferenceException() : new LedgerConflictException();
         }
 
         foreach (var payment in payments)
@@ -566,6 +599,26 @@ public class QuickLedgerService
     // Firestore proxies: field names match the camelCase names the web writes.
     // Plain values are object? so that any stored number type converts (see the class comment).
     // ---------------------------------------------------------------------
+
+    /// <summary>Whether this GCash reference is already on a payment (payment_references, BRP-008) - checked before
+    /// the receipt photo is uploaded. SavePaymentPlanAsync checks again in its transaction; that's the one that counts.</summary>
+    public async Task<bool> IsReferenceRecordedAsync(string? referenceNumber)
+    {
+        string? reference = PaymentReferenceRules.Normalize(referenceNumber);
+        if (reference is null) return false;
+
+        var snapshot = await Timed(CrossFirebaseFirestore.Current
+            .GetCollection(PaymentReferenceRules.Collection)
+            .GetDocument(reference)
+            .GetDocumentSnapshotAsync<PaymentReferenceProxy>(), "Checking the GCash reference");
+        return !string.IsNullOrEmpty(snapshot?.Data?.PaymentId);
+    }
+
+    public class PaymentReferenceProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("paymentId")]
+        public string? PaymentId { get; set; }
+    }
 
     public class LedgerLockProxy
     {

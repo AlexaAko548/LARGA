@@ -183,6 +183,14 @@ service cloud.firestore {
       allow delete: if isManager();
     }
 
+    // BRP-008: one document per GCash reference number (normalized - PaymentReferenceRules), claimed
+    // in the same transaction as the payment that uses it. Staff record payments (see above), so
+    // staff may read and create claims; a create on an existing reference is an update and is
+    // refused, and nobody may change or remove a claim.
+    match /payment_references/{reference} {
+      allow read, create: if isStaff();
+    }
+
     match /maintenance_logs/{maintenanceId} {
       allow read: if isStaff() || isDriver();
       // Managers too: denying a flagged clock-in from the manager app files a Garage report for

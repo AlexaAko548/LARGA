@@ -536,6 +536,12 @@ public class RecordPaymentViewModel : BindableObject
             return new PaymentEvidence(notes, null, null, null, null);
         }
 
+        // BRP-008: refuse a GCash reference that's already on a payment before uploading its photo.
+        if (await _service.IsReferenceRecordedAsync(_receipt.ReferenceNumber))
+        {
+            throw new DuplicatePaymentReferenceException();
+        }
+
         string photoUrl;
         try
         {
