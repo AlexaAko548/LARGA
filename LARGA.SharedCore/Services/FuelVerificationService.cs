@@ -377,9 +377,8 @@ public class FuelVerificationService
     /// <summary>Sums haversine distance between consecutive gps_telemetry pings for a shift
     /// within [windowStart, windowEnd]. Returns null (rather than 0) on anything short of a
     /// clean two-plus-point read - no telemetry, one lone ping, or a missing composite index
-    /// (shiftId Asc, timestamp Asc - same gotcha FleetReportingService.IsMovingAsync already
-    /// documents for its own gps_telemetry query; Firestore's exception on first run names
-    /// the exact console link to create it) - so the modal shows "no GPS data" instead of a
+    /// (shiftId Asc, timestamp Asc - declared in firestore.indexes.json and deployed with the rules;
+    /// without it Firestore's exception names the exact console link to create it) - so the modal shows "no GPS data" instead of a
     /// false "0 km driven, way off".</summary>
     private async Task<double?> TryGetGpsDistanceKmAsync(string shiftId, DateTime windowStart, DateTime windowEnd)
     {

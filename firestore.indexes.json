@@ -1,0 +1,29 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "gps_telemetry",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "shiftId", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "shifts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "driverId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "emergency_alerts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isResolved", "order": "ASCENDING" },
+        { "fieldPath": "callerCheck", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
