@@ -15,7 +15,11 @@ namespace LARGA.SharedCore.Services;
 /// </summary>
 public class InventoryAuditService
 {
-    private const int DefaultAuditLogLimit = 250;
+    /// <summary>Audit Logs page size (ANA-015).</summary>
+    public const int AuditLogPageSize = 50;
+
+    // Batch size for reading a whole date range (search and export).
+    private const int AuditLogBatchSize = 500;
 
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly ILogger<InventoryAuditService> _logger;
@@ -402,31 +406,97 @@ public class InventoryAuditService
         _ => "Routine checkup",
     };
 
-    public async Task<List<AuditLogListItem>> GetAuditLogsAsync(int limit = DefaultAuditLogLimit)
+    /// <summary>
+    /// One page of the audit trail within [fromUtc, toUtc), newest first (ANA-015). Firestore
+    /// cursor paging: pass the previous page's <see cref="AuditLogPage.Cursor"/> as
+    /// <paramref name="after"/> for the next one. A range plus an order on the same single field
+    /// (timestamp) only needs Firestore's automatic single-field index - no composite index.
+    /// </summary>
+    public async Task<AuditLogPage> GetAuditLogPageAsync(DateTime fromUtc, DateTime toUtc, DocumentSnapshot? after = null, int pageSize = AuditLogPageSize)
     {
-        QuerySnapshot snapshot = await Db.Collection("audit_logs")
-            .OrderByDescending("timestamp")
-            .Limit(Math.Max(1, limit))
-            .GetSnapshotAsync();
+        // One extra document tells whether there's a next page.
+        QuerySnapshot snapshot = await AuditRangeQuery(fromUtc, toUtc, after).Limit(pageSize + 1).GetSnapshotAsync();
+        List<DocumentSnapshot> docs = snapshot.Documents.Take(pageSize).ToList();
 
-        List<AuditLog> logs = ConvertDocuments<AuditLog>(snapshot, "audit_logs")
-            .OrderByDescending(l => l.Timestamp)
-            .ToList();
+        List<AuditLog> logs = ConvertAuditDocuments(docs);
+        return new AuditLogPage
+        {
+            Items = await ToListItemsAsync(logs),
+            Cursor = docs.Count > 0 ? docs[^1] : after,
+            HasMore = snapshot.Documents.Count > pageSize,
+        };
+    }
 
-        Dictionary<string, string> actorNames = await ResolveActorNamesAsync(logs);
+    /// <summary>Every audit entry within [fromUtc, toUtc), newest first, read in batches of 500 -
+    /// what the page's search and both exports (CSV, PDF) work from, so they cover the whole range
+    /// and not just the loaded page.</summary>
+    public async Task<List<AuditLogListItem>> GetAllAuditLogsAsync(DateTime fromUtc, DateTime toUtc)
+    {
+        var logs = new List<AuditLog>();
+        DocumentSnapshot? after = null;
+        while (true)
+        {
+            QuerySnapshot batch = await AuditRangeQuery(fromUtc, toUtc, after).Limit(AuditLogBatchSize).GetSnapshotAsync();
+            logs.AddRange(ConvertAuditDocuments(batch.Documents));
+            if (batch.Documents.Count < AuditLogBatchSize)
+            {
+                break;
+            }
+            after = batch.Documents[^1];
+        }
+
+        return await ToListItemsAsync(logs);
+    }
+
+    private Query AuditRangeQuery(DateTime fromUtc, DateTime toUtc, DocumentSnapshot? after)
+    {
+        Query query = Db.Collection("audit_logs")
+            .WhereGreaterThanOrEqualTo("timestamp", DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc))
+            .WhereLessThan("timestamp", DateTime.SpecifyKind(toUtc, DateTimeKind.Utc))
+            .OrderByDescending("timestamp");
+        return after is null ? query : query.StartAfter(after);
+    }
+
+    private List<AuditLog> ConvertAuditDocuments(IEnumerable<DocumentSnapshot> docs)
+    {
+        var logs = new List<AuditLog>();
+        foreach (DocumentSnapshot doc in docs)
+        {
+            try
+            {
+                AuditLog log = doc.ConvertTo<AuditLog>();
+                if (string.IsNullOrWhiteSpace(log.AuditLogId))
+                {
+                    log.AuditLogId = doc.Id;
+                }
+                logs.Add(log);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Skipping audit_logs/{DocumentId}: failed to convert", doc.Id);
+            }
+        }
+        return logs;
+    }
+
+    private async Task<List<AuditLogListItem>> ToListItemsAsync(List<AuditLog> logs)
+    {
+        Dictionary<string, (string Name, string Role)> actors = await ResolveActorsAsync(logs);
 
         return logs.Select(log => new AuditLogListItem
         {
             AuditLogId = log.AuditLogId,
             Timestamp = log.Timestamp,
-            Actor = ResolveActorName(log.UserId, actorNames),
+            Actor = ResolveActorName(log.UserId, actors),
+            Role = string.IsNullOrWhiteSpace(log.UserId) ? "System"
+                : actors.TryGetValue(log.UserId, out var actor) && !string.IsNullOrWhiteSpace(actor.Role) ? actor.Role : "—",
             Action = HumanizeAction(log.ActionType),
             Target = log.AuditLogDetails,
             Icon = ActionIcon(log.ActionType),
         }).ToList();
     }
 
-    private async Task<Dictionary<string, string>> ResolveActorNamesAsync(List<AuditLog> logs)
+    private async Task<Dictionary<string, (string Name, string Role)>> ResolveActorsAsync(List<AuditLog> logs)
     {
         List<string> userIds = logs
             .Select(l => l.UserId)
@@ -434,7 +504,7 @@ public class InventoryAuditService
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        var actors = new Dictionary<string, string>(StringComparer.Ordinal);
+        var actors = new Dictionary<string, (string Name, string Role)>(StringComparer.Ordinal);
         if (userIds.Count == 0)
         {
             return actors;
@@ -458,10 +528,7 @@ public class InventoryAuditService
                 }
 
                 UserProfile profile = doc.ConvertTo<UserProfile>();
-                if (!string.IsNullOrWhiteSpace(profile.FullName))
-                {
-                    actors[userId] = profile.FullName;
-                }
+                actors[userId] = (profile.FullName?.Trim() ?? string.Empty, profile.Role?.Trim() ?? string.Empty);
             }
             catch (Exception ex)
             {
@@ -472,15 +539,15 @@ public class InventoryAuditService
         return actors;
     }
 
-    private static string ResolveActorName(string userId, IReadOnlyDictionary<string, string> actorNames)
+    private static string ResolveActorName(string userId, IReadOnlyDictionary<string, (string Name, string Role)> actors)
     {
         if (string.IsNullOrWhiteSpace(userId))
         {
             return "System";
         }
 
-        return actorNames.TryGetValue(userId, out string? fullName)
-            ? fullName
+        return actors.TryGetValue(userId, out var actor) && !string.IsNullOrWhiteSpace(actor.Name)
+            ? actor.Name
             : userId.Length <= 12 ? userId : userId[..12] + "...";
     }
 
@@ -600,11 +667,24 @@ public class InventoryAuditService
         public string Label { get; set; } = string.Empty;
     }
 
+    public class AuditLogPage
+    {
+        public List<AuditLogListItem> Items { get; set; } = new();
+
+        /// <summary>The last document of this page - pass it back for the next page.</summary>
+        public DocumentSnapshot? Cursor { get; set; }
+
+        public bool HasMore { get; set; }
+    }
+
     public class AuditLogListItem
     {
         public string AuditLogId { get; set; } = string.Empty;
         public DateTime Timestamp { get; set; }
         public string Actor { get; set; } = string.Empty;
+
+        /// <summary>The actor's users/{uid}.role ("Manager", "Driver"...), "System" for system entries.</summary>
+        public string Role { get; set; } = string.Empty;
         public string Action { get; set; } = string.Empty;
         public string Target { get; set; } = string.Empty;
         public string Icon { get; set; } = string.Empty;
