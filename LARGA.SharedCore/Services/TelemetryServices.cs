@@ -23,11 +23,15 @@ namespace LARGA.SharedCore.Services;
 /// loop survives navigating away from the Active Shift page - it only stops when the shift
 /// itself ends, not when the page closes.
 ///
-/// Scope note: this polls on an app-level timer while the process is alive (foreground or
-/// backgrounded-but-not-killed by the OS) - it is NOT a true Android foreground service with
-/// a persistent notification, so the OS can still suspend it if the app is swiped away or
-/// killed outright. True always-on background tracking is a much larger platform-specific
-/// task; flagged as a follow-up rather than silently claimed here.
+/// Background (GPS-012): this class polls on an in-process timer. On Android it's wrapped by
+/// LARGA.MobileApp.Platforms.Android.Services.AndroidGpsTelemetryService, which runs a
+/// location-typed foreground service (ShiftTrackingService - persistent "LARGA - shift tracking
+/// active" notification, stopWithTask=false, partial wake lock) for exactly as long as a shift
+/// is tracked. That keeps the process, and this loop at the same 30s interval, alive when the
+/// app is swiped away or the screen is off. Start/Stop, the break pause and the auto-cutoff are
+/// still decided here. Limit: if Android kills the whole process anyway (rare with a foreground
+/// service), tracking resumes when the driver next opens the app - ACCESS_BACKGROUND_LOCATION
+/// is deliberately not requested.
 ///
 /// Storage: there's no deletion code here on purpose. gps_telemetry has a Firestore TTL
 /// policy (Cloud Console > Firestore > Time-to-live, not Firebase Console - it's a separate

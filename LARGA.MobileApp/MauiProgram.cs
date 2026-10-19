@@ -62,7 +62,13 @@ public static class MauiProgram
         builder.Services.AddSingleton<IMaintenanceService, MaintenanceService>();
         builder.Services.AddSingleton<IPhotoStorageService, PhotoStorageService>();
         builder.Services.AddSingleton<IFuelService, FuelService>();
+#if ANDROID
+        // GPS-012: same tracking, kept alive by a location foreground service while a shift is active.
+        builder.Services.AddSingleton<GpsTelemetryService>();
+        builder.Services.AddSingleton<IGpsTelemetryService, LARGA.MobileApp.Platforms.Android.Services.AndroidGpsTelemetryService>();
+#else
         builder.Services.AddSingleton<IGpsTelemetryService, GpsTelemetryService>();
+#endif
 
         // LAR-86/87: the one writer for emergency_alerts (manual SOS + automated protocols).
         builder.Services.AddSingleton<IEmergencyAlertService, EmergencyAlertService>();

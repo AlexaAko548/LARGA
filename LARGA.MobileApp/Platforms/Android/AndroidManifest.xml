@@ -8,6 +8,13 @@
 		<meta-data
 			android:name="com.google.firebase.messaging.default_notification_icon"
 			android:resource="@mipmap/appicon" />
+
+		<!-- GPS-012: shift GPS telemetry keeps running when the app is swiped away (ShiftTrackingService). -->
+		<service
+			android:name="com.blmtaxi.larga.mobile.ShiftTrackingService"
+			android:exported="false"
+			android:foregroundServiceType="location"
+			android:stopWithTask="false" />
 	</application>
 	<queries>
 		<intent>
@@ -31,7 +38,9 @@
 	<uses-feature android:name="android.hardware.camera" android:required="false" />
 	<uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-	<!-- LAR-86/87: background emergency detection + manager-call handling -->
+	<!-- LAR-86/87: background emergency detection + manager-call handling. GPS-012: shift GPS
+	     telemetry (ShiftTrackingService, declared above). Started while the app is open, so while-in-use location is enough;
+	     ACCESS_BACKGROUND_LOCATION is deliberately not requested. -->
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 	<uses-permission android:name="android.permission.WAKE_LOCK" />
