@@ -31,5 +31,7 @@ The `PERMISSION_DENIED` lines in the output are expected. They are the denied wr
 |---|---|---|---|---|
 | 2026-10-19 | `0a2a5bd` (before Part 2 fixes) | 53 | 14 | All 14 failures are `[GAP]` tests: A-01 ×2, A-02 ×3, A-03 ×2, A-04, A-05 ×2, A-06 ×2, B-03, C-03 |
 | 2026-10-19 | `e3eb5f9` (after Part 2 fixes) | Firestore 80, Storage 22 | 0 | Added tests for the app's real clock-in, clock-out and fuel writes, plus `storage.test.js` |
+| 2026-10-19 | `ddfdd0e` (repo rules) | Firestore 87, Storage 35 | 0 | Retention, open-shift query and legacy-folder tests added |
+| 2026-10-19 | **live console rules** (pasted) | Firestore 63, Storage 10 | Firestore 24, Storage 25 | What production allows today; see SECURITY_AUDIT.md "Live console rules vs repo" |
 
 
