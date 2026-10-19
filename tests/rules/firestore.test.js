@@ -202,6 +202,23 @@ describe('Driver tampering with their own money and records', () => {
     assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), { driverId: DRIVER_A, shiftId: 'shiftB' })));
 });
 
+describe('Retention (expireAt, audit H-01)', () => {
+  const days = (n) => Timestamp.fromDate(new Date(Date.now() + n * 86400000));
+  const gps = (expireAt) => ({ driverId: DRIVER_A, shiftId: 'shiftA', latitude: 14.6, longitude: 121, expireAt });
+  it('driver can write a GPS point that expires in 90 days', async () =>
+    assertSucceeds(addDoc(collection(as(DRIVER_A), 'gps_telemetry'), gps(days(90)))));
+  it('driver cannot write a GPS point that expires tomorrow (early deletion)', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'gps_telemetry'), gps(days(1)))));
+  it('driver cannot write a GPS point that never expires (10 years)', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'gps_telemetry'), gps(days(3650)))));
+  it('driver cannot set a retention date on an SOS', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), { driverId: DRIVER_A, shiftId: 'shiftA', expireAt: days(365) })));
+  it('driver can send a chat message that expires in a year', async () =>
+    assertSucceeds(addDoc(collection(as(DRIVER_A), 'chats', DRIVER_A, 'messages'), { text: 'hi', isDriver: true, expireAt: days(365) })));
+  it('driver cannot send a chat message that expires today', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'chats', DRIVER_A, 'messages'), { text: 'hi', isDriver: true, expireAt: days(0) })));
+});
+
 describe('Audit logs', () => {
   it('manager can add an entry as themselves', async () =>
     assertSucceeds(addDoc(collection(as(MANAGER), 'audit_logs'), { userId: MANAGER, actionType: 'X', timestamp: serverTimestamp() })));

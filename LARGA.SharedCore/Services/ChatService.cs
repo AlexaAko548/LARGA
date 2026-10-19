@@ -55,7 +55,9 @@ public class ChatService : IChatService
             {
                 Text = message.Text,
                 IsDriver = message.IsDriver,
-                Timestamp = now
+                Timestamp = now,
+                // Deleted by the Firestore TTL policy after the retention period (RetentionRules, audit H-01).
+                ExpireAt = RetentionRules.ExpireAt(now, RetentionRules.ChatMessage),
             });
             batch.SetData(chatRef, new ChatSessionProxy
             {
@@ -242,6 +244,9 @@ public class ChatMessageProxy
 
     [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
     public DateTime Timestamp { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty(RetentionRules.ExpireAtField)]
+    public DateTime ExpireAt { get; set; }
 }
 
 // Proxy class required for fetching the Manager's chat list

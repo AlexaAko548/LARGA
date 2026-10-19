@@ -324,6 +324,8 @@ public class GpsTelemetryService : IGpsTelemetryService
                 Longitude = location.Longitude,
                 Speed = speedKmh,
                 Timestamp = now,
+                // Deleted by the Firestore TTL policy after the retention period (RetentionRules, audit H-01).
+                ExpireAt = RetentionRules.ExpireAt(now, RetentionRules.GpsTelemetry),
             };
 
             await CrossFirebaseFirestore.Current
@@ -504,5 +506,8 @@ public class GpsTelemetryService : IGpsTelemetryService
 
         [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
         public DateTime Timestamp { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty(RetentionRules.ExpireAtField)]
+        public DateTime ExpireAt { get; set; }
     }
 }

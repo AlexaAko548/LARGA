@@ -337,7 +337,13 @@ public class SosPushService : BackgroundService
                 return false;
             }
 
-            transaction.Update(alertRef, "pushSentAt", FieldValue.ServerTimestamp);
+            transaction.Update(alertRef, new Dictionary<string, object>
+            {
+                ["pushSentAt"] = FieldValue.ServerTimestamp,
+                // The SOS's retention date, from server time: the phone can't set one (firestore.rules),
+                // so a wrong phone clock can never block an SOS. Deleted by the TTL policy (audit H-01).
+                [LARGA.SharedCore.RetentionRules.ExpireAtField] = LARGA.SharedCore.RetentionRules.ExpireAt(DateTime.UtcNow, LARGA.SharedCore.RetentionRules.EmergencyAlert),
+            });
             return true;
         }, cancellationToken: token);
 

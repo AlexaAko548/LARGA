@@ -29,6 +29,19 @@ service cloud.firestore {
       return request.auth != null && getUserRole() in ['manager', 'assistant manager', 'driver'];
     }
 
+    // Retention (audit H-01, SharedCore RetentionRules): a phone-written document may carry an expireAt
+    // for the Firestore TTL policy, but only about `days` from now (+/- 7 days of phone-clock drift) - never
+    // an early date that would get a record deleted ahead of time. An unchanged expireAt (an update to
+    // another field) always passes.
+    function expiresAfterDays(days) {
+      let d = request.resource.data;
+      return !('expireAt' in d)
+        || (resource != null && resource.data.get('expireAt', null) == d.expireAt)
+        || (d.expireAt is timestamp
+            && d.expireAt > request.time + duration.value(days - 7, 'd')
+            && d.expireAt < request.time + duration.value(days + 7, 'd'));
+    }
+
     function isOwner(userId) {
       return request.auth != null && request.auth.uid == userId;
     }
@@ -173,7 +186,8 @@ service cloud.firestore {
       allow read, write: if isManager() || isOwner(driverId);
 
       match /messages/{messageId} {
-        allow read, write: if isManager() || isOwner(driverId);
+        allow read, delete: if isManager() || isOwner(driverId);
+        allow create, update: if isManager() || (isOwner(driverId) && expiresAfterDays(365));
       }
     }
 
@@ -260,6 +274,7 @@ service cloud.firestore {
       allow read: if isStaff();
       allow create: if isDriver()
         && request.resource.data.driverId == request.auth.uid
+        && expiresAfterDays(90)
         && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid
         && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.status == 'Active';
     }
@@ -273,7 +288,9 @@ service cloud.firestore {
       // unassigned device can't write one for someone else's unit. (The full check - active
       // shift, unit, registered phone number - runs in ManagerWeb's SosPushService.)
       // C-03: only while that shift is Active - not on one that ended (each SOS pushes to every manager).
+      // The SOS's retention date is set by ManagerWeb (server time), never by the phone (audit H-01).
       allow create: if isDriver() && request.resource.data.driverId == request.auth.uid
+                    && !('expireAt' in request.resource.data)
                     && exists(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId))
                     && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid
                     && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.status == 'Active';
