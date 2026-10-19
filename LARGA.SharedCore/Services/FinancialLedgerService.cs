@@ -1326,11 +1326,13 @@ public class FinancialLedgerService
     /// a payment they have just saved.</param>
     private async Task<(List<ShiftLog> Shifts, List<BoundaryPayment> Payments, List<DebtAdjustment> Adjustments, List<UserProfile> Drivers)> GetFullLedgerDataAsync(bool fromCache = false)
     {
-        List<ShiftLog> shifts = await GetAllAsync<ShiftLog>("shifts", fromCache);
-        List<BoundaryPayment> payments = await GetAllAsync<BoundaryPayment>("boundary_payments", fromCache);
-        List<DebtAdjustment> adjustments = await GetAllAsync<DebtAdjustment>("debt_adjustments", fromCache);
-        List<UserProfile> drivers = await GetDriversAsync(fromCache);
-        return (shifts, payments, adjustments, drivers);
+        // Independent reads, run together (PERFORMANCE_REPORT.md P3).
+        Task<List<ShiftLog>> shifts = GetAllAsync<ShiftLog>("shifts", fromCache);
+        Task<List<BoundaryPayment>> payments = GetAllAsync<BoundaryPayment>("boundary_payments", fromCache);
+        Task<List<DebtAdjustment>> adjustments = GetAllAsync<DebtAdjustment>("debt_adjustments", fromCache);
+        Task<List<UserProfile>> drivers = GetDriversAsync(fromCache);
+        await Task.WhenAll(shifts, payments, adjustments, drivers);
+        return (shifts.Result, payments.Result, adjustments.Result, drivers.Result);
     }
 
     // ---------------------------------------------------------------------

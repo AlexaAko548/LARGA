@@ -422,9 +422,13 @@
         AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
         _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
 
+        // The snapshot and the collection trend are independent, so both load at once (PERFORMANCE_REPORT.md P3).
+        Task<DashboardSnapshot> snapshotTask = FleetReporting.GetDashboardSnapshotAsync();
+        Task<List<LARGA.SharedCore.Models.FinancialLedger.DailySettlementSnapshot>> collectionTask = Ledger.GetCollectionTrendAsync(FleetUtilization.WindowDays);
+
         try
         {
-            _snapshot = await FleetReporting.GetDashboardSnapshotAsync();
+            _snapshot = await snapshotTask;
         }
         catch (Exception ex)
         {
@@ -434,7 +438,7 @@
         // Same per-day totals as Daily Settlements, so the chart and the ledger always agree.
         try
         {
-            _collection = (await Ledger.GetCollectionTrendAsync(FleetUtilization.WindowDays))
+            _collection = (await collectionTask)
                 .Select(day => new CollectionDay
                 {
                     Date = day.Date,

@@ -57,29 +57,45 @@ public class FleetReportingService
         DateTime now = DateTime.UtcNow;
         DateTime twoWeeksAgo = now.AddDays(-14);
 
+        // The reads don't depend on each other, so they run together: the dashboard waits for the
+        // slowest one instead of the sum of all nine (PERFORMANCE_REPORT.md P3). Same queries as before.
+
         // Bounded by fleet/team size, not history - safe to fetch in full forever.
-        List<TaxiUnit> taxis = await GetAllAsync<TaxiUnit>("taxis");
-        List<UserProfile> drivers = (await GetAllAsync<UserProfile>("users"))
-            .Where(u => string.Equals(u.Role, "Driver", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        Task<List<TaxiUnit>> taxisTask = GetAllAsync<TaxiUnit>("taxis");
+        Task<List<UserProfile>> usersTask = GetAllAsync<UserProfile>("users");
 
         // Incident-driven, low volume even over years of real operation - see the class
         // comment above for why these stay full fetches instead of a null-filter query.
-        List<MaintenanceRecord> maintenance = await GetAllAsync<MaintenanceRecord>("maintenance_logs");
-        List<EmergencyAlert> alerts = await GetAllAsync<EmergencyAlert>("emergency_alerts");
+        Task<List<MaintenanceRecord>> maintenanceTask = GetAllAsync<MaintenanceRecord>("maintenance_logs");
+        Task<List<EmergencyAlert>> alertsTask = GetAllAsync<EmergencyAlert>("emergency_alerts");
 
         // High-frequency, unbounded-by-history - query narrowly instead of fetching all.
-        List<ShiftLog> activeShifts = await GetWhereEqualAsync<ShiftLog>("shifts", "status", "Active");
-        List<ShiftLog> recentShifts = await GetSinceAsync<ShiftLog>("shifts", "shiftStart", twoWeeksAgo);
-        List<BoundaryPayment> recentPayments = await GetSinceAsync<BoundaryPayment>("boundary_payments", "timestamp", twoWeeksAgo);
+        Task<List<ShiftLog>> activeShiftsTask = GetWhereEqualAsync<ShiftLog>("shifts", "status", "Active");
+        Task<List<ShiftLog>> recentShiftsTask = GetSinceAsync<ShiftLog>("shifts", "shiftStart", twoWeeksAgo);
+        Task<List<BoundaryPayment>> recentPaymentsTask = GetSinceAsync<BoundaryPayment>("boundary_payments", "timestamp", twoWeeksAgo);
         // Every receipt, like the Fuel Verification page - so the Dashboard's fuel chart always
         // matches its Pending / Verified / Flagged totals. Not windowed by receiptTimestamp: that's
         // the date printed on the receipt (read by OCR), which can be weeks old by the time it's
         // verified - or misread entirely - so a 14-day window left most verified receipts out.
         // One document per refuel, so this stays small.
-        List<FuelLog> fuelLogs = await GetAllAsync<FuelLog>("fuel_logs");
+        Task<List<FuelLog>> fuelLogsTask = GetAllAsync<FuelLog>("fuel_logs");
 
-        double idleThresholdMinutes = await GetIdleThresholdMinutesAsync();
+        Task<double> idleThresholdTask = GetIdleThresholdMinutesAsync();
+
+        await Task.WhenAll(taxisTask, usersTask, maintenanceTask, alertsTask, activeShiftsTask, recentShiftsTask,
+            recentPaymentsTask, fuelLogsTask, idleThresholdTask);
+
+        List<TaxiUnit> taxis = taxisTask.Result;
+        List<UserProfile> drivers = usersTask.Result
+            .Where(u => string.Equals(u.Role, "Driver", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        List<MaintenanceRecord> maintenance = maintenanceTask.Result;
+        List<EmergencyAlert> alerts = alertsTask.Result;
+        List<ShiftLog> activeShifts = activeShiftsTask.Result;
+        List<ShiftLog> recentShifts = recentShiftsTask.Result;
+        List<BoundaryPayment> recentPayments = recentPaymentsTask.Result;
+        List<FuelLog> fuelLogs = fuelLogsTask.Result;
+        double idleThresholdMinutes = idleThresholdTask.Result;
 
         var snapshot = new DashboardSnapshot
         {
