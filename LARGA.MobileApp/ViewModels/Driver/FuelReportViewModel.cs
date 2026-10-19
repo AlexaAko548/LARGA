@@ -539,8 +539,9 @@ public class FuelReportViewModel : BindableObject
 
         var storageRef = CrossFirebaseStorage.Current.GetRootReference().GetChild(remotePath);
 
-        // PutFile reads the bytes from disk in chunks rather than loading it all into memory
-        await storageRef.PutFile(localFilePath).AwaitAsync();
+        // PutFile reads the bytes from disk in chunks rather than loading it all into memory.
+        // The content type is explicit: storage.rules accept images only.
+        await storageRef.PutFile(localFilePath, new StorageMetadata(contentType: "image/jpeg")).AwaitAsync();
         return await storageRef.GetDownloadUrlAsync();
     }
 

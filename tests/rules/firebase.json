@@ -1,6 +1,10 @@
 {
+  "storage": {
+    "rules": "emulator-placeholder.storage.rules"
+  },
   "emulators": {
     "firestore": { "port": 8080 },
+    "storage": { "port": 9199 },
     "ui": { "enabled": false },
     "singleProjectMode": true
   }

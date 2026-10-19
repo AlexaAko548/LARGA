@@ -1,0 +1,70 @@
+rules_version = '2';
+
+// Cloud Storage rules for LARGA (audit A-07). Photos only: licence scans, receipts, defect and
+// checklist photos. ManagerWeb uploads and reads through the Admin SDK (rules don't apply to it).
+// Download URLs the apps save in Firestore carry their own token, so whoever can read the
+// Firestore document can open the photo; these rules govern direct Storage access.
+//
+// Roles come from Firestore users/{uid}.role (same trim + lower-case as firestore.rules). The first
+// deploy asks to let Storage read Firestore - accept it, or every role check is refused.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function role() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role.trim().lower();
+    }
+
+    function isManager() {
+      return request.auth != null && role() == 'manager';
+    }
+
+    function isStaff() {
+      return request.auth != null && role() in ['manager', 'assistant manager'];
+    }
+
+    // The driver whose folder this is.
+    function isDriverSelf(uid) {
+      return request.auth != null && request.auth.uid == uid && role() == 'driver';
+    }
+
+    // A photo under 5 MB. The apps compress to about 1280 px JPEG, well under that.
+    function isPhoto() {
+      return request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    // Licence photos and face crops (ScanDriverLicenseViewModel, opened from the manager's
+    // Driver Profile). The manager replaces and deletes them; the driver may view their own.
+    match /lto_ids/{userId}/{file} {
+      allow read: if isStaff() || (request.auth != null && request.auth.uid == userId);
+      allow create, update: if isManager() && isPhoto();
+      allow delete: if isManager();
+    }
+
+    // E-wallet receipt photos taken with a payment (QuickLedgerService.UploadReceiptPhotoAsync).
+    match /receipts/ewallet/{file} {
+      allow read: if isStaff();
+      allow create: if isStaff() && isPhoto();
+    }
+
+    // A driver's own uploads: fuel receipts + odometer (FuelReportViewModel), defect photos
+    // (VehicleDefectViewModel), pre/end-shift checklist photos (ShiftChecklistUploader,
+    // PreShiftStep2ViewModel). Update too: a retried upload rewrites the same file.
+    match /fuel_logs/{driverId}/{rest=**} {
+      allow read: if isStaff() || isDriverSelf(driverId);
+      allow create, update: if isDriverSelf(driverId) && isPhoto();
+    }
+
+    match /maintenance_logs/{driverId}/{rest=**} {
+      allow read: if isStaff() || isDriverSelf(driverId);
+      allow create, update: if isDriverSelf(driverId) && isPhoto();
+    }
+
+    match /handover_checklists/{driverId}/{rest=**} {
+      allow read: if isStaff() || isDriverSelf(driverId);
+      allow create, update: if isDriverSelf(driverId) && isPhoto();
+    }
+
+    // Anything else: nobody.
+  }
+}

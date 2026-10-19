@@ -1,0 +1,10 @@
+rules_version = '2';
+// Placeholder so the Storage emulator starts (firebase.json needs a rules file inside this folder).
+// The tests load the real ../../storage.rules themselves (storage.test.js).
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
