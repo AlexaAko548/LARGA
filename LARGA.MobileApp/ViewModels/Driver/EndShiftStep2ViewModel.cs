@@ -148,6 +148,24 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                 string activeShiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
                 if (!string.IsNullOrEmpty(activeShiftId))
                 {
+                    // DSM-041: the final reading can't be below the one the shift started at.
+                    // No start reading on the shift: nothing to compare, so it's allowed.
+                    int? startMileage = await _shiftService.GetShiftStartMileageAsync(activeShiftId);
+                    if (startMileage is null)
+                    {
+#if ANDROID
+                        Android.Util.Log.Warn("LARGA_SHIFT", $"Shift {activeShiftId} has no startMileage - final odometer not checked.");
+#else
+                        System.Diagnostics.Debug.WriteLine($"Shift {activeShiftId} has no startMileage - final odometer not checked.");
+#endif
+                    }
+                    else if (endMileage < startMileage.Value)
+                    {
+                        await Shell.Current.DisplayAlert("Odometer below start",
+                            $"The final odometer ({endMileage:N0} km) is lower than the starting odometer ({startMileage.Value:N0} km). Please rescan the odometer.", "OK");
+                        return;
+                    }
+
                     charges = await _shiftService.ClockOutAsync(activeShiftId, endMileage, IsBelowHalfTankSelected, "");
 
                     // The shift is closed from here on. Release everything tied to it before the

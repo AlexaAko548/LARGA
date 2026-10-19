@@ -28,6 +28,10 @@ public interface IShiftManagementService
     Task<string?> GetClockInBlockReasonAsync(string taxiId);
     Task<ShiftEndCharges> ClockOutAsync(string shiftDocumentId, int endMileage, bool fuelBelowHalf, string managerNote = "");
     Task<DriverShiftSummary?> GetMyOpenShiftAsync();
+
+    /// <summary>The shift's starting odometer (shifts.startMileage), or null when it's missing or
+    /// unreadable - clock-out then can't compare against it (DSM-041).</summary>
+    Task<int?> GetShiftStartMileageAsync(string shiftDocumentId);
     Task SetOnBreakAsync(string shiftDocumentId, bool isOnBreak);
     Task<bool> SubmitHandoverChecklistAsync(HandoverChecklistSubmission checklist);
 
@@ -635,6 +639,25 @@ public class ShiftManagementService : IShiftManagementService
 
     public const string AutoClosedStatus = "Auto-Closed";
 
+    public async Task<int?> GetShiftStartMileageAsync(string shiftDocumentId)
+    {
+        if (string.IsNullOrWhiteSpace(shiftDocumentId)) return null;
+        try
+        {
+            var snapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .GetDocument(shiftDocumentId)
+                .GetDocumentSnapshotAsync<ShiftStartMileageProxy>();
+            double reading = snapshot?.Data?.StartMileage ?? 0;
+            return reading > 0 ? (int)reading : null;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Start mileage read failed: {ex.Message}");
+            return null;
+        }
+    }
+
     /// <summary>The signed-in driver's shift that's still open (status Active), if any - used
     /// to put the phone back into its active-shift state when it has lost track (reinstall,
     /// cleared data, different phone), so the driver can end it normally.</summary>
@@ -698,6 +721,13 @@ public class ShiftManagementService : IShiftManagementService
 
         [Plugin.Firebase.Firestore.FirestoreProperty("shiftEnd")]
         public DateTime ShiftEnd { get; set; }
+    }
+
+    private class ShiftStartMileageProxy
+    {
+        // double, not int - see ShiftReadProxy.EndMileage below. A missing field reads as 0.
+        [Plugin.Firebase.Firestore.FirestoreProperty("startMileage")]
+        public double StartMileage { get; set; }
     }
 
     private class ShiftReadProxy
