@@ -335,6 +335,7 @@ public class GarageService
                     TaxiId = record.TaxiId,
                     CheckName = record.IssueTitle,
                     DueDate = record.ScheduledDate ?? record.EstimatedCompletionDate,
+                    RoutineType = record.RoutineType,
                 });
             }
 
@@ -479,6 +480,7 @@ public class GarageService
                 MaintenanceType = MaintenanceType.RoutineCheckup,
                 IssueTitle = check.CheckName,
                 IssueDescription = $"Scheduled preventive maintenance: {check.CheckName}.",
+                RoutineType = MaintenanceSchedule.TypeOf(check.RoutineType, check.CheckName),
                 DateLogged = DateTime.UtcNow,
                 Status = scheduledDate.Date <= PhilippineTime.Now.Date ? WorkOrderRules.InProgress : WorkOrderRules.Scheduled,
                 PriorityLevel = PriorityLevel.Low,
@@ -566,6 +568,182 @@ public class GarageService
             _logger.LogWarning(ex, "Failed to log parts used for {MaintenanceId}", maintenanceId);
             return new GarageActionResult { Ok = false, ErrorMessage = "Could not log the parts used. Please check the stock and try again." };
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // MNT-014/015/016, UAT-042: recurring checks and their due alerts
+    // (run by ManagerWeb's MaintenanceSchedulerService on startup and hourly)
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// For every active unit, makes sure the next check of each recurring type exists in
+    /// routine_checks. Nothing is created while one is already waiting - generated, or entered by
+    /// hand under a matching name - or booked as an open work order. Otherwise the next one is due
+    /// a full interval after the type's last completed work order (dateResolved), or after today
+    /// when it's never been done. IDs are {unitId}_{type}_{due:yyyyMMdd} and written with Create,
+    /// so restarts and repeated runs never duplicate. Existing checks are never changed.
+    /// Returns how many checks were created.
+    /// </summary>
+    public async Task<int> EnsureRecurringChecksAsync()
+    {
+        MaintenanceIntervals intervals = await GetMaintenanceIntervalsAsync();
+        List<TaxiUnit> taxis = await GetAllAsync<TaxiUnit>("taxis");
+        List<RoutineCheckItem> checks = await GetAllAsync<RoutineCheckItem>("routine_checks");
+        List<MaintenanceRecord> records = await GetAllAsync<MaintenanceRecord>("maintenance_logs");
+        Dictionary<string, int> liveOdometer = BuildLiveOdometerMap(await GetSinceAsync<ShiftLog>("shifts", "shiftStart", DateTime.UtcNow.AddDays(-30)));
+        DateTime todayPh = PhilippineTime.Now.Date;
+
+        int created = 0;
+        foreach (TaxiUnit taxi in taxis.Where(IsActiveUnit))
+        {
+            string taxiId = string.IsNullOrWhiteSpace(taxi.TaxiId) ? taxi.DocumentId : taxi.TaxiId;
+            foreach (string type in MaintenanceSchedule.RecurringTypes)
+            {
+                bool waiting = checks.Any(c => c.TaxiId == taxiId && MaintenanceSchedule.TypeOf(c.RoutineType, c.CheckName) == type);
+                List<MaintenanceRecord> jobs = records
+                    .Where(r => r.TaxiId == taxiId
+                                && r.MaintenanceType == MaintenanceType.RoutineCheckup
+                                && MaintenanceSchedule.TypeOf(r.RoutineType, r.IssueTitle) == type)
+                    .ToList();
+                bool booked = jobs.Any(r => r.DateResolved is null && !string.Equals(r.Status, "Dismissed", StringComparison.OrdinalIgnoreCase));
+                if (waiting || booked)
+                {
+                    continue;
+                }
+
+                DateTime? lastDone = jobs.Where(r => r.DateResolved is not null).Max(r => r.DateResolved);
+                DateTime baseDatePh = lastDone?.ToPhilippineTime().Date ?? todayPh;
+                DateTime dueDatePh = baseDatePh.AddDays(intervals.DaysFor(type));
+
+                int? dueMileage = null;
+                if (type == MaintenanceSchedule.OilChange && intervals.OilChangeKmFor(taxiId) is int km)
+                {
+                    int odometer = liveOdometer.TryGetValue(taxiId, out int live) ? live : taxi.CurrentMileage;
+                    dueMileage = odometer + km;
+                }
+
+                string checkId = MaintenanceSchedule.CheckId(taxiId, type, dueDatePh);
+                try
+                {
+                    await Db.Collection("routine_checks").Document(checkId).CreateAsync(new RoutineCheckItem
+                    {
+                        TaxiId = taxiId,
+                        CheckName = MaintenanceSchedule.DisplayName(type),
+                        DueDate = DateTime.SpecifyKind(dueDatePh, DateTimeKind.Utc),
+                        DueMileage = dueMileage,
+                        RoutineType = type,
+                    });
+                    checks.Add(new RoutineCheckItem { CheckId = checkId, TaxiId = taxiId, RoutineType = type });
+                    created++;
+                }
+                catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
+                {
+                    // Another instance (or an earlier run) made it already.
+                }
+            }
+        }
+
+        return created;
+    }
+
+    /// <summary>
+    /// Raises a bell alert for every waiting routine check that's due within the DueSoon window
+    /// (MaintenanceDueSoon) or past due (MaintenanceOverdue - by date, or by the unit's odometer for
+    /// a mileage-based check). One alert per check per status (deterministic ID): an alert that
+    /// already exists is left alone, so it's never raised twice. Returns how many were raised.
+    /// </summary>
+    public async Task<int> RaiseRoutineCheckAlertsAsync()
+    {
+        MaintenanceIntervals intervals = await GetMaintenanceIntervalsAsync();
+        List<RoutineCheckItem> checks = await GetAllAsync<RoutineCheckItem>("routine_checks");
+        List<TaxiUnit> taxis = await GetAllAsync<TaxiUnit>("taxis");
+        Dictionary<string, int> liveOdometer = BuildLiveOdometerMap(await GetSinceAsync<ShiftLog>("shifts", "shiftStart", DateTime.UtcNow.AddDays(-30)));
+        DateTime todayPh = PhilippineTime.Now.Date;
+
+        var wanted = new List<(DocumentReference Ref, SystemAlert Alert)>();
+        foreach (RoutineCheckItem check in checks)
+        {
+            string unit = FormatUnitLabel(check.TaxiId);
+            DateTime? dueDatePh = check.DueDate?.Date; // stored as the Philippine calendar date
+            int odometer = liveOdometer.TryGetValue(check.TaxiId, out int live) ? live
+                : taxis.FirstOrDefault(t => t.TaxiId == check.TaxiId || t.DocumentId == check.TaxiId)?.CurrentMileage ?? 0;
+            bool overdueByKm = check.DueMileage is int dueKm && odometer > 0 && odometer >= dueKm;
+
+            string? type = null;
+            string message = string.Empty;
+            if ((dueDatePh is DateTime d && d < todayPh) || overdueByKm)
+            {
+                type = MaintenanceSchedule.OverdueAlertType;
+                message = dueDatePh is DateTime due && due < todayPh
+                    ? $"{check.CheckName} for {unit} is overdue (was due {due:MMM d})."
+                    : $"{check.CheckName} for {unit} is overdue (due at {check.DueMileage:N0} km, odometer {odometer:N0} km).";
+            }
+            else if (dueDatePh is DateTime soon && soon <= todayPh.AddDays(intervals.DueSoonDays))
+            {
+                type = MaintenanceSchedule.DueSoonAlertType;
+                message = soon == todayPh
+                    ? $"{check.CheckName} for {unit} is due today."
+                    : $"{check.CheckName} for {unit} is due on {soon:MMM d}.";
+            }
+
+            if (type is null)
+            {
+                continue;
+            }
+
+            wanted.Add((Db.Collection("system_alerts").Document(MaintenanceSchedule.AlertId(check.CheckId, type)), new SystemAlert
+            {
+                Type = type,
+                TaxiId = check.TaxiId,
+                UnitLabel = unit,
+                Message = message,
+                Timestamp = DateTime.UtcNow,
+                IsRead = false,
+            }));
+        }
+
+        if (wanted.Count == 0)
+        {
+            return 0;
+        }
+
+        IList<DocumentSnapshot> existing = await Db.GetAllSnapshotsAsync(wanted.Select(w => w.Ref));
+        var existingIds = new HashSet<string>(existing.Where(s => s.Exists).Select(s => s.Id));
+        int raised = 0;
+        foreach ((DocumentReference docRef, SystemAlert alert) in wanted.Where(w => !existingIds.Contains(w.Ref.Id)))
+        {
+            try
+            {
+                await docRef.CreateAsync(alert);
+                raised++;
+            }
+            catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
+            {
+                // Raised in the meantime.
+            }
+        }
+        return raised;
+    }
+
+    private async Task<MaintenanceIntervals> GetMaintenanceIntervalsAsync()
+    {
+        try
+        {
+            DocumentSnapshot config = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
+            return MaintenanceIntervals.From(config.Exists ? config.ConvertTo<SystemConfig>() : null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Maintenance intervals unreadable - using the defaults");
+            return MaintenanceIntervals.From(null);
+        }
+    }
+
+    // Every unit in the fleet gets recurring checks unless it's been taken out of service.
+    private static bool IsActiveUnit(TaxiUnit taxi)
+    {
+        string status = (taxi.Status ?? string.Empty).ToLowerInvariant();
+        return !(status.Contains("retired") || status.Contains("decommission") || status.Contains("inactive") || status.Contains("sold"));
     }
 
     /// <summary>Most recent odometer reading per taxi from a window of shifts - EndMileage

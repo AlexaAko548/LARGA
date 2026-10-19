@@ -47,4 +47,26 @@ public class SystemConfig
     // distance tolerance %. Units not listed aren't checked.
     [FirestoreProperty("fuelExpectedKmPerLiter")]
     public Dictionary<string, double> FuelExpectedKmPerLiter { get; set; } = new();
+
+    // MNT-014/015/016: recurring preventive maintenance (MaintenanceSchedulerService), in days.
+    [FirestoreProperty("maintenanceWeeklyIntervalDays")]
+    public int MaintenanceWeeklyIntervalDays { get; set; } = 7;
+
+    [FirestoreProperty("maintenanceBiweeklyIntervalDays")]
+    public int MaintenanceBiweeklyIntervalDays { get; set; } = 14;
+
+    [FirestoreProperty("maintenanceMonthlyIntervalDays")]
+    public int MaintenanceMonthlyIntervalDays { get; set; } = 30;
+
+    // Oil change: every 2 months by default...
+    [FirestoreProperty("oilChangeIntervalDays")]
+    public int OilChangeIntervalDays { get; set; } = 60;
+
+    // ...and, for units listed here (taxiId -> km), also every N km - whichever comes first.
+    [FirestoreProperty("oilChangeMileageIntervalKm")]
+    public Dictionary<string, int> OilChangeMileageIntervalKm { get; set; } = new();
+
+    // A DueSoon bell alert is raised this many days before a check is due.
+    [FirestoreProperty("maintenanceDueSoonDays")]
+    public int MaintenanceDueSoonDays { get; set; } = 2;
 }
