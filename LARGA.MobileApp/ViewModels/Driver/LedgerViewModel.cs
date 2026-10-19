@@ -58,7 +58,7 @@ public class LedgerViewModel : INotifyPropertyChanged
         IsRefreshing = true;
         try
         {
-            await LoadDynamicLedgerDataAsync();
+            await LoadDynamicLedgerDataAsync(forceRefresh: true); // a pull always reads Firestore again
         }
         finally
         {
@@ -72,7 +72,7 @@ public class LedgerViewModel : INotifyPropertyChanged
     /// Called by LedgerPage each time the tab appears: Shell keeps the tab page alive, so loading
     /// once in the constructor would never show payments recorded after the first visit.
     /// </summary>
-    public async Task LoadDynamicLedgerDataAsync()
+    public async Task LoadDynamicLedgerDataAsync(bool forceRefresh = false)
     {
         // P0 timing (PERFORMANCE_REPORT.md).
         using var _perf = LARGA.SharedCore.PerfLog.Start("Driver Ledger load");
@@ -87,7 +87,7 @@ public class LedgerViewModel : INotifyPropertyChanged
 
             // Same per-shift calculation as the web's Master Debt Ledger, so the driver and the
             // manager see the same balance (see DriverDebtCalculator).
-            var ledger = await DriverDebtCalculator.LoadAsync(user.Uid);
+            var ledger = await DriverDebtCalculator.LoadAsync(user.Uid, forceRefresh);
             OutstandingDebtBalance = $"₱ {ledger.TotalDebt:N2}";
 
             var payments = ledger.Shifts

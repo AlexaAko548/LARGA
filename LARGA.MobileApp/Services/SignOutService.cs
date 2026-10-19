@@ -105,6 +105,7 @@ public static class SignOutService
 
         SecureStorage.Remove("ActiveShiftDocumentId");
         FuelReportViewModel.ClearPendingDraft();
+        DriverDebtCalculator.ClearCache();
     }
 
     // Receipt, odometer, licence and checklist photos are copied to the cache folder before upload.
