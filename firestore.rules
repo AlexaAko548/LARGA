@@ -23,6 +23,12 @@ service cloud.firestore {
       return request.auth != null && getUserRole() == 'driver';
     }
 
+    // Signed in AND has a LARGA profile with a known role (A-02). Firebase lets anyone create an
+    // account with the public API key, so request.auth != null alone means "any stranger".
+    function isLargaUser() {
+      return request.auth != null && getUserRole() in ['manager', 'assistant manager', 'driver'];
+    }
+
     function isOwner(userId) {
       return request.auth != null && request.auth.uid == userId;
     }
@@ -116,7 +122,7 @@ service cloud.firestore {
     // A claim must copy the start of an Active shift; a release (ClockOutAsync, in the same batch
     // as the clock-out) is only allowed once that shift is no longer Active.
     match /shift_locks/{lockId} {
-      allow read: if request.auth != null;
+      allow read: if isLargaUser();
       allow write: if isManager() || (isDriver() && ownShiftLock(lockId));
     }
 
@@ -173,7 +179,7 @@ service cloud.firestore {
     }
 
     match /taxis/{taxiId} {
-      allow read: if request.auth != null;
+      allow read: if isLargaUser();
       // Managers only (A-03). The driver app never writes a unit: clock-in/out is tracked in
       // shifts and shift_locks. A driver-writable status let any driver take any unit out of
       // "Under Maintenance" and past the clock-in eligibility check (ShiftEligibilityRules).
@@ -181,7 +187,7 @@ service cloud.firestore {
     }
 
     match /system_configs/{configId} {
-      allow read: if request.auth != null;
+      allow read: if isLargaUser();
       allow write: if isManager();
     }
 

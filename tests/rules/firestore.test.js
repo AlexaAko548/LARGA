@@ -91,6 +91,14 @@ describe('Signed-in account with no LARGA profile (anyone can sign up with the p
     assertFails(getDocs(collection(as(STRANGER), 'shift_locks'))));
 });
 
+describe('LARGA users still read the shared lists', () => {
+  it('driver can read taxis', async () => assertSucceeds(getDocs(collection(as(DRIVER_A), 'taxis'))));
+  it('driver can read system_configs/global', async () => assertSucceeds(getDoc(doc(as(DRIVER_A), 'system_configs', 'global'))));
+  it("driver can read shift_locks (clock-in checks another driver's lock)", async () =>
+    assertSucceeds(getDoc(doc(as(DRIVER_A), 'shift_locks', 'driver_' + DRIVER_B))));
+  it('assistant manager can read taxis', async () => assertSucceeds(getDocs(collection(as(ASSISTANT), 'taxis'))));
+});
+
 describe('Driver A vs Driver B', () => {
   it("cannot read B's shift", async () => assertFails(getDoc(doc(as(DRIVER_A), 'shifts', 'shiftB'))));
   it('cannot list all shifts', async () => assertFails(getDocs(collection(as(DRIVER_A), 'shifts'))));
