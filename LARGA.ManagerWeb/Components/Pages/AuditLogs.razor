@@ -6,7 +6,9 @@
 @using LARGA.SharedCore
 @using LARGA.SharedCore.Services
 @using Google.Cloud.Firestore
-@rendermode InteractiveServer
+@* Rendered once, live (PERFORMANCE_REPORT.md P1): with prerendering its data loaded twice - once for the
+   prerendered HTML and again when the live connection started. The page shows its loading spinner meanwhile. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject InventoryAuditService InventoryAudit
