@@ -11,8 +11,11 @@ Docker is not needed: Cloud Build builds the image from the published output.
 Settings, and why:
   - one instance (--max-instances 1) with session affinity: Blazor Server keeps each manager's
     session (circuit) and the sign-in ticket in memory, so every request must reach the same copy;
-  - scales to zero when nobody's using it (--min-instances 0), so it costs nothing while idle -
-    the first visit after that takes a few seconds to start;
+  - always one instance running, with CPU outside requests (--min-instances 1, --no-cpu-throttling):
+    the SOS push to managers' phones (SosPushService) and the idle / late-return / maintenance /
+    fuel background checks run inside this app. Scaled to zero, or with CPU only during page
+    requests, they stop whenever nobody has the dashboard open - an SOS at night would be saved
+    but never pushed (audit C-01). This costs a small always-on instance; set a budget alert;
   - 60-minute request timeout: Blazor's live connection reconnects by itself after that;
   - runs as the Firebase Admin SDK service account, the same identity the local key file uses,
     so Firestore, Auth, Storage and push behave exactly as they do on your PC - no key file uploaded.
@@ -53,7 +56,8 @@ gcloud run deploy $Service `
     --service-account "firebase-adminsdk-fbsvc@$Project.iam.gserviceaccount.com" `
     --session-affinity `
     --timeout 3600 `
-    --min-instances 0 `
+    --min-instances 1 `
+    --no-cpu-throttling `
     --max-instances 1 `
     --memory 512Mi `
     --set-env-vars "Firestore__ProjectId=$Project"
