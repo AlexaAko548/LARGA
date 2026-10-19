@@ -49,9 +49,24 @@
     document.addEventListener('click', e => { if (isInteractive(e.target)) start(); }, true);
     document.addEventListener('change', e => { if (e.target instanceof Element && e.target.matches('select, input[type="date"], input[type="checkbox"], input[type="radio"], input[type="file"]')) start(); }, true);
 
-    // Any page update other than our own bar is the server's answer.
+    // While something on the page is marked aria-busy="true", every mutation in this batch is
+    // that action's own "I'm working" rendering (the busy element's label/spinner, AND anything
+    // else wired to the same flag - e.g. a confirmation dialog's Cancel/Close buttons going
+    // disabled alongside its Confirm button, which aren't themselves aria-busy and so aren't
+    // inside one either) - not the server's answer. By the time this callback runs the DOM is
+    // already in its post-mutation state, so once the busy element's flag actually clears (or it
+    // gets removed entirely, e.g. a confirmation modal closing), this stops ignoring updates.
+    // Blazor renders aria-busy="@true" as aria-busy="" (bool true -> empty value), so match
+    // "present and not false" - the same selector app.css uses for the button spinner.
+    function anyElementBusy() {
+        return !!document.querySelector('[aria-busy]:not([aria-busy="false"])');
+    }
+
+    // Any page update other than our own bar, while nothing is still (locally) busy, is the
+    // server's answer.
     const observer = new MutationObserver(mutations => {
         if (!waiting) return;
+        if (anyElementBusy()) return;
         if (mutations.some(m => m.target !== bar && !(m.target instanceof Node && bar && bar.contains(m.target)))) stop();
     });
     function observe() { observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'disabled', 'aria-busy', 'value'] }); }
