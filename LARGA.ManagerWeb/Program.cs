@@ -20,6 +20,9 @@ using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// PDF exports (Audit Logs, Generate Reports - PdfReportRenderer).
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+
 // Untracked, developer-local config overrides (Firestore service account path, etc.) -
 // see appsettings.Local.json.example. Never commit the real appsettings.Local.json.
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);

@@ -608,71 +608,93 @@ public class FleetReportingService
         "Full Audit Trail",
     };
 
-    public async Task<string> BuildReportCsvAsync(string reportType, DateTime fromUtc, DateTime toUtc)
+    public async Task<string> BuildReportCsvAsync(string reportType, DateTime fromUtc, DateTime toUtc) =>
+        ToCsv(await BuildReportAsync(reportType, fromUtc, toUtc));
+
+    /// <summary>The report's data as tables - what both the CSV (BuildReportCsvAsync) and the PDF
+    /// (ManagerWeb's PdfReportRenderer, ANA-012) are made from.</summary>
+    public async Task<ReportDocument> BuildReportAsync(string reportType, DateTime fromUtc, DateTime toUtc)
     {
-        return reportType switch
+        List<ReportTable> tables = reportType switch
         {
-            "Financial Summary" => await BuildFinancialSummaryCsvAsync(fromUtc, toUtc),
-            "Maintenance History" => await BuildMaintenanceHistoryCsvAsync(fromUtc, toUtc),
-            "Fuel & Mileage Analysis" => await BuildFuelMileageCsvAsync(fromUtc, toUtc),
-            "Driver Performance" => await BuildDriverPerformanceCsvAsync(fromUtc, toUtc),
-            "Full Audit Trail" => await BuildAuditTrailCsvAsync(fromUtc, toUtc),
+            "Financial Summary" => await BuildFinancialSummaryAsync(fromUtc, toUtc),
+            "Maintenance History" => await BuildMaintenanceHistoryAsync(fromUtc, toUtc),
+            "Fuel & Mileage Analysis" => await BuildFuelMileageAsync(fromUtc, toUtc),
+            "Driver Performance" => await BuildDriverPerformanceAsync(fromUtc, toUtc),
+            "Full Audit Trail" => await BuildAuditTrailAsync(fromUtc, toUtc),
             _ => throw new ArgumentException($"Unknown report type: {reportType}", nameof(reportType)),
         };
+        return new ReportDocument { Title = reportType, Tables = tables };
     }
 
-    private async Task<string> BuildFinancialSummaryCsvAsync(DateTime fromUtc, DateTime toUtc)
+    private async Task<List<ReportTable>> BuildFinancialSummaryAsync(DateTime fromUtc, DateTime toUtc)
     {
         List<BoundaryPayment> payments = await GetBetweenAsync<BoundaryPayment>("boundary_payments", "timestamp", fromUtc, toUtc);
 
-        return BuildCsv(
-            new[] { "Date", "ShiftId", "ExpectedBoundary", "LateFees", "AmountPaid", "PaymentMethod", "PaymentStatus" },
-            payments.OrderBy(p => p.Timestamp).Select(p => new object?[]
+        return new List<ReportTable>
+        {
+            new()
             {
-                p.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
-                p.ShiftId, p.ExpectedBoundary, p.LateFees, p.AmountPaid, p.PaymentMethod, p.PaymentStatus,
-            }));
+                Headers = new[] { "Date", "ShiftId", "ExpectedBoundary", "LateFees", "AmountPaid", "PaymentMethod", "PaymentStatus" },
+                Rows = payments.OrderBy(p => p.Timestamp).Select(p => new object?[]
+                {
+                    p.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                    p.ShiftId, p.ExpectedBoundary, p.LateFees, p.AmountPaid, p.PaymentMethod, p.PaymentStatus,
+                }).ToList(),
+                MoneyColumns = new HashSet<int> { 2, 3, 4 },
+            },
+        };
     }
 
-    private async Task<string> BuildMaintenanceHistoryCsvAsync(DateTime fromUtc, DateTime toUtc)
+    private async Task<List<ReportTable>> BuildMaintenanceHistoryAsync(DateTime fromUtc, DateTime toUtc)
     {
         List<MaintenanceRecord> records = await GetBetweenAsync<MaintenanceRecord>("maintenance_logs", "dateLogged", fromUtc, toUtc);
 
-        return BuildCsv(
-            new[] { "DateLogged", "TaxiId", "MaintenanceType", "IssueTitle", "PriorityLevel", "LaborCost", "TotalCost", "DateResolved" },
-            records.OrderBy(m => m.DateLogged).Select(m => new object?[]
+        return new List<ReportTable>
+        {
+            new()
             {
-                m.DateLogged.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
-                m.TaxiId, m.MaintenanceType, m.IssueTitle, m.PriorityLevel, m.LaborCost, m.TotalCost,
-                m.DateResolved.ToPhilippineTime()?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? "Open",
-            }));
+                Headers = new[] { "DateLogged", "TaxiId", "MaintenanceType", "IssueTitle", "PriorityLevel", "LaborCost", "TotalCost", "DateResolved" },
+                Rows = records.OrderBy(m => m.DateLogged).Select(m => new object?[]
+                {
+                    m.DateLogged.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                    m.TaxiId, m.MaintenanceType, m.IssueTitle, m.PriorityLevel, m.LaborCost, m.TotalCost,
+                    m.DateResolved.ToPhilippineTime()?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? "Open",
+                }).ToList(),
+                MoneyColumns = new HashSet<int> { 5, 6 },
+                RelativeWidths = new[] { 2f, 1.3f, 1.8f, 3f, 1.2f, 1.3f, 1.3f, 2f },
+            },
+        };
     }
 
-    private async Task<string> BuildFuelMileageCsvAsync(DateTime fromUtc, DateTime toUtc)
+    private async Task<List<ReportTable>> BuildFuelMileageAsync(DateTime fromUtc, DateTime toUtc)
     {
         List<FuelLog> fuelLogs = await GetBetweenAsync<FuelLog>("fuel_logs", "receiptTimestamp", fromUtc, toUtc);
         List<ShiftLog> shifts = await GetBetweenAsync<ShiftLog>("shifts", "shiftStart", fromUtc, toUtc);
 
-        var sb = new StringBuilder();
-        sb.AppendLine("Fuel Logs");
-        sb.Append(BuildCsv(
-            new[] { "ReceiptTimestamp", "ShiftId", "FuelStation", "ORNumber", "LitersRefueled", "FuelCost", "VerificationStatus", "OdometerReading" },
-            fuelLogs.OrderBy(f => f.ReceiptTimestamp).Select(f => new object?[]
+        return new List<ReportTable>
+        {
+            new()
             {
-                f.ReceiptTimestamp.ToPhilippineTime()?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? string.Empty,
-                f.ShiftId, f.FuelStation, f.ORNumber, f.LitersRefueled, f.FuelCost, f.VerificationStatus, f.OdometerReading,
-            })));
-
-        sb.AppendLine();
-        sb.AppendLine("Mileage By Taxi");
-        sb.Append(BuildCsv(
-            new[] { "TaxiId", "TotalMileage" },
-            shifts.GroupBy(s => s.TaxiId).Select(g => new object?[] { g.Key, SumMileage(g) })));
-
-        return sb.ToString();
+                Heading = "Fuel Logs",
+                Headers = new[] { "ReceiptTimestamp", "ShiftId", "FuelStation", "ORNumber", "LitersRefueled", "FuelCost", "VerificationStatus", "OdometerReading" },
+                Rows = fuelLogs.OrderBy(f => f.ReceiptTimestamp).Select(f => new object?[]
+                {
+                    f.ReceiptTimestamp.ToPhilippineTime()?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? string.Empty,
+                    f.ShiftId, f.FuelStation, f.ORNumber, f.LitersRefueled, f.FuelCost, f.VerificationStatus, f.OdometerReading,
+                }).ToList(),
+                MoneyColumns = new HashSet<int> { 5 },
+            },
+            new()
+            {
+                Heading = "Mileage By Taxi",
+                Headers = new[] { "TaxiId", "TotalMileage" },
+                Rows = shifts.GroupBy(s => s.TaxiId).Select(g => new object?[] { g.Key, SumMileage(g) }).ToList(),
+            },
+        };
     }
 
-    private async Task<string> BuildDriverPerformanceCsvAsync(DateTime fromUtc, DateTime toUtc)
+    private async Task<List<ReportTable>> BuildDriverPerformanceAsync(DateTime fromUtc, DateTime toUtc)
     {
         List<UserProfile> drivers = (await GetAllAsync<UserProfile>("users"))
             .Where(u => string.Equals(u.Role, "Driver", StringComparison.OrdinalIgnoreCase))
@@ -683,30 +705,69 @@ public class FleetReportingService
         List<DriverStanding> standings = await BuildTopDriversAsync(drivers, maintenance, alerts, fromUtc.ToPhilippineTime().Date, until);
 
         static string Pct(double? p) => p is double v ? v.ToString("0.0", CultureInfo.InvariantCulture) : "";
-        return BuildCsv(
-            new[] { "Rank", "DriverName", "TaxiId", "ExpectedDays", "DaysWorked", "MissedDays", "AttendancePercent",
-                    "ShiftsCompleted", "LateReturns", "PunctualityPercent", "BoundariesDue", "PaidOnTime",
-                    "PaymentReliabilityPercent", "SosAlerts", "DamageIncidents", "BoundariesRemitted" },
-            standings.Select(d => new object?[]
+        return new List<ReportTable>
+        {
+            new()
             {
-                d.Rank, d.FullName, d.TaxiId, d.Performance.ExpectedDays, d.Performance.DaysWorked, d.Performance.MissedDays,
-                Pct(d.Performance.AttendancePercent), d.Performance.ShiftsCompleted, d.Performance.LateReturns,
-                Pct(d.Performance.PunctualityPercent), d.Performance.BoundariesDue, d.Performance.BoundariesPaidOnTime,
-                Pct(d.Performance.PaymentReliabilityPercent), d.Performance.SosAlerts, d.Performance.DamageIncidents, d.BoundariesRemitted,
-            }));
+                Headers = new[] { "Rank", "DriverName", "TaxiId", "ExpectedDays", "DaysWorked", "MissedDays", "AttendancePercent",
+                        "ShiftsCompleted", "LateReturns", "PunctualityPercent", "BoundariesDue", "PaidOnTime",
+                        "PaymentReliabilityPercent", "SosAlerts", "DamageIncidents", "BoundariesRemitted" },
+                Rows = standings.Select(d => new object?[]
+                {
+                    d.Rank, d.FullName, d.TaxiId, d.Performance.ExpectedDays, d.Performance.DaysWorked, d.Performance.MissedDays,
+                    Pct(d.Performance.AttendancePercent), d.Performance.ShiftsCompleted, d.Performance.LateReturns,
+                    Pct(d.Performance.PunctualityPercent), d.Performance.BoundariesDue, d.Performance.BoundariesPaidOnTime,
+                    Pct(d.Performance.PaymentReliabilityPercent), d.Performance.SosAlerts, d.Performance.DamageIncidents, d.BoundariesRemitted,
+                }).ToList(),
+                MoneyColumns = new HashSet<int> { 15 },
+                RelativeWidths = new[] { 0.7f, 2.4f, 1.3f, 1f, 1f, 1f, 1.1f, 1f, 1f, 1.1f, 1f, 1f, 1.2f, 0.9f, 1f, 1.5f },
+            },
+        };
     }
 
-    private async Task<string> BuildAuditTrailCsvAsync(DateTime fromUtc, DateTime toUtc)
+    private async Task<List<ReportTable>> BuildAuditTrailAsync(DateTime fromUtc, DateTime toUtc)
     {
         List<AuditLog> logs = await GetBetweenAsync<AuditLog>("audit_logs", "timestamp", fromUtc, toUtc);
 
-        return BuildCsv(
-            new[] { "Timestamp", "UserId", "ActionType", "Details", "IpAddress" },
-            logs.OrderBy(a => a.Timestamp).Select(a => new object?[]
+        return new List<ReportTable>
+        {
+            new()
             {
-                a.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
-                a.UserId, a.ActionType, a.AuditLogDetails, a.IpAddress,
-            }));
+                Headers = new[] { "Timestamp", "UserId", "ActionType", "Details", "IpAddress" },
+                Rows = logs.OrderBy(a => a.Timestamp).Select(a => new object?[]
+                {
+                    a.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                    a.UserId, a.ActionType, a.AuditLogDetails, a.IpAddress,
+                }).ToList(),
+                RelativeWidths = new[] { 1.6f, 2f, 2f, 6f, 1.4f },
+            },
+        };
+    }
+
+    /// <summary>The CSV a report has always downloaded as: one table as-is; several each under
+    /// their heading line, separated by a blank line.</summary>
+    public static string ToCsv(ReportDocument report)
+    {
+        if (report.Tables.Count == 1 && report.Tables[0].Heading is null)
+        {
+            return BuildCsv(report.Tables[0].Headers, report.Tables[0].Rows);
+        }
+
+        var sb = new StringBuilder();
+        for (int i = 0; i < report.Tables.Count; i++)
+        {
+            ReportTable table = report.Tables[i];
+            if (i > 0)
+            {
+                sb.AppendLine();
+            }
+            if (table.Heading is not null)
+            {
+                sb.AppendLine(table.Heading);
+            }
+            sb.Append(BuildCsv(table.Headers, table.Rows));
+        }
+        return sb.ToString();
     }
 
     private static string BuildCsv(IEnumerable<string> headers, IEnumerable<IEnumerable<object?>> rows)

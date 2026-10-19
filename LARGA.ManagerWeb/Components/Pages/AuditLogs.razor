@@ -10,6 +10,8 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject InventoryAuditService InventoryAudit
+@inject AuthenticationStateProvider AuthStateProvider
+@inject Lazy<FirestoreDb> FirestoreDb
 
 @if (_isLoading)
 {
@@ -67,6 +69,9 @@ else
             <span class="entry-counter font-mono">@CounterText</span>
             <button class="btn-export" type="button" disabled="@_isExporting" @onclick="ExportLogsAsync" aria-busy="@_isExporting">
                 <span class="export-icon"><Icon Name="download" /></span> @(_isExporting ? "Exporting..." : "Export CSV")
+            </button>
+            <button class="btn-export" type="button" disabled="@_isExporting" @onclick="ExportPdfAsync" aria-busy="@_isExporting">
+                <span class="export-icon"><Icon Name="file-chart-column" /></span> @(_isExporting ? "Exporting..." : "Export PDF")
             </button>
         </div>
     </div>
@@ -401,6 +406,60 @@ else
 
             _fileDownloadModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/file-download.js");
             await _fileDownloadModule.InvokeVoidAsync("downloadFile", fileName, csv.ToString(), "text/csv");
+        }
+        catch (Exception ex)
+        {
+            _exportError = $"Couldn't export audit logs: {ex.Message}";
+        }
+        finally
+        {
+            _isExporting = false;
+        }
+    }
+
+    /// <summary>ANA-007: the same entries as the CSV (whole date range, current search) as a PDF.</summary>
+    private async Task ExportPdfAsync()
+    {
+        if (_isExporting)
+        {
+            return;
+        }
+
+        if (RangeError is not null)
+        {
+            _exportError = RangeError;
+            return;
+        }
+
+        _exportError = null;
+        _isExporting = true;
+
+        try
+        {
+            List<InventoryAuditService.AuditLogListItem> rows = await GetExportRowsAsync();
+            var report = new LARGA.SharedCore.Models.Dashboard.ReportDocument
+            {
+                Title = IsSearching ? $"Audit Logs (search: \"{searchQuery.Trim()}\")" : "Audit Logs",
+                Tables =
+                {
+                    new LARGA.SharedCore.Models.Dashboard.ReportTable
+                    {
+                        Headers = new[] { "Timestamp", "User", "Role", "Action", "Details" },
+                        Rows = rows.Select(r => new object?[]
+                        {
+                            r.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm:ss"), r.Actor, r.Role, r.Action, r.Target,
+                        }).ToList(),
+                        RelativeWidths = new[] { 1.7f, 2f, 1.3f, 2f, 6f },
+                    },
+                },
+            };
+
+            string generatedBy = await LARGA.ManagerWeb.Services.PdfReportRenderer.DescribeUserAsync(AuthStateProvider, FirestoreDb);
+            byte[] pdf = LARGA.ManagerWeb.Services.PdfReportRenderer.Render(report, _fromDate, _toDate, generatedBy);
+
+            _fileDownloadModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/file-download.js");
+            await _fileDownloadModule.InvokeVoidAsync("downloadBase64File", $"audit_logs_{_fromDate:yyyyMMdd}-{_toDate:yyyyMMdd}.pdf",
+                Convert.ToBase64String(pdf), "application/pdf");
         }
         catch (Exception ex)
         {

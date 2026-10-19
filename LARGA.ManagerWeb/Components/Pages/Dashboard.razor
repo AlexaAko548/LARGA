@@ -11,6 +11,7 @@
 @inject FinancialLedgerService Ledger
 @inject LARGA.ManagerWeb.Services.ChatDrawerState ChatDrawer
 @inject AuthenticationStateProvider AuthStateProvider
+@inject Lazy<Google.Cloud.Firestore.FirestoreDb> FirestoreDb
 
 <PageTitle>Executive Dashboard</PageTitle>
 
@@ -350,10 +351,9 @@
                     <div class="format-list">
                         @foreach (var format in ExportFormats)
                         {
-                            bool isAvailable = format == CsvFormat;
-                            <label class="export-option @(format == _selectedExportFormat ? "selected" : "") @(isAvailable ? "" : "disabled")">
-                                <input type="radio" name="exportFormat" disabled="@(!isAvailable)" checked="@(_selectedExportFormat == format)" @onchange="() => SelectExportFormat(format)" />
-                                <span>@format@(isAvailable ? "" : " (coming soon)")</span>
+                            <label class="export-option @(format == _selectedExportFormat ? "selected" : "")">
+                                <input type="radio" name="exportFormat" checked="@(_selectedExportFormat == format)" @onchange="() => SelectExportFormat(format)" />
+                                <span>@format</span>
                             </label>
                         }
                     </div>
@@ -368,9 +368,9 @@
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseReportModal">Cancel</button>
                 <button class="download-btn" type="button"
-                        disabled="@(_selectedExportFormat != CsvFormat || _isExportingReport || ReportRangeError is not null)"
+                        disabled="@(_isExportingReport || ReportRangeError is not null)"
                         @onclick="DownloadReportAsync" aria-busy="@_isExportingReport">
-                    @(_isExportingReport ? "Preparing…" : _selectedExportFormat == CsvFormat ? "Download CSV" : "Export unavailable until data is available")
+                    @(_isExportingReport ? "Preparing…" : _selectedExportFormat == PdfFormat ? "Download PDF" : "Download CSV")
                 </button>
             </div>
         </div>
@@ -379,6 +379,7 @@
 
 @code {
     private const string CsvFormat = "CSV File";
+    private const string PdfFormat = "PDF Document";
 
     // Assistant Managers can view the dashboard, but can't open driver chats from it.
     private bool _canManage;
@@ -405,11 +406,11 @@
         "Full Audit Trail"
     };
 
+    // ANA-012: PDF and CSV, built from the same report data. (Excel isn't in the spec.)
     private readonly List<string> ExportFormats = new()
     {
-        "PDF Document",
-        "Excel Spreadsheet",
-        "CSV File"
+        PdfFormat,
+        CsvFormat
     };
 
     protected override async Task OnInitializedAsync()
@@ -573,7 +574,7 @@
 
     private async Task DownloadReportAsync()
     {
-        if (_selectedExportFormat != CsvFormat || _isExportingReport || ReportRangeError is not null)
+        if (_isExportingReport || ReportRangeError is not null)
         {
             return;
         }
@@ -589,11 +590,20 @@
             DateTime fromUtc = DateTime.SpecifyKind(_reportFromDate.Date, DateTimeKind.Utc);
             DateTime toUtc = DateTime.SpecifyKind(_reportToDate.Date, DateTimeKind.Utc).AddDays(1).AddTicks(-1);
 
-            string csv = await FleetReporting.BuildReportCsvAsync(_selectedReportType, fromUtc, toUtc);
-            string fileName = $"{_selectedReportType.Replace(" ", "_")}_{_reportFromDate:yyyyMMdd}-{_reportToDate:yyyyMMdd}.csv";
+            ReportDocument report = await FleetReporting.BuildReportAsync(_selectedReportType, fromUtc, toUtc);
+            string baseName = $"{_selectedReportType.Replace(" ", "_").Replace("&", "and")}_{_reportFromDate:yyyyMMdd}-{_reportToDate:yyyyMMdd}";
 
             _fileDownloadModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/file-download.js");
-            await _fileDownloadModule.InvokeVoidAsync("downloadFile", fileName, csv, "text/csv");
+            if (_selectedExportFormat == PdfFormat)
+            {
+                string generatedBy = await LARGA.ManagerWeb.Services.PdfReportRenderer.DescribeUserAsync(AuthStateProvider, FirestoreDb);
+                byte[] pdf = LARGA.ManagerWeb.Services.PdfReportRenderer.Render(report, _reportFromDate, _reportToDate, generatedBy);
+                await _fileDownloadModule.InvokeVoidAsync("downloadBase64File", baseName + ".pdf", Convert.ToBase64String(pdf), "application/pdf");
+            }
+            else
+            {
+                await _fileDownloadModule.InvokeVoidAsync("downloadFile", baseName + ".csv", FleetReportingService.ToCsv(report), "text/csv");
+            }
         }
         catch (Exception ex)
         {
