@@ -706,7 +706,8 @@ public class ShiftManagementService : IShiftManagementService
 
     /// <summary>The value to write for shiftStart/shiftEnd: Firestore server time, which
     /// firestore.rules require. Debug builds running the test clock (system_configs/global
-    /// testClockPh - the rules accept any time only while it's set) write the pretend time.</summary>
+    /// testClockPh) write the pretend time - production rules refuse it (audit B-03), so the test
+    /// clock only works on the emulator or a dev project.</summary>
     private static object ShiftTimestamp() =>
         ShiftClock.IsPretending ? ShiftClock.UtcNow : FieldValue.ServerTimestamp();
 

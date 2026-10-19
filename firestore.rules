@@ -61,8 +61,7 @@ service cloud.firestore {
                     && request.resource.data.startMileage is int && request.resource.data.startMileage > 0
                     && request.resource.data.get('isOnBreak', false) == false
                     && request.resource.data.get('managerNote', '') == ''
-                    && ((request.resource.data.shiftStart == request.time && phHour(request.time) >= 6)
-                        || testClockOn());
+                    && request.resource.data.shiftStart == request.time && phHour(request.time) >= 6;
       allow update: if isManager() || (isDriver() && driverShiftUpdateOk(shiftId));
     }
 
@@ -85,7 +84,7 @@ service cloud.firestore {
         && changed.hasOnly(gpsKeys.concat(['isOnBreak', 'shiftId', 'shiftEnd', 'endMileage', 'status',
                                            'managerNote', 'fuelPenalty']))
         && (!changed.hasAny(gpsKeys) || before.status == 'Active')
-        && (!changed.hasAny(['shiftEnd']) || after.shiftEnd == request.time || testClockOn())
+        && (!changed.hasAny(['shiftEnd']) || after.shiftEnd == request.time)
         && (!changed.hasAny(['status']) || (before.status == 'Active' && after.status in ['Completed', 'Auto-Closed']))
         && (!changed.hasAny(['fuelPenalty']) || after.fuelPenalty == 0 || after.fuelPenalty == 50)
         && (!changed.hasAny(['endMileage']) || after.status != 'Completed'
@@ -98,12 +97,10 @@ service cloud.firestore {
       return (t.hours() + 8) % 24;
     }
 
-    // Debug builds' test clock (ShiftClock): while a manager has set system_configs/global
-    // testClockPh, shift times may come from the phone's pretend clock instead of the server.
-    // KEEP testClockPh BLANK IN PRODUCTION - while it's set, drivers' shift times are trusted.
-    function testClockOn() {
-      return get(/databases/$(database)/documents/system_configs/global).data.get('testClockPh', '') != '';
-    }
+    // No test-clock exception (B-03): shift times are always the server's. Debug builds' test
+    // clock (ShiftClock / system_configs testClockPh) writes the phone's pretend time, so it now
+    // only works against the emulator or a dev project whose rules add the exception back - never
+    // against production, where any driver could otherwise backdate shifts while it's set.
 
     // Per-driver ledger version (FinancialLedgerService / QuickLedgerService). Every payment
     // booking bumps it in the same transaction as its payment documents, so two cashiers paying
