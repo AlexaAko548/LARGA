@@ -28,6 +28,18 @@ public sealed record QuickLedgerSnapshot(
     public long LedgerVersionFor(string driverId) => LedgerVersions.TryGetValue(driverId, out long version) ? version : 0;
 }
 
+/// <summary>A Quick Ledger read failed. <see cref="Exception.InnerException"/> is the Firestore or timeout error.</summary>
+public sealed class QuickLedgerLoadException : Exception
+{
+    public QuickLedgerLoadException(string step, Exception inner)
+        : base($"{step} failed: {inner.Message}", inner)
+    {
+        Step = step;
+    }
+
+    public string Step { get; }
+}
+
 /// <summary>Another payment for the driver was recorded after this page loaded its balances; nothing was saved.</summary>
 public sealed class LedgerConflictException : InvalidOperationException
 {
@@ -55,16 +67,17 @@ public class QuickLedgerService
 
         // Versions first, before any balance: a payment recorded while the reads below run then shows up as a newer
         // version at save time, never as balances that silently miss it.
-        IReadOnlyDictionary<string, long> ledgerVersions = await Timed(ReadLedgerVersionsAsync(warnings), "Reading payment versions");
+        IReadOnlyDictionary<string, long> ledgerVersions = await Step(ReadLedgerVersionsAsync(warnings), "Reading payment versions");
 
-        // Each read has a timeout. A read that never returns would otherwise keep the page loading forever.
-        IReadOnlyList<ShiftRecord> shifts = await Timed(ReadShiftsAsync(warnings), "Reading shifts");
-        IReadOnlyList<BoundaryPaymentRecord> payments = await Timed(ReadPaymentsAsync(warnings), "Reading boundary payments");
-        IReadOnlyList<DebtAdjustmentRecord> adjustments = await Timed(ReadAdjustmentsAsync(warnings), "Reading debt adjustments");
-        UserDirectory users = await Timed(ReadUsersAsync(), "Reading users");
-        decimal defaultRate = await Timed(ReadDefaultBoundaryRateAsync(), "Reading boundary rate");
+        // Each read has a timeout. A read that never returns would otherwise keep the page loading forever. A failed
+        // read is rethrown as a QuickLedgerLoadException naming the step, so the log says which collection failed.
+        IReadOnlyList<ShiftRecord> shifts = await Step(ReadShiftsAsync(warnings), "Reading shifts");
+        IReadOnlyList<BoundaryPaymentRecord> payments = await Step(ReadPaymentsAsync(warnings), "Reading boundary payments");
+        IReadOnlyList<DebtAdjustmentRecord> adjustments = await Step(ReadAdjustmentsAsync(warnings), "Reading debt adjustments");
+        UserDirectory users = await Step(ReadUsersAsync(), "Reading users");
+        decimal defaultRate = await Step(ReadDefaultBoundaryRateAsync(), "Reading boundary rate");
 
-        IReadOnlyDictionary<string, string> taxiPlates = await Timed(ReadTaxiPlatesAsync(), "Reading taxis");
+        IReadOnlyDictionary<string, string> taxiPlates = await Step(ReadTaxiPlatesAsync(), "Reading taxis");
 
         var input = new QuickLedgerInput(shifts, payments, adjustments, users.Names, users.DriverIds, taxiPlates, defaultRate);
         QuickLedgerResult result = QuickLedgerCalculator.Build(input, PhilippineTime.Now);
@@ -582,6 +595,20 @@ public class QuickLedgerService
         }
 
         return await work;
+    }
+
+    /// <summary><see cref="Timed{T}"/> for the page load: any failure comes back as a
+    /// <see cref="QuickLedgerLoadException"/> naming the read that failed.</summary>
+    private static async Task<T> Step<T>(Task<T> work, string what)
+    {
+        try
+        {
+            return await Timed(work, what);
+        }
+        catch (Exception ex)
+        {
+            throw new QuickLedgerLoadException(what, ex);
+        }
     }
 
     private static async Task Timed(Task work, string what)

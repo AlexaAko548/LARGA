@@ -32,6 +32,7 @@ public class ManagerLedgerViewModel : BindableObject
 
     public ICommand LoadCommand { get; }
     public ICommand RefreshCommand { get; }
+    public ICommand RetryCommand { get; }
     public ICommand OpenOtherPaymentCommand { get; }
     public ICommand OpenPendingCommand { get; }
 
@@ -46,6 +47,7 @@ public class ManagerLedgerViewModel : BindableObject
         };
 
         LoadCommand = new Command(async () => await LoadAsync());
+        RetryCommand = new Command(async () => await LoadAsync());
         RefreshCommand = new Command(async () => await RefreshAsync());
         OpenOtherPaymentCommand = new Command(() => OpenOther(null));
         OpenPendingCommand = new Command<PendingBoundaryItem>(item => OpenPending(item));
@@ -193,9 +195,10 @@ public class ManagerLedgerViewModel : BindableObject
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Quick Ledger load error: {ex}");
+            // Full exception (step, type, Firestore code) to logcat under the LARGA tag, Release builds included.
+            FirestoreErrors.Log("Quick Ledger load", ex);
             HasError = true;
-            ErrorMessage = "Could not load the ledger. Reopen this tab to try again.";
+            ErrorMessage = LoadErrorMessage(ex);
         }
         finally
         {
@@ -204,6 +207,25 @@ public class ManagerLedgerViewModel : BindableObject
             OnPropertyChanged(nameof(HasPending));
             OnPropertyChanged(nameof(HasPaymentsDoneToday));
         }
+    }
+
+    // One message per cause, so the manager knows whether to check the connection, the account, or call for help.
+    private static string LoadErrorMessage(Exception ex)
+    {
+        string step = ex is QuickLedgerLoadException load ? $" ({load.Step.ToLowerInvariant()})" : string.Empty;
+        return FirestoreErrors.Classify(ex) switch
+        {
+            FirestoreErrorKind.Offline =>
+                "Can't reach the server. Check your internet connection, then tap Retry.",
+            FirestoreErrorKind.PermissionDenied =>
+                $"This account isn't allowed to read the ledger{step}. Make sure you're logged in as a Manager, then tap Retry. If it keeps happening, the Firestore rules on the server need updating.",
+            FirestoreErrorKind.SignedOut =>
+                "Your session has expired. Please log out and log in again.",
+            FirestoreErrorKind.MissingIndex =>
+                $"The server is missing a database index{step}. Tell the system admin, then tap Retry.",
+            _ =>
+                $"Something went wrong while loading the ledger{step}. Tap Retry.",
+        };
     }
 
     private void OpenPending(PendingBoundaryItem? item)
