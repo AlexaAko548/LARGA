@@ -624,13 +624,17 @@ public class AlertCenterViewModel : BindableObject
                 return;
             }
 
-            await request.UpdateDataAsync(new Dictionary<object, object>
+            // One batch (gap #13): the decision and its bell row land together or not at all.
+            IDocumentReference? bell = await ExistingBellAsync(AlertFeed.ClockInBellId(alert.Id));
+            IWriteBatch batch = CrossFirebaseFirestore.Current.CreateBatch();
+            batch.UpdateData(request, new Dictionary<object, object>
             {
                 ["status"] = "Approved",
                 ["decidedAt"] = DateTime.UtcNow,
                 ["managerNote"] = string.Empty,
             });
-            await MarkBellReadAsync($"{alert.Id}_CLOCKIN");
+            if (bell is not null) batch.UpdateData(bell, new Dictionary<object, object> { ["isRead"] = true });
+            await batch.CommitAsync();
             AuditLogWriter.Record("ClockInApproved",
                 $"Clock-in approved for {alert.DriverName} on {alert.TaxiId} despite: {alert.FailedItem?.Replace("\n", "; ")}.");
             await Shell.Current.DisplayAlert("Clock-in approved", $"{alert.DriverName} can now start the shift.", "OK");
@@ -683,47 +687,49 @@ public class AlertCenterViewModel : BindableObject
                 return;
             }
 
+            // Every write of the denial in one batch (gap #13): a failure part-way can no longer leave
+            // the unit under maintenance with the request still Pending, or the reverse.
             DateTime now = DateTime.UtcNow;
+            IFirebaseFirestore firestore = CrossFirebaseFirestore.Current;
+            IDocumentReference? bell = await ExistingBellAsync(AlertFeed.ClockInBellId(alert.Id));
+            IWriteBatch batch = firestore.CreateBatch();
+
             foreach (string defectId in defectIds)
             {
-                await CrossFirebaseFirestore.Current
-                    .GetCollection("maintenance_logs")
-                    .GetDocument(defectId)
-                    .UpdateDataAsync(new Dictionary<object, object> { ["priorityLevel"] = "High" });
+                batch.UpdateData(firestore.GetCollection("maintenance_logs").GetDocument(defectId),
+                    new Dictionary<object, object> { ["priorityLevel"] = "High" });
             }
 
             if (defectIds.Count == 0 && alert.HasFailedItems)
             {
-                await CrossFirebaseFirestore.Current
-                    .GetCollection("maintenance_logs")
-                    .AddDocumentAsync(new MaintenanceReportCreateProxy
-                    {
-                        TaxiId = alert.TaxiId ?? string.Empty,
-                        MaintenanceType = "Breakdown Repair",
-                        IssueTitle = "Failed pre-shift inspection",
-                        IssueDescription = $"Clock-in denied. Flagged: {alert.FailedItem?.Replace("\n", "; ")}. Manager: {note}",
-                        DateLogged = now,
-                        PriorityLevel = "High",
-                        ReportedByDriverId = alert.DriverId ?? string.Empty,
-                        Status = "Reported",
-                    });
+                // Same fields ManagerWeb's DenyAsync writes for a new Garage report.
+                batch.SetData(firestore.GetCollection("maintenance_logs").CreateDocument(), new Dictionary<object, object>
+                {
+                    ["taxiId"] = alert.TaxiId ?? string.Empty,
+                    ["maintenanceType"] = "Breakdown Repair",
+                    ["issueTitle"] = "Failed pre-shift inspection",
+                    ["issueDescription"] = $"Clock-in denied. Flagged: {alert.FailedItem?.Replace("\n", "; ")}. Manager: {note}",
+                    ["dateLogged"] = now,
+                    ["priorityLevel"] = "High",
+                    ["reportedByDriverId"] = alert.DriverId ?? string.Empty,
+                    ["status"] = "Reported",
+                }, SetOptions.Merge());
             }
 
             if (markUnderMaintenance && !string.IsNullOrWhiteSpace(alert.TaxiId))
             {
-                await CrossFirebaseFirestore.Current
-                    .GetCollection("taxis")
-                    .GetDocument(alert.TaxiId)
-                    .UpdateDataAsync(new Dictionary<object, object> { ["status"] = LARGA.SharedCore.TaxiStatusRules.UnderMaintenance });
+                batch.UpdateData(firestore.GetCollection("taxis").GetDocument(alert.TaxiId),
+                    new Dictionary<object, object> { ["status"] = LARGA.SharedCore.TaxiStatusRules.UnderMaintenance });
             }
 
-            await request.UpdateDataAsync(new Dictionary<object, object>
+            batch.UpdateData(request, new Dictionary<object, object>
             {
                 ["status"] = "Denied",
                 ["decidedAt"] = now,
                 ["managerNote"] = note,
             });
-            await MarkBellReadAsync($"{alert.Id}_CLOCKIN");
+            if (bell is not null) batch.UpdateData(bell, new Dictionary<object, object> { ["isRead"] = true });
+            await batch.CommitAsync();
             AuditLogWriter.Record("ClockInDenied",
                 $"Clock-in denied for {alert.DriverName} on {alert.TaxiId}: {note}." + (markUnderMaintenance ? " Unit put under maintenance." : ""));
 
@@ -747,6 +753,15 @@ public class AlertCenterViewModel : BindableObject
 
     private static List<string> SplitIds(string? ids) =>
         (ids ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    /// <summary>The ManagerWeb bell entry system_alerts/{docId}, or null when there is none - read before a batch,
+    /// since updating a missing document would fail the whole batch.</summary>
+    private static async Task<IDocumentReference?> ExistingBellAsync(string docId)
+    {
+        var bell = CrossFirebaseFirestore.Current.GetCollection(AlertFeed.Collection).GetDocument(docId);
+        var snapshot = await bell.GetDocumentSnapshotAsync<BellProxy>();
+        return snapshot?.Data != null ? bell : null;
+    }
 
     /// <summary>Marks a ManagerWeb bell entry (system_alerts/{docId}) read, if there is one.</summary>
     private static async Task MarkBellReadAsync(string docId)
@@ -779,19 +794,6 @@ public class AlertCenterViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("interiorCleanliness")] public bool InteriorCleanliness { get; set; }
         [Plugin.Firebase.Firestore.FirestoreProperty("exteriorCondition")] public bool ExteriorCondition { get; set; }
         [Plugin.Firebase.Firestore.FirestoreProperty("createdAt")] public DateTime CreatedAt { get; set; }
-    }
-
-    /// <summary>A new driver report in the Garage queue - same fields ManagerWeb's DenyAsync writes.</summary>
-    private class MaintenanceReportCreateProxy
-    {
-        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")] public string TaxiId { get; set; } = string.Empty;
-        [Plugin.Firebase.Firestore.FirestoreProperty("maintenanceType")] public string MaintenanceType { get; set; } = string.Empty;
-        [Plugin.Firebase.Firestore.FirestoreProperty("issueTitle")] public string IssueTitle { get; set; } = string.Empty;
-        [Plugin.Firebase.Firestore.FirestoreProperty("issueDescription")] public string IssueDescription { get; set; } = string.Empty;
-        [Plugin.Firebase.Firestore.FirestoreProperty("dateLogged")] public DateTime DateLogged { get; set; }
-        [Plugin.Firebase.Firestore.FirestoreProperty("priorityLevel")] public string PriorityLevel { get; set; } = string.Empty;
-        [Plugin.Firebase.Firestore.FirestoreProperty("reportedByDriverId")] public string ReportedByDriverId { get; set; } = string.Empty;
-        [Plugin.Firebase.Firestore.FirestoreProperty("status")] public string Status { get; set; } = string.Empty;
     }
 
     /// <summary>The bell entry ManagerWeb raised for this SOS ({alertId}_SOS), if any.</summary>
