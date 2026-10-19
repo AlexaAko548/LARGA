@@ -68,15 +68,19 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
         _ = LoadSavedCredentialsAsync();
     }
 
-    private async Task LoadSavedCredentialsAsync()
+    private Task LoadSavedCredentialsAsync()
     {
         // Use role-specific keys to prevent overlap
         RememberMe = Preferences.Get($"{_expectedRole}_RememberMe", false);
         if (RememberMe)
         {
             Email = Preferences.Get($"{_expectedRole}_SavedEmail", string.Empty);
-            Password = await SecureStorage.GetAsync($"{_expectedRole}_SavedPassword") ?? string.Empty;
         }
+
+        // Remember Me keeps the email only (audit B-04): Firebase already keeps the user signed in,
+        // so the password itself never needs to be on the phone. Clear any an older build saved.
+        SecureStorage.Remove($"{_expectedRole}_SavedPassword");
+        return Task.CompletedTask;
     }
 
     private async Task OnForgotPasswordAsync()
@@ -166,21 +170,21 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
         }
     }
 
-    private async Task SaveOrClearCredentialsAsync()
+    private Task SaveOrClearCredentialsAsync()
     {
         // Save or clear credentials using the prefixed keys
         if (RememberMe)
         {
             Preferences.Set($"{_expectedRole}_RememberMe", true);
             Preferences.Set($"{_expectedRole}_SavedEmail", Email);
-            await SecureStorage.SetAsync($"{_expectedRole}_SavedPassword", Password);
         }
         else
         {
             Preferences.Remove($"{_expectedRole}_RememberMe");
             Preferences.Remove($"{_expectedRole}_SavedEmail");
-            SecureStorage.Remove($"{_expectedRole}_SavedPassword");
         }
+
+        return Task.CompletedTask;
     }
 
     private async Task SignOutQuietlyAsync()
