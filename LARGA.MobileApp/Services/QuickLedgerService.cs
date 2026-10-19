@@ -270,6 +270,7 @@ public class QuickLedgerService
             var snapshot = await CrossFirebaseFirestore.Current
                 .GetCollection("ledger_locks")
                 .GetDocumentsAsync<LedgerLockProxy>();
+            PerfLog.Reads("ledger_locks", snapshot.Documents.Count());
 
             return snapshot.Documents
                 .Where(doc => doc.Data is not null)
@@ -362,6 +363,7 @@ public class QuickLedgerService
         var snapshot = driverId is null
             ? await collection.GetDocumentsAsync<ShiftProxy>()
             : await collection.WhereEqualsTo("driverId", driverId).GetDocumentsAsync<ShiftProxy>();
+        PerfLog.Reads("shifts", snapshot.Documents.Count());
 
         var records = new List<ShiftRecord>();
         foreach (var doc in snapshot.Documents)
@@ -395,6 +397,7 @@ public class QuickLedgerService
         var snapshot = driverId is null
             ? await collection.GetDocumentsAsync<BoundaryPaymentProxy>()
             : await collection.WhereEqualsTo("driverId", driverId).GetDocumentsAsync<BoundaryPaymentProxy>();
+        PerfLog.Reads("boundary_payments", snapshot.Documents.Count());
 
         var records = new List<BoundaryPaymentRecord>();
         foreach (var doc in snapshot.Documents)
@@ -430,6 +433,7 @@ public class QuickLedgerService
         var snapshot = driverId is null
             ? await collection.GetDocumentsAsync<DebtAdjustmentProxy>()
             : await collection.WhereEqualsTo("driverId", driverId).GetDocumentsAsync<DebtAdjustmentProxy>();
+        PerfLog.Reads("debt_adjustments", snapshot.Documents.Count());
 
         var records = new List<DebtAdjustmentRecord>();
         foreach (var doc in snapshot.Documents)
@@ -455,6 +459,7 @@ public class QuickLedgerService
         var snapshot = await CrossFirebaseFirestore.Current
             .GetCollection("users")
             .GetDocumentsAsync<UserProxy>();
+        PerfLog.Reads("users", snapshot.Documents.Count());
 
         var names = new Dictionary<string, string>();
         var driverIds = new List<string>();
@@ -483,6 +488,7 @@ public class QuickLedgerService
         var snapshot = await CrossFirebaseFirestore.Current
             .GetCollection("taxis")
             .GetDocumentsAsync<TaxiProxy>();
+        PerfLog.Reads("taxis", snapshot.Documents.Count());
 
         var plates = new Dictionary<string, string>();
         foreach (var doc in snapshot.Documents)

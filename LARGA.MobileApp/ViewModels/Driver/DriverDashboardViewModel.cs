@@ -193,6 +193,8 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     /// </summary>
     public async Task SyncOpenShiftAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Driver Dashboard open-shift check");
         try
         {
             var open = await _shiftService.GetMyOpenShiftAsync();
@@ -233,6 +235,8 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
 
     private async Task InitializeDashboardDataAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Driver Dashboard load");
         using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         var user = CrossFirebaseAuth.Current.CurrentUser;
         if (user != null)

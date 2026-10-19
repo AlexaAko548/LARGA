@@ -187,6 +187,22 @@ public static class MauiProgram
         builder.Logging.AddDebug();
 #endif
 
+#if LARGA_PERF
+        // P0 load timings (PERFORMANCE_REPORT.md): Debug builds, or a Release build made with
+        // -p:LargaPerf=true. Read them with: adb logcat -s LARGA_PERF
+        LARGA.SharedCore.PerfLog.Enabled = true;
+#if DEBUG
+        LARGA.SharedCore.PerfLog.Build = "Debug";
+#else
+        LARGA.SharedCore.PerfLog.Build = "Release";
+#endif
+#if ANDROID
+        LARGA.SharedCore.PerfLog.Sink = line => Android.Util.Log.Info("LARGA_PERF", line);
+#else
+        LARGA.SharedCore.PerfLog.Sink = line => System.Diagnostics.Debug.WriteLine($"[LARGA_PERF] {line}");
+#endif
+#endif
+
         return builder.Build();
     }
 

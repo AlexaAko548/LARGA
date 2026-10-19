@@ -74,6 +74,8 @@ public class LedgerViewModel : INotifyPropertyChanged
     /// </summary>
     public async Task LoadDynamicLedgerDataAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Driver Ledger load");
         using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         var user = CrossFirebaseAuth.Current.CurrentUser;
         if (user == null || _isLoading) return;

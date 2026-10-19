@@ -147,6 +147,8 @@ public class ManagerLedgerViewModel : BindableObject
 
     private async Task LoadOnceAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Quick Ledger load");
         using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         DateText = PhilippineTime.Now.ToString("dddd, MMM d", CultureInfo.InvariantCulture);
 

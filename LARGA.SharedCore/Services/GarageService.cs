@@ -774,6 +774,7 @@ public class GarageService
     private async Task<List<T>> GetAllAsync<T>(string collection) where T : class
     {
         QuerySnapshot snapshot = await Db.Collection(collection).GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 
@@ -783,6 +784,7 @@ public class GarageService
     private async Task<List<T>> GetSinceAsync<T>(string collection, string dateField, DateTime sinceUtc) where T : class
     {
         QuerySnapshot snapshot = await Db.Collection(collection).WhereGreaterThanOrEqualTo(dateField, sinceUtc).GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 

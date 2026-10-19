@@ -434,6 +434,7 @@ public class FleetReportingService
             .OrderByDescending("timestamp")
             .Limit(1)
             .GetSnapshotAsync();
+        PerfLog.Reads("gps_telemetry", snapshot.Count);
 
         return snapshot.Documents.Count == 0 ? null : snapshot.Documents[0].ConvertTo<GpsTelemetry>();
     }
@@ -811,6 +812,7 @@ public class FleetReportingService
     private async Task<List<T>> GetAllAsync<T>(string collection) where T : class
     {
         QuerySnapshot snapshot = await Db.Collection(collection).GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 
@@ -822,6 +824,7 @@ public class FleetReportingService
         QuerySnapshot snapshot = await Db.Collection(collection)
             .WhereGreaterThanOrEqualTo(dateField, sinceUtc)
             .GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 
@@ -835,6 +838,7 @@ public class FleetReportingService
             .WhereGreaterThanOrEqualTo(dateField, fromUtc)
             .WhereLessThanOrEqualTo(dateField, toUtc)
             .GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 
@@ -845,6 +849,7 @@ public class FleetReportingService
         QuerySnapshot snapshot = await Db.Collection(collection)
             .WhereEqualTo(field, value)
             .GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 

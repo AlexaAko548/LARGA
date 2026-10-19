@@ -1313,6 +1313,7 @@ public class FinancialLedgerService
     private async Task<List<T>> GetWhereEqualAsync<T>(string collection, string field, object value) where T : class
     {
         QuerySnapshot snapshot = await Db.Collection(collection).WhereEqualTo(field, value).GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 
@@ -1374,6 +1375,7 @@ public class FinancialLedgerService
     private async Task<List<T>> GetAllAsync<T>(string collection) where T : class
     {
         QuerySnapshot snapshot = await Db.Collection(collection).GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 
@@ -1383,12 +1385,14 @@ public class FinancialLedgerService
             .WhereGreaterThanOrEqualTo(dateField, fromUtc)
             .WhereLessThanOrEqualTo(dateField, toUtc)
             .GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 
     private async Task<List<T>> GetWhereInAsync<T>(string collection, string field, List<string> values) where T : class
     {
         QuerySnapshot snapshot = await Db.Collection(collection).WhereIn(field, values).GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 

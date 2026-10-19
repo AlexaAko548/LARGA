@@ -53,6 +53,9 @@ public class IdleAlertMonitorService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            // P0 timing (PERFORMANCE_REPORT.md): one line per pass, with the documents it read.
+            IDisposable perf = LARGA.SharedCore.PerfLog.Start("Background 3-min checks");
+
             // End-of-day rules first (10 PM late-return alerts, 6 AM auto-close), so a shift
             // closed as a missed clock-out isn't then reported as idle on the same tick.
             try
@@ -88,7 +91,10 @@ public class IdleAlertMonitorService : BackgroundService
             {
                 try
                 {
-                    await _ledger.ProcessDebtFlagsAsync();
+                    using (LARGA.SharedCore.PerfLog.Start("Background debt check"))
+                    {
+                        await _ledger.ProcessDebtFlagsAsync();
+                    }
                     _lastDebtCheckUtc = DateTime.UtcNow;
                 }
                 catch (Exception ex)
@@ -112,6 +118,8 @@ public class IdleAlertMonitorService : BackgroundService
                 // permanently on first tick - log and keep polling instead.
                 _logger.LogWarning(ex, "Idle alert monitor tick failed");
             }
+
+            perf.Dispose();
 
             try
             {

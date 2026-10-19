@@ -217,6 +217,13 @@ builder.Services.AddScoped<AuthenticationStateProvider, ManagerRevalidatingAuthS
 
 var app = builder.Build();
 
+// P0 load timings (PERFORMANCE_REPORT.md): on in Development, or anywhere with the setting Perf:Enabled=true
+// (e.g. Cloud Run env var Perf__Enabled=true). Lines go to the normal log under category LARGA.Perf.
+LARGA.SharedCore.PerfLog.Enabled = app.Configuration.GetValue("Perf:Enabled", app.Environment.IsDevelopment());
+LARGA.SharedCore.PerfLog.Build = "Web";
+ILogger perfLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("LARGA.Perf");
+LARGA.SharedCore.PerfLog.Sink = line => perfLogger.LogInformation("{PerfLine}", line);
+
 if (onCloudRun)
 {
     app.UseForwardedHeaders();

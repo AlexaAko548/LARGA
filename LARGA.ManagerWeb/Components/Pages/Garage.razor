@@ -486,6 +486,8 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md): the prerender pass and the live pass are logged separately.
+        using var _perf = LARGA.SharedCore.PerfLog.Start($"Web Garage load ({(RendererInfo.IsInteractive ? "live" : "prerender")})");
         AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
         _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
     }
