@@ -74,6 +74,21 @@ describe('Storage: drivers', () => {
   it('driver cannot write outside the known folders', () => assertFails(put(DRIVER_A, `profile/${DRIVER_A}.jpg`)));
 });
 
+describe('Storage: folders the live console rules still open (no longer used by the apps)', () => {
+  const legacy = ['vehicle-inspections', 'defect-reports', 'fuel-receipts', 'fuel_photos', 'odometer_photos'];
+  for (const folder of legacy) {
+    it(`signed-in stranger cannot read ${folder}/`, async () => {
+      await env.withSecurityRulesDisabled((ctx) => ctx.storage().ref(`${folder}/${DRIVER_B}/old.jpg`).put(small(), JPEG));
+      await assertFails(read(STRANGER, `${folder}/${DRIVER_B}/old.jpg`));
+    });
+    it(`driver cannot upload to ${folder}/ even in their own name`, () =>
+      assertFails(put(DRIVER_A, `${folder}/${DRIVER_A}/new.jpg`)));
+  }
+  it('signed-in stranger cannot overwrite a licence photo', () => assertFails(put(STRANGER, `lto_ids/${DRIVER_B}/licence.jpg`)));
+  it('signed-in stranger cannot delete a receipt', () => assertFails(st(STRANGER).ref('receipts/ewallet/r1.jpg').delete()));
+  it('signed-in stranger cannot write anywhere at the bucket root', () => assertFails(put(STRANGER, 'anything.jpg')));
+});
+
 describe('Storage: staff', () => {
   it('manager can read any driver photo', () => assertSucceeds(read(MANAGER, `fuel_logs/${DRIVER_B}/shiftB/1/receipt.jpg`)));
   it('assistant manager can read a licence photo', () => assertSucceeds(read(ASSISTANT, `lto_ids/${DRIVER_B}/licence.jpg`)));
