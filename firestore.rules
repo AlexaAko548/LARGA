@@ -55,8 +55,10 @@ service cloud.firestore {
     // GPS position while the shift is Active (LAR-77 auto-cutoff: none once it has ended), the
     // break flag, the shiftId backfill, and the clock-out itself - shiftEnd stamped with server
     // time, status Active -> Completed/Auto-Closed, and the low-fuel penalty only as 0 or
-    // ShiftRules.LowFuelPenalty (50), and endMileage never below startMileage (DSM-041; not checked
-    // when the shift has no start reading). lateFee, shiftStart, taxiId, startMileage and driverId are
+    // ShiftRules.LowFuelPenalty (50). On the driver's own clock-out (status Completed) endMileage
+    // can't be below startMileage (DSM-041; not checked when the shift has no start reading). An
+    // Auto-Closed shift is exempt: ClockInAsync closes a leftover shift with the NEW shift's
+    // starting odometer, which may be another unit's. lateFee, shiftStart, taxiId, startMileage and driverId are
     // not on the list, so they can't be changed.
     function driverShiftUpdateOk(shiftId) {
       let before = resource.data;
@@ -71,8 +73,8 @@ service cloud.firestore {
         && (!changed.hasAny(['shiftEnd']) || after.shiftEnd == request.time || testClockOn())
         && (!changed.hasAny(['status']) || (before.status == 'Active' && after.status in ['Completed', 'Auto-Closed']))
         && (!changed.hasAny(['fuelPenalty']) || after.fuelPenalty == 0 || after.fuelPenalty == 50)
-        && (!changed.hasAny(['endMileage']) || before.get('startMileage', 0) == 0
-            || after.endMileage >= before.startMileage)
+        && (!changed.hasAny(['endMileage']) || after.status != 'Completed'
+            || before.get('startMileage', 0) == 0 || after.endMileage >= before.startMileage)
         && (!changed.hasAny(['shiftId']) || after.shiftId == shiftId);
     }
 
