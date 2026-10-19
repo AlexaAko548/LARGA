@@ -39,13 +39,22 @@ service cloud.firestore {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       // A driver can only clock in to a shift of their own. shiftStart must be the Firestore
       // server time (FieldValue.ServerTimestamp - the phone's clock can't be trusted) and fall
-      // at or after 6:00 AM Philippine time (ShiftRules.ClockInOpensAt). No lateFee: every
-      // ledger computes it from shiftStart/shiftEnd (ShiftRules.EffectiveLateFee).
+      // at or after 6:00 AM Philippine time (ShiftRules.ClockInOpensAt).
+      // Only the fields ShiftManagementService.ClockInAsync writes (A-01): nothing that sets money
+      // or skips a check can ride along - no lateFee (every ledger computes it from
+      // shiftStart/shiftEnd, ShiftRules.EffectiveLateFee), no fuelPenalty (only clock-out sets it,
+      // 0 or 50), no shiftEnd/endMileage, and a real starting odometer (> 0), without which the
+      // final-odometer check (DSM-041, gap #11) has nothing to compare against.
       allow create: if isDriver()
+                    && request.resource.data.keys().hasOnly(['driverId', 'taxiId', 'shiftStart', 'startMileage',
+                                                             'status', 'shiftId', 'isOnBreak', 'managerNote'])
                     && request.resource.data.driverId == request.auth.uid
                     && request.resource.data.status == 'Active'
                     && request.resource.data.shiftId in ['', shiftId]
-                    && !('lateFee' in request.resource.data)
+                    && request.resource.data.taxiId is string && request.resource.data.taxiId.size() > 0
+                    && request.resource.data.startMileage is int && request.resource.data.startMileage > 0
+                    && request.resource.data.get('isOnBreak', false) == false
+                    && request.resource.data.get('managerNote', '') == ''
                     && ((request.resource.data.shiftStart == request.time && phHour(request.time) >= 6)
                         || testClockOn());
       allow update: if isManager() || (isDriver() && driverShiftUpdateOk(shiftId));
@@ -165,9 +174,10 @@ service cloud.firestore {
 
     match /taxis/{taxiId} {
       allow read: if request.auth != null;
-      // Drivers only ever change a unit's status (clock-in/out).
-      allow update: if isManager() || (isDriver() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
-      allow create, delete: if isManager();
+      // Managers only (A-03). The driver app never writes a unit: clock-in/out is tracked in
+      // shifts and shift_locks. A driver-writable status let any driver take any unit out of
+      // "Under Maintenance" and past the clock-in eligibility check (ShiftEligibilityRules).
+      allow create, update, delete: if isManager();
     }
 
     match /system_configs/{configId} {
