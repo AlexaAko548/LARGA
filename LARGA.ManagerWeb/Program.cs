@@ -231,6 +231,8 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+// Framing, MIME-sniffing, referrer and CSP (Report-Only) headers on every response (audit G-01).
+app.UseLargaSecurityHeaders();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
