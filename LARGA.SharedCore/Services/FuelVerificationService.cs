@@ -442,6 +442,7 @@ public class FuelVerificationService
 
             WriteBatch batch = Db.StartBatch();
             batch.Update(docRef, updates);
+            await MarkFuelBellReadAsync(batch, fuelId);
             batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
@@ -525,6 +526,7 @@ public class FuelVerificationService
 
             WriteBatch batch = Db.StartBatch();
             batch.Update(docRef, updates);
+            await MarkFuelBellReadAsync(batch, fuelId);
             batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
@@ -539,6 +541,19 @@ public class FuelVerificationService
         {
             _logger.LogWarning(ex, "Failed to resolve flag on fuel log {FuelId}", fuelId);
             return new FuelActionResult { Ok = false, ErrorMessage = "Could not resolve this flag. Please try again." };
+        }
+    }
+
+    /// <summary>A verified or resolved submission no longer needs attention, so its bell row (fuel_{id}, raised by
+    /// AutoCheckAsync) is marked read in the same batch - otherwise the web bell and the phone's Alert Center keep
+    /// counting it as unread. Most submissions have no bell row; then nothing is added.</summary>
+    private async Task MarkFuelBellReadAsync(WriteBatch batch, string fuelId)
+    {
+        DocumentReference bell = Db.Collection("system_alerts").Document(FuelAlertId(fuelId));
+        DocumentSnapshot existing = await bell.GetSnapshotAsync();
+        if (existing.Exists)
+        {
+            batch.Update(bell, "isRead", true);
         }
     }
 

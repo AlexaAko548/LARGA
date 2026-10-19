@@ -7,6 +7,8 @@ using System.Windows.Input;
 using LARGA.MobileApp.Controls;
 using LARGA.MobileApp.Services;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore;
+using LARGA.SharedCore.Alerts;
 using LARGA.SharedCore.Emergency;
 using LARGA.SharedCore.Services;
 using Microsoft.Maui.ApplicationModel;
@@ -18,13 +20,14 @@ namespace LARGA.MobileApp.ViewModels.Manager;
 
 public class AlertCenterViewModel : BindableObject
 {
-    // Four independent live feeds merged into one list for the UI. Each Firestore
-    // snapshot listener owns its slice and rebuilds it in full on every change.
+    // Four independent live feeds merged into one list for the UI. Each Firestore snapshot listener owns its slice
+    // and rebuilds it in full on every change. _bellItems is system_alerts - the same rows, in the same order and
+    // limit, as ManagerWeb's notification bell (AlertFeed). The other three are the source records behind the SOS,
+    // fuel and clock-in bell rows, kept because their cards need them for Resolve / Approve / Deny.
     private readonly List<AlertItem> _sosItems = new();
     private readonly List<AlertItem> _fuelItems = new();
     private readonly List<AlertItem> _defectItems = new();
-    private readonly List<AlertItem> _idleItems = new();
-    private readonly List<AlertItem> _lowStockItems = new();
+    private readonly List<AlertItem> _bellItems = new();
 
     private readonly Dictionary<string, DriverLookup> _driverCache = new();
     private readonly Dictionary<string, ShiftProxy> _shiftCache = new();
@@ -33,12 +36,12 @@ public class AlertCenterViewModel : BindableObject
     private IDisposable? _sosListener;
     private IDisposable? _fuelListener;
     private IDisposable? _defectListener;
-    private IDisposable? _idleListener;
-    private IDisposable? _lowStockListener;
+    private IDisposable? _bellListener;
+    private IDisposable? _firstLoad;
 
-    // Cards the manager closed with X this session. X never makes a decision on the record (Resolve,
-    // Approve and Deny do), so without this the live listener would keep showing the card.
-    private readonly HashSet<string> _hiddenIds = new();
+    private string _errorMessage = string.Empty;
+    private int _unreadCount;
+    private bool _hasLoaded;
 
     public ObservableCollection<AlertItem> Alerts { get; } = new();
 
@@ -53,6 +56,27 @@ public class AlertCenterViewModel : BindableObject
     public ObservableCollection<AlertGroup> AlertGroups { get; } = new();
 
     public ICommand LoadAlertsCommand { get; }
+    public ICommand RetryCommand { get; }
+
+    /// <summary>Unread system_alerts among the newest 50 - the same number as the web bell's badge.</summary>
+    public int UnreadCount
+    {
+        get => _unreadCount;
+        private set { _unreadCount = value; OnPropertyChanged(); OnPropertyChanged(nameof(HeaderText)); }
+    }
+
+    public string HeaderText => $"{UnreadCount} unread · {Alerts.Count} alert{(Alerts.Count == 1 ? string.Empty : "s")}";
+
+    public string ErrorMessage
+    {
+        get => _errorMessage;
+        private set { _errorMessage = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasError)); OnPropertyChanged(nameof(IsEmpty)); }
+    }
+
+    public bool HasError => !string.IsNullOrEmpty(_errorMessage);
+
+    // "No alerts right now" - only once a feed has answered, so it doesn't flash while loading.
+    public bool IsEmpty => _hasLoaded && !HasError && Alerts.Count == 0;
     public ICommand DismissAlertCommand { get; }
     public ICommand ApproveShiftCommand { get; }
     public ICommand DenyShiftCommand { get; }
@@ -66,6 +90,11 @@ public class AlertCenterViewModel : BindableObject
         // Idempotent - OnAppearing calls this every time the tab is revisited, but the
         // listeners themselves should only ever be started once for this VM's lifetime.
         LoadAlertsCommand = new Command(StartListening);
+        RetryCommand = new Command(() =>
+        {
+            StopListening();
+            StartListening();
+        });
 
         DismissAlertCommand = new Command<AlertItem>(async (alert) => await DismissAsync(alert));
         ApproveShiftCommand = new Command<AlertItem>(async (alert) => await ApproveClockInAsync(alert));
@@ -122,17 +151,18 @@ public class AlertCenterViewModel : BindableObject
     {
         if (_isListening) return;
         _isListening = true;
+        ErrorMessage = string.Empty;
+        SessionEvents.SigningOut += OnSigningOut;
 
-        // LAR-117: the app-wide loading indicator until the first SOS snapshot arrives.
-        IDisposable? firstLoad = LARGA.MobileApp.Services.LoadingState.Begin();
+        // LAR-117: the app-wide loading indicator until the first feed answers (or fails).
+        _firstLoad = LARGA.MobileApp.Services.LoadingState.Begin();
 
         _sosListener = CrossFirebaseFirestore.Current
             .GetCollection("emergency_alerts")
             .WhereEqualsTo("isResolved", false)
             .AddSnapshotListener<EmergencyAlertProxy>(async snapshot =>
             {
-                firstLoad?.Dispose();
-                firstLoad = null;
+                FirstSnapshotArrived();
                 var items = new List<AlertItem>();
                 foreach (var doc in snapshot.Documents)
                 {
@@ -161,6 +191,7 @@ public class AlertCenterViewModel : BindableObject
                         Subtitle = SosLocationText(hasLocation, address, doc.Data.Latitude, doc.Data.Longitude),
                         SortTime = FirestoreDateTimeFix.Apply(doc.Data.Timestamp),
                         Timestamp = FormatAlertTime(FirestoreDateTimeFix.Apply(doc.Data.Timestamp)),
+                        BellId = AlertFeed.SosBellId(doc.Reference.Id),
                         Latitude = hasLocation ? doc.Data.Latitude : null,
                         Longitude = hasLocation ? doc.Data.Longitude : null,
                         PhoneNumber = driver?.PhoneNumber?.ToString()
@@ -177,7 +208,7 @@ public class AlertCenterViewModel : BindableObject
                 {
                     _ = FillAddressAsync(item);
                 }
-            });
+            }, ex => OnListenerError("SOS alerts", ex));
 
         _fuelListener = CrossFirebaseFirestore.Current
             .GetCollection("fuel_logs")
@@ -216,6 +247,7 @@ public class AlertCenterViewModel : BindableObject
                         Timestamp = eventTime != null
                             ? FormatAlertTime(FirestoreDateTimeFix.Apply(eventTime.Value.UtcDateTime))
                             : "--",
+                        BellId = AlertFeed.FuelBellId(doc.Reference.Id),
                         PhoneNumber = driver?.PhoneNumber?.ToString()
                     });
                 }
@@ -223,7 +255,7 @@ public class AlertCenterViewModel : BindableObject
                 _fuelItems.Clear();
                 _fuelItems.AddRange(items);
                 MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
-            });
+            }, ex => OnListenerError("Flagged fuel logs", ex));
 
         // LAR-99: same trigger as ManagerWeb's Driver & Shifts approvals - a clock-in request the
         // driver sent after finishing a flagged pre-shift inspection (clockin_requests, Pending),
@@ -274,6 +306,7 @@ public class AlertCenterViewModel : BindableObject
                         HasFailedItems = !(doc.Data.TireCondition && doc.Data.UnderTheHood && doc.Data.LightsCondition
                             && doc.Data.InteriorCleanliness && doc.Data.ExteriorCondition),
                         DefectReportIds = doc.Data.DefectReportIds,
+                        BellId = AlertFeed.ClockInBellId(doc.Reference.Id),
                         PhoneNumber = driver?.PhoneNumber?.ToString()
                     });
                 }
@@ -281,47 +314,96 @@ public class AlertCenterViewModel : BindableObject
                 _defectItems.Clear();
                 _defectItems.AddRange(items);
                 MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
-            });
+            }, ex => OnListenerError("Clock-in requests", ex));
 
-        // system_alerts feeds: one listener per alert type, sharing the same query shape.
-        _idleListener = ListenToSystemAlerts(AlertType.DriverIdle, _idleItems);
-        _lowStockListener = ListenToSystemAlerts(AlertType.LowStock, _lowStockItems);
-    }
-
-    // Loads real, unread system_alerts of one type. Single equality filter (type == <alertType>)
-    // only - no composite index needed - with the isRead filter and timestamp ordering done
-    // client-side. The enum name is the stored `type` string, so DriverIdle and LowStock match
-    // what AlertService and IdleAlertMonitorService write.
-    private IDisposable ListenToSystemAlerts(AlertType alertType, List<AlertItem> bucket)
-    {
-        return CrossFirebaseFirestore.Current
-            .GetCollection("system_alerts")
-            .WhereEqualsTo("type", alertType.ToString())
+        // system_alerts: the web bell's query (AlertFeed) - every type, read and unread, newest 50. orderBy on one
+        // field only, so Firestore's automatic single-field index covers it.
+        _bellListener = CrossFirebaseFirestore.Current
+            .GetCollection(AlertFeed.Collection)
+            .OrderBy(AlertFeed.TimestampField, true)
+            .LimitedTo(AlertFeed.Limit)
             .AddSnapshotListener<SystemAlertProxy>(snapshot =>
             {
+                FirstSnapshotArrived();
                 var items = snapshot.Documents
-                    // A restocked part's alert is Resolved (and read) until the next drop reopens it.
-                    .Where(doc => doc.Data != null && !doc.Data.IsRead && doc.Data.Status != "Resolved")
-                    .OrderByDescending(doc => doc.Data!.Timestamp)
-                    .Select(doc => new AlertItem
-                    {
-                        Id = doc.Reference.Id,
-                        Type = alertType,
-                        DriverId = doc.Data!.DriverId,
-                        TaxiId = doc.Data.TaxiId,
-                        DriverName = alertType == AlertType.DriverIdle
-                            ? $"{doc.Data.DriverName} · {doc.Data.UnitLabel}"
-                            : "Spare Parts Inventory",
-                        Subtitle = doc.Data.Message,
-                        SortTime = FirestoreDateTimeFix.Apply(doc.Data.Timestamp),
-                        Timestamp = FormatAlertTime(FirestoreDateTimeFix.Apply(doc.Data.Timestamp))
-                    })
+                    .Where(doc => doc.Data != null)
+                    .Select(doc => BellItem(doc.Reference.Id, doc.Data!))
                     .ToList();
 
-                bucket.Clear();
-                bucket.AddRange(items);
+                _bellItems.Clear();
+                _bellItems.AddRange(items);
                 MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
-            });
+            }, ex => OnListenerError("Notifications (system_alerts)", ex));
+    }
+
+    private static AlertItem BellItem(string id, SystemAlertProxy data)
+    {
+        AlertType type = data.Type switch
+        {
+            AlertFeed.DriverIdleType => AlertType.DriverIdle,
+            AlertFeed.LowStockType => AlertType.LowStock,
+            _ => AlertType.Notice,
+        };
+        DateTime time = FirestoreDateTimeFix.Apply(data.Timestamp);
+
+        return new AlertItem
+        {
+            Id = id,
+            BellId = id,
+            Type = type,
+            BellType = data.Type,
+            TypeTitle = AlertFeed.TitleFor(data.Type).ToUpperInvariant(),
+            IsRead = data.IsRead,
+            DriverId = data.DriverId,
+            TaxiId = data.TaxiId,
+            DriverName = type switch
+            {
+                AlertType.DriverIdle => $"{data.DriverName} · {data.UnitLabel}",
+                AlertType.LowStock => "Spare Parts Inventory",
+                _ => string.IsNullOrWhiteSpace(data.DriverName)
+                    ? data.UnitLabel
+                    : string.IsNullOrWhiteSpace(data.UnitLabel) ? data.DriverName : $"{data.DriverName} · {data.UnitLabel}",
+            },
+            Subtitle = data.Message,
+            SortTime = time,
+            Timestamp = FormatAlertTime(time),
+        };
+    }
+
+    private void FirstSnapshotArrived()
+    {
+        _firstLoad?.Dispose();
+        _firstLoad = null;
+    }
+
+    // A listener that fails stops for good, so say so (with Retry) instead of showing a list that looks complete.
+    private void OnListenerError(string feed, Exception ex)
+    {
+        FirestoreErrors.Log($"Alert Center listener: {feed}", ex);
+        FirstSnapshotArrived();
+        string message = FirestoreErrors.Classify(ex) switch
+        {
+            FirestoreErrorKind.Offline => "Can't reach the server. Check your internet connection, then tap Retry.",
+            FirestoreErrorKind.PermissionDenied => "This account isn't allowed to read these alerts. Make sure you're logged in as a Manager, then tap Retry.",
+            FirestoreErrorKind.SignedOut => "Your session has expired. Please log out and log in again.",
+            _ => "Some alerts could not be loaded. Tap Retry.",
+        };
+        MainThread.BeginInvokeOnMainThread(() => ErrorMessage = message);
+    }
+
+    private void OnSigningOut(object? sender, EventArgs e) => StopListening();
+
+    /// <summary>Removes every listener (logout, or before Retry starts them again).</summary>
+    public void StopListening()
+    {
+        SessionEvents.SigningOut -= OnSigningOut;
+        _sosListener?.Dispose();
+        _fuelListener?.Dispose();
+        _defectListener?.Dispose();
+        _bellListener?.Dispose();
+        _sosListener = _fuelListener = _defectListener = _bellListener = null;
+        FirstSnapshotArrived();
+        _isListening = false;
     }
 
     private static string SosLocationText(bool hasLocation, string? address, double latitude, double longitude)
@@ -343,12 +425,27 @@ public class AlertCenterViewModel : BindableObject
 
     private void RefreshCombinedAlerts()
     {
+        // An SOS / fuel / clock-in card stands for its bell row, so that row isn't shown again; the card takes the
+        // row's read state. A card with no bell row (ManagerWeb wasn't running to write one) counts as unread.
+        var bellById = _bellItems.ToDictionary(item => item.Id);
+        List<AlertItem> actionCards = _sosItems.Concat(_fuelItems).Concat(_defectItems).ToList();
+        foreach (AlertItem card in actionCards)
+        {
+            card.IsRead = card.BellId is not null && bellById.TryGetValue(card.BellId, out AlertItem? row) && row.IsRead;
+        }
+        var cardIds = actionCards.Select(card => card.Id).ToHashSet();
+        IEnumerable<AlertItem> bellRows = _bellItems
+            .Where(row => AlertFeed.SourceIdFor(row.Id, row.BellType) is not string sourceId || !cardIds.Contains(sourceId));
+
+        // Same number as the web badge: unread rows among the newest 50 system_alerts.
+        UnreadCount = _bellItems.Count(row => !row.IsRead);
+
         // Newest first across all alert types. GroupBy keeps that order, so each date section
         // starts with its newest alert and the newest section comes first. Within a day, SOS
         // alerts lead, the most severe emergency type (Crash, Hostile, Standard) first.
-        List<AlertItem> sorted = _sosItems.Concat(_fuelItems).Concat(_defectItems).Concat(_idleItems).Concat(_lowStockItems)
-            .Where(item => !_hiddenIds.Contains(item.Id))
-            .OrderByDescending(item => item.SortTime == DateTime.MinValue ? DateTime.MinValue : item.SortTime.ToLocalTime().Date)
+        DateTime philippineNow = PhilippineTime.Now;
+        List<AlertItem> sorted = actionCards.Concat(bellRows)
+            .OrderByDescending(item => item.SortTime == DateTime.MinValue ? DateTime.MinValue : item.SortTime.ToPhilippineTime().Date)
             .ThenByDescending(item => item.IsSos)
             .ThenByDescending(item => item.IsSos ? EmergencyTypes.Severity(item.TriggerType) : 0)
             .ThenByDescending(item => item.SortTime)
@@ -361,10 +458,14 @@ public class AlertCenterViewModel : BindableObject
         }
 
         AlertGroups.Clear();
-        foreach (var group in sorted.GroupBy(item => SectionTitle(item.SortTime)))
+        foreach (var group in sorted.GroupBy(item => AlertFeed.SectionTitle(item.SortTime, philippineNow)))
         {
             AlertGroups.Add(new AlertGroup(group.Key, group));
         }
+
+        _hasLoaded = true;
+        OnPropertyChanged(nameof(HeaderText));
+        OnPropertyChanged(nameof(IsEmpty));
 
         ApplyPendingFocus();
     }
@@ -380,24 +481,9 @@ public class AlertCenterViewModel : BindableObject
     }
 
     // Time-only for alerts from today, date + time for older ones, so a card from last week
-    // doesn't look like it happened this morning.
-    private static string FormatAlertTime(DateTime utc)
-    {
-        if (utc == DateTime.MinValue) return "--";
-        DateTime local = utc.ToLocalTime();
-        return local.Date == DateTime.Now.Date
-            ? local.ToString("h:mm tt")
-            : local.ToString("MMM d, yyyy h:mm tt");
-    }
-
-    private static string SectionTitle(DateTime utc)
-    {
-        if (utc == DateTime.MinValue) return "Undated";
-        DateTime localDate = utc.ToLocalTime().Date;
-        if (localDate == DateTime.Now.Date) return "Today";
-        if (localDate == DateTime.Now.Date.AddDays(-1)) return "Yesterday";
-        return localDate.ToString("MMMM d, yyyy");
-    }
+    // doesn't look like it happened this morning. Philippine time, like the web, whatever the
+    // phone's own timezone is.
+    private static string FormatAlertTime(DateTime utc) => AlertFeed.TimeLabel(utc, PhilippineTime.Now);
 
     private async Task<DriverLookup?> GetDriverAsync(string driverId)
     {
@@ -460,7 +546,7 @@ public class AlertCenterViewModel : BindableObject
                         .UpdateDataAsync(new Dictionary<object, object>
                         {
                             ["isResolved"] = true,
-                            ["resolvedAt"] = DateTime.UtcNow,
+                            ["resolvedAt"] = FieldValue.ServerTimestamp(),
                         });
                     await MarkSosBellReadAsync(alert.Id);
                     AuditLogWriter.Record("SosResolved",
@@ -470,30 +556,28 @@ public class AlertCenterViewModel : BindableObject
                 case AlertType.FuelDiscrepancy:
                 case AlertType.ShiftApproval:
                     // No status write here - Resolve (fuel) and Approve/Deny (defect) are the real
-                    // decisions; X just hides the card for the rest of this session (AlertCenterPage
-                    // is a Shell tab, so this VM and _hiddenIds live until the app is closed). That
-                    // looks identical to actually handling it, so confirm first and say plainly that
-                    // it's still unresolved underneath.
+                    // decisions. X marks the card's bell row read (same as clicking it in the web
+                    // bell), so both apps stop counting it; the card stays, dimmed, until it's
+                    // handled. Confirm first and say plainly that it's still unresolved.
                     bool isFuel = alert.Type == AlertType.FuelDiscrepancy;
-                    bool confirmedHide = await ConfirmationPopup.ShowAsync(Shell.Current,
-                        "Hide This Alert?",
-                        $"This only hides the card from your Alert Center - it does not resolve the {(isFuel ? "fuel discrepancy" : "clock-in request")}. It stays unresolved until you handle it from {(isFuel ? "Fuel Verification" : "the pending clock-in approvals")}.",
-                        confirmText: "Hide");
-                    if (!confirmedHide) return;
+                    bool confirmedRead = await ConfirmationPopup.ShowAsync(Shell.Current,
+                        "Mark as Read?",
+                        $"This only marks the alert as read on the phone and the web - it does not resolve the {(isFuel ? "fuel discrepancy" : "clock-in request")}. It stays here until you handle it.",
+                        confirmText: "Mark as Read", isDangerous: false);
+                    if (!confirmedRead) return;
 
-                    _hiddenIds.Add(alert.Id);
-                    RefreshCombinedAlerts();
+                    if (alert.BellId is not null) await MarkBellReadAsync(alert.BellId);
                     break;
 
-                case AlertType.DriverIdle:
-                case AlertType.LowStock:
+                default:
                     await MarkAlertReadAsync(alert.Id);
                     break;
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Dismiss Alert Error: {ex.Message}");
+            FirestoreErrors.Log("Alert Center dismiss", ex);
+            await Shell.Current.DisplayAlert("Not saved", "Could not update this alert. Check your connection and try again.", "OK");
         }
     }
 
@@ -726,6 +810,8 @@ public class AlertCenterViewModel : BindableObject
                 ["verificationStatus"] = "Verified",
                 ["fuelLogDetails"] = combined,
             });
+            // Same as the web's ResolveFlagAsync: the flag's bell row (fuel_{id}) is read once it's resolved.
+            await MarkBellReadAsync(AlertFeed.FuelBellId(alert.Id));
             AuditLogWriter.Record("FuelFlagResolved",
                 $"Resolved the flag on shift {snapshot?.Data?.ShiftId ?? "unknown"}'s fuel submission: {note}");
         }
@@ -878,20 +964,12 @@ public class AlertCenterViewModel : BindableObject
         public string? Status { get; set; }
     }
 
-    private static async Task MarkAlertReadAsync(string alertId)
-    {
-        try
-        {
-            await CrossFirebaseFirestore.Current
-                .GetCollection("system_alerts")
-                .GetDocument(alertId)
-                .UpdateDataAsync(new Dictionary<object, object> { { "isRead", true } });
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Mark Alert Read Error: {ex.Message}");
-        }
-    }
+    // Failures reach DismissAsync, which tells the manager.
+    private static Task MarkAlertReadAsync(string alertId) =>
+        CrossFirebaseFirestore.Current
+            .GetCollection(AlertFeed.Collection)
+            .GetDocument(alertId)
+            .UpdateDataAsync(new Dictionary<object, object> { { "isRead", true } });
 }
 
 // One date section in the Alert Center list ("Today", "Yesterday", "October 3, 2026").
@@ -911,13 +989,25 @@ public enum AlertType
     FuelDiscrepancy,
     ShiftApproval,
     DriverIdle,
-    LowStock
+    LowStock,
+    // Any other system_alerts type (debt, maintenance, late return, missed clock-out, ...).
+    Notice
 }
 
 public class AlertItem
 {
     public string Id { get; set; } = string.Empty;
     public AlertType Type { get; set; }
+
+    // The system_alerts row this card is (bell rows) or stands for (SOS / fuel / clock-in cards), and its type.
+    public string? BellId { get; set; }
+    public string? BellType { get; set; }
+    public string TypeTitle { get; set; } = string.Empty;
+
+    // Read alerts stay in the list, dimmed - the web bell shows them the same way.
+    public bool IsRead { get; set; }
+    public bool IsUnread => !IsRead;
+    public double CardOpacity => IsRead ? 0.55 : 1.0;
     public string? DriverId { get; set; }
     public string? TaxiId { get; set; }
     public string DriverName { get; set; } = string.Empty;

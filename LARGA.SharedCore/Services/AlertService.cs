@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
+using LARGA.SharedCore.Alerts;
 using LARGA.SharedCore.Models.Alerts;
 using LARGA.Shared.Models.Entities;
 using Microsoft.Extensions.Logging;
@@ -19,11 +20,6 @@ namespace LARGA.SharedCore.Services;
 /// </summary>
 public class AlertService
 {
-    // Driver-idle alerts are deduped per shift (one alert per idle episode, see
-    // CreateIdleAlertIfNeededAsync), and incident-driven collections stay small over realistic
-    // fleet sizes/timeframes - a capped, ordered fetch is cheap and keeps the bell simple.
-    private const int RecentAlertsLimit = 50;
-
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly ILogger<AlertService> _logger;
 
@@ -35,13 +31,29 @@ public class AlertService
         _logger = logger;
     }
 
+    /// <summary>The newest <see cref="AlertFeed.Limit"/> alerts - the same query the mobile Alert Center listens to
+    /// (system_alerts by timestamp, newest first), so both show the same rows and unread count.</summary>
     public async Task<List<AlertNotice>> GetRecentAlertsAsync()
     {
-        List<SystemAlert> alerts = await GetAllAsync<SystemAlert>("system_alerts");
-        return alerts
-            .OrderByDescending(a => a.Timestamp)
-            .Take(RecentAlertsLimit)
-            .Select(a => new AlertNotice
+        QuerySnapshot snapshot = await Db.Collection(AlertFeed.Collection)
+            .OrderByDescending(AlertFeed.TimestampField)
+            .Limit(AlertFeed.Limit)
+            .GetSnapshotAsync();
+
+        var alerts = new List<SystemAlert>(snapshot.Documents.Count);
+        foreach (DocumentSnapshot doc in snapshot.Documents)
+        {
+            try
+            {
+                alerts.Add(doc.ConvertTo<SystemAlert>());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Skipping system_alerts/{DocumentId}: failed to convert", doc.Id);
+            }
+        }
+
+        return AlertFeed.Recent(alerts.Select(a => new AlertNotice
             {
                 AlertId = a.AlertId,
                 Type = a.Type,
@@ -50,8 +62,7 @@ public class AlertService
                 UnitLabel = a.UnitLabel,
                 Timestamp = a.Timestamp,
                 IsRead = a.IsRead,
-            })
-            .ToList();
+            }));
     }
 
     public async Task MarkReadAsync(string alertId)
@@ -194,24 +205,5 @@ public class AlertService
         {
             _logger.LogWarning(ex, "Failed to resolve low-stock alert for part {PartId}", part.PartId);
         }
-    }
-
-    private async Task<List<T>> GetAllAsync<T>(string collection) where T : class
-    {
-        QuerySnapshot snapshot = await Db.Collection(collection).GetSnapshotAsync();
-        var results = new List<T>(snapshot.Documents.Count);
-        foreach (DocumentSnapshot doc in snapshot.Documents)
-        {
-            try
-            {
-                results.Add(doc.ConvertTo<T>());
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Skipping {Collection}/{DocumentId}: failed to convert to {Type}",
-                    collection, doc.Id, typeof(T).Name);
-            }
-        }
-        return results;
     }
 }

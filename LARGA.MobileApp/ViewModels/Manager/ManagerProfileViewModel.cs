@@ -63,6 +63,8 @@ public class ManagerProfileViewModel : BindableObject
         UpdateContactNumberCommand = new Command(async () => await Shell.Current.GoToAsync("update-contact-number"));
         LogoutCommand = new Command(async () =>
         {
+            // Live listeners (Alert Center) stop before the account they read with goes away.
+            LARGA.MobileApp.Services.SessionEvents.RaiseSigningOut();
             await CrossFirebaseAuth.Current.SignOutAsync();
             await Shell.Current.GoToAsync("//landing");
         });
