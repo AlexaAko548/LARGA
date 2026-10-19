@@ -1,10 +1,6 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // users/{uid}.role, trimmed and lower-cased - both apps' logins match the role ignoring case
-    // and surrounding spaces (ManagerSignInService, LandingPage), so the rules do the same. A
-    // profile without a role fails every check below.
     function getUserRole() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role.trim().lower();
     }
@@ -13,8 +9,6 @@ service cloud.firestore {
       return request.auth != null && getUserRole() == 'manager';
     }
 
-    // Manager or Assistant Manager. Assistant Managers read the operational views (drivers, shifts,
-    // SOS, garage, fuel, ledger) and record payments; everything else stays isManager().
     function isStaff() {
       return request.auth != null && getUserRole() in ['manager', 'assistant manager'];
     }
@@ -23,16 +17,10 @@ service cloud.firestore {
       return request.auth != null && getUserRole() == 'driver';
     }
 
-    // Signed in AND has a LARGA profile with a known role (A-02). Firebase lets anyone create an
-    // account with the public API key, so request.auth != null alone means "any stranger".
     function isLargaUser() {
       return request.auth != null && getUserRole() in ['manager', 'assistant manager', 'driver'];
     }
 
-    // Retention (audit H-01, SharedCore RetentionRules): a phone-written document may carry an expireAt
-    // for the Firestore TTL policy, but only about `days` from now (+/- 7 days of phone-clock drift) - never
-    // an early date that would get a record deleted ahead of time. An unchanged expireAt (an update to
-    // another field) always passes.
     function expiresAfterDays(days) {
       let d = request.resource.data;
       return !('expireAt' in d)
@@ -48,22 +36,12 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isStaff();
-      // Drivers may only change their push token and contact number themselves - not their
-      // unit assignment (only the manager assigns units).
       allow write: if isManager() || (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['fcmToken', 'tokenUpdatedAt', 'phoneNumber']));
     }
 
     match /shifts/{shiftId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
-      // A driver can only clock in to a shift of their own. shiftStart must be the Firestore
-      // server time (FieldValue.ServerTimestamp - the phone's clock can't be trusted) and fall
-      // at or after 6:00 AM Philippine time (ShiftRules.ClockInOpensAt).
-      // Only the fields ShiftManagementService.ClockInAsync writes (A-01): nothing that sets money
-      // or skips a check can ride along - no lateFee (every ledger computes it from
-      // shiftStart/shiftEnd, ShiftRules.EffectiveLateFee), no fuelPenalty (only clock-out sets it,
-      // 0 or 50), no shiftEnd/endMileage, and a real starting odometer (> 0), without which the
-      // final-odometer check (DSM-041, gap #11) has nothing to compare against.
       allow create: if isDriver()
                     && request.resource.data.keys().hasOnly(['driverId', 'taxiId', 'shiftStart', 'startMileage',
                                                              'status', 'shiftId', 'isOnBreak', 'managerNote'])
@@ -78,15 +56,6 @@ service cloud.firestore {
       allow update: if isManager() || (isDriver() && driverShiftUpdateOk(shiftId));
     }
 
-    // What a driver's phone may change on their own shift - nothing that sets money or time:
-    // GPS position while the shift is Active (LAR-77 auto-cutoff: none once it has ended), the
-    // break flag, the shiftId backfill, and the clock-out itself - shiftEnd stamped with server
-    // time, status Active -> Completed/Auto-Closed, and the low-fuel penalty only as 0 or
-    // ShiftRules.LowFuelPenalty (50). On the driver's own clock-out (status Completed) endMileage
-    // can't be below startMileage (DSM-041; not checked when the shift has no start reading). An
-    // Auto-Closed shift is exempt: ClockInAsync closes a leftover shift with the NEW shift's
-    // starting odometer, which may be another unit's. lateFee, shiftStart, taxiId, startMileage and driverId are
-    // not on the list, so they can't be changed.
     function driverShiftUpdateOk(shiftId) {
       let before = resource.data;
       let after = request.resource.data;
@@ -100,39 +69,20 @@ service cloud.firestore {
         && (!changed.hasAny(['shiftEnd']) || after.shiftEnd == request.time)
         && (!changed.hasAny(['status']) || (before.status == 'Active' && after.status in ['Completed', 'Auto-Closed']))
         && (!changed.hasAny(['fuelPenalty']) || after.fuelPenalty == 0 || after.fuelPenalty == 50)
-        // ClockOutAsync writes managerNote as "" - the note itself is the manager's (A-04).
         && (!changed.hasAny(['managerNote']) || after.managerNote == '')
         && (!changed.hasAny(['endMileage']) || after.status != 'Completed'
             || before.get('startMileage', 0) == 0 || after.endMileage >= before.startMileage)
         && (!changed.hasAny(['shiftId']) || after.shiftId == shiftId);
     }
 
-    // Hour of the day (0-23) in Philippine time (UTC+8, no DST).
     function phHour(t) {
       return (t.hours() + 8) % 24;
     }
 
-    // No test-clock exception (B-03): shift times are always the server's. Debug builds' test
-    // clock (ShiftClock / system_configs testClockPh) writes the phone's pretend time, so it now
-    // only works against the emulator or a dev project whose rules add the exception back - never
-    // against production, where any driver could otherwise backdate shifts while it's set.
-
-    // Per-driver ledger version (FinancialLedgerService / QuickLedgerService). Every payment
-    // booking bumps it in the same transaction as its payment documents, so two cashiers paying
-    // against the same balance at once can't both succeed - the second one sees the version
-    // move and has to re-read the balance.
     match /ledger_locks/{driverId} {
       allow read, write: if isStaff();
     }
 
-    // Clock-in claims (ShiftManagementService.ClockInAsync): driver_{uid} and unit_{taxiId} point
-    // at the shift holding each, written in the same transaction as that shift so two clock-ins
-    // can't both win. A driver may only point their own lock, or the lock of the unit their new
-    // shift is on, at a shift of their own (getAfter: the shift as of this same commit).
-    // Each lock carries its shift's shiftStart and a released flag, so other drivers can tell a
-    // live claim from a finished one without reading that shift (they can't - see /shifts).
-    // A claim must copy the start of an Active shift; a release (ClockOutAsync, in the same batch
-    // as the clock-out) is only allowed once that shift is no longer Active.
     match /shift_locks/{lockId} {
       allow read: if isLargaUser();
       allow write: if isManager() || (isDriver() && ownShiftLock(lockId));
@@ -149,17 +99,11 @@ service cloud.firestore {
               : lockedShift.status == 'Active' && shiftLock.get('shiftStart', null) == lockedShift.shiftStart);
     }
 
-    // Schedule Planner exceptions ({driverId}_{yyyyMMdd}): the driver app reads today's own
-    // entry to pick up a substitute unit.
     match /shift_schedules/{docId} {
       allow read: if isStaff() || (request.auth != null && docId.matches(request.auth.uid + '_[0-9]{8}'));
       allow write: if isManager();
     }
 
-    // Flagged pre-shift inspections waiting for the manager (paper Ch. IV clock-in process).
-    // The driver's phone creates its own request (Pending) and reads it while waiting; it may
-    // only withdraw a pending one, or mark an approved one used once its shift has started.
-    // Approve/deny is done from ManagerWeb (Admin SDK).
     match /clockin_requests/{requestId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow create: if isDriver() && request.resource.data.driverId == request.auth.uid
@@ -170,8 +114,6 @@ service cloud.firestore {
                         || (resource.data.status == 'Approved' && request.resource.data.status == 'ClockedIn')));
     }
 
-    // Manual penalties/credits - the driver's Ledger and Debt Details screens read their own.
-    // Assistant Managers can read these but can't add them (Manager only).
     match /debt_adjustments/{adjustmentId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow write: if isManager();
@@ -193,9 +135,6 @@ service cloud.firestore {
 
     match /taxis/{taxiId} {
       allow read: if isLargaUser();
-      // Managers only (A-03). The driver app never writes a unit: clock-in/out is tracked in
-      // shifts and shift_locks. A driver-writable status let any driver take any unit out of
-      // "Under Maintenance" and past the clock-in eligibility check (ShiftEligibilityRules).
       allow create, update, delete: if isManager();
     }
 
@@ -204,13 +143,6 @@ service cloud.firestore {
       allow write: if isManager();
     }
 
-    // Payments are recorded by managers and Assistant Managers (ManagerWeb's Financial Ledger, the
-    // app's Quick Ledger). Only a Manager may delete one. A driver reads only their own, read-only
-    // on their Ledger screen - driverId is set on every payment document (older ones are backfilled
-    // by ManagerWeb on startup, Admin SDK).
-    // Create-only from the apps (A-06): every payment is its own new document (QuickLedgerService,
-    // FinancialLedgerService), so a recorded amount can't be rewritten afterwards. The amount must
-    // be a positive number below a sanity cap that only catches typos and tampering (₱1,000,000).
     match /boundary_payments/{paymentId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow create: if isStaff()
@@ -222,20 +154,12 @@ service cloud.firestore {
       allow delete: if isManager();
     }
 
-    // BRP-008: one document per GCash reference number (normalized - PaymentReferenceRules), claimed
-    // in the same transaction as the payment that uses it. Staff record payments (see above), so
-    // staff may read and create claims; a create on an existing reference is an update and is
-    // refused, and nobody may change or remove a claim.
     match /payment_references/{reference} {
       allow read, create: if isStaff();
     }
 
     match /maintenance_logs/{maintenanceId} {
       allow read: if isStaff() || isDriver();
-      // Managers too: denying a flagged clock-in from the manager app files a Garage report for
-      // failed checklist items the driver didn't report (LAR-99, same as ManagerWeb).
-      // A driver files a defect report only as themselves, and only as a fresh "Reported" one
-      // (VehicleDefectViewModel) - triage, priority and status are the manager's.
       allow create: if isManager()
                     || (isDriver()
                         && request.resource.data.reportedByDriverId == request.auth.uid
@@ -243,11 +167,6 @@ service cloud.firestore {
       allow update: if isManager();
     }
 
-    // A driver submits receipts only as themselves and only for review - Verified is set by the
-    // manager (FuelVerificationService). The app itself may submit one already Flagged by its own
-    // checks (FUEL-004: not a Petron/Shell station), marked autoFlagged with flaggedAt at server
-    // time. submittedAt must be the Firestore server time (FieldValue.ServerTimestamp), so a phone
-    // clock can't backdate when it was sent.
     match /fuel_logs/{fuelId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow create: if isDriver()
@@ -257,8 +176,6 @@ service cloud.firestore {
                             && request.resource.data.get('autoFlagged', false) == true
                             && request.resource.data.get('flaggedAt', null) == request.time))
                     && request.resource.data.submittedAt == request.time
-                    // D-03: plausible amounts (sanity caps, not business rules), and the driver's own
-                    // shift - or the app's "UNKNOWN_SHIFT" placeholder when it had none.
                     && request.resource.data.litersRefueled is number
                     && request.resource.data.litersRefueled > 0 && request.resource.data.litersRefueled <= 200
                     && request.resource.data.fuelCost is number
@@ -268,8 +185,6 @@ service cloud.firestore {
       allow update: if isManager();
     }
 
-    // A point can only come from the driver who owns the shift it's for, only while that shift
-    // is Active (LAR-77 auto-cutoff), and is never edited.
     match /gps_telemetry/{logId} {
       allow read: if isStaff();
       allow create: if isDriver()
@@ -279,16 +194,8 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.status == 'Active';
     }
 
-    // Driver SOS (Active Shift screen) - a driver can only raise one as themselves.
-    // Resolved from ManagerWeb's SOS Dispatch (Admin SDK) or the manager's Alert Center.
-    // Assistant Managers can view alerts but not resolve them.
     match /emergency_alerts/{alertId} {
       allow read: if isStaff();
-      // SOS caller validation: a driver may only raise an SOS for a shift that is theirs - an
-      // unassigned device can't write one for someone else's unit. (The full check - active
-      // shift, unit, registered phone number - runs in ManagerWeb's SosPushService.)
-      // C-03: only while that shift is Active - not on one that ended (each SOS pushes to every manager).
-      // The SOS's retention date is set by ManagerWeb (server time), never by the phone (audit H-01).
       allow create: if isDriver() && request.resource.data.driverId == request.auth.uid
                     && !('expireAt' in request.resource.data)
                     && exists(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId))
@@ -301,15 +208,9 @@ service cloud.firestore {
       allow read, write: if isManager();
     }
 
-    // Append-only (ANA-014): an entry can be added but never changed or removed, by any role.
-    // ManagerWeb and the SeedTool use the Admin SDK (rules don't apply) and also only create.
-    // A-05: every entry is in the writer's own name and stamped with server time
-    // (FieldValue.ServerTimestamp - AuditLogWriter, QuickLedgerService.WriteAuditAsync), so it
-    // can't be attributed to someone else or backdated.
     match /audit_logs/{logId} {
       allow read: if isManager();
       allow create: if isManager() && ownAuditEntry();
-      // Drivers log only their own SOS and defect reports (EmergencyAlertService, VehicleDefectViewModel).
       allow create: if isDriver() && ownAuditEntry()
          && request.resource.data.actionType in ['SosTriggered', 'VehicleDefectReported'];
     }
@@ -319,9 +220,6 @@ service cloud.firestore {
         && request.resource.data.timestamp == request.time;
     }
 
-    // One Pre and one End checklist per shift ({shiftId}_PRE / {shiftId}_END - the IDs
-    // SubmitHandoverChecklistAsync writes), only by the driver whose shift it is. Update is
-    // allowed for them too: a retried submit rewrites the same deterministic document.
     match /handover_checklists/{checklistId} {
       allow read: if isStaff();
       allow create, update: if isManager() || (isDriver() && ownChecklist(checklistId));
@@ -333,7 +231,6 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/shifts/$(shiftId)).data.driverId == request.auth.uid;
     }
 
-    // Raised by ManagerWeb's background checks (Admin SDK); staff only mark them read.
     match /system_alerts/{alertId} {
       allow read: if isStaff();
       allow update: if isStaff() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
