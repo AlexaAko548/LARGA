@@ -48,6 +48,15 @@ public class SystemConfig
     [FirestoreProperty("fuelExpectedKmPerLiter")]
     public Dictionary<string, double> FuelExpectedKmPerLiter { get; set; } = new();
 
+    // Only the odometer-vs-GPS check auto-flags, and only on a leg at least this long (km, by
+    // odometer or GPS) with at least this many km between them - shorter gaps are GPS sampling
+    // error. Cost per km and km/L stay indicators in the manager's review.
+    [FirestoreProperty("fuelAutoFlagMinDistanceKm")]
+    public double FuelAutoFlagMinDistanceKm { get; set; } = 10.0;
+
+    [FirestoreProperty("fuelAutoFlagMinVarianceKm")]
+    public double FuelAutoFlagMinVarianceKm { get; set; } = 2.0;
+
     // MNT-014/015/016: recurring preventive maintenance (MaintenanceSchedulerService), in days.
     [FirestoreProperty("maintenanceWeeklyIntervalDays")]
     public int MaintenanceWeeklyIntervalDays { get; set; } = 7;

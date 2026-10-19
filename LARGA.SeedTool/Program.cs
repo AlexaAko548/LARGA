@@ -1347,6 +1347,8 @@ internal static class Program
             FuelDistanceTolerancePercent = 8.0,
             FuelCostPerKmMin = 4.50,
             FuelCostPerKmMax = 7.50,
+            FuelAutoFlagMinDistanceKm = 10,
+            FuelAutoFlagMinVarianceKm = 2,
             // MNT-014/015/016 recurring maintenance intervals (days) - the defaults.
             MaintenanceWeeklyIntervalDays = 7,
             MaintenanceBiweeklyIntervalDays = 14,

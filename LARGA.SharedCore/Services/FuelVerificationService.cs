@@ -263,8 +263,8 @@ public class FuelVerificationService
         || (log.VerificationStatus == FuelVerificationStatus.Flagged && log.AutoFlagged && log.AutoFlagAlertAt is null);
 
     /// <summary>
-    /// The automatic pass over one submission. A Pending one outside tolerance (FuelReviewDetail.
-    /// ToleranceViolations) is set Flagged with the readable reason, logged as FuelAutoFlagged and
+    /// The automatic pass over one submission. A Pending one whose odometer distance is off from GPS
+    /// (FuelReviewDetail.AutoFlagReason) is set Flagged with the readable reason, logged as FuelAutoFlagged and
     /// raised in the bell; one within tolerance - or with no GPS data to compare - is only marked
     /// checked, and stays Pending for the manager. A phone-flagged one (FUEL-004) just gets its
     /// bell alert. The manager can still verify or keep any of them flagged as usual.
@@ -290,9 +290,9 @@ public class FuelVerificationService
             return;
         }
 
-        List<string> violations = current.VerificationStatus == FuelVerificationStatus.Pending
-            ? detail.ToleranceViolations()
-            : new List<string>();
+        string? autoFlagReason = current.VerificationStatus == FuelVerificationStatus.Pending
+            ? detail.AutoFlagReason()
+            : null;
         DateTime now = DateTime.UtcNow;
 
         await Db.RunTransactionAsync(async transaction =>
@@ -323,13 +323,13 @@ public class FuelVerificationService
                 return;
             }
 
-            if (violations.Count == 0)
+            if (autoFlagReason is null)
             {
                 transaction.Update(docRef, "autoCheckedAt", now);
                 return;
             }
 
-            string reason = string.Join("; ", violations);
+            string reason = autoFlagReason;
             transaction.Update(docRef, new Dictionary<string, object>
             {
                 ["verificationStatus"] = new FuelVerificationStatusConverter().ToFirestore(FuelVerificationStatus.Flagged),

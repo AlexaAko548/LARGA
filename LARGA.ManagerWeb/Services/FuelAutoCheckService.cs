@@ -16,8 +16,8 @@ namespace LARGA.ManagerWeb.Services;
 ///
 /// A live listener on fuel_logs that are Pending or Flagged, like SosPushService. Each submission
 /// that still needs it (FuelVerificationService.NeedsAutoCheck) gets
-/// FuelVerificationService.AutoCheckAsync: outside the system_configs/global tolerances it's set
-/// Flagged with a readable reason, audited and raised in the bell; a phone-flagged one (not
+/// FuelVerificationService.AutoCheckAsync: when its odometer distance is off from GPS beyond the
+/// system_configs/global tolerance (on a long enough leg), it's set Flagged with a readable reason, audited and raised in the bell; a phone-flagged one (not
 /// Petron/Shell) gets its bell alert. Each log is marked once it's been handled (autoCheckedAt /
 /// autoFlagAlertAt, in the same transaction), so restarts and a second instance don't repeat it,
 /// and anything submitted while ManagerWeb was down is caught up on the listener's first snapshot.
