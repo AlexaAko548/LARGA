@@ -130,25 +130,69 @@ public class AlertService
         }
     }
 
-    /// <summary>Raises a "LowStock" notification after a deduction leaves a spare part at or below its
-    /// minimum threshold. Called from InventoryAuditService.DeductPartAsync, so every deduction path
-    /// (Inventory page and garage jobs) gets the same alert. Each deduction gets its own alert ID.</summary>
+    public const string LowStockStatus = "Low Stock";
+    public const string CriticalStockStatus = "Critical";
+    public const string ResolvedStatus = "Resolved";
+
+    /// <summary>The one low-stock alert a part can have (INV-010).</summary>
+    public static string LowStockAlertId(string partId) => $"lowstock_{partId}";
+
+    /// <summary>Raises - or refreshes - the part's "LowStock" notification when its stock is at or
+    /// below its minimum threshold. Called from InventoryAuditService (deductions from the Inventory
+    /// page and garage jobs, and stock/minimum edits). One alert per part (lowstock_{partId}): while
+    /// it's open, a further drop only updates its quantity, status (Low Stock, or Critical at 0) and
+    /// time, and marks it unread again. A resolved one (restocked) is reopened the same way.</summary>
     public async Task CreateLowStockAlertAsync(SparePart part)
     {
         try
         {
-            var alert = new SystemAlert
+            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+            bool critical = part.StockQuantity <= 0;
+            await Db.Collection("system_alerts").Document(LowStockAlertId(part.PartId)).SetAsync(new Dictionary<string, object>
             {
-                Type = "LowStock",
-                Message = $"{part.DisplayName} is low on stock: {part.StockQuantity} {part.Unit} left (minimum {part.ReorderLevel}).",
-                Timestamp = DateTime.UtcNow,
-                IsRead = false,
-            };
-            await Db.Collection("system_alerts").AddAsync(alert);
+                ["type"] = "LowStock",
+                ["partId"] = part.PartId,
+                ["status"] = critical ? CriticalStockStatus : LowStockStatus,
+                ["stockQuantity"] = part.StockQuantity,
+                ["message"] = critical
+                    ? $"{part.DisplayName} is out of stock (minimum {part.ReorderLevel})."
+                    : $"{part.DisplayName} is low on stock: {part.StockQuantity} {unit} left (minimum {part.ReorderLevel}).",
+                ["timestamp"] = DateTime.UtcNow,
+                ["isRead"] = false,
+            }, SetOptions.MergeAll);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to create low-stock alert for part {PartId}", part.PartId);
+        }
+    }
+
+    /// <summary>Closes the part's open low-stock alert once it's restocked above its minimum, so the
+    /// next drop reopens it (INV-010). No alert, or one already resolved: nothing to do.</summary>
+    public async Task ResolveLowStockAlertAsync(SparePart part)
+    {
+        try
+        {
+            DocumentReference docRef = Db.Collection("system_alerts").Document(LowStockAlertId(part.PartId));
+            DocumentSnapshot existing = await docRef.GetSnapshotAsync();
+            if (!existing.Exists || (existing.TryGetValue("status", out string? status) && status == ResolvedStatus))
+            {
+                return;
+            }
+
+            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+            await docRef.UpdateAsync(new Dictionary<string, object>
+            {
+                ["status"] = ResolvedStatus,
+                ["stockQuantity"] = part.StockQuantity,
+                ["message"] = $"{part.DisplayName} restocked: {part.StockQuantity} {unit} in stock (minimum {part.ReorderLevel}).",
+                ["resolvedAt"] = DateTime.UtcNow,
+                ["isRead"] = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve low-stock alert for part {PartId}", part.PartId);
         }
     }
 

@@ -160,6 +160,10 @@ public class InventoryAuditService
         {
             await _alerts.CreateLowStockAlertAsync(updated);
         }
+        else if (updated is not null && updated.StockQuantity > updated.ReorderLevel)
+        {
+            await _alerts.ResolveLowStockAlertAsync(updated);
+        }
 
         return updated;
     }
@@ -266,7 +270,7 @@ public class InventoryAuditService
 
         int increment = Math.Max(1, amount);
 
-        return await Db.RunTransactionAsync(async transaction =>
+        SparePart? restocked = await Db.RunTransactionAsync(async transaction =>
         {
             DocumentReference doc = Db.Collection("spare_parts").Document(partId);
             DocumentReference auditDoc = Db.Collection("audit_logs").Document();
@@ -309,6 +313,15 @@ public class InventoryAuditService
 
             return part;
         });
+
+        // Back above the minimum: close the part's low-stock alert (INV-010). Outside the
+        // transaction, like the alert itself.
+        if (restocked is not null && restocked.StockQuantity > restocked.ReorderLevel)
+        {
+            await _alerts.ResolveLowStockAlertAsync(restocked);
+        }
+
+        return restocked;
     }
 
     /// <summary>

@@ -300,7 +300,8 @@ public class AlertCenterViewModel : BindableObject
             .AddSnapshotListener<SystemAlertProxy>(snapshot =>
             {
                 var items = snapshot.Documents
-                    .Where(doc => doc.Data != null && !doc.Data.IsRead)
+                    // A restocked part's alert is Resolved (and read) until the next drop reopens it.
+                    .Where(doc => doc.Data != null && !doc.Data.IsRead && doc.Data.Status != "Resolved")
                     .OrderByDescending(doc => doc.Data!.Timestamp)
                     .Select(doc => new AlertItem
                     {
@@ -871,6 +872,10 @@ public class AlertCenterViewModel : BindableObject
 
         [Plugin.Firebase.Firestore.FirestoreProperty("isRead")]
         public bool IsRead { get; set; }
+
+        // LowStock only: "Low Stock" / "Critical" / "Resolved" (AlertService, INV-010).
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
+        public string? Status { get; set; }
     }
 
     private static async Task MarkAlertReadAsync(string alertId)
