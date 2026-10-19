@@ -1343,6 +1343,10 @@ internal static class Program
             ManagerPhoneNumbers = new List<string> { "+639171234567" },
             // Target account verification: the GCash number boundary e-receipts must be sent to.
             AuthorizedPayoutAccounts = new List<string> { "0917 123 4567" },
+            // FUEL-017 auto-flag tolerances (the defaults; no per-unit km/L set).
+            FuelDistanceTolerancePercent = 8.0,
+            FuelCostPerKmMin = 4.50,
+            FuelCostPerKmMax = 7.50,
         });
     }
 }

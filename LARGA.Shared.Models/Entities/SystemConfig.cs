@@ -30,4 +30,21 @@ public class SystemConfig
     // "BDO 001234567890" - only the digits are compared.
     [FirestoreProperty("authorizedPayoutAccounts")]
     public List<string> AuthorizedPayoutAccounts { get; set; } = new();
+
+    // FUEL-017: fuel submissions outside these are flagged automatically (FuelAutoCheckService).
+    // Odometer distance vs GPS distance, as a % of the GPS distance.
+    [FirestoreProperty("fuelDistanceTolerancePercent")]
+    public double FuelDistanceTolerancePercent { get; set; } = 8.0;
+
+    // Plausible fuel cost per odometer km, in pesos.
+    [FirestoreProperty("fuelCostPerKmMin")]
+    public double FuelCostPerKmMin { get; set; } = 4.50;
+
+    [FirestoreProperty("fuelCostPerKmMax")]
+    public double FuelCostPerKmMax { get; set; } = 7.50;
+
+    // Optional, per unit (taxiId -> km/L): flagged when a refuel's km/L is off by more than the
+    // distance tolerance %. Units not listed aren't checked.
+    [FirestoreProperty("fuelExpectedKmPerLiter")]
+    public Dictionary<string, double> FuelExpectedKmPerLiter { get; set; } = new();
 }

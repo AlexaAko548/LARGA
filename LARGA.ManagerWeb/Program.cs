@@ -158,6 +158,9 @@ builder.Services.AddHostedService<ManagerPhoneAllowlistSyncService>();
 // Pushes each new SOS to every Manager/Assistant Manager phone (FCM), app open or not.
 builder.Services.AddHostedService<SosPushService>();
 builder.Services.AddSingleton<FuelVerificationService>();
+// FUEL-017 / FUEL-004: auto-flags fuel submissions outside the system_configs tolerances, and
+// raises a bell alert for every automatic flag.
+builder.Services.AddHostedService<FuelAutoCheckService>();
 builder.Services.AddScoped<IManagerAuthService, ManagerAuthService>();
 builder.Services.AddSingleton<ManagerSignInService>();
 builder.Services

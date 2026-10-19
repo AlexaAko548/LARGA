@@ -123,4 +123,13 @@ public class FuelLog
     /// FuelLogDetails. Stays true after a manager verifies it, as a record of why it was flagged.</summary>
     [FirestoreProperty("autoFlagged")]
     public bool AutoFlagged { get; set; }
+
+    /// <summary>When ManagerWeb's automatic odometer-vs-GPS check (FUEL-017) ran on this
+    /// submission - set whether or not it flagged it, so it's checked once.</summary>
+    [FirestoreProperty("autoCheckedAt")]
+    public DateTime? AutoCheckedAt { get; set; }
+
+    /// <summary>When the bell alert (system_alerts/fuel_{fuelId}) for an automatic flag was raised.</summary>
+    [FirestoreProperty("autoFlagAlertAt")]
+    public DateTime? AutoFlagAlertAt { get; set; }
 }

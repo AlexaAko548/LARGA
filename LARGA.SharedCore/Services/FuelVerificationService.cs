@@ -92,7 +92,7 @@ public class FuelVerificationService
             int? previousReading = shift != null && shift.StartMileage > 0 ? shift.StartMileage : null;
             string previousLabel = "Shift start odometer";
 
-            foreach (FuelLog log in group.OrderBy(l => l.ReceiptTimestamp ?? DateTime.MinValue))
+            foreach (FuelLog log in group.OrderBy(EventTime))
             {
                 string driverName = groupDriverName
                     ?? (!string.IsNullOrEmpty(log.DriverId) && driverNames.TryGetValue(log.DriverId, out string? logName) ? logName : "Unknown Driver");
@@ -171,7 +171,7 @@ public class FuelVerificationService
         // Same per-shift ordinal/previous-reading logic as GetSnapshotAsync, scoped to just
         // this one shift instead of every fuel_logs document.
         List<FuelLog> shiftLogs = await GetWhereEqualAsync<FuelLog>("fuel_logs", "shiftId", log.ShiftId);
-        List<FuelLog> ordered = shiftLogs.OrderBy(l => l.ReceiptTimestamp ?? DateTime.MinValue).ToList();
+        List<FuelLog> ordered = shiftLogs.OrderBy(EventTime).ToList();
 
         int ordinal = 1;
         int? previousReading = shift != null && shift.StartMileage > 0 ? shift.StartMileage : null;
@@ -187,13 +187,16 @@ public class FuelVerificationService
             ordinal++;
             previousReading = entry.OdometerReading > 0 ? entry.OdometerReading : previousReading;
             previousLabel = "Previous refuel odometer";
-            windowStart = entry.ReceiptTimestamp ?? windowStart;
+            windowStart = (entry.SubmittedAt ?? entry.ReceiptTimestamp) ?? windowStart;
         }
 
+        // The GPS leg ends when the report was sent (server time, with the odometer photo taken
+        // then) - receiptTimestamp is only the receipt's printed date, at midnight.
         double? gpsDistanceKm = null;
-        if (!string.IsNullOrEmpty(log.ShiftId) && windowStart.HasValue && log.ReceiptTimestamp.HasValue)
+        DateTime? windowEnd = log.SubmittedAt ?? log.ReceiptTimestamp;
+        if (!string.IsNullOrEmpty(log.ShiftId) && windowStart.HasValue && windowEnd.HasValue)
         {
-            gpsDistanceKm = await TryGetGpsDistanceKmAsync(log.ShiftId, windowStart.Value, log.ReceiptTimestamp.Value);
+            gpsDistanceKm = await TryGetGpsDistanceKmAsync(log.ShiftId, windowStart.Value, windowEnd.Value);
         }
 
         return new FuelReviewDetail
@@ -220,7 +223,155 @@ public class FuelVerificationService
             PreviousOdometerReading = previousReading,
             PreviousOdometerLabel = previousLabel,
             GpsDistanceKm = gpsDistanceKm,
+            Tolerances = await GetTolerancesAsync(),
         };
+    }
+
+    /// <summary>When a fuel log happened, for ordering a shift's refuels: its server submission
+    /// time, else (older reports) the receipt date.</summary>
+    private static DateTime EventTime(FuelLog log) => log.SubmittedAt ?? log.ReceiptTimestamp ?? DateTime.MinValue;
+
+    /// <summary>FUEL-017 limits from system_configs/global (defaults when it can't be read).</summary>
+    public async Task<FuelTolerances> GetTolerancesAsync()
+    {
+        try
+        {
+            DocumentSnapshot config = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
+            return FuelTolerances.From(config.Exists ? config.ConvertTo<SystemConfig>() : null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Fuel tolerances unreadable - using the defaults");
+            return FuelTolerances.Default;
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // FUEL-017 automatic check (FuelAutoCheckService) and FUEL-004 bell alerts
+    // ---------------------------------------------------------------------
+
+    public const string AutoFlaggedAction = "FuelAutoFlagged";
+    public const string FuelAlertType = "FuelDiscrepancy";
+
+    public static string FuelAlertId(string fuelId) => $"fuel_{fuelId}";
+
+    /// <summary>Whether this log still needs the automatic pass: an unchecked Pending submission
+    /// (odometer vs GPS check), or a log the phone flagged itself (FUEL-004 station) whose bell
+    /// alert hasn't been raised yet.</summary>
+    public static bool NeedsAutoCheck(FuelLog log) =>
+        (log.VerificationStatus == FuelVerificationStatus.Pending && log.AutoCheckedAt is null)
+        || (log.VerificationStatus == FuelVerificationStatus.Flagged && log.AutoFlagged && log.AutoFlagAlertAt is null);
+
+    /// <summary>
+    /// The automatic pass over one submission. A Pending one outside tolerance (FuelReviewDetail.
+    /// ToleranceViolations) is set Flagged with the readable reason, logged as FuelAutoFlagged and
+    /// raised in the bell; one within tolerance - or with no GPS data to compare - is only marked
+    /// checked, and stays Pending for the manager. A phone-flagged one (FUEL-004) just gets its
+    /// bell alert. The manager can still verify or keep any of them flagged as usual.
+    /// </summary>
+    public async Task AutoCheckAsync(string fuelId)
+    {
+        DocumentReference docRef = Db.Collection("fuel_logs").Document(fuelId);
+        DocumentSnapshot first = await docRef.GetSnapshotAsync();
+        if (!first.Exists)
+        {
+            return;
+        }
+
+        FuelLog current = first.ConvertTo<FuelLog>();
+        if (!NeedsAutoCheck(current))
+        {
+            return;
+        }
+
+        FuelReviewDetail? detail = await GetReviewDetailAsync(fuelId);
+        if (detail is null)
+        {
+            return;
+        }
+
+        List<string> violations = current.VerificationStatus == FuelVerificationStatus.Pending
+            ? detail.ToleranceViolations()
+            : new List<string>();
+        DateTime now = DateTime.UtcNow;
+
+        await Db.RunTransactionAsync(async transaction =>
+        {
+            // Re-read: a manager may have acted on it while the GPS distance was being worked out.
+            DocumentSnapshot snapshot = await transaction.GetSnapshotAsync(docRef);
+            if (!snapshot.Exists)
+            {
+                return;
+            }
+
+            FuelLog log = snapshot.ConvertTo<FuelLog>();
+            if (!NeedsAutoCheck(log))
+            {
+                return;
+            }
+
+            if (log.VerificationStatus == FuelVerificationStatus.Flagged)
+            {
+                // FUEL-004: flagged by the phone on submit - bell alert only.
+                transaction.Set(Db.Collection("system_alerts").Document(FuelAlertId(fuelId)), FuelAlert(detail, log.FuelLogDetails, now));
+                transaction.Update(docRef, "autoFlagAlertAt", now);
+                return;
+            }
+
+            if (log.VerificationStatus != FuelVerificationStatus.Pending)
+            {
+                return;
+            }
+
+            if (violations.Count == 0)
+            {
+                transaction.Update(docRef, "autoCheckedAt", now);
+                return;
+            }
+
+            string reason = string.Join("; ", violations);
+            transaction.Update(docRef, new Dictionary<string, object>
+            {
+                ["verificationStatus"] = new FuelVerificationStatusConverter().ToFirestore(FuelVerificationStatus.Flagged),
+                ["fuelLogDetails"] = reason,
+                ["autoFlagged"] = true,
+                ["flaggedAt"] = now,
+                ["autoCheckedAt"] = now,
+                ["autoFlagAlertAt"] = now,
+            });
+            transaction.Create(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = string.Empty, // System
+                ActionType = AutoFlaggedAction,
+                AuditLogDetails = $"Automatically flagged the fuel submission for shift {log.ShiftId} ({detail.DriverName}, {detail.TaxiId}): {reason}.",
+                Timestamp = now,
+            });
+            transaction.Set(Db.Collection("system_alerts").Document(FuelAlertId(fuelId)), FuelAlert(detail, reason, now));
+        });
+    }
+
+    private static SystemAlert FuelAlert(FuelReviewDetail detail, string? reason, DateTime now) => new()
+    {
+        Type = FuelAlertType,
+        DriverName = detail.DriverName,
+        TaxiId = detail.TaxiId,
+        UnitLabel = detail.TaxiId,
+        Message = $"Fuel submission flagged - {detail.DriverName} ({detail.TaxiId}): {(string.IsNullOrWhiteSpace(reason) ? "needs review" : reason)}.",
+        Timestamp = now,
+        IsRead = false,
+    };
+
+    /// <summary>For the audit entry of a manager's decision on a submission the system flagged:
+    /// " (auto-flagged: reason)", else empty.</summary>
+    private static string AutoFlagNote(DocumentSnapshot snapshot)
+    {
+        if (!snapshot.Exists || !snapshot.TryGetValue("autoFlagged", out bool autoFlagged) || !autoFlagged)
+        {
+            return string.Empty;
+        }
+
+        string reason = snapshot.TryGetValue("fuelLogDetails", out string? details) ? details ?? string.Empty : string.Empty;
+        return string.IsNullOrWhiteSpace(reason) ? " (auto-flagged)" : $" (auto-flagged: {reason.Split("\n\n")[0]})";
     }
 
     /// <summary>Sums haversine distance between consecutive gps_telemetry pings for a shift
@@ -295,7 +446,7 @@ public class FuelVerificationService
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "FuelVerified",
-                AuditLogDetails = $"Verified the fuel submission for shift {shiftId}.",
+                AuditLogDetails = $"Verified the fuel submission for shift {shiftId}{AutoFlagNote(snapshot)}.",
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
@@ -333,8 +484,8 @@ public class FuelVerificationService
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "FuelFlagged",
                 AuditLogDetails = string.IsNullOrWhiteSpace(reason)
-                    ? $"Flagged the fuel submission for shift {shiftId}."
-                    : $"Flagged the fuel submission for shift {shiftId}: {reason}",
+                    ? $"Flagged the fuel submission for shift {shiftId}{AutoFlagNote(snapshot)}."
+                    : $"Flagged the fuel submission for shift {shiftId}{AutoFlagNote(snapshot)}: {reason}",
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
@@ -378,7 +529,7 @@ public class FuelVerificationService
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "FuelFlagResolved",
-                AuditLogDetails = $"Resolved the flag on shift {record.ShiftId}'s fuel submission: {resolutionNote}",
+                AuditLogDetails = $"Resolved the flag on shift {record.ShiftId}'s fuel submission{AutoFlagNote(snapshot)}: {resolutionNote}",
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();

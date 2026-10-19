@@ -282,7 +282,7 @@ else
                                 <div class="review-fact">
                                     <div class="fact-label">Cost / km sanity check</div>
                                     <div class="fact-value">₱@_reviewDetail.CostPerKm.Value.ToString("N2") /km</div>
-                                    <div class="fact-sub">Typical range: ₱@FuelReviewDetail.TypicalCostPerKmMin.ToString("N2")–@FuelReviewDetail.TypicalCostPerKmMax.ToString("N2")/km</div>
+                                    <div class="fact-sub">Typical range: ₱@_reviewDetail.Tolerances.CostPerKmMin.ToString("N2")–@_reviewDetail.Tolerances.CostPerKmMax.ToString("N2")/km</div>
                                 </div>
                             }
                         </div>
@@ -461,7 +461,7 @@ else
                                 <div class="review-fact">
                                     <div class="fact-label">Cost / km sanity check</div>
                                     <div class="fact-value">₱@_reviewDetail.CostPerKm.Value.ToString("N2") /km</div>
-                                    <div class="fact-sub">Typical range: ₱@FuelReviewDetail.TypicalCostPerKmMin.ToString("N2")–@FuelReviewDetail.TypicalCostPerKmMax.ToString("N2")/km</div>
+                                    <div class="fact-sub">Typical range: ₱@_reviewDetail.Tolerances.CostPerKmMin.ToString("N2")–@_reviewDetail.Tolerances.CostPerKmMax.ToString("N2")/km</div>
                                 </div>
                             }
                         </div>
@@ -800,11 +800,15 @@ else
         if (d.VariancePercent.HasValue)
         {
             var toleranceWord = d.IsWithinOdometerTolerance == true ? "within" : "over";
-            parts.Add($"{d.VariancePercent.Value:N0}% deviation vs. GPS - {toleranceWord} the acceptable {FuelReviewDetail.OdometerToleranceComparisonPercent:N0}% tolerance");
+            parts.Add($"{d.VariancePercent.Value:N0}% deviation vs. GPS - {toleranceWord} the acceptable {d.Tolerances.DistanceTolerancePercent:N0}% tolerance");
         }
         if (d.IsWithinCostRange == false)
         {
             parts.Add("cost/km is outside the typical range");
+        }
+        if (d.IsWithinExpectedKmPerLiter == false)
+        {
+            parts.Add("km/L is off from this unit's expected figure");
         }
         return parts.Count > 0 ? string.Join("; ", parts) : "Looks consistent with GPS tracking.";
     }
