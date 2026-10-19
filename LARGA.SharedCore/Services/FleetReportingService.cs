@@ -329,8 +329,10 @@ public class FleetReportingService
             }
             else
             {
-                GpsTelemetry? latest = await GetLatestTelemetryAsync(activeShift.ShiftId);
-                bool moving = latest is not null && latest.Timestamp >= now.AddMinutes(-idleThresholdMinutes) && latest.Speed > 0;
+                // Latest GPS point from the shift itself (PERFORMANCE_REPORT.md P5) - the same time and speed the
+                // phone writes to gps_telemetry with every point, without one query per unit.
+                DateTime? lastFixAt = activeShift.CurrentPositionUpdatedAt;
+                bool moving = IsMoving(activeShift, idleThresholdMinutes, now);
                 if (moving)
                 {
                     unit.Status = FleetUnitStatus.ActiveStatus;
@@ -340,7 +342,7 @@ public class FleetReportingService
                 else
                 {
                     unit.Status = FleetUnitStatus.IdleStatus;
-                    unit.Detail = latest is null ? "On shift - no GPS from the phone yet" : $"Not moving - last GPS {Ago(latest.Timestamp, now)}";
+                    unit.Detail = lastFixAt is not DateTime fixAt ? "On shift - no GPS from the phone yet" : $"Not moving - last GPS {Ago(fixAt, now)}";
                     counts.Idle++;
                 }
             }
@@ -428,33 +430,17 @@ public class FleetReportingService
         return $"{(int)age.TotalDays} d ago";
     }
 
-    private async Task<bool> IsMovingAsync(string shiftId, double idleThresholdMinutes, DateTime now)
+    // Moving = a GPS point within the idle threshold with speed above 0. Read from the shift's copy of its
+    // latest point (currentPositionUpdatedAt / currentSpeed, written with every gps_telemetry point).
+    private static bool IsMoving(ShiftLog shift, double idleThresholdMinutes, DateTime now)
     {
-        GpsTelemetry? latest = await GetLatestTelemetryAsync(shiftId);
-        if (latest is null)
+        if (shift.CurrentPositionUpdatedAt is not DateTime lastFixAt)
         {
             return false; // no telemetry yet - can't confirm movement, treat as Idle
         }
 
-        bool isRecent = latest.Timestamp >= now.AddMinutes(-idleThresholdMinutes);
-        return isRecent && latest.Speed > 0;
-    }
-
-    private async Task<GpsTelemetry?> GetLatestTelemetryAsync(string shiftId)
-    {
-        // NOTE: this equality-filter + order-by-a-different-field query needs a Firestore
-        // composite index on gps_telemetry (shiftId Asc, timestamp Desc). The first time this
-        // runs without one, Firestore throws a FailedPrecondition exception whose message
-        // contains a direct "create this index" console link - open it, click Create, and
-        // retry once it finishes building (usually under a minute for a collection this size).
-        QuerySnapshot snapshot = await Db.Collection("gps_telemetry")
-            .WhereEqualTo("shiftId", shiftId)
-            .OrderByDescending("timestamp")
-            .Limit(1)
-            .GetSnapshotAsync();
-        PerfLog.Reads("gps_telemetry", snapshot.Count);
-
-        return snapshot.Documents.Count == 0 ? null : snapshot.Documents[0].ConvertTo<GpsTelemetry>();
+        bool isRecent = lastFixAt >= now.AddMinutes(-idleThresholdMinutes);
+        return isRecent && (shift.CurrentSpeed ?? 0) > 0;
     }
 
     /// <summary>Which taxis are *currently* computed as Idle, with enough identity to raise an
@@ -484,7 +470,7 @@ public class FleetReportingService
             if (TaxiStatusRules.IsUnderMaintenance(taxi.Status)) continue;
             if (shift.IsOnBreak) continue;
             if (alerts.Any(a => a.ShiftId == shift.ShiftId && !a.IsResolved)) continue; // unresolved SOS takes precedence
-            if (await IsMovingAsync(shift.ShiftId, idleThresholdMinutes, now)) continue;
+            if (IsMoving(shift, idleThresholdMinutes, now)) continue;
 
             driverById.TryGetValue(shift.DriverId, out UserProfile? driver);
             result.Add(new IdleDriverInfo
