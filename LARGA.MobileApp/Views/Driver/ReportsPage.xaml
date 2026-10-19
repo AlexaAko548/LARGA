@@ -69,6 +69,8 @@
                     </DataTemplate>
                 </BindableLayout.ItemTemplate>
             </VerticalStackLayout>
+            <Button Text="Load more" Command="{Binding LoadMoreDefectsCommand}" IsVisible="{Binding HasMoreDefects}"
+                    BackgroundColor="Transparent" TextColor="{DynamicResource LargaPrimaryBlue}" FontSize="14" FontAttributes="Bold" />
         </VerticalStackLayout>
 
             <!-- Fuel Submission Tab Content -->
@@ -106,6 +108,8 @@
                         </DataTemplate>
                     </BindableLayout.ItemTemplate>
                 </VerticalStackLayout>
+                <Button Text="Load more" Command="{Binding LoadMoreFuelReportsCommand}" IsVisible="{Binding HasMoreFuelReports}"
+                        BackgroundColor="Transparent" TextColor="{DynamicResource LargaPrimaryBlue}" FontSize="14" FontAttributes="Bold" />
             </VerticalStackLayout>
         </VerticalStackLayout>
     </ScrollView>

@@ -43,6 +43,18 @@ public class ReportsViewModel : BindableObject
     public ICommand ViewReportDetailsCommand { get; }
     public ICommand ViewFuelReportDetailsCommand { get; }
     public ICommand RefreshCommand { get; }
+    public ICommand LoadMoreDefectsCommand { get; }
+    public ICommand LoadMoreFuelReportsCommand { get; }
+
+    // The lists show the newest PageSize reports, with "Load more" for older ones (PERFORMANCE_REPORT.md
+    // P10) - a long history no longer builds hundreds of cards at once. Everything is still loaded, so
+    // nothing is hidden for good.
+    private const int PageSize = 50;
+    private List<DefectReportItem> _allDefects = new();
+    private List<FuelReportItem> _allFuelReports = new();
+
+    public bool HasMoreDefects => DefectReports.Count < _allDefects.Count;
+    public bool HasMoreFuelReports => FuelReports.Count < _allFuelReports.Count;
 
     private bool _isRefreshing;
     public bool IsRefreshing
@@ -63,6 +75,8 @@ public class ReportsViewModel : BindableObject
         AddVehicleReportCommand = new Command(async () => await Shell.Current.GoToAsync("vehicle-defect-page"));
         LoadReportsCommand = new Command(async () => await LoadReportsAsync());
         RefreshCommand = new Command(async () => await RefreshAsync());
+        LoadMoreDefectsCommand = new Command(() => ShowMore(DefectReports, _allDefects, nameof(HasMoreDefects)));
+        LoadMoreFuelReportsCommand = new Command(() => ShowMore(FuelReports, _allFuelReports, nameof(HasMoreFuelReports)));
         AddFuelReportCommand = new Command(async () => await Shell.Current.GoToAsync("fuel-report-page"));
         ViewReportDetailsCommand = new Command<DefectReportItem>(async (item) =>
         {
@@ -94,6 +108,16 @@ public class ReportsViewModel : BindableObject
         }
     }
 
+    // Adds the next PageSize items of the full (newest-first) list to what's shown.
+    private void ShowMore<T>(ObservableCollection<T> shown, List<T> all, string hasMoreProperty)
+    {
+        foreach (T item in all.Skip(shown.Count).Take(PageSize))
+        {
+            shown.Add(item);
+        }
+        OnPropertyChanged(hasMoreProperty);
+    }
+
     private async Task LoadReportsAsync()
     {
         // P0 timing (PERFORMANCE_REPORT.md).
@@ -104,11 +128,20 @@ public class ReportsViewModel : BindableObject
             var currentUser = CrossFirebaseAuth.Current.CurrentUser;
             if (currentUser == null) return;
 
-            // 1. FETCH VEHICLE DEFECTS
-            var defectSnapshot = await CrossFirebaseFirestore.Current
+            // Both lists are read at once (PERFORMANCE_REPORT.md P10).
+            var defectTask = CrossFirebaseFirestore.Current
                 .GetCollection("maintenance_logs")
                 .WhereEqualsTo("reportedByDriverId", currentUser.Uid)
                 .GetDocumentsAsync<DefectReportProxy>();
+            var fuelTask = CrossFirebaseFirestore.Current
+                .GetCollection("fuel_logs")
+                .WhereEqualsTo("driverId", currentUser.Uid)
+                .GetDocumentsAsync<FuelReportProxy>();
+            await Task.WhenAll(defectTask, fuelTask);
+
+            // 1. VEHICLE DEFECTS
+            var defectSnapshot = defectTask.Result;
+            LARGA.SharedCore.PerfLog.Reads("maintenance_logs (own)", defectSnapshot.Documents.Count());
 
             var tempDefects = new List<DefectReportItem>();
             foreach (var doc in defectSnapshot.Documents)
@@ -125,17 +158,13 @@ public class ReportsViewModel : BindableObject
                 });
             }
 
+            _allDefects = tempDefects.OrderByDescending(i => i.DateLogged).ToList();
             DefectReports.Clear();
-            foreach (var item in tempDefects.OrderByDescending(i => i.DateLogged))
-            {
-                DefectReports.Add(item);
-            }
+            ShowMore(DefectReports, _allDefects, nameof(HasMoreDefects));
 
-            // 2. FETCH FUEL REPORTS
-            var fuelSnapshot = await CrossFirebaseFirestore.Current
-                .GetCollection("fuel_logs")
-                .WhereEqualsTo("driverId", currentUser.Uid)
-                .GetDocumentsAsync<FuelReportProxy>();
+            // 2. FUEL REPORTS
+            var fuelSnapshot = fuelTask.Result;
+            LARGA.SharedCore.PerfLog.Reads("fuel_logs (own)", fuelSnapshot.Documents.Count());
 
             var tempFuels = new List<FuelReportItem>();
             foreach (var doc in fuelSnapshot.Documents)
@@ -162,11 +191,9 @@ public class ReportsViewModel : BindableObject
                 });
             }
 
+            _allFuelReports = tempFuels.OrderByDescending(i => i.DateLogged).ToList();
             FuelReports.Clear();
-            foreach (var item in tempFuels.OrderByDescending(i => i.DateLogged))
-            {
-                FuelReports.Add(item);
-            }
+            ShowMore(FuelReports, _allFuelReports, nameof(HasMoreFuelReports));
         }
         catch (System.Exception ex)
         {
