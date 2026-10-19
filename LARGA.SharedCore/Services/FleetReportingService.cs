@@ -781,10 +781,8 @@ public class FleetReportingService
         return sb.ToString();
     }
 
-    private static string CsvEscape(string value) =>
-        value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0
-            ? "\"" + value.Replace("\"", "\"\"") + "\""
-            : value;
+    // Quoted, and safe from formula injection when opened in Excel (audit G-02).
+    private static string CsvEscape(string value) => CsvRules.Escape(value);
 
     // ---------------------------------------------------------------------
     // Helpers

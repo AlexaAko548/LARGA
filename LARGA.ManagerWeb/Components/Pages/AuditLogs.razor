@@ -471,9 +471,6 @@ else
         }
     }
 
-    private static string Csv(string? value)
-    {
-        string safe = value ?? string.Empty;
-        return "\"" + safe.Replace("\"", "\"\"") + "\"";
-    }
+    // Quoted, and safe from formula injection when opened in Excel (audit G-02).
+    private static string Csv(string? value) => LARGA.SharedCore.CsvRules.Escape(value);
 }
