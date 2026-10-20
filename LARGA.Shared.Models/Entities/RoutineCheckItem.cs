@@ -8,7 +8,8 @@ namespace LARGA.Shared.Models.Entities;
 /// Checks") - e.g. an oil change due at a certain mileage, or a registration renewal due by
 /// a certain date. Distinct from MAINTENANCE_RECORD, which represents an actual repair
 /// event (past or in progress); this represents a future thing that hasn't happened yet.
-/// Exactly one of DueMileage/DueDate is set, never both.
+/// Usually one of DueMileage/DueDate is set. A generated oil change for a unit with a mileage
+/// interval has both - it's due at whichever comes first.
 /// </summary>
 [FirestoreData]
 public class RoutineCheckItem
@@ -29,4 +30,10 @@ public class RoutineCheckItem
     /// <summary>For date-based checks (e.g. registration renewal) instead of mileage-based ones.</summary>
     [FirestoreProperty("dueDate")]
     public DateTime? DueDate { get; set; }
+
+    /// <summary>The recurring type (LARGA.SharedCore.MaintenanceSchedule: WeeklyInspection,
+    /// BiweeklyCheckup, MonthlyInspection, OilChange) for checks MaintenanceSchedulerService
+    /// generates; null for hand-entered ones.</summary>
+    [FirestoreProperty("routineType")]
+    public string? RoutineType { get; set; }
 }

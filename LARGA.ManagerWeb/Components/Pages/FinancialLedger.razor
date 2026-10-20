@@ -7,7 +7,9 @@
 @using LARGA.SharedCore.Models.FinancialLedger
 @using LARGA.SharedCore.Ledger
 @using LARGA.SharedCore.Services
-@rendermode InteractiveServer
+@* Rendered once, live (PERFORMANCE_REPORT.md P1): with prerendering its data loaded twice - once for the
+   prerendered HTML and again when the live connection started. The page shows its loading spinner meanwhile. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Security.Claims
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
@@ -689,6 +691,8 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md): the prerender pass and the live pass are logged separately.
+        using var _perf = LARGA.SharedCore.PerfLog.Start($"Web FinancialLedger load ({(RendererInfo.IsInteractive ? "live" : "prerender")})");
         AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
         _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
     }
@@ -1411,10 +1415,8 @@ else
         return sb.ToString();
     }
 
-    private static string CsvEscape(string value) =>
-        value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0
-            ? "\"" + value.Replace("\"", "\"\"") + "\""
-            : value;
+    // Quoted, and safe from formula injection when opened in Excel (audit G-02).
+    private static string CsvEscape(string value) => LARGA.SharedCore.CsvRules.Escape(value);
 
     private static string Initials(string fullName)
     {

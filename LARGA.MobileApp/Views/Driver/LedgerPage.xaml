@@ -44,6 +44,9 @@
 
                     <!-- Dynamic List Generator -->
                     <VerticalStackLayout BindableLayout.ItemsSource="{Binding PaymentHistory}" Spacing="10">
+                        <BindableLayout.EmptyView>
+                            <Label Text="No payments recorded yet." FontSize="14" TextColor="{DynamicResource ThemeTextTertiary}" HorizontalOptions="Center" Margin="0,16" />
+                        </BindableLayout.EmptyView>
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:PaymentRecord">
                                 <VerticalStackLayout Spacing="10">

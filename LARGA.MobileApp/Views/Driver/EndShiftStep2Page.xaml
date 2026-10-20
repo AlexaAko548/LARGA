@@ -79,7 +79,7 @@
             </Border>
 
             <!-- Confirm & End Shift -->
-            <Button Text="🛡️ Confirm &amp; End Shift" Command="{Binding ConfirmEndShiftCommand}" 
+            <Button Text="{Binding EndButtonText}" IsEnabled="{Binding IsNotSubmitting}" Command="{Binding ConfirmEndShiftCommand}" 
                     BackgroundColor="{DynamicResource ThemePanel}" TextColor="#0099CC" CornerRadius="25" HeightRequest="55" FontSize="16" FontAttributes="Bold" Margin="0,20,0,0">
                 <Button.Triggers>
                     <DataTrigger TargetType="Button" Binding="{Binding IsComplete}" Value="True">

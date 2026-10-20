@@ -137,11 +137,19 @@ public class ProfileViewModel : BindableObject
                 return;
             }
 
+            if (!await LARGA.MobileApp.Controls.ConfirmationPopup.ShowAsync(Shell.Current,
+                    "Log Out?", "You will need your email and password to log in again.",
+                    confirmText: "Log Out", isDangerous: false))
+            {
+                return;
+            }
+
             // No GPS points after logout - they'd be written for a driver who isn't signed in.
             telemetryService.Stop();
             // LAR-86/87: likewise stop emergency detection when the driver signs out.
             emergencyMonitor.Stop();
-            await CrossFirebaseAuth.Current.SignOutAsync();
+            // Signs out and leaves nothing of this driver on the (shared) phone - see SignOutService.
+            await LARGA.MobileApp.Services.SignOutService.SignOutAsync();
             await Shell.Current.GoToAsync("//landing");
         });
 

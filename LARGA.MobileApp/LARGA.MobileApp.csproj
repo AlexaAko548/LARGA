@@ -42,6 +42,12 @@
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'tizen'">6.5</SupportedOSPlatformVersion>
 	</PropertyGroup>
 
+	<!-- P0 load timings (PERFORMANCE_REPORT.md, LARGA.SharedCore.PerfLog): always in Debug; in Release only
+	     when built with -p:LargaPerf=true, so normal Release builds carry no timing logs. -->
+	<PropertyGroup Condition="'$(Configuration)' == 'Debug' Or '$(LargaPerf)' == 'true'">
+	  <DefineConstants>$(DefineConstants);LARGA_PERF</DefineConstants>
+	</PropertyGroup>
+
 	<PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net9.0-android|AnyCPU'">
 	  <EmbedAssembliesIntoApk>False</EmbedAssembliesIntoApk>
 	</PropertyGroup>

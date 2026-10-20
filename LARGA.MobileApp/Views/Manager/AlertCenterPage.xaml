@@ -18,7 +18,7 @@
                  the colour of the accent stripe and the badge: Standard Breakdown amber, Hostile
                  Protocol red, Crash Protocol magenta. -->
             <DataTemplate x:Key="SosTemplate" x:DataType="vm:AlertItem">
-                <Border BackgroundColor="{DynamicResource LargaWarning}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="5,0,0,0" Margin="0,0,0,12">
+                <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource LargaWarning}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="5,0,0,0" Margin="0,0,0,12">
                     <Border.Triggers>
                         <DataTrigger TargetType="Border" Binding="{Binding IsHostileSos}" Value="True">
                             <Setter Property="BackgroundColor" Value="{DynamicResource LargaDanger}" />
@@ -104,7 +104,7 @@
 
             <!-- FUEL DISCREPANCY TEMPLATE -->
             <DataTemplate x:Key="FuelDiscrepancyTemplate" x:DataType="vm:AlertItem">
-                <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
+                <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
                     <VerticalStackLayout Spacing="8">
                         <Grid ColumnDefinitions="Auto,*,Auto">
                             <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="report.svg" WidthRequest="18" HeightRequest="18" />
@@ -133,7 +133,7 @@
 
             <!-- SHIFT APPROVAL TEMPLATE -->
             <DataTemplate x:Key="ShiftApprovalTemplate" x:DataType="vm:AlertItem">
-                <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
+                <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
                     <VerticalStackLayout Spacing="8">
                         <Grid ColumnDefinitions="Auto,*,Auto">
                             <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
@@ -180,7 +180,7 @@
 
             <!-- DRIVER IDLE TEMPLATE -->
             <DataTemplate x:Key="DriverIdleTemplate" x:DataType="vm:AlertItem">
-                <Border BackgroundColor="{DynamicResource ThemeWarningSoft}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
+                <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemeWarningSoft}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
                     <VerticalStackLayout Spacing="8">
                         <Grid ColumnDefinitions="Auto,*,Auto">
                             <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
@@ -198,8 +198,8 @@
                         <Label Text="{Binding Subtitle}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />
                         <Label Text="{Binding Timestamp}" FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" />
 
-                        <Border BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="48" Margin="0,8,0,0">
-                            <Button Text="DISMISS" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontAttributes="Bold" FontSize="14"
+                        <Border IsVisible="{Binding IsUnread}" BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="48" Margin="0,8,0,0">
+                            <Button Text="MARK AS READ" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontAttributes="Bold" FontSize="14"
                                     Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
                                     CommandParameter="{Binding .}" />
                         </Border>
@@ -209,7 +209,7 @@
 
             <!-- LOW STOCK TEMPLATE -->
             <DataTemplate x:Key="LowStockTemplate" x:DataType="vm:AlertItem">
-                <Border BackgroundColor="{DynamicResource ThemeOrangeSoft}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
+                <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemeOrangeSoft}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
                     <VerticalStackLayout Spacing="8">
                         <Grid ColumnDefinitions="Auto,*,Auto">
                             <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
@@ -227,8 +227,31 @@
                         <Label Text="{Binding Subtitle}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />
                         <Label Text="{Binding Timestamp}" FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" />
 
-                        <Border BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="48" Margin="0,8,0,0">
-                            <Button Text="DISMISS" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontAttributes="Bold" FontSize="14"
+                        <Border IsVisible="{Binding IsUnread}" BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="48" Margin="0,8,0,0">
+                            <Button Text="MARK AS READ" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontAttributes="Bold" FontSize="14"
+                                    Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
+                                    CommandParameter="{Binding .}" />
+                        </Border>
+                    </VerticalStackLayout>
+                </Border>
+            </DataTemplate>
+
+            <!-- NOTICE TEMPLATE: every other system_alerts type the web bell shows (unpaid debt,
+                 maintenance due/overdue, late return, missed clock-out, ...). -->
+            <DataTemplate x:Key="NoticeTemplate" x:DataType="vm:AlertItem">
+                <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
+                    <VerticalStackLayout Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
+                            <Label Grid.Column="1" Text="{Binding TypeTitle}" FontAttributes="Bold" FontSize="13"
+                                   TextColor="{DynamicResource ThemeTextSecondary}" Margin="8,0,0,0" VerticalOptions="Center" />
+                        </Grid>
+                        <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
+                        <Label Text="{Binding Subtitle}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />
+                        <Label Text="{Binding Timestamp}" FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" />
+
+                        <Border IsVisible="{Binding IsUnread}" BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="48" Margin="0,8,0,0">
+                            <Button Text="MARK AS READ" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontAttributes="Bold" FontSize="14"
                                     Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
                                     CommandParameter="{Binding .}" />
                         </Border>
@@ -241,7 +264,8 @@
                                           FuelDiscrepancyTemplate="{StaticResource FuelDiscrepancyTemplate}"
                                           ShiftApprovalTemplate="{StaticResource ShiftApprovalTemplate}"
                                           DriverIdleTemplate="{StaticResource DriverIdleTemplate}"
-                                          LowStockTemplate="{StaticResource LowStockTemplate}" />
+                                          LowStockTemplate="{StaticResource LowStockTemplate}"
+                                          NoticeTemplate="{StaticResource NoticeTemplate}" />
 
         </ResourceDictionary>
     </ContentPage.Resources>
@@ -249,7 +273,18 @@
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="10">
             <Label Text="Alert Center" FontSize="28" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}" />
-            <Label Text="{Binding Alerts.Count, StringFormat='{0} active notifications'}" FontSize="14" TextColor="{DynamicResource ThemeTextGray}" Margin="0,0,0,8" />
+            <Label Text="{Binding HeaderText}" FontSize="14" TextColor="{DynamicResource ThemeTextGray}" Margin="0,0,0,8" />
+
+            <Border IsVisible="{Binding HasError}" BackgroundColor="{DynamicResource LargaDangerBg}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="{Binding ErrorMessage}" FontSize="14" TextColor="{DynamicResource LargaDanger}" />
+                    <Button Text="Retry" Command="{Binding RetryCommand}" HorizontalOptions="Start"
+                            Style="{StaticResource LargaButtonStyle}" HeightRequest="40" Padding="24,0" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Label IsVisible="{Binding IsEmpty}" Text="No alerts right now." FontSize="15" HorizontalOptions="Center"
+                   TextColor="{DynamicResource ThemeTextTertiary}" Margin="0,40,0,0" />
 
             <CollectionView x:Name="AlertsList" ItemsSource="{Binding AlertGroups}" IsGrouped="True" ItemTemplate="{StaticResource AlertSelector}">
                 <CollectionView.GroupHeaderTemplate>

@@ -14,4 +14,10 @@ export function downloadFile(filename, content, mimeType) {
   URL.revokeObjectURL(url);
 }
 
+// Same, for binary content (PDF exports) sent from .NET as base64.
+export function downloadBase64File(filename, base64, mimeType) {
+  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+  downloadFile(filename, bytes, mimeType);
+}
+
 window.largaDownloadFile = downloadFile;

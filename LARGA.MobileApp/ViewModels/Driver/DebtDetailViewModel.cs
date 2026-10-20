@@ -21,6 +21,8 @@ public class DebtDetailViewModel : BindableObject
 
     private async Task LoadDynamicDebtDataAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Debt Details load");
         using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         var user = CrossFirebaseAuth.Current.CurrentUser;
         if (user == null) return;
@@ -72,7 +74,7 @@ public class DebtDetailViewModel : BindableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Debt Fetch Error: {ex.Message}");
+            await FirestoreErrors.ShowLoadFailureAsync("Debt details", ex, "your debt details", canPullToRefresh: false);
         }
     }
 }

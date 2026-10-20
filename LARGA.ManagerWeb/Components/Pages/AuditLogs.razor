@@ -5,10 +5,15 @@
 @using System.Text
 @using LARGA.SharedCore
 @using LARGA.SharedCore.Services
-@rendermode InteractiveServer
+@using Google.Cloud.Firestore
+@* Rendered once, live (PERFORMANCE_REPORT.md P1): with prerendering its data loaded twice - once for the
+   prerendered HTML and again when the live connection started. The page shows its loading spinner meanwhile. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject InventoryAuditService InventoryAudit
+@inject AuthenticationStateProvider AuthStateProvider
+@inject Lazy<FirestoreDb> FirestoreDb
 
 @if (_isLoading)
 {
@@ -47,18 +52,32 @@ else
         <div class="report-error">@_exportError</div>
     }
 
-    <!-- Search & Meta Bar -->
+    <!-- Date range, Search & Meta Bar (ANA-015: the whole history, a page at a time) -->
     <div class="toolbar">
+        <div class="audit-range date-range">
+            <div class="date-field">
+                <span>From</span>
+                <input type="date" max="@PhilippineTime.Now.ToString("yyyy-MM-dd")" value="@_fromDate.ToString("yyyy-MM-dd")" @onchange="OnFromDateChanged" />
+            </div>
+            <div class="date-field">
+                <span>To</span>
+                <input type="date" max="@PhilippineTime.Now.ToString("yyyy-MM-dd")" value="@_toDate.ToString("yyyy-MM-dd")" @onchange="OnToDateChanged" />
+            </div>
+        </div>
         <div class="search-box">
-            <input type="text" class="input-search" placeholder="Search logs..." @bind="searchQuery" @bind:event="oninput" />
+            <input type="text" class="input-search" placeholder="Search logs in this date range..." value="@searchQuery" @oninput="OnSearchInput" />
         </div>
         <div class="toolbar-right">
-            <span class="entry-counter font-mono">@FilteredLogs.Count() entries</span>
+            <span class="entry-counter font-mono">@CounterText</span>
             <button class="btn-export" type="button" disabled="@_isExporting" @onclick="ExportLogsAsync" aria-busy="@_isExporting">
-                <span class="export-icon"><Icon Name="download" /></span> @(_isExporting ? "Exporting..." : "Export")
+                <span class="export-icon"><Icon Name="download" /></span> @(_isExporting ? "Exporting..." : "Export CSV")
+            </button>
+            <button class="btn-export" type="button" disabled="@_isExporting" @onclick="ExportPdfAsync" aria-busy="@_isExporting">
+                <span class="export-icon"><Icon Name="file-chart-column" /></span> @(_isExporting ? "Exporting..." : "Export PDF")
             </button>
         </div>
     </div>
+    <FieldError Message="@RangeError" />
 
     <!-- Audit Logs Container -->
     <div class="table-container audit-container">
@@ -72,15 +91,21 @@ else
                 </tr>
             </thead>
             <tbody>
-                @if (_logs.Count == 0)
+                @if (_isPageLoading)
                 {
                     <tr>
-                        <td colspan="4" class="table-empty">No audit logs found.</td>
+                        <td colspan="4" class="table-empty"><LoadingSpinner Text="Loading…" /></td>
+                    </tr>
+                }
+                else if (PageRows.Count == 0)
+                {
+                    <tr>
+                        <td colspan="4" class="table-empty">No audit logs found for this date range.</td>
                     </tr>
                 }
                 else
                 {
-                    @foreach (var log in FilteredLogs)
+                    @foreach (var log in PageRows)
                     {
                         <tr>
                             <td class="col-date font-mono text-muted">@log.Timestamp.ToPhilippineTime().ToString("MMM d, h:mm tt")</td>
@@ -106,6 +131,12 @@ else
             </tbody>
         </table>
     </div>
+
+    <div class="audit-pager">
+        <button class="btn-export" type="button" disabled="@(_pageIndex == 0 || _isPageLoading)" @onclick="PreviousPageAsync">‹ Previous</button>
+        <span class="entry-counter font-mono">Page @(_pageIndex + 1)@(IsSearching ? $" of {Math.Max(1, SearchPageCount)}" : string.Empty)</span>
+        <button class="btn-export" type="button" disabled="@(!HasNextPage || _isPageLoading)" @onclick="NextPageAsync">Next ›</button>
+    </div>
 </div>
     </main>
 </div>
@@ -126,20 +157,57 @@ else
 
     // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
     private bool _isLoading = true;
+    private bool _isPageLoading;
     private IJSObjectReference? _fileDownloadModule;
     private string? _loadError;
     private string? _exportError;
     private bool _isExporting;
 
-    private string searchQuery = string.Empty;
-    private List<InventoryAuditService.AuditLogListItem> _logs = new();
+    // ANA-015: Philippine-time dates, both inclusive - last 30 days by default.
+    private DateTime _fromDate = PhilippineTime.Now.Date.AddDays(-29);
+    private DateTime _toDate = PhilippineTime.Now.Date;
 
-    private IEnumerable<InventoryAuditService.AuditLogListItem> FilteredLogs =>
-        string.IsNullOrWhiteSpace(searchQuery)
-            ? _logs
-            : _logs.Where(l => l.Actor.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
-                            || l.Action.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
-                            || l.Target.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+    private string searchQuery = string.Empty;
+
+    // Browsing (no search): one Firestore page at a time. _pageStarts[i] is the cursor page i
+    // starts after (null for the first page), so Previous can go back without re-reading all.
+    private List<InventoryAuditService.AuditLogListItem> _page = new();
+    private readonly List<DocumentSnapshot?> _pageStarts = new() { null };
+    private DocumentSnapshot? _pageCursor;
+    private bool _pageHasMore;
+    private int _pageIndex;
+
+    // Searching: the whole date range, read once (in batches) and filtered here, so a search
+    // covers every entry in the range and not just the loaded page.
+    private List<InventoryAuditService.AuditLogListItem>? _rangeCache;
+
+    private bool IsSearching => !string.IsNullOrWhiteSpace(searchQuery);
+
+    private DateTime FromUtc => DateTime.SpecifyKind(_fromDate.Date - PhilippineTime.Offset, DateTimeKind.Utc);
+    private DateTime ToUtcExclusive => DateTime.SpecifyKind(_toDate.Date.AddDays(1) - PhilippineTime.Offset, DateTimeKind.Utc);
+
+    private string? RangeError => _fromDate.Date > _toDate.Date ? "The From date must be on or before the To date." : null;
+
+    private List<InventoryAuditService.AuditLogListItem> SearchResults =>
+        (_rangeCache ?? new()).Where(Matches).ToList();
+
+    private int SearchPageCount => (int)Math.Ceiling(SearchResults.Count / (double)InventoryAuditService.AuditLogPageSize);
+
+    private List<InventoryAuditService.AuditLogListItem> PageRows => IsSearching
+        ? SearchResults.Skip(_pageIndex * InventoryAuditService.AuditLogPageSize).Take(InventoryAuditService.AuditLogPageSize).ToList()
+        : _page;
+
+    private bool HasNextPage => IsSearching ? _pageIndex + 1 < SearchPageCount : _pageHasMore;
+
+    private string CounterText => IsSearching
+        ? $"{SearchResults.Count} matching entries"
+        : $"{_page.Count} entries on this page";
+
+    private bool Matches(InventoryAuditService.AuditLogListItem l) =>
+        l.Actor.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+        || l.Role.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+        || l.Action.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+        || l.Target.Contains(searchQuery, StringComparison.OrdinalIgnoreCase);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -148,18 +216,157 @@ else
             return;
         }
 
+        await LoadFirstPageAsync();
+        _isLoading = false;
+        StateHasChanged();
+    }
 
+    private async Task OnFromDateChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out DateTime date))
+        {
+            _fromDate = date.Date;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task OnToDateChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out DateTime date))
+        {
+            _toDate = date.Date;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        searchQuery = e.Value?.ToString() ?? string.Empty;
+        _pageIndex = 0;
+        if (IsSearching && _rangeCache is null)
+        {
+            await LoadRangeCacheAsync();
+        }
+        else if (!IsSearching)
+        {
+            await LoadFirstPageAsync();
+        }
+    }
+
+    /// <summary>The date range changed: start again from its first page.</summary>
+    private async Task ReloadAsync()
+    {
+        _rangeCache = null;
+        _pageIndex = 0;
+        if (RangeError is not null)
+        {
+            _page = new();
+            _pageHasMore = false;
+            return;
+        }
+
+        if (IsSearching)
+        {
+            await LoadRangeCacheAsync();
+        }
+        else
+        {
+            await LoadFirstPageAsync();
+        }
+    }
+
+    private async Task LoadFirstPageAsync()
+    {
+        _pageStarts.Clear();
+        _pageStarts.Add(null);
+        _pageIndex = 0;
+        await LoadPageAsync(null);
+    }
+
+    private async Task LoadPageAsync(DocumentSnapshot? after)
+    {
+        _isPageLoading = true;
+        _loadError = null;
+        StateHasChanged();
         try
         {
-            _logs = await InventoryAudit.GetAuditLogsAsync();
+            InventoryAuditService.AuditLogPage page = await InventoryAudit.GetAuditLogPageAsync(FromUtc, ToUtcExclusive, after);
+            _page = page.Items;
+            _pageCursor = page.Cursor;
+            _pageHasMore = page.HasMore;
         }
         catch (Exception ex)
         {
             _loadError = ex.Message;
+            _page = new();
+            _pageHasMore = false;
+        }
+        finally
+        {
+            _isPageLoading = false;
+        }
+    }
+
+    private async Task LoadRangeCacheAsync()
+    {
+        _isPageLoading = true;
+        _loadError = null;
+        StateHasChanged();
+        try
+        {
+            _rangeCache = await InventoryAudit.GetAllAuditLogsAsync(FromUtc, ToUtcExclusive);
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+            _rangeCache = null;
+        }
+        finally
+        {
+            _isPageLoading = false;
+        }
+    }
+
+    private async Task NextPageAsync()
+    {
+        if (!HasNextPage)
+        {
+            return;
         }
 
-        _isLoading = false;
-        StateHasChanged();
+        _pageIndex++;
+        if (IsSearching)
+        {
+            return;
+        }
+
+        if (_pageStarts.Count <= _pageIndex)
+        {
+            _pageStarts.Add(_pageCursor);
+        }
+        await LoadPageAsync(_pageStarts[_pageIndex]);
+    }
+
+    private async Task PreviousPageAsync()
+    {
+        if (_pageIndex == 0)
+        {
+            return;
+        }
+
+        _pageIndex--;
+        if (!IsSearching)
+        {
+            await LoadPageAsync(_pageStarts[_pageIndex]);
+        }
+    }
+
+    /// <summary>Every entry in the selected date range that matches the search - what both
+    /// exports contain, independent of the page on screen.</summary>
+    private async Task<List<InventoryAuditService.AuditLogListItem>> GetExportRowsAsync()
+    {
+        List<InventoryAuditService.AuditLogListItem> all = _rangeCache ?? await InventoryAudit.GetAllAuditLogsAsync(FromUtc, ToUtcExclusive);
+        return IsSearching ? all.Where(Matches).ToList() : all;
     }
 
     private async Task ExportLogsAsync()
@@ -169,15 +376,21 @@ else
             return;
         }
 
+        if (RangeError is not null)
+        {
+            _exportError = RangeError;
+            return;
+        }
+
         _exportError = null;
         _isExporting = true;
 
         try
         {
-            List<InventoryAuditService.AuditLogListItem> rows = FilteredLogs.ToList();
+            List<InventoryAuditService.AuditLogListItem> rows = await GetExportRowsAsync();
 
             var csv = new StringBuilder();
-            csv.AppendLine("Timestamp,Actor,Action,Target");
+            csv.AppendLine("Timestamp,Actor,Role,Action,Target");
 
             foreach (InventoryAuditService.AuditLogListItem row in rows)
             {
@@ -185,12 +398,13 @@ else
                 csv
                     .Append(Csv(localTime)).Append(',')
                     .Append(Csv(row.Actor)).Append(',')
+                    .Append(Csv(row.Role)).Append(',')
                     .Append(Csv(row.Action)).Append(',')
                     .Append(Csv(row.Target))
                     .AppendLine();
             }
 
-            string fileName = $"audit_logs_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+            string fileName = $"audit_logs_{_fromDate:yyyyMMdd}-{_toDate:yyyyMMdd}.csv";
 
             _fileDownloadModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/file-download.js");
             await _fileDownloadModule.InvokeVoidAsync("downloadFile", fileName, csv.ToString(), "text/csv");
@@ -205,9 +419,60 @@ else
         }
     }
 
-    private static string Csv(string? value)
+    /// <summary>ANA-007: the same entries as the CSV (whole date range, current search) as a PDF.</summary>
+    private async Task ExportPdfAsync()
     {
-        string safe = value ?? string.Empty;
-        return "\"" + safe.Replace("\"", "\"\"") + "\"";
+        if (_isExporting)
+        {
+            return;
+        }
+
+        if (RangeError is not null)
+        {
+            _exportError = RangeError;
+            return;
+        }
+
+        _exportError = null;
+        _isExporting = true;
+
+        try
+        {
+            List<InventoryAuditService.AuditLogListItem> rows = await GetExportRowsAsync();
+            var report = new LARGA.SharedCore.Models.Dashboard.ReportDocument
+            {
+                Title = IsSearching ? $"Audit Logs (search: \"{searchQuery.Trim()}\")" : "Audit Logs",
+                Tables =
+                {
+                    new LARGA.SharedCore.Models.Dashboard.ReportTable
+                    {
+                        Headers = new[] { "Timestamp", "User", "Role", "Action", "Details" },
+                        Rows = rows.Select(r => new object?[]
+                        {
+                            r.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm:ss"), r.Actor, r.Role, r.Action, r.Target,
+                        }).ToList(),
+                        RelativeWidths = new[] { 1.7f, 2f, 1.3f, 2f, 6f },
+                    },
+                },
+            };
+
+            string generatedBy = await LARGA.ManagerWeb.Services.PdfReportRenderer.DescribeUserAsync(AuthStateProvider, FirestoreDb);
+            byte[] pdf = LARGA.ManagerWeb.Services.PdfReportRenderer.Render(report, _fromDate, _toDate, generatedBy);
+
+            _fileDownloadModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/file-download.js");
+            await _fileDownloadModule.InvokeVoidAsync("downloadBase64File", $"audit_logs_{_fromDate:yyyyMMdd}-{_toDate:yyyyMMdd}.pdf",
+                Convert.ToBase64String(pdf), "application/pdf");
+        }
+        catch (Exception ex)
+        {
+            _exportError = $"Couldn't export audit logs: {ex.Message}";
+        }
+        finally
+        {
+            _isExporting = false;
+        }
     }
+
+    // Quoted, and safe from formula injection when opened in Excel (audit G-02).
+    private static string Csv(string? value) => LARGA.SharedCore.CsvRules.Escape(value);
 }

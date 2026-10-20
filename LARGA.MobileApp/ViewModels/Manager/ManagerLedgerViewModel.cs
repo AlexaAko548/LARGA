@@ -32,6 +32,7 @@ public class ManagerLedgerViewModel : BindableObject
 
     public ICommand LoadCommand { get; }
     public ICommand RefreshCommand { get; }
+    public ICommand RetryCommand { get; }
     public ICommand OpenOtherPaymentCommand { get; }
     public ICommand OpenPendingCommand { get; }
 
@@ -42,10 +43,11 @@ public class ManagerLedgerViewModel : BindableObject
         RecordPayment.Saved += async (_, _) =>
         {
             _auditWarning = RecordPayment.AuditWarning;
-            await LoadAsync();
+            await LoadAsync(force: true);
         };
 
         LoadCommand = new Command(async () => await LoadAsync());
+        RetryCommand = new Command(async () => await LoadAsync(force: true));
         RefreshCommand = new Command(async () => await RefreshAsync());
         OpenOtherPaymentCommand = new Command(() => OpenOther(null));
         OpenPendingCommand = new Command<PendingBoundaryItem>(item => OpenPending(item));
@@ -102,8 +104,19 @@ public class ManagerLedgerViewModel : BindableObject
     public bool HasPending { get; private set; }
     public bool HasPaymentsDoneToday { get; private set; }
 
-    public async Task LoadAsync()
+    // Switching back to this tab within ReuseWindow keeps what's on screen instead of re-reading all 7
+    // collections (PERFORMANCE_REPORT.md P7). A saved payment, pull-to-refresh and Retry always reload; and a
+    // payment planned on older figures is still refused at save time (ledger_locks version check).
+    private static readonly TimeSpan ReuseWindow = TimeSpan.FromSeconds(30);
+    private DateTime _lastLoadedUtc = DateTime.MinValue;
+
+    public async Task LoadAsync(bool force = false)
     {
+        if (!force && _snapshot is not null && !HasError && DateTime.UtcNow - _lastLoadedUtc < ReuseWindow)
+        {
+            return;
+        }
+
         // OnAppearing or a saved payment can ask for a reload while one is still running. Remember the request and
         // run it afterwards, instead of dropping it, so the page never keeps rows from before the save.
         if (_isLoading)
@@ -135,7 +148,7 @@ public class ManagerLedgerViewModel : BindableObject
         IsRefreshing = true;
         try
         {
-            await LoadAsync();
+            await LoadAsync(force: true);
         }
         finally
         {
@@ -145,6 +158,8 @@ public class ManagerLedgerViewModel : BindableObject
 
     private async Task LoadOnceAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Quick Ledger load");
         using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         DateText = PhilippineTime.Now.ToString("dddd, MMM d", CultureInfo.InvariantCulture);
 
@@ -190,12 +205,14 @@ public class ManagerLedgerViewModel : BindableObject
             WarningText = string.Join("  ", warnings);
             HasError = false;
             ErrorMessage = string.Empty;
+            _lastLoadedUtc = DateTime.UtcNow;
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Quick Ledger load error: {ex}");
+            // Full exception (step, type, Firestore code) to logcat under the LARGA tag, Release builds included.
+            FirestoreErrors.Log("Quick Ledger load", ex);
             HasError = true;
-            ErrorMessage = "Could not load the ledger. Reopen this tab to try again.";
+            ErrorMessage = LoadErrorMessage(ex);
         }
         finally
         {
@@ -204,6 +221,25 @@ public class ManagerLedgerViewModel : BindableObject
             OnPropertyChanged(nameof(HasPending));
             OnPropertyChanged(nameof(HasPaymentsDoneToday));
         }
+    }
+
+    // One message per cause, so the manager knows whether to check the connection, the account, or call for help.
+    private static string LoadErrorMessage(Exception ex)
+    {
+        string step = ex is QuickLedgerLoadException load ? $" ({load.Step.ToLowerInvariant()})" : string.Empty;
+        return FirestoreErrors.Classify(ex) switch
+        {
+            FirestoreErrorKind.Offline =>
+                "Can't reach the server. Check your internet connection, then tap Retry.",
+            FirestoreErrorKind.PermissionDenied =>
+                $"This account isn't allowed to read the ledger{step}. Make sure you're logged in as a Manager, then tap Retry. If it keeps happening, the Firestore rules on the server need updating.",
+            FirestoreErrorKind.SignedOut =>
+                "Your session has expired. Please log out and log in again.",
+            FirestoreErrorKind.MissingIndex =>
+                $"The server is missing a database index{step}. Tell the system admin, then tap Retry.",
+            _ =>
+                $"Something went wrong while loading the ledger{step}. Tap Retry.",
+        };
     }
 
     private void OpenPending(PendingBoundaryItem? item)

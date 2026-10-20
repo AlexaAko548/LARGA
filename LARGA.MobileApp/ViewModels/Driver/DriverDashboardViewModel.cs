@@ -23,6 +23,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     private readonly IGpsTelemetryService _telemetryService;
     private readonly IEmergencyMonitor _emergencyMonitor;
     private bool _isOffline = true;
+    private readonly BusyGate _clockInGate = new();
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -115,7 +116,9 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
         _telemetryService = telemetryService;
         _emergencyMonitor = emergencyMonitor;
 
-        ToggleShiftCommand = new Command(async () =>
+        // The checks below make network calls before the checklist opens; the gate ignores a second tap meanwhile
+        // (it would open the pre-shift checklist twice) and shows the loading indicator.
+        ToggleShiftCommand = new Command(async () => await _clockInGate.RunAsync(async () =>
         {
             // A clock-in already waiting for the manager's evaluation - go back to it rather
             // than starting another inspection.
@@ -154,7 +157,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
             }
 
             await Shell.Current.GoToAsync("pre-shift-step1");
-        });
+        }));
         ActiveShiftCommand = new Command(async () => await Shell.Current.GoToAsync("active-shift"));
         MessageManagerCommand = new Command(async () => await Shell.Current.GoToAsync("message-manager"));
         RefreshCommand = new Command(async () => await RefreshAsync());
@@ -190,6 +193,8 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     /// </summary>
     public async Task SyncOpenShiftAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Driver Dashboard open-shift check");
         try
         {
             var open = await _shiftService.GetMyOpenShiftAsync();
@@ -230,6 +235,8 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
 
     private async Task InitializeDashboardDataAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Driver Dashboard load");
         using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         var user = CrossFirebaseAuth.Current.CurrentUser;
         if (user != null)
@@ -243,17 +250,22 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
 
             try
             {
-                var userProfileDoc = await CrossFirebaseFirestore.Current
+                // The profile and today's schedule entry don't depend on each other, so both are read at
+                // once (PERFORMANCE_REPORT.md P8).
+                var profileTask = CrossFirebaseFirestore.Current
                     .GetCollection("users")
                     .GetDocument(user.Uid)
                     .GetDocumentSnapshotAsync<UserProfileProxy>(); // FIX: Use the mobile proxy
+                Task<string?> substituteTask = _shiftService.GetTodaysTaxiIdAsync(null);
+                var userProfileDoc = await profileTask;
 
                 DateTimeOffset? licenseExpiryOffset = userProfileDoc?.Data?.LicenseExpiryDate;
                 EvaluateLicenseAlert(licenseExpiryOffset?.UtcDateTime);
 
                 // Today's unit - a substitute the manager assigned while the driver's own unit is
                 // under maintenance, otherwise their permanent one.
-                var dynamicTaxiId = await _shiftService.GetTodaysTaxiIdAsync(userProfileDoc?.Data?.AssignedTaxiId);
+                // (GetTodaysTaxiIdAsync(null) returns the substitute, or null when there is none.)
+                var dynamicTaxiId = await substituteTask ?? userProfileDoc?.Data?.AssignedTaxiId;
 
                 if (!string.IsNullOrWhiteSpace(dynamicTaxiId))
                 {

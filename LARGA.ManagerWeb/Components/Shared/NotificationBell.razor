@@ -56,7 +56,8 @@
     private PeriodicTimer? _timer;
     private CancellationTokenSource? _timerCts;
 
-    private int UnreadCount => _alerts.Count(a => !a.IsRead);
+    // Same count as the mobile Alert Center's header (AlertFeed).
+    private int UnreadCount => LARGA.SharedCore.Alerts.AlertFeed.UnreadCount(_alerts);
     private bool _isMarkingAll;
 
     protected override async Task OnInitializedAsync()

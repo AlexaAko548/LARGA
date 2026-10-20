@@ -114,6 +114,8 @@ public class ManagerChatService
             ["text"] = text.Trim(),
             ["isDriver"] = false,
             ["timestamp"] = now,
+            // Deleted by the Firestore TTL policy after the retention period (RetentionRules, audit H-01).
+            [RetentionRules.ExpireAtField] = RetentionRules.ExpireAt(now, RetentionRules.ChatMessage),
         });
         batch.Set(session, new Dictionary<string, object>
         {

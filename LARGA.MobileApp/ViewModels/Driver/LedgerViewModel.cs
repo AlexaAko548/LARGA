@@ -58,7 +58,7 @@ public class LedgerViewModel : INotifyPropertyChanged
         IsRefreshing = true;
         try
         {
-            await LoadDynamicLedgerDataAsync();
+            await LoadDynamicLedgerDataAsync(forceRefresh: true); // a pull always reads Firestore again
         }
         finally
         {
@@ -72,8 +72,10 @@ public class LedgerViewModel : INotifyPropertyChanged
     /// Called by LedgerPage each time the tab appears: Shell keeps the tab page alive, so loading
     /// once in the constructor would never show payments recorded after the first visit.
     /// </summary>
-    public async Task LoadDynamicLedgerDataAsync()
+    public async Task LoadDynamicLedgerDataAsync(bool forceRefresh = false)
     {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Driver Ledger load");
         using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         var user = CrossFirebaseAuth.Current.CurrentUser;
         if (user == null || _isLoading) return;
@@ -85,7 +87,7 @@ public class LedgerViewModel : INotifyPropertyChanged
 
             // Same per-shift calculation as the web's Master Debt Ledger, so the driver and the
             // manager see the same balance (see DriverDebtCalculator).
-            var ledger = await DriverDebtCalculator.LoadAsync(user.Uid);
+            var ledger = await DriverDebtCalculator.LoadAsync(user.Uid, forceRefresh);
             OutstandingDebtBalance = $"₱ {ledger.TotalDebt:N2}";
 
             var payments = ledger.Shifts
@@ -113,9 +115,10 @@ public class LedgerViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Ledger Firebase Error: {ex.Message}");
-            OutstandingDebtBalance = "₱ 0.00";
+            // Not "₱ 0.00": a failed read must not look like the driver owes nothing.
+            OutstandingDebtBalance = "--";
             CurrentShiftPayment = "ERROR";
+            await FirestoreErrors.ShowLoadFailureAsync("Driver ledger", ex, "your ledger", canPullToRefresh: true);
         }
         finally
         {

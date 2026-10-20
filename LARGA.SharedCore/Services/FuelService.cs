@@ -44,6 +44,14 @@ public class FuelService : IFuelService
                 { "isAnyFieldManuallyEdited", record.IsAnyFieldManuallyEdited },
             };
 
+            // Flagged on submit by the app's own checks (FUEL-004: not a Petron/Shell receipt) -
+            // firestore.rules accept Flagged from a driver only like this, at server time.
+            if (record.VerificationStatus == FuelVerificationStatus.Flagged)
+            {
+                fields["autoFlagged"] = true;
+                fields["flaggedAt"] = FieldValue.ServerTimestamp();
+            }
+
             IDocumentReference docRef = CrossFirebaseFirestore.Current
                 .GetCollection("fuel_logs")
                 .CreateDocument();

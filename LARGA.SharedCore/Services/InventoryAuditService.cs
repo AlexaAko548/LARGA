@@ -15,7 +15,11 @@ namespace LARGA.SharedCore.Services;
 /// </summary>
 public class InventoryAuditService
 {
-    private const int DefaultAuditLogLimit = 250;
+    /// <summary>Audit Logs page size (ANA-015).</summary>
+    public const int AuditLogPageSize = 50;
+
+    // Batch size for reading a whole date range (search and export).
+    private const int AuditLogBatchSize = 500;
 
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly ILogger<InventoryAuditService> _logger;
@@ -71,7 +75,7 @@ public class InventoryAuditService
 
         WriteBatch batch = Db.StartBatch();
         batch.Set(partDoc, part, SetOptions.Overwrite);
-        batch.Set(auditDoc, audit, SetOptions.Overwrite);
+        batch.Create(auditDoc, audit);
         await batch.CommitAsync();
         return part;
     }
@@ -137,7 +141,7 @@ public class InventoryAuditService
 
             stockDropped = stock < part.StockQuantity || reorder > part.ReorderLevel;
             transaction.Update(doc, updates);
-            transaction.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            transaction.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "InventoryPartEdited",
@@ -160,6 +164,10 @@ public class InventoryAuditService
         {
             await _alerts.CreateLowStockAlertAsync(updated);
         }
+        else if (updated is not null && updated.StockQuantity > updated.ReorderLevel)
+        {
+            await _alerts.ResolveLowStockAlertAsync(updated);
+        }
 
         return updated;
     }
@@ -167,7 +175,9 @@ public class InventoryAuditService
     /// <summary>
     /// Takes stock out (it was used) and records the usage in maintenance_parts_used - the
     /// part's usage history - at the part's current unit price, linked to the maintenance
-    /// ticket it went into when one is given.
+    /// ticket it went into when one is given. The stock read and the deduction are one
+    /// transaction: asking for more than is in stock throws <see cref="InsufficientStockException"/>
+    /// and changes nothing (INV-006), so the audit entry always matches what was taken out.
     /// </summary>
     public async Task<SparePart?> DeductPartAsync(string partId, int amount = 1, string? actorUserId = null,
         string? maintenanceId = null, string? note = null)
@@ -201,36 +211,39 @@ public class InventoryAuditService
             SparePart part = snapshot.ConvertTo<SparePart>();
             part.PartId = snapshot.Id;
 
-            // Only what was actually in stock counts as used.
-            int used = Math.Min(deduction, Math.Max(0, part.StockQuantity));
-            int updatedQuantity = Math.Max(0, part.StockQuantity - deduction);
-            transaction.Update(doc, "stockQuantity", updatedQuantity);
-
-            if (used > 0)
+            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+            int inStock = Math.Max(0, part.StockQuantity);
+            if (deduction > inStock)
             {
-                transaction.Set(usageDoc, new MaintenancePartsUsed
-                {
-                    MaintenanceId = ticket?.MaintenanceId ?? string.Empty,
-                    PartId = part.PartId,
-                    QuantityUsed = used,
-                    UsedAt = DateTime.UtcNow,
-                    UnitCost = (double)part.UnitPrice,
-                    TaxiId = string.IsNullOrWhiteSpace(ticket?.TaxiId) ? null : ticket.TaxiId,
-                    RecordedBy = string.IsNullOrWhiteSpace(actorUserId) ? null : actorUserId,
-                    Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim(),
-                });
+                // Thrown out of the transaction callback, so nothing is written.
+                throw new InsufficientStockException(part.DisplayName, inStock, unit);
             }
 
-            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+            int used = deduction;
+            int updatedQuantity = inStock - used;
+            transaction.Update(doc, "stockQuantity", updatedQuantity);
+
+            transaction.Set(usageDoc, new MaintenancePartsUsed
+            {
+                MaintenanceId = ticket?.MaintenanceId ?? string.Empty,
+                PartId = part.PartId,
+                QuantityUsed = used,
+                UsedAt = DateTime.UtcNow,
+                UnitCost = (double)part.UnitPrice,
+                TaxiId = string.IsNullOrWhiteSpace(ticket?.TaxiId) ? null : ticket.TaxiId,
+                RecordedBy = string.IsNullOrWhiteSpace(actorUserId) ? null : actorUserId,
+                Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim(),
+            });
+
             string usedFor = ticket is null ? string.Empty : $" for {ticket.TaxiId} - {ticket.IssueTitle}";
             var audit = new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "InventoryStockDeducted",
-                AuditLogDetails = $"Deducted {deduction} {unit} from '{part.DisplayName}'{usedFor}. Stock: {part.StockQuantity} -> {updatedQuantity}.",
+                AuditLogDetails = $"Deducted {used} {unit} from '{part.DisplayName}'{usedFor}. Stock: {inStock} -> {updatedQuantity}.",
                 Timestamp = DateTime.UtcNow,
             };
-            transaction.Set(auditDoc, audit);
+            transaction.Create(auditDoc, audit);
 
             part.StockQuantity = updatedQuantity;
             if (string.IsNullOrWhiteSpace(part.Unit))
@@ -261,7 +274,7 @@ public class InventoryAuditService
 
         int increment = Math.Max(1, amount);
 
-        return await Db.RunTransactionAsync(async transaction =>
+        SparePart? restocked = await Db.RunTransactionAsync(async transaction =>
         {
             DocumentReference doc = Db.Collection("spare_parts").Document(partId);
             DocumentReference auditDoc = Db.Collection("audit_logs").Document();
@@ -294,7 +307,7 @@ public class InventoryAuditService
                 AuditLogDetails = $"Added {increment} {unit} to '{part.DisplayName}'. Stock: {part.StockQuantity} -> {updatedQuantity}.{priceNote}",
                 Timestamp = DateTime.UtcNow,
             };
-            transaction.Set(auditDoc, audit);
+            transaction.Create(auditDoc, audit);
 
             part.StockQuantity = updatedQuantity;
             if (string.IsNullOrWhiteSpace(part.Unit))
@@ -304,6 +317,15 @@ public class InventoryAuditService
 
             return part;
         });
+
+        // Back above the minimum: close the part's low-stock alert (INV-010). Outside the
+        // transaction, like the alert itself.
+        if (restocked is not null && restocked.StockQuantity > restocked.ReorderLevel)
+        {
+            await _alerts.ResolveLowStockAlertAsync(restocked);
+        }
+
+        return restocked;
     }
 
     /// <summary>
@@ -384,31 +406,97 @@ public class InventoryAuditService
         _ => "Routine checkup",
     };
 
-    public async Task<List<AuditLogListItem>> GetAuditLogsAsync(int limit = DefaultAuditLogLimit)
+    /// <summary>
+    /// One page of the audit trail within [fromUtc, toUtc), newest first (ANA-015). Firestore
+    /// cursor paging: pass the previous page's <see cref="AuditLogPage.Cursor"/> as
+    /// <paramref name="after"/> for the next one. A range plus an order on the same single field
+    /// (timestamp) only needs Firestore's automatic single-field index - no composite index.
+    /// </summary>
+    public async Task<AuditLogPage> GetAuditLogPageAsync(DateTime fromUtc, DateTime toUtc, DocumentSnapshot? after = null, int pageSize = AuditLogPageSize)
     {
-        QuerySnapshot snapshot = await Db.Collection("audit_logs")
-            .OrderByDescending("timestamp")
-            .Limit(Math.Max(1, limit))
-            .GetSnapshotAsync();
+        // One extra document tells whether there's a next page.
+        QuerySnapshot snapshot = await AuditRangeQuery(fromUtc, toUtc, after).Limit(pageSize + 1).GetSnapshotAsync();
+        List<DocumentSnapshot> docs = snapshot.Documents.Take(pageSize).ToList();
 
-        List<AuditLog> logs = ConvertDocuments<AuditLog>(snapshot, "audit_logs")
-            .OrderByDescending(l => l.Timestamp)
-            .ToList();
+        List<AuditLog> logs = ConvertAuditDocuments(docs);
+        return new AuditLogPage
+        {
+            Items = await ToListItemsAsync(logs),
+            Cursor = docs.Count > 0 ? docs[^1] : after,
+            HasMore = snapshot.Documents.Count > pageSize,
+        };
+    }
 
-        Dictionary<string, string> actorNames = await ResolveActorNamesAsync(logs);
+    /// <summary>Every audit entry within [fromUtc, toUtc), newest first, read in batches of 500 -
+    /// what the page's search and both exports (CSV, PDF) work from, so they cover the whole range
+    /// and not just the loaded page.</summary>
+    public async Task<List<AuditLogListItem>> GetAllAuditLogsAsync(DateTime fromUtc, DateTime toUtc)
+    {
+        var logs = new List<AuditLog>();
+        DocumentSnapshot? after = null;
+        while (true)
+        {
+            QuerySnapshot batch = await AuditRangeQuery(fromUtc, toUtc, after).Limit(AuditLogBatchSize).GetSnapshotAsync();
+            logs.AddRange(ConvertAuditDocuments(batch.Documents));
+            if (batch.Documents.Count < AuditLogBatchSize)
+            {
+                break;
+            }
+            after = batch.Documents[^1];
+        }
+
+        return await ToListItemsAsync(logs);
+    }
+
+    private Query AuditRangeQuery(DateTime fromUtc, DateTime toUtc, DocumentSnapshot? after)
+    {
+        Query query = Db.Collection("audit_logs")
+            .WhereGreaterThanOrEqualTo("timestamp", DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc))
+            .WhereLessThan("timestamp", DateTime.SpecifyKind(toUtc, DateTimeKind.Utc))
+            .OrderByDescending("timestamp");
+        return after is null ? query : query.StartAfter(after);
+    }
+
+    private List<AuditLog> ConvertAuditDocuments(IEnumerable<DocumentSnapshot> docs)
+    {
+        var logs = new List<AuditLog>();
+        foreach (DocumentSnapshot doc in docs)
+        {
+            try
+            {
+                AuditLog log = doc.ConvertTo<AuditLog>();
+                if (string.IsNullOrWhiteSpace(log.AuditLogId))
+                {
+                    log.AuditLogId = doc.Id;
+                }
+                logs.Add(log);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Skipping audit_logs/{DocumentId}: failed to convert", doc.Id);
+            }
+        }
+        return logs;
+    }
+
+    private async Task<List<AuditLogListItem>> ToListItemsAsync(List<AuditLog> logs)
+    {
+        Dictionary<string, (string Name, string Role)> actors = await ResolveActorsAsync(logs);
 
         return logs.Select(log => new AuditLogListItem
         {
             AuditLogId = log.AuditLogId,
             Timestamp = log.Timestamp,
-            Actor = ResolveActorName(log.UserId, actorNames),
+            Actor = ResolveActorName(log.UserId, actors),
+            Role = string.IsNullOrWhiteSpace(log.UserId) ? "System"
+                : actors.TryGetValue(log.UserId, out var actor) && !string.IsNullOrWhiteSpace(actor.Role) ? actor.Role : "—",
             Action = HumanizeAction(log.ActionType),
             Target = log.AuditLogDetails,
             Icon = ActionIcon(log.ActionType),
         }).ToList();
     }
 
-    private async Task<Dictionary<string, string>> ResolveActorNamesAsync(List<AuditLog> logs)
+    private async Task<Dictionary<string, (string Name, string Role)>> ResolveActorsAsync(List<AuditLog> logs)
     {
         List<string> userIds = logs
             .Select(l => l.UserId)
@@ -416,7 +504,7 @@ public class InventoryAuditService
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        var actors = new Dictionary<string, string>(StringComparer.Ordinal);
+        var actors = new Dictionary<string, (string Name, string Role)>(StringComparer.Ordinal);
         if (userIds.Count == 0)
         {
             return actors;
@@ -440,10 +528,7 @@ public class InventoryAuditService
                 }
 
                 UserProfile profile = doc.ConvertTo<UserProfile>();
-                if (!string.IsNullOrWhiteSpace(profile.FullName))
-                {
-                    actors[userId] = profile.FullName;
-                }
+                actors[userId] = (profile.FullName?.Trim() ?? string.Empty, profile.Role?.Trim() ?? string.Empty);
             }
             catch (Exception ex)
             {
@@ -454,15 +539,15 @@ public class InventoryAuditService
         return actors;
     }
 
-    private static string ResolveActorName(string userId, IReadOnlyDictionary<string, string> actorNames)
+    private static string ResolveActorName(string userId, IReadOnlyDictionary<string, (string Name, string Role)> actors)
     {
         if (string.IsNullOrWhiteSpace(userId))
         {
             return "System";
         }
 
-        return actorNames.TryGetValue(userId, out string? fullName)
-            ? fullName
+        return actors.TryGetValue(userId, out var actor) && !string.IsNullOrWhiteSpace(actor.Name)
+            ? actor.Name
             : userId.Length <= 12 ? userId : userId[..12] + "...";
     }
 
@@ -536,6 +621,21 @@ public class InventoryAuditService
         return results;
     }
 
+    /// <summary>A deduction asked for more than the part has in stock; nothing was changed.
+    /// Message is safe to show to the manager.</summary>
+    public class InsufficientStockException : InvalidOperationException
+    {
+        public InsufficientStockException(string partName, int inStock, string unit)
+            : base($"Only {inStock} {unit} of {partName} in stock.")
+        {
+            PartName = partName;
+            InStock = inStock;
+        }
+
+        public string PartName { get; }
+        public int InStock { get; }
+    }
+
     public class PartUsageEntry
     {
         public DateTime? UsedAt { get; set; }
@@ -567,11 +667,24 @@ public class InventoryAuditService
         public string Label { get; set; } = string.Empty;
     }
 
+    public class AuditLogPage
+    {
+        public List<AuditLogListItem> Items { get; set; } = new();
+
+        /// <summary>The last document of this page - pass it back for the next page.</summary>
+        public DocumentSnapshot? Cursor { get; set; }
+
+        public bool HasMore { get; set; }
+    }
+
     public class AuditLogListItem
     {
         public string AuditLogId { get; set; } = string.Empty;
         public DateTime Timestamp { get; set; }
         public string Actor { get; set; } = string.Empty;
+
+        /// <summary>The actor's users/{uid}.role ("Manager", "Driver"...), "System" for system entries.</summary>
+        public string Role { get; set; } = string.Empty;
         public string Action { get; set; } = string.Empty;
         public string Target { get; set; } = string.Empty;
         public string Icon { get; set; } = string.Empty;

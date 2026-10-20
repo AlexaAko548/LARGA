@@ -42,6 +42,10 @@ public class FuelLogEntry
     public string? OdometerPhotoUrl { get; set; }
     public string? FuelLogDetails { get; set; }
 
+    /// <summary>Flagged by the system (non-Petron/Shell station, odometer vs GPS) rather than a
+    /// manager - FuelLog.AutoFlagged; the reason is FuelLogDetails.</summary>
+    public bool IsAutoFlagged { get; set; }
+
     /// <summary>The same driver's previous refuel (or, if this is their first, the shift's
     /// starting odometer) - lets the review modal show distance covered and an efficiency
     /// estimate rather than just the raw numbers on their own.</summary>
@@ -135,28 +139,122 @@ public class FuelReviewDetail
             ? Math.Round(VarianceKm.Value / GpsDistanceKm.Value * 100, 1)
             : null;
 
+    /// <summary>VariancePercent with its sign: positive when the odometer shows more than GPS.</summary>
+    public double? SignedVariancePercent =>
+        ClaimedDistanceKm.HasValue && GpsDistanceKm is > 0
+            ? Math.Round((ClaimedDistanceKm.Value - GpsDistanceKm.Value) / GpsDistanceKm.Value * 100, 1)
+            : null;
+
     public decimal? CostPerKm =>
         ClaimedDistanceKm is > 0
             ? Math.Round(Cost / ClaimedDistanceKm.Value, 2)
             : null;
 
-    // Placeholder tolerance/range values (matching the initial Fuel Verification mockup) -
-    // a real fleet-tuned number belongs in system_configs, same as FleetReportingService's
-    // idle threshold, once there's real submission data to calibrate against.
-    public const double OdometerToleranceComparisonPercent = 8.0;
-    public const decimal TypicalCostPerKmMin = 4.50m;
-    public const decimal TypicalCostPerKmMax = 7.50m;
+    /// <summary>The checks' limits - system_configs/global (FuelTolerances.From), filled in by
+    /// FuelVerificationService. Defaults are the original mockup values.</summary>
+    public FuelTolerances Tolerances { get; set; } = FuelTolerances.Default;
+
+    /// <summary>This unit's expected km/L (system_configs/global fuelExpectedKmPerLiter), if set.</summary>
+    public double? ExpectedKmPerLiter => Tolerances.ExpectedKmPerLiterFor(TaxiId);
+
+    public decimal? KmPerLiter =>
+        ClaimedDistanceKm is > 0 && Liters > 0 ? Math.Round(ClaimedDistanceKm.Value / Liters, 1) : null;
 
     public bool? IsWithinOdometerTolerance =>
-        VariancePercent.HasValue ? VariancePercent.Value <= OdometerToleranceComparisonPercent : null;
+        VariancePercent.HasValue ? VariancePercent.Value <= Tolerances.DistanceTolerancePercent : null;
 
     public bool? IsWithinCostRange =>
-        CostPerKm.HasValue ? CostPerKm.Value >= TypicalCostPerKmMin && CostPerKm.Value <= TypicalCostPerKmMax : null;
+        CostPerKm.HasValue ? CostPerKm.Value >= Tolerances.CostPerKmMin && CostPerKm.Value <= Tolerances.CostPerKmMax : null;
 
-    /// <summary>Null = "can't tell" (no GPS data to compare against), true = both checks
+    /// <summary>Off by more than the distance tolerance from the unit's expected km/L. Null when no
+    /// expected value is set for the unit, or there's no distance/liters to work it out.</summary>
+    public bool? IsWithinExpectedKmPerLiter =>
+        KmPerLiter is decimal actual && ExpectedKmPerLiter is double expected && expected > 0
+            ? Math.Abs((double)actual - expected) / expected * 100 <= Tolerances.DistanceTolerancePercent
+            : null;
+
+    /// <summary>Null = "can't tell" (no GPS data to compare against), true = all checks
     /// pass, false = at least one looks off.</summary>
     public bool? MatchesExpectedRange =>
         GpsDistanceKm.HasValue
-            ? IsWithinOdometerTolerance == true && IsWithinCostRange != false
+            ? IsWithinOdometerTolerance == true && IsWithinCostRange != false && IsWithinExpectedKmPerLiter != false
             : null;
+
+    /// <summary>
+    /// FUEL-017: the reason to flag this submission automatically, or null to leave it for the
+    /// manager. Only the odometer-vs-GPS distance comparison flags automatically. Cost per km and
+    /// km/L stay review indicators (MatchesExpectedRange): they set the fuel bought now against the
+    /// distance driven before it, so a refuel early in a leg - e.g. a full tank at shift start -
+    /// would look far off even when nothing is wrong.
+    ///
+    /// A short leg isn't judged either: under <see cref="FuelTolerances.MinAutoFlagDistanceKm"/>
+    /// (by odometer or GPS, whichever is longer), or a gap under
+    /// <see cref="FuelTolerances.MinAutoFlagVarianceKm"/>, is within normal GPS sampling error.
+    /// No GPS data is "can't tell", not a mismatch.
+    /// </summary>
+    public string? AutoFlagReason()
+    {
+        if (IsWithinOdometerTolerance != false || ClaimedDistanceKm is not int claimed || GpsDistanceKm is not double gps)
+        {
+            return null;
+        }
+
+        if (Math.Max(claimed, gps) < Tolerances.MinAutoFlagDistanceKm || VarianceKm < Tolerances.MinAutoFlagVarianceKm)
+        {
+            return null;
+        }
+
+        return $"Odometer distance {claimed:N0} km vs GPS {gps:N0} km ({SignedVariancePercent:+0;-0}%)";
+    }
+}
+
+/// <summary>
+/// FUEL-017 tolerance settings, stored in system_configs/global so they can be tuned without a
+/// code change: fuelDistanceTolerancePercent (odometer vs GPS), fuelCostPerKmMin/Max (₱ per km),
+/// fuelExpectedKmPerLiter (optional, per unit), and the auto-flag minimums
+/// fuelAutoFlagMinDistanceKm / fuelAutoFlagMinVarianceKm. The defaults are the original placeholders.
+/// </summary>
+public sealed record FuelTolerances(
+    double DistanceTolerancePercent,
+    decimal CostPerKmMin,
+    decimal CostPerKmMax,
+    IReadOnlyDictionary<string, double> ExpectedKmPerLiter,
+    double MinAutoFlagDistanceKm = FuelTolerances.DefaultMinAutoFlagDistanceKm,
+    double MinAutoFlagVarianceKm = FuelTolerances.DefaultMinAutoFlagVarianceKm)
+{
+    public const double DefaultDistanceTolerancePercent = 8.0;
+    public const decimal DefaultCostPerKmMin = 4.50m;
+    public const decimal DefaultCostPerKmMax = 7.50m;
+    public const double DefaultMinAutoFlagDistanceKm = 10.0;
+    public const double DefaultMinAutoFlagVarianceKm = 2.0;
+
+    public static FuelTolerances Default { get; } = new(
+        DefaultDistanceTolerancePercent, DefaultCostPerKmMin, DefaultCostPerKmMax, new Dictionary<string, double>());
+
+    /// <summary>The config's values, falling back to the defaults for anything unset or out of range.</summary>
+    public static FuelTolerances From(SystemConfig? config)
+    {
+        if (config is null)
+        {
+            return Default;
+        }
+
+        double distance = config.FuelDistanceTolerancePercent > 0 ? config.FuelDistanceTolerancePercent : DefaultDistanceTolerancePercent;
+        decimal min = config.FuelCostPerKmMin > 0 ? (decimal)config.FuelCostPerKmMin : DefaultCostPerKmMin;
+        decimal max = config.FuelCostPerKmMax > 0 ? (decimal)config.FuelCostPerKmMax : DefaultCostPerKmMax;
+        if (min > max)
+        {
+            (min, max) = (DefaultCostPerKmMin, DefaultCostPerKmMax);
+        }
+
+        var perUnit = (config.FuelExpectedKmPerLiter ?? new Dictionary<string, double>())
+            .Where(kv => kv.Value > 0)
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+        double minDistance = config.FuelAutoFlagMinDistanceKm >= 0 ? config.FuelAutoFlagMinDistanceKm : DefaultMinAutoFlagDistanceKm;
+        double minVariance = config.FuelAutoFlagMinVarianceKm >= 0 ? config.FuelAutoFlagMinVarianceKm : DefaultMinAutoFlagVarianceKm;
+        return new FuelTolerances(distance, min, max, perUnit, minDistance, minVariance);
+    }
+
+    public double? ExpectedKmPerLiterFor(string? taxiId) =>
+        !string.IsNullOrWhiteSpace(taxiId) && ExpectedKmPerLiter.TryGetValue(taxiId, out double value) ? value : null;
 }

@@ -13,7 +13,15 @@
 
 	<ItemGroup>
 		<PackageReference Include="Google.Cloud.Storage.V1" Version="4.10.0" />
-		<PackageReference Include="Plugin.Firebase" Version="4.1.0" />
+		<!-- Only the Firebase modules the apps use (audit F-03). The "Plugin.Firebase" meta-package also
+		     shipped Analytics (advertising ID, silent usage collection), Crashlytics, Functions, Remote
+		     Config and App Check. Same versions the meta-package resolved to. Add Plugin.Firebase.AppCheck
+		     back when App Check is rolled out (audit C-02). -->
+		<PackageReference Include="Plugin.Firebase.Core" Version="4.1.0" />
+		<PackageReference Include="Plugin.Firebase.Auth" Version="4.0.1" />
+		<PackageReference Include="Plugin.Firebase.Firestore" Version="4.0.0" />
+		<PackageReference Include="Plugin.Firebase.Storage" Version="4.0.0" />
+		<PackageReference Include="Plugin.Firebase.CloudMessaging" Version="4.0.1" />
 		<PackageReference Include="Google.Cloud.Firestore" Version="4.4.0" />
 		<PackageReference Include="FirebaseAdmin" Version="3.6.0" />
 		<!-- NotificationService.cs uses Microsoft.Maui.ApplicationModel.Permissions. Since

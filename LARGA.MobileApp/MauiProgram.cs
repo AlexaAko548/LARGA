@@ -62,7 +62,13 @@ public static class MauiProgram
         builder.Services.AddSingleton<IMaintenanceService, MaintenanceService>();
         builder.Services.AddSingleton<IPhotoStorageService, PhotoStorageService>();
         builder.Services.AddSingleton<IFuelService, FuelService>();
+#if ANDROID
+        // GPS-012: same tracking, kept alive by a location foreground service while a shift is active.
+        builder.Services.AddSingleton<GpsTelemetryService>();
+        builder.Services.AddSingleton<IGpsTelemetryService, LARGA.MobileApp.Platforms.Android.Services.AndroidGpsTelemetryService>();
+#else
         builder.Services.AddSingleton<IGpsTelemetryService, GpsTelemetryService>();
+#endif
 
         // LAR-86/87: the one writer for emergency_alerts (manual SOS + automated protocols).
         builder.Services.AddSingleton<IEmergencyAlertService, EmergencyAlertService>();
@@ -179,6 +185,22 @@ public static class MauiProgram
 
 #if DEBUG
         builder.Logging.AddDebug();
+#endif
+
+#if LARGA_PERF
+        // P0 load timings (PERFORMANCE_REPORT.md): Debug builds, or a Release build made with
+        // -p:LargaPerf=true. Read them with: adb logcat -s LARGA_PERF
+        LARGA.SharedCore.PerfLog.Enabled = true;
+#if DEBUG
+        LARGA.SharedCore.PerfLog.Build = "Debug";
+#else
+        LARGA.SharedCore.PerfLog.Build = "Release";
+#endif
+#if ANDROID
+        LARGA.SharedCore.PerfLog.Sink = line => Android.Util.Log.Info("LARGA_PERF", line);
+#else
+        LARGA.SharedCore.PerfLog.Sink = line => System.Diagnostics.Debug.WriteLine($"[LARGA_PERF] {line}");
+#endif
 #endif
 
         return builder.Build();

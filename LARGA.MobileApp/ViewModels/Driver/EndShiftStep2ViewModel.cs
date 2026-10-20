@@ -24,6 +24,22 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
     private readonly IEmergencyMonitor _emergencyMonitor;
     private Dictionary<string, bool> _inspection = new();
     private bool _isSubmitting;
+
+    // Drives the Confirm & End Shift button: disabled and "Ending shift…" while the clock-out runs.
+    private bool IsSubmitting
+    {
+        get => _isSubmitting;
+        set
+        {
+            _isSubmitting = value;
+            OnPropertyChanged(nameof(IsNotSubmitting));
+            OnPropertyChanged(nameof(EndButtonText));
+        }
+    }
+
+    public bool IsNotSubmitting => !_isSubmitting;
+
+    public string EndButtonText => _isSubmitting ? "Ending shift…" : "🛡️ Confirm & End Shift";
     private string? _odometerPhotoLocalPath;
     private string? _fuelPhotoLocalPath;
 
@@ -122,12 +138,13 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
             }
 
             // Same double-tap guard as PreShiftStep2ViewModel.ConfirmStartShiftAsync.
-            if (_isSubmitting)
+            if (IsSubmitting)
             {
                 return;
             }
 
-            _isSubmitting = true;
+            IsSubmitting = true;
+            using IDisposable loading = LoadingState.Begin();
             try
             {
                 string digitsOnly = new string(FinalOdometer.Where(char.IsDigit).ToArray());
@@ -148,6 +165,24 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                 string activeShiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
                 if (!string.IsNullOrEmpty(activeShiftId))
                 {
+                    // DSM-041: the final reading can't be below the one the shift started at.
+                    // No start reading on the shift: nothing to compare, so it's allowed.
+                    int? startMileage = await _shiftService.GetShiftStartMileageAsync(activeShiftId);
+                    if (startMileage is null)
+                    {
+#if ANDROID
+                        Android.Util.Log.Warn("LARGA_SHIFT", $"Shift {activeShiftId} has no startMileage - final odometer not checked.");
+#else
+                        System.Diagnostics.Debug.WriteLine($"Shift {activeShiftId} has no startMileage - final odometer not checked.");
+#endif
+                    }
+                    else if (endMileage < startMileage.Value)
+                    {
+                        await Shell.Current.DisplayAlert("Odometer below start",
+                            $"The final odometer ({endMileage:N0} km) is lower than the starting odometer ({startMileage.Value:N0} km). Please rescan the odometer.", "OK");
+                        return;
+                    }
+
                     charges = await _shiftService.ClockOutAsync(activeShiftId, endMileage, IsBelowHalfTankSelected, "");
 
                     // The shift is closed from here on. Release everything tied to it before the
@@ -190,11 +225,12 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
             }
             catch (Exception ex)
             {
-                await Shell.Current.DisplayAlert("Error", $"Failed to end shift: {ex.Message}", "OK");
+                FirestoreErrors.Log("End shift", ex);
+                await Shell.Current.DisplayAlert("Shift not ended", FirestoreErrors.FriendlyMessage(ex, "end your shift"), "OK");
             }
             finally
             {
-                _isSubmitting = false;
+                IsSubmitting = false;
             }
         });
 

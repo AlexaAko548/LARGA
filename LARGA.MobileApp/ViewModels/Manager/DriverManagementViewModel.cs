@@ -53,6 +53,8 @@ public class DriverManagementViewModel : BindableObject
 
     private async Task LoadDriversAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Driver Management load");
         using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         try
         {
@@ -85,7 +87,7 @@ public class DriverManagementViewModel : BindableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Driver Management Load Error: {ex.Message}");
+            await FirestoreErrors.ShowLoadFailureAsync("Driver management", ex, "the driver list", canPullToRefresh: true);
         }
     }
 

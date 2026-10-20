@@ -63,7 +63,16 @@ public class ManagerProfileViewModel : BindableObject
         UpdateContactNumberCommand = new Command(async () => await Shell.Current.GoToAsync("update-contact-number"));
         LogoutCommand = new Command(async () =>
         {
-            await CrossFirebaseAuth.Current.SignOutAsync();
+            if (!await LARGA.MobileApp.Controls.ConfirmationPopup.ShowAsync(Shell.Current,
+                    "Log Out?", "You will stop seeing live alerts on this phone until you log in again.",
+                    confirmText: "Log Out", isDangerous: false))
+            {
+                return;
+            }
+
+            // Signs out and leaves nothing of this manager on the phone (ledgers, driver details in
+            // the Firestore cache) - see SignOutService.
+            await LARGA.MobileApp.Services.SignOutService.SignOutAsync();
             await Shell.Current.GoToAsync("//landing");
         });
     }

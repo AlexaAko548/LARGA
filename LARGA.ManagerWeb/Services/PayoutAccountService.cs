@@ -64,7 +64,7 @@ public class PayoutAccountService
     {
         WriteBatch batch = _db.Value.StartBatch();
         batch.Set(Config, new Dictionary<string, object> { ["authorizedPayoutAccounts"] = change }, SetOptions.MergeAll);
-        batch.Set(_db.Value.Collection("audit_logs").Document(), new AuditLog
+        batch.Create(_db.Value.Collection("audit_logs").Document(), new AuditLog
         {
             UserId = actorUserId,
             ActionType = "PayoutAccountsChanged",

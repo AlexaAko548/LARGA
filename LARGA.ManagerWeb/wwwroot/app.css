@@ -3667,6 +3667,23 @@ grid-template-columns: repeat(3, 1fr);
     color: var(--muted);
 }
 
+/* Audit Logs date range + pager (ANA-015) */
+.audit-range {
+    min-width: 260px;
+}
+
+.audit-pager {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+}
+
+.audit-pager .btn-export:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
 .search-box {
     flex: 1;
     min-width: 220px;

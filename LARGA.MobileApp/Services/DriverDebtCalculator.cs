@@ -56,17 +56,60 @@ public static class DriverDebtCalculator
         public decimal TotalDebt { get; init; }
     }
 
-    public static async Task<Result> LoadAsync(string driverId)
+    // Ledger, Debt Details and Payment History show the same records, usually opened one after another:
+    // one load serves all three for a minute (PERFORMANCE_REPORT.md P6). Pull-to-refresh passes
+    // forceRefresh, and logout clears it (SignOutService), so no stale or other driver's data is shown.
+    private static readonly TimeSpan SharedResultLifetime = TimeSpan.FromSeconds(60);
+    private static readonly object CacheLock = new();
+    private static (string DriverId, DateTime LoadedUtc, Task<Result> Load)? _cached;
+
+    /// <summary>The driver's debt picture - shared with the other ledger screens for a minute.</summary>
+    public static Task<Result> LoadAsync(string driverId, bool forceRefresh = false)
     {
-        var warnings = new List<string>();
+        lock (CacheLock)
+        {
+            if (!forceRefresh && _cached is { } cached && cached.DriverId == driverId
+                && DateTime.UtcNow - cached.LoadedUtc < SharedResultLifetime && !cached.Load.IsFaulted)
+            {
+                return cached.Load;
+            }
+
+            Task<Result> load = ReadAsync(driverId);
+            _cached = (driverId, DateTime.UtcNow, load);
+            return load;
+        }
+    }
+
+    public static void ClearCache()
+    {
+        lock (CacheLock)
+        {
+            _cached = null;
+        }
+    }
+
+    private static async Task<Result> ReadAsync(string driverId)
+    {
+        // The four reads don't depend on each other, so they run together; List<T> isn't thread-safe,
+        // so each reader gets its own warnings list.
+        var shiftWarnings = new List<string>();
+        var paymentWarnings = new List<string>();
+        var adjustmentWarnings = new List<string>();
+        Task<IReadOnlyList<ShiftRecord>> shifts = QuickLedgerService.ReadShiftsAsync(shiftWarnings, driverId);
+        Task<IReadOnlyList<BoundaryPaymentRecord>> payments = QuickLedgerService.ReadPaymentsAsync(paymentWarnings, driverId);
+        Task<IReadOnlyList<DebtAdjustmentRecord>> adjustments = QuickLedgerService.ReadAdjustmentsAsync(adjustmentWarnings, driverId);
+        Task<decimal> rate = QuickLedgerService.ReadDefaultBoundaryRateAsync();
+        await Task.WhenAll(shifts, payments, adjustments, rate);
+
+        var warnings = shiftWarnings.Concat(paymentWarnings).Concat(adjustmentWarnings).ToList();
         var input = new QuickLedgerInput(
-            Shifts: await QuickLedgerService.ReadShiftsAsync(warnings, driverId),
-            Payments: await QuickLedgerService.ReadPaymentsAsync(warnings, driverId),
-            Adjustments: await QuickLedgerService.ReadAdjustmentsAsync(warnings, driverId),
+            Shifts: shifts.Result,
+            Payments: payments.Result,
+            Adjustments: adjustments.Result,
             DriverNames: new Dictionary<string, string>(),
             DriverIds: new[] { driverId },
             TaxiPlates: new Dictionary<string, string>(),
-            DefaultBoundaryRate: await QuickLedgerService.ReadDefaultBoundaryRateAsync());
+            DefaultBoundaryRate: rate.Result);
 
         foreach (string warning in warnings)
         {

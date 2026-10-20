@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
+using LARGA.SharedCore.Alerts;
 using LARGA.SharedCore.Models.Alerts;
 using LARGA.Shared.Models.Entities;
 using Microsoft.Extensions.Logging;
@@ -19,11 +20,6 @@ namespace LARGA.SharedCore.Services;
 /// </summary>
 public class AlertService
 {
-    // Driver-idle alerts are deduped per shift (one alert per idle episode, see
-    // CreateIdleAlertIfNeededAsync), and incident-driven collections stay small over realistic
-    // fleet sizes/timeframes - a capped, ordered fetch is cheap and keeps the bell simple.
-    private const int RecentAlertsLimit = 50;
-
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly ILogger<AlertService> _logger;
 
@@ -35,13 +31,29 @@ public class AlertService
         _logger = logger;
     }
 
+    /// <summary>The newest <see cref="AlertFeed.Limit"/> alerts - the same query the mobile Alert Center listens to
+    /// (system_alerts by timestamp, newest first), so both show the same rows and unread count.</summary>
     public async Task<List<AlertNotice>> GetRecentAlertsAsync()
     {
-        List<SystemAlert> alerts = await GetAllAsync<SystemAlert>("system_alerts");
-        return alerts
-            .OrderByDescending(a => a.Timestamp)
-            .Take(RecentAlertsLimit)
-            .Select(a => new AlertNotice
+        QuerySnapshot snapshot = await Db.Collection(AlertFeed.Collection)
+            .OrderByDescending(AlertFeed.TimestampField)
+            .Limit(AlertFeed.Limit)
+            .GetSnapshotAsync();
+
+        var alerts = new List<SystemAlert>(snapshot.Documents.Count);
+        foreach (DocumentSnapshot doc in snapshot.Documents)
+        {
+            try
+            {
+                alerts.Add(doc.ConvertTo<SystemAlert>());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Skipping system_alerts/{DocumentId}: failed to convert", doc.Id);
+            }
+        }
+
+        return AlertFeed.Recent(alerts.Select(a => new AlertNotice
             {
                 AlertId = a.AlertId,
                 Type = a.Type,
@@ -50,8 +62,7 @@ public class AlertService
                 UnitLabel = a.UnitLabel,
                 Timestamp = a.Timestamp,
                 IsRead = a.IsRead,
-            })
-            .ToList();
+            }));
     }
 
     public async Task MarkReadAsync(string alertId)
@@ -130,21 +141,36 @@ public class AlertService
         }
     }
 
-    /// <summary>Raises a "LowStock" notification after a deduction leaves a spare part at or below its
-    /// minimum threshold. Called from InventoryAuditService.DeductPartAsync, so every deduction path
-    /// (Inventory page and garage jobs) gets the same alert. Each deduction gets its own alert ID.</summary>
+    public const string LowStockStatus = "Low Stock";
+    public const string CriticalStockStatus = "Critical";
+    public const string ResolvedStatus = "Resolved";
+
+    /// <summary>The one low-stock alert a part can have (INV-010).</summary>
+    public static string LowStockAlertId(string partId) => $"lowstock_{partId}";
+
+    /// <summary>Raises - or refreshes - the part's "LowStock" notification when its stock is at or
+    /// below its minimum threshold. Called from InventoryAuditService (deductions from the Inventory
+    /// page and garage jobs, and stock/minimum edits). One alert per part (lowstock_{partId}): while
+    /// it's open, a further drop only updates its quantity, status (Low Stock, or Critical at 0) and
+    /// time, and marks it unread again. A resolved one (restocked) is reopened the same way.</summary>
     public async Task CreateLowStockAlertAsync(SparePart part)
     {
         try
         {
-            var alert = new SystemAlert
+            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+            bool critical = part.StockQuantity <= 0;
+            await Db.Collection("system_alerts").Document(LowStockAlertId(part.PartId)).SetAsync(new Dictionary<string, object>
             {
-                Type = "LowStock",
-                Message = $"{part.DisplayName} is low on stock: {part.StockQuantity} {part.Unit} left (minimum {part.ReorderLevel}).",
-                Timestamp = DateTime.UtcNow,
-                IsRead = false,
-            };
-            await Db.Collection("system_alerts").AddAsync(alert);
+                ["type"] = "LowStock",
+                ["partId"] = part.PartId,
+                ["status"] = critical ? CriticalStockStatus : LowStockStatus,
+                ["stockQuantity"] = part.StockQuantity,
+                ["message"] = critical
+                    ? $"{part.DisplayName} is out of stock (minimum {part.ReorderLevel})."
+                    : $"{part.DisplayName} is low on stock: {part.StockQuantity} {unit} left (minimum {part.ReorderLevel}).",
+                ["timestamp"] = DateTime.UtcNow,
+                ["isRead"] = false,
+            }, SetOptions.MergeAll);
         }
         catch (Exception ex)
         {
@@ -152,22 +178,32 @@ public class AlertService
         }
     }
 
-    private async Task<List<T>> GetAllAsync<T>(string collection) where T : class
+    /// <summary>Closes the part's open low-stock alert once it's restocked above its minimum, so the
+    /// next drop reopens it (INV-010). No alert, or one already resolved: nothing to do.</summary>
+    public async Task ResolveLowStockAlertAsync(SparePart part)
     {
-        QuerySnapshot snapshot = await Db.Collection(collection).GetSnapshotAsync();
-        var results = new List<T>(snapshot.Documents.Count);
-        foreach (DocumentSnapshot doc in snapshot.Documents)
+        try
         {
-            try
+            DocumentReference docRef = Db.Collection("system_alerts").Document(LowStockAlertId(part.PartId));
+            DocumentSnapshot existing = await docRef.GetSnapshotAsync();
+            if (!existing.Exists || (existing.TryGetValue("status", out string? status) && status == ResolvedStatus))
             {
-                results.Add(doc.ConvertTo<T>());
+                return;
             }
-            catch (Exception ex)
+
+            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+            await docRef.UpdateAsync(new Dictionary<string, object>
             {
-                _logger.LogWarning(ex, "Skipping {Collection}/{DocumentId}: failed to convert to {Type}",
-                    collection, doc.Id, typeof(T).Name);
-            }
+                ["status"] = ResolvedStatus,
+                ["stockQuantity"] = part.StockQuantity,
+                ["message"] = $"{part.DisplayName} restocked: {part.StockQuantity} {unit} in stock (minimum {part.ReorderLevel}).",
+                ["resolvedAt"] = DateTime.UtcNow,
+                ["isRead"] = true,
+            });
         }
-        return results;
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve low-stock alert for part {PartId}", part.PartId);
+        }
     }
 }

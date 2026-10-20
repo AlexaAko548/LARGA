@@ -25,6 +25,8 @@ public class PaymentHistoryViewModel : BindableObject
 
     private async Task LoadDynamicPaymentDataAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Payment History load");
         using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         var user = CrossFirebaseAuth.Current.CurrentUser;
         if (user == null) return;
@@ -57,7 +59,7 @@ public class PaymentHistoryViewModel : BindableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Payment Fetch Error: {ex.Message}");
+            await FirestoreErrors.ShowLoadFailureAsync("Payment history", ex, "your payment history", canPullToRefresh: false);
         }
     }
 }
