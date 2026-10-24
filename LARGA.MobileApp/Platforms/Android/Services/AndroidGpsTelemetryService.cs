@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.Platforms.Android.Services;
@@ -14,6 +15,15 @@ public sealed class AndroidGpsTelemetryService : IGpsTelemetryService
 {
     private readonly GpsTelemetryService _inner;
 
+    // GPS-012: QA found the foreground service simply never running - no exception anywhere to
+    // explain it, so a precise fix isn't possible yet (see ShiftTrackingService's new entry/success
+    // logging, added for whoever can reproduce it live with logcat attached). Until then, this is
+    // a defensive second attempt: a dropped/delayed StartForegroundService call early in a cold
+    // app launch is the most likely culprit, and retrying once after the app has had a few seconds
+    // to settle costs nothing - OnStartCommand just refreshes the same notification if it's already
+    // running. Only fires if this is still the shift that was actually started.
+    private string? _currentShiftId;
+
     public AndroidGpsTelemetryService(GpsTelemetryService inner)
     {
         _inner = inner;
@@ -26,7 +36,18 @@ public sealed class AndroidGpsTelemetryService : IGpsTelemetryService
     public void Start(string shiftId)
     {
         _inner.Start(shiftId);
+        _currentShiftId = shiftId;
         if (!string.IsNullOrWhiteSpace(shiftId))
+        {
+            ShiftTrackingService.Start(global::Android.App.Application.Context, shiftId);
+            _ = RetryStartAsync(shiftId);
+        }
+    }
+
+    private async Task RetryStartAsync(string shiftId)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        if (_currentShiftId == shiftId)
         {
             ShiftTrackingService.Start(global::Android.App.Application.Context, shiftId);
         }
@@ -35,6 +56,7 @@ public sealed class AndroidGpsTelemetryService : IGpsTelemetryService
     public void Stop()
     {
         _inner.Stop();
+        _currentShiftId = null;
         ShiftTrackingService.Stop(global::Android.App.Application.Context);
     }
 

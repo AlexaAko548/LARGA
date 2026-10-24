@@ -181,8 +181,8 @@ else
                             <div class="routine-check-row">
                                 <span class="routine-check-dot"></span>
                                 <span class="routine-check-name">@c.UnitLabel · @c.CheckName</span>
-                                <span class="routine-check-due @(!c.DueDate.HasValue && c.DueInKm <= 0 ? "overdue" : "")">
-                                    @(c.DueDate.HasValue ? $"Expires {c.DueDate.Value:MMM d, yyyy}" : c.DueInKm <= 0 ? "Overdue" : $"Due in {c.DueInKm} km")
+                                <span class="routine-check-due @(IsRoutineCheckOverdue(c) ? "overdue" : "")">
+                                    @RoutineCheckDueText(c)
                                 </span>
                                 @if (_canManage) { <button class="profile-btn" type="button" disabled="@_isBusy" @onclick="() => OpenScheduleModal(c)">Schedule</button> }
                             </div>
@@ -483,6 +483,28 @@ else
 </ConfirmationModal>
 
 @code {
+    // MNT-013: EnsureRecurringChecksAsync sets DueDate on every check, including oil-change
+    // checks that also get a DueMileage from a per-unit interval - so DueDate.HasValue is true
+    // even for mileage-based checks, and a text/overdue rule that checks DueDate first (as this
+    // used to) never reaches the mileage branch. DueInKm takes priority here instead, matching
+    // GarageService.RaiseRoutineCheckAlertsAsync's own overdueByKm condition (DueInKm clamps at
+    // 0 - see GetGarageSnapshotAsync - so <= 0 means due now or past due).
+    private static bool IsRoutineCheckOverdue(RoutineCheckEntry c) =>
+        c.DueInKm.HasValue ? c.DueInKm <= 0 : c.DueDate.HasValue && c.DueDate.Value.Date < PhilippineTime.Now.Date;
+
+    private static string RoutineCheckDueText(RoutineCheckEntry c)
+    {
+        if (c.DueInKm.HasValue)
+        {
+            return c.DueInKm <= 0 ? "Overdue" : $"Due in {c.DueInKm} km";
+        }
+        if (c.DueDate.HasValue)
+        {
+            return c.DueDate.Value.Date < PhilippineTime.Now.Date ? "Overdue" : $"Expires {c.DueDate.Value:MMM d, yyyy}";
+        }
+        return string.Empty;
+    }
+
     // Assistant Managers can view the garage but can't create, schedule, or log work on units.
     private bool _canManage;
 
