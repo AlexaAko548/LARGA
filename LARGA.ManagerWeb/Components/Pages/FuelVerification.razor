@@ -287,6 +287,14 @@ else
                                     <div class="fact-sub">Typical range: ₱@_reviewDetail.Tolerances.CostPerKmMin.ToString("N2")–@_reviewDetail.Tolerances.CostPerKmMax.ToString("N2")/km</div>
                                 </div>
                             }
+                            @if (_reviewDetail.KmPerLiter is decimal kmPerLiter)
+                            {
+                                <div class="review-fact">
+                                    <div class="fact-label">Fuel efficiency</div>
+                                    <div class="fact-value">@kmPerLiter.ToString("N1") km/L</div>
+                                    <div class="fact-sub">@(_reviewDetail.ExpectedKmPerLiter is double expectedKmPerLiter ? $"Expected for this unit: {expectedKmPerLiter:N1} km/L" : "Claimed distance ÷ liters bought")</div>
+                                </div>
+                            }
                         </div>
                     </div>
 
@@ -310,7 +318,7 @@ else
                     {
                         <button class="cancel-btn" type="button" disabled="@_isSavingReview" @onclick='() => RequestConfirm("Reset to Pending?", "This clears the current decision and sends the submission back to the pending queue for re-review.", "Reset to Pending", () => ResolveAsync(ResolveAction.ResetToPending))'>Reset to Pending</button>
                     }
-                    <button class="cancel-btn" type="button" disabled="@(_isSavingReview || FlagReasonError is not null)" title="@(FlagReasonError is null ? "" : "Write a flag reason first")" @onclick='() => RequestConfirm("Flag This Submission?", "This flags the fuel submission as irregular and notifies the driver. Make sure the flag reason above is accurate.", "Flag Irregularity", () => ResolveAsync(ResolveAction.Flag))'><Icon Name="flag" /> Flag Irregularity</button>
+                    <button class="cancel-btn" type="button" disabled="@(_isSavingReview || FlagReasonError is not null)" title="@(FlagReasonError is null ? "" : "Write a flag reason first")" @onclick='() => RequestConfirm("Flag This Submission?", "This flags the fuel submission as irregular and moves it to the Flagged queue. Make sure the flag reason above is accurate.", "Flag Irregularity", () => ResolveAsync(ResolveAction.Flag))'><Icon Name="flag" /> Flag Irregularity</button>
                     <button class="download-btn" type="button" disabled="@_isSavingReview" @onclick='() => RequestConfirm("Verify & Approve This Submission?", "This marks the fuel submission as verified and approved.", "Verify & Approve", () => ResolveAsync(ResolveAction.Verify), isDangerous: false)' aria-busy="@_isSavingReview">@if (_isSavingReview) { <text>Saving…</text> } else { <Icon Name="check" /> <text>Verify &amp; Approve</text> }</button>
                 }
             </div>
@@ -395,7 +403,7 @@ else
                                 </div>
                                 <div class="ocr-row">
                                     <span>Receipt Date</span>
-                                    <span>@(_reviewDetail.Timestamp.HasValue ? _reviewDetail.Timestamp.Value.ToLocalTime().ToString("MMM d, yyyy h:mm tt") : "—") @OcrTag(_reviewDetail.IsReceiptDateManuallyEdited)</span>
+                                    <span>@(_reviewDetail.Timestamp.HasValue ? FuelReportDates.ReceiptDate(_reviewDetail.Timestamp.Value).ToString("MMM d, yyyy") : "—") @OcrTag(_reviewDetail.IsReceiptDateManuallyEdited) @DateMismatchTag(_reviewDetail)</span>
                                 </div>
                                 <div class="ocr-row">
                                     <span>Total Cost</span>
@@ -464,6 +472,14 @@ else
                                     <div class="fact-label">Cost / km sanity check</div>
                                     <div class="fact-value">₱@_reviewDetail.CostPerKm.Value.ToString("N2") /km</div>
                                     <div class="fact-sub">Typical range: ₱@_reviewDetail.Tolerances.CostPerKmMin.ToString("N2")–@_reviewDetail.Tolerances.CostPerKmMax.ToString("N2")/km</div>
+                                </div>
+                            }
+                            @if (_reviewDetail.KmPerLiter is decimal kmPerLiter)
+                            {
+                                <div class="review-fact">
+                                    <div class="fact-label">Fuel efficiency</div>
+                                    <div class="fact-value">@kmPerLiter.ToString("N1") km/L</div>
+                                    <div class="fact-sub">@(_reviewDetail.ExpectedKmPerLiter is double expectedKmPerLiter ? $"Expected for this unit: {expectedKmPerLiter:N1} km/L" : "Claimed distance ÷ liters bought")</div>
                                 </div>
                             }
                         </div>

@@ -53,6 +53,32 @@ public partial class OdometerScanPage : ContentPage
         try
         {
             _pendingBlocks = await _ocrService.ExtractTextBlocksAsync(_localFilePath);
+            if (!HasReading(_pendingBlocks))
+            {
+                // Nothing that looks like an odometer: read an enhanced copy (upscaled, high
+                // contrast) once more before sending the driver to manual entry.
+                string? enhanced = await Task.Run(() => OcrImageEnhancer.CreateEnhancedCopy(_localFilePath));
+                if (enhanced != null)
+                {
+                    try
+                    {
+                        var second = await _ocrService.ExtractTextBlocksAsync(enhanced);
+                        if (HasReading(second))
+                        {
+                            _pendingBlocks = second;
+                        }
+                    }
+                    finally
+                    {
+                        try { File.Delete(enhanced); } catch { /* cache file */ }
+                    }
+                }
+            }
+
+            if (!HasReading(_pendingBlocks))
+            {
+                InstructionLabel.Text = "No odometer reading found. Try Frame the Digits, or enter it manually.";
+            }
             DrawOcrBoxes();
         }
         catch (Exception ex)
@@ -92,10 +118,11 @@ public partial class OdometerScanPage : ContentPage
             TextOverlayLayout.Children.Clear();
 
             var seenCandidates = new HashSet<string>();
-            foreach (var block in _pendingBlocks)
+            foreach (var (text, box) in ReadingRegions(_pendingBlocks))
             {
-                var candidate = NormalizeOdometerCandidate(block.Text);
-                if (string.IsNullOrWhiteSpace(candidate) || !seenCandidates.Add(candidate)) continue;
+                var candidate = OdometerReadingParser.Candidates(text).FirstOrDefault(c => !seenCandidates.Contains(c));
+                if (candidate == null) continue;
+                seenCandidates.Add(candidate);
 
                 var textBtn = new Button
                 {
@@ -108,10 +135,10 @@ public partial class OdometerScanPage : ContentPage
                     LineBreakMode = LineBreakMode.NoWrap
                 };
 
-                double exactX = block.BoundingBox.X * layoutWidth;
-                double exactY = block.BoundingBox.Y * layoutHeight;
-                double exactWidth = block.BoundingBox.Width * layoutWidth;
-                double exactHeight = block.BoundingBox.Height * layoutHeight;
+                double exactX = box.X * layoutWidth;
+                double exactY = box.Y * layoutHeight;
+                double exactWidth = box.Width * layoutWidth;
+                double exactHeight = box.Height * layoutHeight;
 
                 var preciseBounds = new Rect(exactX - 8, exactY - 8, exactWidth + 16, exactHeight + 16);
 
@@ -372,27 +399,13 @@ public partial class OdometerScanPage : ContentPage
         _ = Navigation.PopModalAsync();
     }
 
-    private static string? NormalizeOdometerCandidate(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return null;
+    private static bool HasReading(List<OcrTextBlock>? blocks) =>
+        blocks != null && ReadingRegions(blocks).Any(r => OdometerReadingParser.Candidates(r.Text).Count > 0);
 
-        var cleaned = text.ToUpperInvariant()
-            .Replace('O', '0').Replace('D', '0')
-            .Replace('I', '1').Replace('L', '1')
-            .Replace('S', '5').Replace('B', '8');
-
-        cleaned = Regex.Replace(cleaned, "[^0-9]", string.Empty);
-
-        // A car odometer is always 5-6 digits (this app's spec examples show a fixed 6-digit
-        // display, e.g. "091308" - leading zeros included, not trimmed). A dashboard's own
-        // printed dial numbers (10, 20 ... 120, 140) are never more than 3 digits, so this
-        // range alone rules out effectively every false-positive candidate the speedometer/
-        // tachometer/gauge markings would otherwise produce - previously 3-7 digits, which let
-        // every 3-digit dial number (100, 110, 120...) through as a "candidate" alongside the
-        // real reading.
-        if (cleaned.Length < 5 || cleaned.Length > 6) return null;
-        if (cleaned.All(c => c == cleaned[0])) return null;
-
-        return cleaned;
-    }
+    /// <summary>Each OCR line with its own box (a block when the engine reported no lines), so a
+    /// candidate button sits on the reading itself rather than over a whole block.</summary>
+    private static IEnumerable<(string Text, Rect Box)> ReadingRegions(List<OcrTextBlock> blocks) =>
+        blocks.SelectMany(b => b.Lines is { Count: > 0 }
+            ? b.Lines.Select(l => (l.Text, l.BoundingBox))
+            : new[] { (b.Text ?? string.Empty, b.BoundingBox) });
 }

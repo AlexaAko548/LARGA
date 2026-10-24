@@ -68,7 +68,8 @@ public class FuelReviewTests
     {
         // The Expected Result says the entry shows km/L. FuelReviewDetail computes it; check the page uses it.
         string razor = File.ReadAllText(FindRepoFile("LARGA.ManagerWeb", "Components", "Pages", "FuelVerification.razor"));
-        Assert.Contains("KmPerLiter.", razor.Replace("IsWithinExpectedKmPerLiter", string.Empty));
+        Assert.Contains("_reviewDetail.KmPerLiter is decimal", razor);
+        Assert.Contains("km/L</div>", razor);
     }
 
     // ---------- FUEL-018: 100 km vs GPS 95 km, PHP 600 ----------

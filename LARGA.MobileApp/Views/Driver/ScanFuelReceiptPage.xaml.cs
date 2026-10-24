@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.Messaging;
+﻿using CommunityToolkit.Mvvm.Messaging;
 using LARGA.MobileApp.Services;
 using LARGA.MobileApp.ViewModels.Driver;
 using LARGA.SharedCore;
@@ -176,41 +176,30 @@ public partial class ScanFuelReceiptPage : ContentPage
                 camera.IsVisible = false;
                 await StopCameraSafelyAsync();
 
-                // THE FIX: Pass string path to OCR
-                var detectedBlocks = await _ocrService.ExtractTextBlocksAsync(_capturedImagePath);
-                var lines = detectedBlocks
-                    .Select(b => b.Text?.Trim())
-                    .Where(t => !string.IsNullOrWhiteSpace(t))
-                    .Select(t => t!)
-                    .ToList();
-
-                string fullText = string.Join(" ", lines);
-
-                var vendor = FuelReceiptTextParser.TryParseVendor(fullText);
-                var amount = FuelReceiptTextParser.TryParseAmount(fullText, lines, detectedBlocks
-                    .Select(b => new FuelReceiptTextParser.OcrBlock(b.Text, b.BoundingBox.X, b.BoundingBox.Y, b.BoundingBox.Width, b.BoundingBox.Height))
-                    .ToList());
-                var quantity = FuelReceiptTextParser.TryParseLiters(fullText, lines);
-                var receiptDate = FuelReceiptTextParser.TryParseReceiptDate(fullText, lines);
-                // OR Number is optional on the report, so it's left out of BuildParsingWarning:
+                // OCR, then a second pass on an enhanced copy for whatever the first one missed.
+                var fields = await ReadReceiptAsync(_capturedImagePath);
+                var vendor = fields.Vendor;
+                var amount = fields.Amount;
+                var quantity = fields.Liters;
+                var receiptDate = fields.Date;
+                // OR Number is optional on the report, so it's left out of the parsing warning:
                 // a receipt without one shouldn't push the driver into retakes.
-                var orNumber = FuelReceiptParser.TryParseOrNumber(lines, out var orNumberUncertain);
-                var parsingWarning = FuelReceiptTextParser.BuildParsingWarning(vendor, amount, quantity, receiptDate);
+                var parsingWarning = fields.Warning;
                 var parsingUncertain = !string.IsNullOrWhiteSpace(parsingWarning);
                 var currentScan = new ReceiptScanSnapshot
                 {
                     Amount = amount?.ToString("0.00", CultureInfo.InvariantCulture) ?? "--",
-                    Quantity = quantity?.ToString("0.##", CultureInfo.InvariantCulture) ?? "--",
+                    Quantity = quantity?.ToString("0.###", CultureInfo.InvariantCulture) ?? "--",
                     Vendor = vendor ?? "UNKNOWN",
                     ReceiptDate = receiptDate,
-                    OrNumber = orNumber ?? "--",
+                    OrNumber = fields.OrNumber ?? "--",
                     ParsingWarning = parsingWarning,
                     ParsingUncertain = parsingUncertain,
-                    IsCostUncertain = !amount.HasValue || amount.Value <= 0,
+                    IsCostUncertain = !amount.HasValue || amount.Value <= 0 || fields.AmountUncertain,
                     IsQuantityUncertain = !quantity.HasValue || quantity.Value <= 0,
                     IsVendorUncertain = string.IsNullOrWhiteSpace(vendor) || vendor.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase),
                     IsDateUncertain = !receiptDate.HasValue,
-                    IsOrNumberUncertain = orNumberUncertain,
+                    IsOrNumberUncertain = fields.OrNumberUncertain,
                     PhotoFilePath = _capturedImagePath // THE FIX: Assign path property
                 };
 
@@ -254,14 +243,16 @@ public partial class ScanFuelReceiptPage : ContentPage
                 ShowEditError(null);
 
                 string amountText = amount?.ToString("0.00", CultureInfo.InvariantCulture) ?? string.Empty;
-                string quantityText = quantity?.ToString("0.##", CultureInfo.InvariantCulture) ?? string.Empty;
+                string quantityText = quantity?.ToString("0.###", CultureInfo.InvariantCulture) ?? string.Empty;
                 // The station isn't editable: always the OCR read. "UNKNOWN" when nothing was read,
                 // so the report can still be submitted (the parsing warning flags it).
                 string vendor = string.IsNullOrEmpty(_ocrVendor) ? "UNKNOWN" : _ocrVendor;
                 string orNumber = FieldText(EntOrNumber);
 
+                // A guessed total stays flagged until the driver types the real one.
+                bool amountStillGuessed = _isCostUncertain && SameNumber(amountText, _ocrAmount);
                 var payloadWarning = FuelReceiptTextParser.BuildParsingWarning(
-                    string.IsNullOrEmpty(vendor) ? null : vendor, amount, quantity, _capturedReceiptDate);
+                    string.IsNullOrEmpty(vendor) ? null : vendor, amount, quantity, _capturedReceiptDate, amountStillGuessed);
 
                 var payload = new ReceiptExtractedData
                 {
@@ -290,6 +281,54 @@ public partial class ScanFuelReceiptPage : ContentPage
             await Navigation.PopModalAsync();
         }
     }
+
+    /// <summary>
+    /// OCR and parse the receipt photo. When the first read misses a field, the photo is read again
+    /// from an enhanced copy (upright, upscaled, high-contrast grayscale) and only the missing
+    /// fields are taken from that second read. The original photo is what gets uploaded.
+    /// </summary>
+    private async Task<FuelReceiptTextParser.ReceiptFields> ReadReceiptAsync(string photoPath)
+    {
+        var first = FuelReceiptTextParser.Parse(ToParserLines(await _ocrService.ExtractTextBlocksAsync(photoPath)));
+        if (string.IsNullOrEmpty(first.Warning))
+        {
+            return first;
+        }
+
+        string? enhancedPath = await Task.Run(() => OcrImageEnhancer.CreateEnhancedCopy(photoPath));
+        if (enhancedPath == null)
+        {
+            return first;
+        }
+
+        try
+        {
+            var second = FuelReceiptTextParser.Parse(ToParserLines(await _ocrService.ExtractTextBlocksAsync(enhancedPath)));
+            bool takeSecondAmount = (!first.Amount.HasValue || first.AmountUncertain) && second.Amount.HasValue && !second.AmountUncertain;
+            decimal? amount = takeSecondAmount ? second.Amount : first.Amount ?? second.Amount;
+            bool amountUncertain = takeSecondAmount ? false : first.Amount.HasValue ? first.AmountUncertain : second.AmountUncertain;
+            string? vendor = first.Vendor ?? second.Vendor;
+            decimal? liters = first.Liters ?? second.Liters;
+            DateTime? date = first.Date ?? second.Date;
+            bool takeSecondOr = first.OrNumber == null || (first.OrNumberUncertain && second.OrNumber != null && !second.OrNumberUncertain);
+            return new FuelReceiptTextParser.ReceiptFields(
+                vendor, amount, amountUncertain, liters, date,
+                takeSecondOr ? second.OrNumber : first.OrNumber,
+                takeSecondOr ? second.OrNumberUncertain : first.OrNumberUncertain,
+                FuelReceiptTextParser.BuildParsingWarning(vendor, amount, liters, date, amountUncertain));
+        }
+        finally
+        {
+            try { File.Delete(enhancedPath); } catch { /* cache file */ }
+        }
+    }
+
+    /// <summary>ML Kit lines with their boxes (or the whole block when no lines were reported).</summary>
+    private static List<FuelReceiptTextParser.OcrBlock> ToParserLines(List<OcrTextBlock> blocks) =>
+        blocks.SelectMany(b => b.Lines is { Count: > 0 }
+                ? b.Lines.Select(l => new FuelReceiptTextParser.OcrBlock(l.Text, l.BoundingBox.X, l.BoundingBox.Y, l.BoundingBox.Width, l.BoundingBox.Height, l.Slope))
+                : new[] { new FuelReceiptTextParser.OcrBlock(b.Text, b.BoundingBox.X, b.BoundingBox.Y, b.BoundingBox.Width, b.BoundingBox.Height) })
+            .ToList();
 
     private async void OnCancelClicked(object sender, EventArgs e)
     {
@@ -384,7 +423,9 @@ public partial class ScanFuelReceiptPage : ContentPage
         _isApplyingScan = false;
         RefreshEditedTags();
         ShowEditError(null);
-        LblEditHint.Text = "Tap a value to correct it, then Confirm.";
+        LblEditHint.Text = string.IsNullOrWhiteSpace(scan.ParsingWarning)
+            ? "Tap a value to correct it, then Confirm."
+            : scan.ParsingWarning;
 
         if (ReceiptDateLabel != null)
         {
@@ -475,7 +516,7 @@ public partial class ScanFuelReceiptPage : ContentPage
                 error = "Enter the liters as a number between 0 and 200, e.g. 25.5.";
                 return false;
             }
-            quantity = decimal.Round(q, 2);
+            quantity = decimal.Round(q, 3);
         }
 
         return true;
