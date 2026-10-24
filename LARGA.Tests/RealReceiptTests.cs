@@ -59,8 +59,9 @@ public class RealReceiptTests
         Assert.Equal(FuelStations.Petron, scan.Vendor);
         Assert.Equal(PetronDate, scan.Date);
         Assert.Equal("0003387130", scan.OrNumber);
-        Assert.Equal(PetronTotal, scan.Amount);   // actual: 142.59 (the discount)
-        Assert.Equal(PetronLiters, scan.Liters);  // actual: null ("31.94" has no L / QTY prefix)
+        Assert.Equal(PetronTotal, scan.Amount);
+        Assert.False(scan.AmountUncertain);
+        Assert.Equal(PetronLiters, scan.Liters);
         Assert.Equal(string.Empty, scan.Warning);
     }
 
@@ -146,7 +147,7 @@ public class RealReceiptTests
         Assert.Equal(ShellTotal, scan.Amount);
         Assert.Equal(ShellLiters, scan.Liters);
         Assert.Equal(string.Empty, scan.Warning);
-        Assert.Equal("0.987", scan.LitersShown); // actual "0.99": the page formats liters with "0.##"
+        Assert.Equal("0.987", scan.LitersShown);
     }
 
     [Fact]
@@ -182,20 +183,79 @@ public class RealReceiptTests
     }
 
     [Fact]
-    public void Shell_WithoutFooter_StationIsNotRead_a_MlKitBlocks()
+    public void Shell_WithoutFooter_StationReadFromProduct_a_MlKitBlocks()
     {
-        // The header says MH FUELS & MORE INC.; "Shell" is only in "Download Shell Go+".
+        // The header says MH FUELS & MORE INC.; without the "Download Shell Go+" footer the station
+        // is still recognised from the product line "02 - SVPGasoline" (Shell V-Power).
         var scan = ReceiptScan.Run(ReceiptScan.FromLogcat("mlkit_shell_nofooter.txt"));
-        Assert.Null(scan.Vendor);
-        Assert.Contains("Station not recognized as Petron or Shell.", scan.Warning);
+        Assert.Equal(FuelStations.Shell, scan.Vendor);
+        Assert.Equal(ShellTotal, scan.Amount);
+        Assert.Equal(string.Empty, scan.Warning);
+    }
+
+    [Fact]
+    public void Shell_WithoutFooter_StationReadFromProduct_b_Lines() =>
+        Assert.Equal(FuelStations.Shell, ReceiptScan.Run(ShellLines(withFooter: false)).Vendor);
+
+    // ---------- ML Kit line captures from the fixed build (boxes and tilt per line) ----------
+
+    [Fact]
+    public void Petron_Lines_AllFields()
+    {
+        var scan = ReceiptScan.Run(ReceiptScan.FromLogcat("mlkit_lines_petron.txt"));
+        Assert.Equal(FuelStations.Petron, scan.Vendor);
+        Assert.Equal(PetronTotal, scan.Amount);
+        Assert.False(scan.AmountUncertain);
+        Assert.Equal(PetronLiters, scan.Liters);
+        Assert.Equal(PetronDate, scan.Date);
+        Assert.Equal("0003387130", scan.OrNumber);
+        Assert.Equal(string.Empty, scan.Warning);
+    }
+
+    [Theory]
+    [InlineData("mlkit_lines_shell.txt")]
+    [InlineData("mlkit_lines_shell_nofooter.txt")]
+    public void Shell_Lines_AllFields(string fixture)
+    {
+        var scan = ReceiptScan.Run(ReceiptScan.FromLogcat(fixture));
+        Assert.Equal(FuelStations.Shell, scan.Vendor);
+        Assert.Equal(ShellTotal, scan.Amount);
+        Assert.False(scan.AmountUncertain);
+        Assert.Equal(ShellLiters, scan.Liters);
+        Assert.Equal("0.987", scan.LitersShown);
+        Assert.Equal(ShellDate, scan.Date);
+        Assert.Equal(string.Empty, scan.Warning);
+    }
+
+    [Fact]
+    public void Shell_Lines_NoDate()
+    {
+        var scan = ReceiptScan.Run(ReceiptScan.FromLogcat("mlkit_lines_shell_nodate.txt"));
+        Assert.Null(scan.Date);
+        Assert.Equal("OCR uncertain: Receipt date was not confidently detected. Please review/edit before submit.", scan.Warning);
         Assert.Equal(ShellTotal, scan.Amount);
     }
 
     [Fact]
-    public void Shell_WithoutFooter_StationIsNotRead_b_Lines()
+    public void Petron_Lines_TotalFoundByRow_EvenWithoutVatBreakdown()
     {
-        var scan = ReceiptScan.Run(ShellLines(withFooter: false));
-        Assert.Null(scan.Vendor);
+        // Drop the VATable/VAT amounts so only the "Total (incl. VAT)" row pairing (with the
+        // photo's tilt) can find the total.
+        var lines = ReceiptScan.FromLogcat("mlkit_lines_petron.txt")
+            .Where(l => l.Text is not ("Php1,465.54" or "Php175.86"))
+            .ToList();
+        var scan = ReceiptScan.Run(lines);
+        Assert.Equal(PetronTotal, scan.Amount);
+        Assert.False(scan.AmountUncertain);
+    }
+
+    [Fact]
+    public void Petron_a_BlockLevelCapture_TotalConfirmedByVat()
+    {
+        var scan = ReceiptScan.Run(ReceiptScan.BlocksFromLogcat("mlkit_petron.txt"));
+        Assert.Equal(PetronTotal, scan.Amount);
+        Assert.False(scan.AmountUncertain);
+        Assert.Equal(PetronLiters, scan.Liters);
     }
 
     [Fact]

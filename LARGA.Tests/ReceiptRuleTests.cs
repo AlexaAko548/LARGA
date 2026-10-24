@@ -34,11 +34,8 @@ public class ReceiptRuleTests
     }
 
     [Fact]
-    public void Fuel004_Documents_ShellaneLpgOnAnotherBrandReceiptReadsAsShell()
-    {
-        // Gap, not a sheet expectation: the Shell pattern has no word end, so "SHELLANE" counts.
-        Assert.Equal(FuelStations.Shell, ReceiptScan.FromLines("CALTEX STAR MART", "SHELLANE LPG 11KG", "TOTAL 1,000.00").Vendor);
-    }
+    public void Fuel004_ShellaneLpgOnAnotherBrandReceipt_IsNotShell() =>
+        Assert.Null(ReceiptScan.FromLines("CALTEX STAR MART", "SHELLANE LPG 11KG", "TOTAL 1,000.00").Vendor);
 
     // ---------- FUEL-005: unreadable station ----------
 
@@ -121,12 +118,12 @@ public class ReceiptRuleTests
     }
 
     [Fact]
-    public void Fuel001_TestData_8234Liters_IsReadButShownRoundedTo823()
+    public void Fuel001_TestData_8234Liters_KeepsThreeDecimals()
     {
         var scan = ReceiptScan.FromLines("PETRON", "Date: 10/20/2026", "XCS 8.234L x 60.72", "TOTAL 500.00");
         Assert.Equal(8.234m, scan.Liters);
         Assert.Equal(500.00m, scan.Amount);
-        Assert.Equal("8.234", scan.LitersShown); // actual "8.23" (page format "0.##")
+        Assert.Equal("8.234", scan.LitersShown);
     }
 
     // ---------- FUEL-011: OR number ----------

@@ -16,7 +16,10 @@ internal static class DebugTestImages
             try
             {
                 string path = Path.Combine(dir, fileName);
-                if (File.Exists(path)) return path;
+                if (!File.Exists(path)) continue;
+                // Android 15 can list a file in /sdcard/Download that the app may not read.
+                using (File.OpenRead(path)) { }
+                return path;
             }
             catch { /* unreadable location: try the next one */ }
         }

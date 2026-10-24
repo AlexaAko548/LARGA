@@ -9,6 +9,6 @@ public partial class FuelReportPage : ContentPage
 	{
 		InitializeComponent();
 		BindingContext = viewModel;
-       viewModel.ResetState();
+       viewModel.RestoreDraftOrReset();
 	}
 }
