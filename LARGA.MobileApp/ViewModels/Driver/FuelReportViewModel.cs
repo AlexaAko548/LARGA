@@ -481,6 +481,18 @@ public class FuelReportViewModel : BindableObject
             if (status != PermissionStatus.Granted) return;
         }
 
+#if DEBUG
+        if (DebugTestImages.Find("larga_test_odometer.jpg") is string testOdometer)
+        {
+            string copyPath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_larga_test_odometer.jpg");
+            File.Copy(testOdometer, copyPath, overwrite: true);
+            MainThread.BeginInvokeOnMainThread(async () =>
+                await Application.Current.MainPage.Navigation.PushModalAsync(
+                    new LARGA.MobileApp.Views.Driver.OdometerScanPage(_ocrService, copyPath)));
+            return;
+        }
+#endif
+
         if (MediaPicker.Default.IsCaptureSupported)
         {
             var photo = await MediaPicker.Default.CapturePhotoAsync();

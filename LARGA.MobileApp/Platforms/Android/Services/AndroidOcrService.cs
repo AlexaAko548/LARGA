@@ -52,6 +52,14 @@ public class AndroidOcrService : IOcrService
                             box.Width() / imgWidth,
                             box.Height() / imgHeight)
                 });
+#if DEBUG
+                System.Diagnostics.Debug.WriteLine(
+                    $"LARGA-OCR block {blocks.Count - 1} img={imgWidth}x{imgHeight} " +
+                    $"px=[L{box?.Left} T{box?.Top} R{box?.Right} B{box?.Bottom}] " +
+                    $"norm=[x{blocks[^1].BoundingBox.X:0.####} y{blocks[^1].BoundingBox.Y:0.####} " +
+                    $"w{blocks[^1].BoundingBox.Width:0.####} h{blocks[^1].BoundingBox.Height:0.####}] " +
+                    $"text=\"{block.Text?.Replace("\n", "\\n")}\"");
+#endif
             }
         }
 
