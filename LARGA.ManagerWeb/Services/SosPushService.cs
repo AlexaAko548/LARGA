@@ -23,7 +23,8 @@ namespace LARGA.ManagerWeb.Services;
 /// A live Firestore listener, not a poll: unlike IdleAlertMonitorService's checks, an SOS has
 /// to arrive within seconds. Each alert is claimed in a transaction (pushSentAt) before it's
 /// sent, so it's pushed exactly once - across restarts, and even if two ManagerWeb instances
-/// run. Alerts older than <see cref="MaxAlertAge"/> when first seen are claimed without a push,
+/// run. Alerts that reached the server more than SosPushPolicy.MaxAlertAge before they're first
+/// seen are claimed without a push,
 /// so deploying this doesn't buzz managers about old unresolved alerts.
 ///
 /// Sent with the Admin SDK app ManagerWeb already uses for Auth (same as DriverNotifier).
@@ -49,7 +50,6 @@ public class SosPushService : BackgroundService
     // FCM data "type" the manager app routes to its Alert Center on tap (App.xaml.cs).
     public const string PushType = "sos_alert";
 
-    private static readonly TimeSpan MaxAlertAge = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan RestartDelay = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan AddressWaitForPush = TimeSpan.FromSeconds(2);
 
@@ -144,8 +144,9 @@ public class SosPushService : BackgroundService
             return;
         }
 
+        // Server create time, not the phone's timestamp: an SOS queued offline arrives late but is new.
         DateTime? raisedAt = alert.TryGetValue("timestamp", out Timestamp ts) ? ts.ToDateTime() : null;
-        bool tooOld = raisedAt is DateTime at && DateTime.UtcNow - at > MaxAlertAge;
+        bool tooOld = SosPushPolicy.IsTooOldToPush(alert.CreateTime?.ToDateTime(), raisedAt, DateTime.UtcNow);
 
         if (!await ClaimAsync(alert.Reference, token))
         {
@@ -171,7 +172,7 @@ public class SosPushService : BackgroundService
 
         if (tooOld)
         {
-            _logger.LogInformation("emergency_alerts/{AlertId} is older than {MaxAge}; marked without a push.", alert.Id, MaxAlertAge);
+            _logger.LogInformation("emergency_alerts/{AlertId} is older than {MaxAge}; marked without a push.", alert.Id, SosPushPolicy.MaxAlertAge);
             return;
         }
 

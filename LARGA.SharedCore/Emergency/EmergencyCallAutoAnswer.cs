@@ -76,6 +76,7 @@ public sealed class EmergencyCallAutoAnswer
     private IReadOnlyList<string> _managerNumbers = Array.Empty<string>();
     private bool _answering;
     private bool _inHandledCall;
+    private bool _shutDown;
     private SavedAudio? _saved;
 
     public EmergencyCallAutoAnswer(ICallAudio audio)
@@ -96,11 +97,17 @@ public sealed class EmergencyCallAutoAnswer
 
     /// <summary>Why auto-answer can't be armed, or null when it can. The alert itself is sent either way.
     /// <paramref name="managerNumberCount"/> null: the numbers haven't been looked up yet (permissions only).</summary>
-    public static string? ArmBlockedReason(bool hasReadPhoneState, bool hasReadCallLog, int? managerNumberCount)
+    public static string? ArmBlockedReason(bool hasReadPhoneState, bool hasReadCallLog, bool hasAnswerPhoneCalls, int? managerNumberCount)
     {
         if (!hasReadPhoneState || !hasReadCallLog)
         {
             return "READ_PHONE_STATE / READ_CALL_LOG not granted.";
+        }
+        // Without it the call can't be picked up - arming would only silence the ringer, so the
+        // driver would miss the manager's call altogether.
+        if (!hasAnswerPhoneCalls)
+        {
+            return "ANSWER_PHONE_CALLS not granted.";
         }
         if (managerNumberCount == 0)
         {
@@ -112,10 +119,13 @@ public sealed class EmergencyCallAutoAnswer
     /// <summary>
     /// Arms (or re-arms) for <see cref="ArmedFor"/> from <paramref name="nowUtc"/>. A Crash
     /// arriving while a Hostile call is armed (or vice versa) switches the mode; the audio already
-    /// saved for restoring stays the driver's original settings.
+    /// saved for restoring stays the driver's original settings. False after <see cref="ShutDown"/>
+    /// (the shift ended while the alert was being written).
     /// </summary>
-    public void Arm(EmergencyCallMode mode, IReadOnlyList<string> managerNumbers, DateTime nowUtc)
+    public bool Arm(EmergencyCallMode mode, IReadOnlyList<string> managerNumbers, DateTime nowUtc)
     {
+        if (_shutDown) return false;
+
         _managerNumbers = managerNumbers;
         Mode = mode;
         ArmedUntilUtc = nowUtc + ArmedFor;
@@ -126,6 +136,21 @@ public sealed class EmergencyCallAutoAnswer
             // The ring itself would give the phone away before it's answered.
             _audio.SetVolume(CallAudioStream.Ring, _audio.MinVolume(CallAudioStream.Ring));
         }
+        else if (_saved is SavedAudio saved)
+        {
+            // Switching from Stealth: the ring was lowered for the hostile window, but a crash
+            // callback should be heard (SOS-025).
+            _audio.SetVolume(CallAudioStream.Ring, saved.RingVolume);
+        }
+        return true;
+    }
+
+    /// <summary>Disarms for good: the detection service stopped (clock-out, logout). A later
+    /// <see cref="Arm"/> is ignored. True when it was armed or in a call.</summary>
+    public bool ShutDown()
+    {
+        _shutDown = true;
+        return Disarm();
     }
 
     /// <summary>Test hook: moves the armed window back by <paramref name="by"/>, as if the SOS were that much older.</summary>
@@ -201,6 +226,11 @@ public sealed class EmergencyCallAutoAnswer
             Disarm();
             return true;
         }
+
+        // The call stopped ringing before it was picked up (the manager hung up first): keep
+        // waiting for their next call. Left set, it blocked every later call and the window's
+        // expiry, with the ringer kept down.
+        _answering = false;
         return false;
     }
 

@@ -12,7 +12,7 @@ namespace LARGA.SharedCore.Emergency;
 /// <code>
 /// # comment
 /// a,&lt;t&gt;,&lt;x&gt;,&lt;y&gt;,&lt;z&gt;    raw accelerometer, m/s² (gravity included, as the sensor reports it)
-/// g,&lt;t&gt;,&lt;speed&gt;              GPS fix speed in m/s; empty for a fix without speed
+/// g,&lt;t&gt;,&lt;speed&gt;[,provider]   GPS fix speed in m/s; empty for a fix without speed (provider is ignored)
 /// </code>
 /// The DEBUG build records this format (EmergencyDetectionService RECORD) and replays it (REPLAY);
 /// LARGA.Tests replays the same files from Fixtures.
