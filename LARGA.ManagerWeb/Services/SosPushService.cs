@@ -53,13 +53,9 @@ public class SosPushService : BackgroundService
     private static readonly TimeSpan RestartDelay = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan AddressWaitForPush = TimeSpan.FromSeconds(2);
 
-    // Audit C-03: one driver's repeated SOS within this window is saved and shown (SOS Dispatch,
-    // Alert Center) but not pushed again to every manager's phone - unless it's more severe than
-    // the one already pushed (e.g. a Standard SOS followed by a Crash). One instance runs
-    // (deploy-cloudrun.ps1), so the memory below is the whole picture; a restart just forgets it.
-    private static readonly TimeSpan RepeatPushWindow = TimeSpan.FromSeconds(60);
-    private readonly Dictionary<string, (DateTime At, int Severity)> _lastPushByDriver = new();
-    private readonly object _lastPushLock = new();
+    // Audit C-03: a driver's repeated SOS within a minute isn't pushed again unless it's more
+    // severe. One instance runs (deploy-cloudrun.ps1); a restart just forgets it.
+    private readonly SosRepeatPushFilter _repeatPushes = new();
 
     private static readonly string[] StaffRoles = [ManagerSignInService.ManagerRole, ManagerSignInService.AssistantManagerRole];
 
@@ -198,10 +194,10 @@ public class SosPushService : BackgroundService
 
         string triggerType = alert.TryGetValue("triggerType", out string? t) ? t ?? string.Empty : string.Empty;
         string driverId = alert.TryGetValue("driverId", out string? id) ? id ?? string.Empty : string.Empty;
-        if (IsRepeatPush(driverId, EmergencyTypes.Severity(triggerType)))
+        if (_repeatPushes.IsRepeat(driverId, EmergencyTypes.Severity(triggerType), DateTime.UtcNow))
         {
             _logger.LogWarning("SOS emergency_alerts/{AlertId} not pushed - driver {DriverId} already had one pushed in the last {Window}s (it still shows on SOS Dispatch).",
-                alert.Id, driverId, RepeatPushWindow.TotalSeconds);
+                alert.Id, driverId, SosRepeatPushFilter.Window.TotalSeconds);
             return;
         }
         string driverName = alert.TryGetValue("driverName", out string? d) && !string.IsNullOrWhiteSpace(d) ? d : "A driver";
@@ -248,7 +244,7 @@ public class SosPushService : BackgroundService
             alert.Id, response.SuccessCount, tokens.Count);
         if (response.SuccessCount > 0)
         {
-            RememberPush(driverId, EmergencyTypes.Severity(triggerType));
+            _repeatPushes.Remember(driverId, EmergencyTypes.Severity(triggerType), DateTime.UtcNow);
         }
         if (response.FailureCount > 0)
         {
@@ -256,31 +252,6 @@ public class SosPushService : BackgroundService
             {
                 _logger.LogWarning(failed.Exception, "SOS push to one manager device failed (stale token?)");
             }
-        }
-    }
-
-    /// <summary>True when this driver had an SOS pushed within <see cref="RepeatPushWindow"/> at the same or
-    /// higher severity. An alert with no driverId is always pushed.</summary>
-    private bool IsRepeatPush(string driverId, int severity)
-    {
-        if (string.IsNullOrEmpty(driverId)) return false;
-
-        lock (_lastPushLock)
-        {
-            return _lastPushByDriver.TryGetValue(driverId, out var last)
-                && DateTime.UtcNow - last.At < RepeatPushWindow
-                && severity <= last.Severity;
-        }
-    }
-
-    /// <summary>Remembers a push that reached at least one phone - a failed one never holds back the next SOS.</summary>
-    private void RememberPush(string driverId, int severity)
-    {
-        if (string.IsNullOrEmpty(driverId)) return;
-
-        lock (_lastPushLock)
-        {
-            _lastPushByDriver[driverId] = (DateTime.UtcNow, severity);
         }
     }
 

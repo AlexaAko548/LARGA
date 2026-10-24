@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace LARGA.MobileApp.Platforms.Android.Emergency;
+namespace LARGA.SharedCore.Emergency;
 
 /// <summary>
 /// LAR-86 Hostile Protocol trigger: continuous, rhythmic X/Y-axis shaking for 3 seconds (the

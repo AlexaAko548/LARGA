@@ -290,8 +290,13 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
 
     private async Task SendSosAsync()
     {
-        if (_isSendingSos) return;
+        if (_isSendingSos)
+        {
+            EmergencyAlertService.Log("SOS hold ignored: the previous SOS is still sending.");
+            return;
+        }
         _isSendingSos = true;
+        EmergencyAlertService.Log("SOS button held 3 s - sending a Standard SOS.");
 
         // The 3-second hold has completed: buzz now so the driver knows to let go.
         _emergencyFeedback.ButtonHeld();
