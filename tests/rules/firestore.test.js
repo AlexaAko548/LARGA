@@ -205,6 +205,58 @@ describe('Driver tampering with their own money and records', () => {
     assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), { driverId: DRIVER_A, shiftId: 'shiftB' })));
 });
 
+describe('SOS emergency_alerts (M7 SOS-002/006/007)', () => {
+  // The payload EmergencyAlertService writes (manual button, Hostile and Crash protocols).
+  const appSos = (over) => ({
+    shiftId: 'shiftA', driverId: DRIVER_A, driverName: 'Dan A', taxiUnit: 'ABC · 101',
+    latitude: 10.3157, longitude: 123.8854, isResolved: false, timestamp: new Date(),
+    triggerType: 'Hostile', locationSource: 'live', taxiId: 'TX-01',
+    callerPhone: '+639170000001', devicePhone: '', ...over,
+  });
+  const seedAlert = () => env.withSecurityRulesDisabled((ctx) =>
+    setDoc(doc(ctx.firestore(), 'emergency_alerts', 'sos1'), appSos({ triggerType: 'Crash' })));
+
+  it('SOS-002/006 driver can raise the app\'s full SOS on their own active shift', async () =>
+    assertSucceeds(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos())));
+  it('SOS-003 an SOS without a location (0/0, locationSource none) is accepted', async () =>
+    assertSucceeds(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ latitude: 0, longitude: 0, locationSource: 'none' }))));
+  it('SOS-002 driver cannot raise an SOS for a shift that does not exist', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ shiftId: 'noSuchShift' }))));
+  it('SOS-002 driver cannot raise an SOS on their completed shift', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ shiftId: 'shiftA_old' }))));
+  it("SOS-006 driver cannot raise an SOS on another driver's active shift", async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ shiftId: 'shiftB' }))));
+  it('SOS-006 driver cannot raise an SOS in another driver\'s name', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ driverId: DRIVER_B, shiftId: 'shiftB' }))));
+  it('SOS-006 staff cannot raise a driver SOS', async () => {
+    await assertFails(addDoc(collection(as(MANAGER), 'emergency_alerts'), appSos()));
+    await assertFails(addDoc(collection(as(ASSISTANT), 'emergency_alerts'), appSos()));
+  });
+  it('manager and assistant manager can read alerts; drivers cannot', async () => {
+    await seedAlert();
+    await assertSucceeds(getDoc(doc(as(MANAGER), 'emergency_alerts', 'sos1')));
+    await assertSucceeds(getDoc(doc(as(ASSISTANT), 'emergency_alerts', 'sos1')));
+    await assertFails(getDoc(doc(as(DRIVER_A), 'emergency_alerts', 'sos1')));
+  });
+  it('SOS-007 manager can resolve an SOS', async () => {
+    await seedAlert();
+    await assertSucceeds(updateDoc(doc(as(MANAGER), 'emergency_alerts', 'sos1'), { isResolved: true, resolvedAt: serverTimestamp() }));
+  });
+  it('SOS-007 assistant manager cannot resolve an SOS', async () => {
+    await seedAlert();
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'emergency_alerts', 'sos1'), { isResolved: true, resolvedAt: serverTimestamp() }));
+  });
+  it('SOS-007 driver cannot resolve their own SOS', async () => {
+    await seedAlert();
+    await assertFails(updateDoc(doc(as(DRIVER_A), 'emergency_alerts', 'sos1'), { isResolved: true }));
+  });
+  it('nobody can delete an SOS from the apps', async () => {
+    await seedAlert();
+    await assertFails(deleteDoc(doc(as(MANAGER), 'emergency_alerts', 'sos1')));
+    await assertFails(deleteDoc(doc(as(DRIVER_A), 'emergency_alerts', 'sos1')));
+  });
+});
+
 describe('Retention (expireAt, audit H-01)', () => {
   const days = (n) => Timestamp.fromDate(new Date(Date.now() + n * 86400000));
   const gps = (expireAt) => ({ driverId: DRIVER_A, shiftId: 'shiftA', latitude: 14.6, longitude: 121, expireAt });

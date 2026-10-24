@@ -13,6 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Storage;
 using LARGA.MobileApp.Services;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Emergency;
 using Location = Android.Locations.Location;
 
 namespace LARGA.MobileApp.Platforms.Android.Emergency;
@@ -40,6 +41,18 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
     // adb shell am startservice -n com.blmtaxi.larga.mobile/com.blmtaxi.larga.mobile.EmergencyDetectionService -a larga.emergency.SIMULATE_CRASH
     private const string ActionSimulateHostile = "larga.emergency.SIMULATE_HOSTILE";
     private const string ActionSimulateCrash = "larga.emergency.SIMULATE_CRASH";
+    // Sensor replay harness (SensorTrace format). The trace is read from the app's external files
+    // folder: adb push trace.txt /sdcard/Android/data/com.blmtaxi.larga.mobile/files/
+    // then  ... -a larga.emergency.REPLAY --es trace trace.txt
+    private const string ActionReplay = "larga.emergency.REPLAY";
+    // Records the live accelerometer and GPS speed to files/<name> until RECORD_STOP:
+    // ... -a larga.emergency.RECORD --es trace shake.txt
+    private const string ActionRecord = "larga.emergency.RECORD";
+    private const string ActionRecordStop = "larga.emergency.RECORD_STOP";
+    // Moves the auto-answer window back by --ei minutes N (e.g. 31 for "manager calls 31 minutes later").
+    private const string ActionAgeArmed = "larga.emergency.AGE_ARMED";
+    private const string ExtraTrace = "trace";
+    private const string ExtraMinutes = "minutes";
 #endif
 
     private const string MonitorChannelId = "emergency_monitor_channel";
@@ -58,7 +71,6 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
     private const int AlertNotificationId = 8603;
 
     private static readonly TimeSpan CountdownLength = TimeSpan.FromSeconds(5);
-    private const float GravityAlpha = 0.8f;
 
     private SensorManager? _sensorManager;
     private Sensor? _accelerometer;
@@ -66,21 +78,23 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
     private PowerManager.WakeLock? _wakeLock;
     private bool _monitoring;
 
+    private readonly GravityFilter _gravity = new();
     private readonly HostileMotionDetector _hostile = new();
     private readonly CrashDetector _crash = new();
     private EmergencyCallHandler? _callHandler;
     private IEmergencyAlertService? _alertService;
     private EmergencyCountdownCoordinator? _coordinator;
 
-    private readonly float[] _gravity = new float[3];
-    private bool _gravityPrimed;
-
     private double _lastLat;
     private double _lastLng;
     private bool _hasFix;
 
-    private readonly object _countdownGate = new();
-    private CancellationTokenSource? _countdownCts;
+    private readonly EmergencyCountdownGate _countdownGate = new();
+#if DEBUG
+    private System.IO.StreamWriter? _recorder;
+    private double _recordStart;
+    private string? _lastLoggedSpeed;
+#endif
 
     public override IBinder? OnBind(Intent? intent) => null;
 
@@ -139,6 +153,19 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
                 }
                 EmergencyLog.Info($"Simulated trigger: {intent!.Action}");
                 BeginCountdown(intent.Action == ActionSimulateCrash ? EmergencyAlert.Crash : EmergencyAlert.Hostile);
+                return StartCommandResult.Sticky;
+
+            case ActionReplay:
+            case ActionRecord:
+            case ActionRecordStop:
+            case ActionAgeArmed:
+                if (!_monitoring)
+                {
+                    EmergencyLog.Warn($"{intent!.Action} ignored: the monitor isn't running (clock in first).");
+                    StopSelf();
+                    return StartCommandResult.NotSticky;
+                }
+                HandleDebugAction(intent!);
                 return StartCommandResult.Sticky;
 #endif
 
@@ -280,28 +307,13 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         float rawX = e.Values[0];
         float rawY = e.Values[1];
         float rawZ = e.Values[2];
-
-        // Isolate the gravity component with a low-pass filter, then subtract it so the detectors
-        // see only movement, not the constant 1G pull.
-        if (!_gravityPrimed)
-        {
-            _gravity[0] = rawX;
-            _gravity[1] = rawY;
-            _gravity[2] = rawZ;
-            _gravityPrimed = true;
-        }
-        else
-        {
-            _gravity[0] = GravityAlpha * _gravity[0] + (1 - GravityAlpha) * rawX;
-            _gravity[1] = GravityAlpha * _gravity[1] + (1 - GravityAlpha) * rawY;
-            _gravity[2] = GravityAlpha * _gravity[2] + (1 - GravityAlpha) * rawZ;
-        }
-
-        double linX = rawX - _gravity[0];
-        double linY = rawY - _gravity[1];
-        double linZ = rawZ - _gravity[2];
-
         double t = SystemClock.ElapsedRealtime() / 1000.0;
+#if DEBUG
+        Record(SensorTrace.FormatAccel(t - _recordStart, rawX, rawY, rawZ));
+#endif
+
+        // The detectors see only movement, not the constant 1G pull.
+        (double linX, double linY, double linZ) = _gravity.Linear(rawX, rawY, rawZ);
 
         _crash.OnLinearAcceleration(t, linX, linY, linZ);
 
@@ -332,6 +344,16 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
         double t = SystemClock.ElapsedRealtime() / 1000.0;
         double? speed = location.HasSpeed ? location.Speed : (double?)null;
+#if DEBUG
+        Record(SensorTrace.FormatGps(t - _recordStart, speed));
+        // Only when the speed changes, so logcat shows moving / stopped without one line per second.
+        string speedText = speed is double v ? $"{v * 3.6:0} km/h" : "none";
+        if (speedText != _lastLoggedSpeed)
+        {
+            _lastLoggedSpeed = speedText;
+            EmergencyLog.Info($"GPS fix: speed {speedText}.");
+        }
+#endif
 
         if (_crash.OnSpeed(t, speed))
         {
@@ -348,13 +370,11 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
     private void BeginCountdown(string triggerType)
     {
-        CancellationToken token;
-        lock (_countdownGate)
+        // One emergency at a time: a second detection during a countdown is ignored.
+        if (!_countdownGate.TryBegin(triggerType, out CancellationToken token))
         {
-            // One emergency at a time: a second detection during a countdown is ignored.
-            if (_countdownCts != null) return;
-            _countdownCts = new CancellationTokenSource();
-            token = _countdownCts.Token;
+            EmergencyLog.Info($"{triggerType} detection ignored: a {_countdownGate.Active} countdown is already running.");
+            return;
         }
 
         EmergencyLog.Info($"{triggerType} countdown started ({CountdownLength.TotalSeconds:0}s to cancel).");
@@ -395,16 +415,8 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
     private void CancelCountdown(string source)
     {
-        CancellationTokenSource? cts;
-        lock (_countdownGate)
-        {
-            cts = _countdownCts;
-            _countdownCts = null;
-        }
+        if (!_countdownGate.Cancel()) return;
 
-        if (cts == null) return;
-
-        cts.Cancel();
         EmergencyLog.Info($"Countdown cancelled ({source}) - no alert sent.");
         ClearCountdownUi();
     }
@@ -412,11 +424,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
     /// <summary>Ends a countdown that ran out. False if it was cancelled in the meantime.</summary>
     private bool EndCountdown()
     {
-        lock (_countdownGate)
-        {
-            if (_countdownCts == null) return false;
-            _countdownCts = null;
-        }
+        if (!_countdownGate.TryComplete()) return false;
 
         ClearCountdownUi();
         return true;
@@ -472,7 +480,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
             }
             else
             {
-                EmergencyLog.Info($"{triggerType} alert written: emergency_alerts/{id}");
+                EmergencyLog.Info($"{triggerType} alert written: emergency_alerts/{id} (locationSource {_alertService.LastLocationSource}).");
             }
             return id;
         }
@@ -482,6 +490,76 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
             return null;
         }
     }
+
+#if DEBUG
+    // ---- DEBUG test hooks (alpha testing on the emulator) -------------------
+
+    private void HandleDebugAction(Intent intent)
+    {
+        string name = intent.GetStringExtra(ExtraTrace) ?? "trace.txt";
+        string folder = GetExternalFilesDir(null)?.AbsolutePath ?? FilesDir!.AbsolutePath;
+        string path = System.IO.Path.Combine(folder, System.IO.Path.GetFileName(name));
+
+        try
+        {
+            switch (intent.Action)
+            {
+                case ActionReplay:
+                    // Fresh detectors on the trace's own clock, so the live sensor stream (whose
+                    // samples keep arriving meanwhile) can't mix into the replay's windows.
+                    SensorTrace trace = SensorTrace.Parse(System.IO.File.ReadAllText(path));
+                    List<EmergencyTraceReplayer.Detection> detections = EmergencyTraceReplayer.Run(trace);
+                    EmergencyLog.Info($"Replay {name}: {trace.Samples.Count} samples, "
+                        + (detections.Count == 0 ? "no detection." : string.Join(", ", detections.Select(d => $"{d.TriggerType} at {d.T:0.00}s"))));
+                    if (detections.Count > 0)
+                    {
+                        EmergencyLog.Info(detections[0].TriggerType == EmergencyAlert.Crash
+                            ? "Crash pattern detected (G-force spike, then stopped)."
+                            : "Hostile shake pattern detected.");
+                        BeginCountdown(detections[0].TriggerType);
+                    }
+                    break;
+
+                case ActionRecord:
+                    StopRecording();
+                    _recordStart = SystemClock.ElapsedRealtime() / 1000.0;
+                    var recorder = new System.IO.StreamWriter(path, append: false);
+                    recorder.WriteLine($"# LARGA sensor trace recorded {DateTime.UtcNow:O} on {Build.Model} (API {(int)Build.VERSION.SdkInt})");
+                    _recorder = recorder;
+                    EmergencyLog.Info($"Recording sensors to {path}.");
+                    break;
+
+                case ActionRecordStop:
+                    StopRecording();
+                    break;
+
+                case ActionAgeArmed:
+                    _callHandler?.AgeArmedWindow(TimeSpan.FromMinutes(intent.GetIntExtra(ExtraMinutes, 31)));
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            EmergencyLog.Error($"{intent.Action} failed", ex);
+        }
+    }
+
+    private void Record(string line)
+    {
+        System.IO.StreamWriter? recorder = _recorder;
+        if (recorder == null) return;
+        lock (recorder) recorder.WriteLine(line);
+    }
+
+    private void StopRecording()
+    {
+        System.IO.StreamWriter? recorder = _recorder;
+        _recorder = null;
+        if (recorder == null) return;
+        lock (recorder) recorder.Dispose();
+        EmergencyLog.Info("Sensor recording stopped.");
+    }
+#endif
 
     // ---- Notifications & haptics -------------------------------------------
 
@@ -654,6 +732,9 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         try { _locationManager?.RemoveUpdates(this); } catch { /* never requested */ }
 
         _callHandler?.Disarm();
+#if DEBUG
+        StopRecording();
+#endif
 
         if (_wakeLock?.IsHeld == true)
         {
