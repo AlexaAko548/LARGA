@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -12,6 +13,7 @@ using LARGA.Shared.Models.Entities;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
+using Microsoft.Maui.Networking;
 using Microsoft.Maui.Storage;
 using Plugin.Firebase.Storage;
 
@@ -19,21 +21,19 @@ namespace LARGA.MobileApp.ViewModels.Driver;
 
 public class FuelReportViewModel : BindableObject
 {
-    private const string PendingPrefix = "FuelReport.Pending.";
-    private const string PendingCostKey = PendingPrefix + "Cost";
-    private const string PendingQuantityKey = PendingPrefix + "Quantity";
-    private const string PendingFuelStationKey = PendingPrefix + "FuelStation";
-    private const string PendingOdometerKey = PendingPrefix + "Odometer";
-    private const string PendingSelectedDateKey = PendingPrefix + "SelectedDate";
-    private const string PendingReceiptDateTextKey = PendingPrefix + "ReceiptDateText";
-    private const string PendingReceiptPathKey = PendingPrefix + "ReceiptPath";
-    private const string PendingOdometerPathKey = PendingPrefix + "OdometerPath";
-    private const string PendingCostEditedKey = PendingPrefix + "CostEdited";
-    private const string PendingQuantityEditedKey = PendingPrefix + "QuantityEdited";
-    private const string PendingFuelStationEditedKey = PendingPrefix + "FuelStationEdited";
-    private const string PendingDateEditedKey = PendingPrefix + "DateEdited";
-    private const string PendingOrNumberKey = PendingPrefix + "OrNumber";
-    private const string PendingOrNumberEditedKey = PendingPrefix + "OrNumberEdited";
+    // FUEL-015: the unsent report, kept across an app restart (one JSON value). The photos are
+    // moved out of the cache folder into DraftPhotoFolder so Android can't clear them meanwhile.
+    private const string DraftKey = "FuelReport.Draft";
+    private const string LegacyPendingPrefix = "FuelReport.Pending.";
+    private static readonly string[] LegacyPendingKeys =
+    {
+        "Cost", "Quantity", "FuelStation", "Odometer", "SelectedDate", "ReceiptDateText", "ReceiptPath",
+        "OdometerPath", "CostEdited", "QuantityEdited", "FuelStationEdited", "DateEdited", "OrNumber", "OrNumberEdited",
+    };
+    private static string DraftPhotoFolder => Path.Combine(FileSystem.AppDataDirectory, "fuel_draft");
+
+    // A stuck upload (no signal) fails after this instead of Firebase Storage's 10-minute retry window.
+    private static readonly TimeSpan UploadTimeout = TimeSpan.FromSeconds(60);
 
     private readonly IOcrService _ocrService;
     private readonly IFuelService _fuelService;
@@ -50,7 +50,9 @@ public class FuelReportViewModel : BindableObject
 
             if (!_isApplyingScanResult)
             {
-                IsCostManuallyEdited = _costWasUncertain && !NumericEquivalent(_cost, _originalCostValue);
+                // FUEL-010: any change from what the scan read is flagged, whichever screen it was made on.
+                IsCostManuallyEdited = _hasReceiptScan && !NumericEquivalent(_cost, _originalCostValue);
+                SavePendingDraft();
             }
         }
     }
@@ -67,11 +69,13 @@ public class FuelReportViewModel : BindableObject
 
             if (!_isApplyingScanResult)
             {
-                IsQuantityManuallyEdited = _quantityWasUncertain && !NumericEquivalent(_quantity, _originalQuantityValue);
+                IsQuantityManuallyEdited = _hasReceiptScan && !NumericEquivalent(_quantity, _originalQuantityValue);
+                SavePendingDraft();
             }
         }
     }
 
+    // Never editable: always what the receipt scan read ("UNKNOWN" when it read no Petron/Shell).
     private string _fuelStation = string.Empty;
     public string FuelStation
     {
@@ -81,12 +85,6 @@ public class FuelReportViewModel : BindableObject
             _fuelStation = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(CanSubmit));
-
-            if (!_isApplyingScanResult)
-            {
-                IsFuelStationManuallyEdited = _fuelStationWasUncertain &&
-                    !string.Equals(NormalizeText(_fuelStation), NormalizeText(_originalFuelStationValue), StringComparison.Ordinal);
-            }
         }
     }
 
@@ -103,8 +101,9 @@ public class FuelReportViewModel : BindableObject
 
             if (!_isApplyingScanResult)
             {
-                IsOrNumberManuallyEdited = _orNumberWasUncertain &&
+                IsOrNumberManuallyEdited = _hasReceiptScan &&
                     !string.Equals(NormalizeText(_orNumber), NormalizeText(_originalOrNumberValue), StringComparison.Ordinal);
+                SavePendingDraft();
             }
         }
     }
@@ -132,18 +131,16 @@ public class FuelReportViewModel : BindableObject
             _receiptDateText = value;
             OnPropertyChanged();
 
-            if (TryParseReceiptDateInput(value, out var parsedDate))
-            {
-                SelectedDate = parsedDate.Date;
-            }
-            else
-            {
-                SelectedDate = null;
-            }
+            // FUEL-012: a typed date has to pass the same check as a scanned one (from 2020, not in
+            // the future, at most three years old); anything else leaves the date unset.
+            SelectedDate = TryParseReceiptDateInput(value, out var parsedDate) && FuelReceiptTextParser.IsPlausibleReceiptDate(parsedDate)
+                ? parsedDate.Date
+                : null;
 
             if (!_isApplyingScanResult)
             {
-                IsReceiptDateManuallyEdited = _dateWasUncertain && !DateEquivalent(_receiptDateText, _originalReceiptDateText);
+                IsReceiptDateManuallyEdited = _hasReceiptScan && !DateEquivalent(_receiptDateText, _originalReceiptDateText);
+                SavePendingDraft();
             }
         }
     }
@@ -163,19 +160,23 @@ public class FuelReportViewModel : BindableObject
     }
 
     private bool _isCostEditable;
-    public bool IsCostEditable { get => _isCostEditable; set { _isCostEditable = value; OnPropertyChanged(); } }
+    public bool IsCostEditable { get => _isCostEditable; set { _isCostEditable = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsCostReadOnly)); } }
+    public bool IsCostReadOnly => !IsCostEditable;
 
     private bool _isQuantityEditable;
-    public bool IsQuantityEditable { get => _isQuantityEditable; set { _isQuantityEditable = value; OnPropertyChanged(); } }
+    public bool IsQuantityEditable { get => _isQuantityEditable; set { _isQuantityEditable = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsQuantityReadOnly)); } }
+    public bool IsQuantityReadOnly => !IsQuantityEditable;
 
     private bool _isFuelStationEditable;
     public bool IsFuelStationEditable { get => _isFuelStationEditable; set { _isFuelStationEditable = value; OnPropertyChanged(); } }
 
     private bool _isReceiptDateEditable;
-    public bool IsReceiptDateEditable { get => _isReceiptDateEditable; set { _isReceiptDateEditable = value; OnPropertyChanged(); } }
+    public bool IsReceiptDateEditable { get => _isReceiptDateEditable; set { _isReceiptDateEditable = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsReceiptDateReadOnly)); } }
+    public bool IsReceiptDateReadOnly => !IsReceiptDateEditable;
 
     private bool _isOrNumberEditable;
-    public bool IsOrNumberEditable { get => _isOrNumberEditable; set { _isOrNumberEditable = value; OnPropertyChanged(); } }
+    public bool IsOrNumberEditable { get => _isOrNumberEditable; set { _isOrNumberEditable = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsOrNumberReadOnly)); } }
+    public bool IsOrNumberReadOnly => !IsOrNumberEditable;
 
     private bool _isCostManuallyEdited;
     public bool IsCostManuallyEdited { get => _isCostManuallyEdited; set { _isCostManuallyEdited = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsAnyFieldManuallyEdited)); } }
@@ -195,11 +196,7 @@ public class FuelReportViewModel : BindableObject
     public bool IsAnyFieldManuallyEdited => IsCostManuallyEdited || IsQuantityManuallyEdited || IsFuelStationManuallyEdited || IsReceiptDateManuallyEdited || IsOrNumberManuallyEdited;
 
     private bool _isApplyingScanResult;
-    private bool _costWasUncertain;
-    private bool _quantityWasUncertain;
-    private bool _fuelStationWasUncertain;
-    private bool _dateWasUncertain;
-    private bool _orNumberWasUncertain;
+    private bool _hasReceiptScan;
     private string _originalCostValue = string.Empty;
     private string _originalQuantityValue = string.Empty;
     private string _originalFuelStationValue = string.Empty;
@@ -207,7 +204,17 @@ public class FuelReportViewModel : BindableObject
     private string _originalOrNumberValue = string.Empty;
 
     private string _odometer = string.Empty;
-    public string Odometer { get => _odometer; set { _odometer = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsOdometerScanned)); OnPropertyChanged(nameof(CanSubmit)); } }
+    public string Odometer
+    {
+        get => _odometer;
+        set
+        {
+            _odometer = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsOdometerScanned));
+            OnPropertyChanged(nameof(CanSubmit));
+        }
+    }
     public bool IsOdometerScanned => !string.IsNullOrWhiteSpace(Odometer);
 
     private ImageSource? _receiptPhoto;
@@ -221,16 +228,21 @@ public class FuelReportViewModel : BindableObject
     private bool _isSubmitting;
     public bool IsSubmitting { get => _isSubmitting; set { _isSubmitting = value; OnPropertyChanged(); OnPropertyChanged(nameof(CanSubmit)); } }
 
+    private bool HasBothScans =>
+        !string.IsNullOrWhiteSpace(Odometer) &&
+        HasPhoto &&
+        !string.IsNullOrWhiteSpace(_receiptTempPath) &&
+        !string.IsNullOrWhiteSpace(_odometerTempPath);
+
+    /// <summary>Everything needed to submit (the Submit button's colour); tapping Submit without it
+    /// says what's missing.</summary>
     public bool CanSubmit =>
         !IsSubmitting &&
         !string.IsNullOrWhiteSpace(Cost) &&
         !string.IsNullOrWhiteSpace(Quantity) &&
         !string.IsNullOrWhiteSpace(FuelStation) &&
         SelectedDate.HasValue &&
-        !string.IsNullOrWhiteSpace(Odometer) &&
-        HasPhoto &&
-        !string.IsNullOrWhiteSpace(_receiptTempPath) &&
-        !string.IsNullOrWhiteSpace(_odometerTempPath);
+        HasBothScans;
 
     public ICommand ScanOdometerCommand { get; }
     public ICommand ScanReceiptCommand { get; }
@@ -247,15 +259,16 @@ public class FuelReportViewModel : BindableObject
             Odometer = data.OdometerText;
             _odometerTempPath = data.PhotoFilePath; // THE FIX: Assign path directly
             OnPropertyChanged(nameof(CanSubmit));
+            SavePendingDraft();
         });
 
         WeakReferenceMessenger.Default.Register<FuelReportViewModel, ReceiptExtractedData>(this, (r, data) =>
         {
             _isApplyingScanResult = true;
+            _hasReceiptScan = true;
             Cost = data.Amount;
             Quantity = data.Quantity;
             FuelStation = data.Vendor;
-            SelectedDate = data.ReceiptDate;
             ReceiptDateText = data.ReceiptDate?.ToString("MMM dd, yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
             OrNumber = data.OrNumber;
             IsReceiptParsingUncertain = data.ParsingUncertain;
@@ -272,12 +285,6 @@ public class FuelReportViewModel : BindableObject
             IsFuelStationEditable = false; // the station name is never editable: always what OCR read
             IsReceiptDateEditable = data.IsDateUncertain || !SelectedDate.HasValue;
             IsOrNumberEditable = data.IsOrNumberUncertain || string.IsNullOrWhiteSpace(OrNumber) || orNumberEditedInline;
-
-            _costWasUncertain = IsCostEditable;
-            _quantityWasUncertain = IsQuantityEditable;
-            _fuelStationWasUncertain = IsFuelStationEditable;
-            _dateWasUncertain = IsReceiptDateEditable;
-            _orNumberWasUncertain = IsOrNumberEditable;
 
             // Compared against what OCR read, so an inline correction stays flagged as edited.
             _originalCostValue = data.OriginalAmount ?? Cost;
@@ -297,131 +304,144 @@ public class FuelReportViewModel : BindableObject
             ReceiptPhoto = null;
             ReceiptPhoto = ImageSource.FromFile(data.PhotoFilePath); // THE FIX: Bind from file
             OnPropertyChanged(nameof(CanSubmit));
+            SavePendingDraft();
         });
 
         ScanOdometerCommand = new Command(async () => await ScanOdometerAsync());
         ScanReceiptCommand = new Command(async () => await Application.Current.MainPage.Navigation.PushModalAsync(new Views.Driver.ScanFuelReceiptPage()));
         RedoReceiptCommand = new Command(async () => await Application.Current.MainPage.Navigation.PushModalAsync(new Views.Driver.ScanFuelReceiptPage()));
 
-        SubmitReportCommand = new Command(async () =>
+        SubmitReportCommand = new Command(async () => await SubmitAsync());
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (IsSubmitting) return;
+
+        // FUEL-014 / FUEL-012: the button is always tappable, and says what's missing.
+        if (!CanSubmit)
         {
-            if (!CanSubmit)
+            if (HasBothScans && !SelectedDate.HasValue)
+            {
+                await Shell.Current.DisplayAlert("Invalid date",
+                    "Please correct the receipt date before submitting (e.g. Oct 24, 2026). It can't be in the future or before 2020.", "OK");
+            }
+            else
             {
                 await Shell.Current.DisplayAlert("Required", "Please scan odometer and receipt, then verify all fields.", "OK");
-                return;
             }
+            return;
+        }
 
-            if (IsSubmitting) return;
-            IsSubmitting = true;
+        IsSubmitting = true;
 
-            var currentUser = Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser;
-            if (currentUser == null)
+        var currentUser = Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser;
+        if (currentUser == null)
+        {
+            IsSubmitting = false;
+            return;
+        }
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_receiptTempPath) || string.IsNullOrWhiteSpace(_odometerTempPath)
+                || !File.Exists(_receiptTempPath) || !File.Exists(_odometerTempPath))
             {
-                IsSubmitting = false;
+                await Shell.Current.DisplayAlert("Required", "Images are missing. Please redo the scans.", "OK");
                 return;
             }
 
+            // FUEL-015: keep everything on the phone first, so a failure below loses nothing.
+            SavePendingDraft();
+
+            if (Connectivity.Current.NetworkAccess != NetworkAccess.Internet)
+            {
+                await ShowUploadFailedAsync();
+                return;
+            }
+
+            var shiftId = Preferences.Get("CurrentShiftId", "UNKNOWN_SHIFT");
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var baseStoragePath = $"fuel_logs/{currentUser.Uid}/{shiftId}/{timestamp}";
+
+            string receiptImageUrl;
+            string odometerPhotoUrl;
             try
             {
-                if (string.IsNullOrWhiteSpace(_receiptTempPath) || string.IsNullOrWhiteSpace(_odometerTempPath))
-                {
-                    await Shell.Current.DisplayAlert("Required", "Images are missing. Please redo the scans.", "OK");
-                    return;
-                }
-
-                if (!SelectedDate.HasValue)
-                {
-                    await Shell.Current.DisplayAlert("Invalid date", "Please correct the receipt date before submitting.", "OK");
-                    return;
-                }
-
-                var shiftId = Preferences.Get("CurrentShiftId", "UNKNOWN_SHIFT");
-                var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                var baseStoragePath = $"fuel_logs/{currentUser.Uid}/{shiftId}/{timestamp}";
-
-                var receiptImageUrl = string.Empty;
-                var odometerPhotoUrl = string.Empty;
-
-                try
-                {
-                    // THE FIX: Upload using file paths
-                    receiptImageUrl = await UploadImageAsync(_receiptTempPath, $"{baseStoragePath}/receipt.jpg");
-                    odometerPhotoUrl = await UploadImageAsync(_odometerTempPath, $"{baseStoragePath}/odometer.jpg");
-                }
-                catch (Exception uploadEx)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Fuel image upload error: {uploadEx.Message}");
-                    IsSubmitting = false;
-                    await Shell.Current.DisplayAlert("Upload Failed", "Unable to upload photos to cloud storage. Please check your internet connection and try again.", "OK");
-                    return;
-                }
-
-                // FUEL-004: a receipt from a station other than Petron or Shell still goes in, but
-                // Flagged with the reason, so it lands straight in the manager's flagged queue and
-                // Alert Center (the same path as any other fuel discrepancy).
-                bool stationAllowed = FuelStations.IsAllowed(FuelStation);
-
-                var fuelRecord = new FuelLog
-                {
-                    DriverId = currentUser.Uid,
-                    ShiftId = shiftId,
-                    FuelCost = ParseDecimal(Cost),
-                    LitersRefueled = ParseDecimal(Quantity),
-                    FuelStation = FuelStation,
-                    ORNumber = OrNumber?.Trim() ?? string.Empty,
-                    ReceiptTimestamp = NormalizeReceiptTimestamp(SelectedDate.Value),
-                    OdometerReading = int.TryParse(Odometer.Replace(",", ""), out var odoVal) ? odoVal : 0,
-                    VerificationStatus = stationAllowed ? FuelVerificationStatus.Pending : FuelVerificationStatus.Flagged,
-                    FuelLogDetails = stationAllowed ? null : FuelStations.NotAllowedReason,
-                    AutoFlagged = !stationAllowed,
-                    ReceiptImageUrl = receiptImageUrl,
-                    OdometerPhotoUrl = odometerPhotoUrl,
-                    IsCostManuallyEdited = IsCostManuallyEdited,
-                    IsQuantityManuallyEdited = IsQuantityManuallyEdited,
-                    IsFuelStationManuallyEdited = IsFuelStationManuallyEdited,
-                    IsReceiptDateManuallyEdited = IsReceiptDateManuallyEdited,
-                    IsOrNumberManuallyEdited = IsOrNumberManuallyEdited,
-                    IsAnyFieldManuallyEdited = IsAnyFieldManuallyEdited
-                };
-
-                var recordId = string.Empty;
-
-                await MainThread.InvokeOnMainThreadAsync(async () =>
-                {
-                    recordId = await _fuelService.SubmitFuelReportAsync(fuelRecord);
-                });
-
-                if (string.IsNullOrEmpty(recordId))
-                {
-                    await Shell.Current.DisplayAlert("Submission failed", "Unable to submit to Firebase right now. Please try again.", "OK");
-                    return;
-                }
-
-                ClearPendingDraft();
-                DeleteTempFile(_receiptTempPath);
-                DeleteTempFile(_odometerTempPath);
-                _receiptTempPath = null;
-                _odometerTempPath = null;
-
-                WeakReferenceMessenger.Default.Send(new FuelReportSubmittedMessage());
-                ResetState();
-
-                await Shell.Current.DisplayAlert("Success", stationAllowed
-                    ? "Fuel report submitted for verification."
-                    : $"Fuel report submitted, but flagged for the manager's review: {FuelStations.NotAllowedReason}.", "OK");
-                await Shell.Current.GoToAsync("..");
+                // THE FIX: Upload using file paths
+                receiptImageUrl = await UploadImageAsync(_receiptTempPath, $"{baseStoragePath}/receipt.jpg");
+                odometerPhotoUrl = await UploadImageAsync(_odometerTempPath, $"{baseStoragePath}/odometer.jpg");
             }
-            catch (Exception ex)
+            catch (Exception uploadEx)
             {
-                System.Diagnostics.Debug.WriteLine($"Fuel Submit Error: {ex.Message}");
-                await Shell.Current.DisplayAlert("Submission failed", "An unexpected error occurred. Please try again.", "OK");
+                System.Diagnostics.Debug.WriteLine($"Fuel image upload error: {uploadEx.Message}");
+                await ShowUploadFailedAsync();
+                return;
             }
-            finally
+
+            // FUEL-004: a receipt from a station other than Petron or Shell still goes in, but
+            // Flagged with the reason, so it lands straight in the manager's flagged queue and
+            // Alert Center (the same path as any other fuel discrepancy).
+            bool stationAllowed = FuelStations.IsAllowed(FuelStation);
+
+            var fuelRecord = new FuelLog
             {
-                IsSubmitting = false;
+                DriverId = currentUser.Uid,
+                ShiftId = shiftId,
+                FuelCost = ParseDecimal(Cost),
+                LitersRefueled = ParseDecimal(Quantity),
+                FuelStation = FuelStation,
+                ORNumber = OrNumber?.Trim() ?? string.Empty,
+                ReceiptTimestamp = NormalizeReceiptTimestamp(SelectedDate!.Value),
+                OdometerReading = int.TryParse(Odometer.Replace(",", ""), out var odoVal) ? odoVal : 0,
+                VerificationStatus = stationAllowed ? FuelVerificationStatus.Pending : FuelVerificationStatus.Flagged,
+                FuelLogDetails = stationAllowed ? null : FuelStations.NotAllowedReason,
+                AutoFlagged = !stationAllowed,
+                ReceiptImageUrl = receiptImageUrl,
+                OdometerPhotoUrl = odometerPhotoUrl,
+                IsCostManuallyEdited = IsCostManuallyEdited,
+                IsQuantityManuallyEdited = IsQuantityManuallyEdited,
+                IsFuelStationManuallyEdited = IsFuelStationManuallyEdited,
+                IsReceiptDateManuallyEdited = IsReceiptDateManuallyEdited,
+                IsOrNumberManuallyEdited = IsOrNumberManuallyEdited,
+                IsAnyFieldManuallyEdited = IsAnyFieldManuallyEdited
+            };
+
+            var recordId = string.Empty;
+
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                recordId = await _fuelService.SubmitFuelReportAsync(fuelRecord);
+            });
+
+            if (string.IsNullOrEmpty(recordId))
+            {
+                await Shell.Current.DisplayAlert("Submission failed", "Unable to submit to Firebase right now. Your report is saved on this phone - please try again.", "OK");
+                return;
             }
-        });
+
+            WeakReferenceMessenger.Default.Send(new FuelReportSubmittedMessage());
+            ResetState(); // clears the draft and its photos
+
+            await Shell.Current.DisplayAlert("Success", stationAllowed
+                ? "Fuel report submitted for verification."
+                : $"Fuel report submitted, but flagged for the manager's review: {FuelStations.NotAllowedReason}.", "OK");
+            await Shell.Current.GoToAsync("..");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Fuel Submit Error: {ex.Message}");
+            await Shell.Current.DisplayAlert("Submission failed", "An unexpected error occurred. Your report is saved on this phone - please try again.", "OK");
+        }
+        finally
+        {
+            IsSubmitting = false;
+        }
     }
+
+    private static Task ShowUploadFailedAsync() =>
+        Shell.Current.DisplayAlert("Upload Failed",
+            "Unable to upload photos to cloud storage. Please check your internet connection and try again. Your report is saved on this phone.", "OK");
 
     public void ResetState()
     {
@@ -451,11 +471,7 @@ public class FuelReportViewModel : BindableObject
         IsReceiptDateManuallyEdited = false;
         IsOrNumberManuallyEdited = false;
 
-        _costWasUncertain = false;
-        _quantityWasUncertain = false;
-        _fuelStationWasUncertain = false;
-        _dateWasUncertain = false;
-        _orNumberWasUncertain = false;
+        _hasReceiptScan = false;
         _originalCostValue = string.Empty;
         _originalQuantityValue = string.Empty;
         _originalFuelStationValue = string.Empty;
@@ -472,6 +488,16 @@ public class FuelReportViewModel : BindableObject
         OnPropertyChanged(nameof(CanSubmit));
     }
 
+    /// <summary>FUEL-015: the Fuel Report opens on the unsent report from this shift if there is one
+    /// (e.g. the upload failed and the app was closed), otherwise empty.</summary>
+    public void RestoreDraftOrReset()
+    {
+        if (!TryLoadPendingDraft())
+        {
+            ResetState();
+        }
+    }
+
     private async Task ScanOdometerAsync()
     {
         var status = await Permissions.CheckStatusAsync<Permissions.Camera>();
@@ -480,6 +506,18 @@ public class FuelReportViewModel : BindableObject
             status = await Permissions.RequestAsync<Permissions.Camera>();
             if (status != PermissionStatus.Granted) return;
         }
+
+#if DEBUG
+        if (DebugTestImages.Find("larga_test_odometer.jpg") is string testOdometer)
+        {
+            string copyPath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_larga_test_odometer.jpg");
+            File.Copy(testOdometer, copyPath, overwrite: true);
+            MainThread.BeginInvokeOnMainThread(async () =>
+                await Application.Current.MainPage.Navigation.PushModalAsync(
+                    new LARGA.MobileApp.Views.Driver.OdometerScanPage(_ocrService, copyPath)));
+            return;
+        }
+#endif
 
         if (MediaPicker.Default.IsCaptureSupported)
         {
@@ -523,9 +561,16 @@ public class FuelReportViewModel : BindableObject
 
     private static void DeleteTempFile(string? path)
     {
-        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+        try
         {
-            File.Delete(path);
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Delete fuel photo failed: {ex.Message}");
         }
     }
 
@@ -541,105 +586,210 @@ public class FuelReportViewModel : BindableObject
 
         // PutFile reads the bytes from disk in chunks rather than loading it all into memory.
         // The content type is explicit: storage.rules accept images only.
-        await storageRef.PutFile(localFilePath, new StorageMetadata(contentType: "image/jpeg")).AwaitAsync();
+        var transfer = storageRef.PutFile(localFilePath, new StorageMetadata(contentType: "image/jpeg"));
+        Task upload = transfer.AwaitAsync();
+        if (await Task.WhenAny(upload, Task.Delay(UploadTimeout)) != upload)
+        {
+            transfer.Cancel();
+            throw new TimeoutException($"Upload of {remotePath} took longer than {UploadTimeout.TotalSeconds:0} s.");
+        }
+        await upload;
         return await storageRef.GetDownloadUrlAsync();
     }
 
-    private void SavePendingDraft()
+    // ---------------------------------------------------------------------
+    // FUEL-015: unsent report kept on the phone
+    // ---------------------------------------------------------------------
+
+    private sealed class FuelDraft
     {
-        Preferences.Set(PendingCostKey, Cost);
-        Preferences.Set(PendingQuantityKey, Quantity);
-        Preferences.Set(PendingFuelStationKey, FuelStation);
-        Preferences.Set(PendingOdometerKey, Odometer);
-        Preferences.Set(PendingSelectedDateKey, SelectedDate?.ToString("O") ?? string.Empty);
-        Preferences.Set(PendingReceiptDateTextKey, ReceiptDateText);
-        Preferences.Set(PendingReceiptPathKey, _receiptTempPath ?? string.Empty);
-        Preferences.Set(PendingOdometerPathKey, _odometerTempPath ?? string.Empty);
-        Preferences.Set(PendingCostEditedKey, IsCostManuallyEdited);
-        Preferences.Set(PendingQuantityEditedKey, IsQuantityManuallyEdited);
-        Preferences.Set(PendingFuelStationEditedKey, IsFuelStationManuallyEdited);
-        Preferences.Set(PendingDateEditedKey, IsReceiptDateManuallyEdited);
-        Preferences.Set(PendingOrNumberKey, OrNumber);
-        Preferences.Set(PendingOrNumberEditedKey, IsOrNumberManuallyEdited);
+        public string ShiftId { get; set; } = string.Empty;
+        public string Cost { get; set; } = string.Empty;
+        public string Quantity { get; set; } = string.Empty;
+        public string FuelStation { get; set; } = string.Empty;
+        public string OrNumber { get; set; } = string.Empty;
+        public string Odometer { get; set; } = string.Empty;
+        public string ReceiptDateText { get; set; } = string.Empty;
+        public string? ReceiptPath { get; set; }
+        public string? OdometerPath { get; set; }
+        public bool HasReceiptScan { get; set; }
+        public string OriginalCost { get; set; } = string.Empty;
+        public string OriginalQuantity { get; set; } = string.Empty;
+        public string OriginalFuelStation { get; set; } = string.Empty;
+        public string OriginalReceiptDateText { get; set; } = string.Empty;
+        public string OriginalOrNumber { get; set; } = string.Empty;
+        public bool IsCostEditable { get; set; }
+        public bool IsQuantityEditable { get; set; }
+        public bool IsReceiptDateEditable { get; set; }
+        public bool IsOrNumberEditable { get; set; }
+        public bool CostEdited { get; set; }
+        public bool QuantityEdited { get; set; }
+        public bool DateEdited { get; set; }
+        public bool OrNumberEdited { get; set; }
+        public string ParsingWarning { get; set; } = string.Empty;
+        public bool ParsingUncertain { get; set; }
     }
 
-    private void TryLoadPendingDraft()
+    /// <summary>Saves the report as it stands (nothing when no scan has been made yet). The photos
+    /// are moved into the app's own storage the first time.</summary>
+    private void SavePendingDraft()
     {
-        var hasAnyDraft =
-            Preferences.ContainsKey(PendingCostKey) ||
-            Preferences.ContainsKey(PendingQuantityKey) ||
-            Preferences.ContainsKey(PendingFuelStationKey) ||
-            Preferences.ContainsKey(PendingOdometerKey);
-
-        if (!hasAnyDraft)
+        if (_isApplyingScanResult || (!_hasReceiptScan && string.IsNullOrWhiteSpace(Odometer)))
         {
             return;
         }
 
-        Cost = Preferences.Get(PendingCostKey, Cost);
-        Quantity = Preferences.Get(PendingQuantityKey, Quantity);
-        FuelStation = Preferences.Get(PendingFuelStationKey, FuelStation);
-        OrNumber = Preferences.Get(PendingOrNumberKey, OrNumber);
-        Odometer = Preferences.Get(PendingOdometerKey, Odometer);
-
-        if (DateTime.TryParse(Preferences.Get(PendingSelectedDateKey, string.Empty), null, DateTimeStyles.RoundtripKind, out var parsedDate))
+        try
         {
-            SelectedDate = parsedDate;
+            string? receiptPath = KeepPhoto(_receiptTempPath);
+            if (receiptPath != _receiptTempPath && receiptPath != null)
+            {
+                _receiptTempPath = receiptPath;
+                ReceiptPhoto = ImageSource.FromFile(receiptPath);
+            }
+            _odometerTempPath = KeepPhoto(_odometerTempPath);
+
+            var draft = new FuelDraft
+            {
+                ShiftId = Preferences.Get("CurrentShiftId", string.Empty),
+                Cost = Cost,
+                Quantity = Quantity,
+                FuelStation = FuelStation,
+                OrNumber = OrNumber,
+                Odometer = Odometer,
+                ReceiptDateText = ReceiptDateText,
+                ReceiptPath = _receiptTempPath,
+                OdometerPath = _odometerTempPath,
+                HasReceiptScan = _hasReceiptScan,
+                OriginalCost = _originalCostValue,
+                OriginalQuantity = _originalQuantityValue,
+                OriginalFuelStation = _originalFuelStationValue,
+                OriginalReceiptDateText = _originalReceiptDateText,
+                OriginalOrNumber = _originalOrNumberValue,
+                IsCostEditable = IsCostEditable,
+                IsQuantityEditable = IsQuantityEditable,
+                IsReceiptDateEditable = IsReceiptDateEditable,
+                IsOrNumberEditable = IsOrNumberEditable,
+                CostEdited = IsCostManuallyEdited,
+                QuantityEdited = IsQuantityManuallyEdited,
+                DateEdited = IsReceiptDateManuallyEdited,
+                OrNumberEdited = IsOrNumberManuallyEdited,
+                ParsingWarning = ReceiptParsingWarning,
+                ParsingUncertain = IsReceiptParsingUncertain,
+            };
+            Preferences.Set(DraftKey, JsonSerializer.Serialize(draft));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Save fuel draft failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>A copy of the photo in DraftPhotoFolder (the cache file is removed).</summary>
+    private static string? KeepPhoto(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return path;
         }
 
-        ReceiptDateText = Preferences.Get(PendingReceiptDateTextKey, SelectedDate?.ToString("MMM dd, yyyy", CultureInfo.InvariantCulture) ?? string.Empty);
-
-        if (IsZeroOrEmpty(Cost)) IsCostEditable = true;
-        if (IsZeroOrEmpty(Quantity)) IsQuantityEditable = true;
-        // The station isn't editable, so a scanned draft with no station read falls back to "UNKNOWN".
-        if (string.IsNullOrWhiteSpace(FuelStation) && !string.IsNullOrWhiteSpace(Preferences.Get(PendingReceiptPathKey, string.Empty))) FuelStation = "UNKNOWN";
-        if (!SelectedDate.HasValue) IsReceiptDateEditable = true;
-        if (string.IsNullOrWhiteSpace(OrNumber)) IsOrNumberEditable = true;
-
-        _costWasUncertain = IsCostEditable;
-        _quantityWasUncertain = IsQuantityEditable;
-        _fuelStationWasUncertain = IsFuelStationEditable;
-        _dateWasUncertain = IsReceiptDateEditable;
-        _orNumberWasUncertain = IsOrNumberEditable;
-        _originalCostValue = Cost;
-        _originalQuantityValue = Quantity;
-        _originalFuelStationValue = FuelStation;
-        _originalReceiptDateText = ReceiptDateText;
-        _originalOrNumberValue = OrNumber;
-
-        IsCostManuallyEdited = Preferences.Get(PendingCostEditedKey, false);
-        IsQuantityManuallyEdited = Preferences.Get(PendingQuantityEditedKey, false);
-        IsFuelStationManuallyEdited = Preferences.Get(PendingFuelStationEditedKey, false);
-        IsReceiptDateManuallyEdited = Preferences.Get(PendingDateEditedKey, false);
-        IsOrNumberManuallyEdited = Preferences.Get(PendingOrNumberEditedKey, false);
-
-        _receiptTempPath = Preferences.Get(PendingReceiptPathKey, string.Empty);
-        if (!string.IsNullOrWhiteSpace(_receiptTempPath) && File.Exists(_receiptTempPath))
+        Directory.CreateDirectory(DraftPhotoFolder);
+        if (Path.GetDirectoryName(Path.GetFullPath(path)) == Path.GetFullPath(DraftPhotoFolder))
         {
-            ReceiptPhoto = ImageSource.FromFile(_receiptTempPath); // THE FIX: Bind from file directly
+            return path;
         }
 
-        _odometerTempPath = Preferences.Get(PendingOdometerPathKey, string.Empty);
+        string kept = Path.Combine(DraftPhotoFolder, Path.GetFileName(path));
+        File.Copy(path, kept, overwrite: true);
+        DeleteTempFile(path);
+        return kept;
+    }
 
+    private bool TryLoadPendingDraft()
+    {
+        FuelDraft? draft;
+        try
+        {
+            string json = Preferences.Get(DraftKey, string.Empty);
+            draft = string.IsNullOrWhiteSpace(json) ? null : JsonSerializer.Deserialize<FuelDraft>(json);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Read fuel draft failed: {ex.Message}");
+            draft = null;
+        }
+
+        // Only this shift's report, and only with its photos still there.
+        string currentShift = Preferences.Get("CurrentShiftId", string.Empty);
+        if (draft == null || draft.ShiftId != currentShift
+            || (draft.HasReceiptScan && (string.IsNullOrWhiteSpace(draft.ReceiptPath) || !File.Exists(draft.ReceiptPath))))
+        {
+            return false;
+        }
+
+        _isApplyingScanResult = true;
+        _hasReceiptScan = draft.HasReceiptScan;
+        _originalCostValue = draft.OriginalCost;
+        _originalQuantityValue = draft.OriginalQuantity;
+        _originalFuelStationValue = draft.OriginalFuelStation;
+        _originalReceiptDateText = draft.OriginalReceiptDateText;
+        _originalOrNumberValue = draft.OriginalOrNumber;
+
+        Cost = draft.Cost;
+        Quantity = draft.Quantity;
+        FuelStation = draft.FuelStation;
+        OrNumber = draft.OrNumber;
+        ReceiptDateText = draft.ReceiptDateText;
+        Odometer = draft.Odometer;
+
+        IsCostEditable = draft.IsCostEditable;
+        IsQuantityEditable = draft.IsQuantityEditable;
+        IsFuelStationEditable = false;
+        IsReceiptDateEditable = draft.IsReceiptDateEditable || !SelectedDate.HasValue;
+        IsOrNumberEditable = draft.IsOrNumberEditable;
+
+        IsCostManuallyEdited = draft.CostEdited;
+        IsQuantityManuallyEdited = draft.QuantityEdited;
+        IsFuelStationManuallyEdited = false;
+        IsReceiptDateManuallyEdited = draft.DateEdited;
+        IsOrNumberManuallyEdited = draft.OrNumberEdited;
+        ReceiptParsingWarning = draft.ParsingWarning;
+        IsReceiptParsingUncertain = draft.ParsingUncertain;
+
+        _receiptTempPath = draft.ReceiptPath;
+        ReceiptPhoto = !string.IsNullOrWhiteSpace(_receiptTempPath) && File.Exists(_receiptTempPath)
+            ? ImageSource.FromFile(_receiptTempPath)
+            : null;
+        _odometerTempPath = !string.IsNullOrWhiteSpace(draft.OdometerPath) && File.Exists(draft.OdometerPath) ? draft.OdometerPath : null;
+        if (_odometerTempPath == null)
+        {
+            Odometer = string.Empty; // photo gone: the odometer has to be scanned again
+        }
+
+        _isApplyingScanResult = false;
         OnPropertyChanged(nameof(CanSubmit));
+        return true;
     }
 
     internal static void ClearPendingDraft()
     {
-        Preferences.Remove(PendingCostKey);
-        Preferences.Remove(PendingQuantityKey);
-        Preferences.Remove(PendingFuelStationKey);
-        Preferences.Remove(PendingOdometerKey);
-        Preferences.Remove(PendingSelectedDateKey);
-        Preferences.Remove(PendingReceiptDateTextKey);
-        Preferences.Remove(PendingReceiptPathKey);
-        Preferences.Remove(PendingOdometerPathKey);
-        Preferences.Remove(PendingCostEditedKey);
-        Preferences.Remove(PendingQuantityEditedKey);
-        Preferences.Remove(PendingFuelStationEditedKey);
-        Preferences.Remove(PendingDateEditedKey);
-        Preferences.Remove(PendingOrNumberKey);
-        Preferences.Remove(PendingOrNumberEditedKey);
+        Preferences.Remove(DraftKey);
+        foreach (string key in LegacyPendingKeys)
+        {
+            Preferences.Remove(LegacyPendingPrefix + key);
+        }
+
+        try
+        {
+            if (Directory.Exists(DraftPhotoFolder))
+            {
+                Directory.Delete(DraftPhotoFolder, recursive: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Clear fuel draft photos failed: {ex.Message}");
+        }
     }
 
     private static bool TryParseReceiptDateInput(string? input, out DateTime date)
