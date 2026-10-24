@@ -232,10 +232,17 @@ public class VehicleDefectViewModel : BindableObject
     // Firebase Storage and returns a durable download URL, instead of the local device
     // cache path (which stops resolving once the cache is cleared or the report is viewed
     // from a different device - the bug LAR-61 was filed against).
+    //
+    // MNT-004: the Firebase Storage SDK has no caller-facing timeout of its own, so on a weak
+    // or offline connection PutBytes/GetDownloadUrlAsync could hang far longer than a driver
+    // would ever wait - stuck on "Submitting..." with no error and nothing saved. WaitAsync
+    // bounds each step so SubmitAsync's catch can show "Upload Failed" instead.
+    private static readonly TimeSpan UploadTimeout = TimeSpan.FromSeconds(30);
+
     private static async Task<string> UploadPhotoAsync(byte[] photoBytes, string remotePath)
     {
         var storageRef = CrossFirebaseStorage.Current.GetRootReference().GetChild(remotePath);
-        await storageRef.PutBytes(photoBytes, new StorageMetadata(contentType: "image/jpeg")).AwaitAsync();
-        return await storageRef.GetDownloadUrlAsync();
+        await storageRef.PutBytes(photoBytes, new StorageMetadata(contentType: "image/jpeg")).AwaitAsync().WaitAsync(UploadTimeout);
+        return await storageRef.GetDownloadUrlAsync().WaitAsync(UploadTimeout);
     }
 }
