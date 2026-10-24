@@ -24,13 +24,11 @@
                         <Label Text="Edited" IsVisible="{Binding IsCostManuallyEdited}" VerticalOptions="Center" TextColor="{DynamicResource ThemeEditedText}" FontSize="11" FontAttributes="Bold" />
                     </HorizontalStackLayout>
                     <Border Grid.Row="0" Grid.Column="1" BackgroundColor="{DynamicResource ThemeSurface}" StrokeThickness="0" StrokeShape="RoundRectangle 16" HeightRequest="45" Padding="14,0">
-                        <Entry Text="{Binding Cost}" IsReadOnly="True" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End" Keyboard="Numeric">
-                            <Entry.Triggers>
-                                <DataTrigger TargetType="Entry" Binding="{Binding IsCostEditable}" Value="True">
-                                    <Setter Property="IsReadOnly" Value="False" />
-                                </DataTrigger>
-                            </Entry.Triggers>
-                        </Entry>
+                        <!-- A Label while locked: on Android a numeric-keyboard Entry still takes typing when IsReadOnly. -->
+                        <Grid>
+                            <Label Text="{Binding Cost}" IsVisible="{Binding IsCostReadOnly}" VerticalOptions="Center" HorizontalTextAlignment="End" />
+                            <Entry Text="{Binding Cost}" IsVisible="{Binding IsCostEditable}" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End" Keyboard="Numeric" />
+                        </Grid>
                     </Border>
 
                     <HorizontalStackLayout Grid.Row="1" Grid.Column="0" Spacing="6" VerticalOptions="Center">
@@ -38,13 +36,11 @@
                         <Label Text="Edited" IsVisible="{Binding IsQuantityManuallyEdited}" VerticalOptions="Center" TextColor="{DynamicResource ThemeEditedText}" FontSize="11" FontAttributes="Bold" />
                     </HorizontalStackLayout>
                     <Border Grid.Row="1" Grid.Column="1" BackgroundColor="{DynamicResource ThemeSurface}" StrokeThickness="0" StrokeShape="RoundRectangle 16" HeightRequest="45" Padding="14,0">
-                        <Entry Text="{Binding Quantity}" IsReadOnly="True" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End" Keyboard="Numeric">
-                            <Entry.Triggers>
-                                <DataTrigger TargetType="Entry" Binding="{Binding IsQuantityEditable}" Value="True">
-                                    <Setter Property="IsReadOnly" Value="False" />
-                                </DataTrigger>
-                            </Entry.Triggers>
-                        </Entry>
+                        <!-- A Label while locked: on Android a numeric-keyboard Entry still takes typing when IsReadOnly. -->
+                        <Grid>
+                            <Label Text="{Binding Quantity}" IsVisible="{Binding IsQuantityReadOnly}" VerticalOptions="Center" HorizontalTextAlignment="End" />
+                            <Entry Text="{Binding Quantity}" IsVisible="{Binding IsQuantityEditable}" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End" Keyboard="Numeric" />
+                        </Grid>
                     </Border>
 
                     <HorizontalStackLayout Grid.Row="2" Grid.Column="0" Spacing="6" VerticalOptions="Center">
@@ -61,13 +57,7 @@
                         <Label Text="Edited" IsVisible="{Binding IsReceiptDateManuallyEdited}" VerticalOptions="Center" TextColor="{DynamicResource ThemeEditedText}" FontSize="11" FontAttributes="Bold" />
                     </HorizontalStackLayout>
                     <Border Grid.Row="3" Grid.Column="1" BackgroundColor="{DynamicResource ThemeSurface}" StrokeThickness="0" StrokeShape="RoundRectangle 16" HeightRequest="45" Padding="14,0">
-                        <Entry Text="{Binding ReceiptDateText}" IsReadOnly="True" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End">
-                            <Entry.Triggers>
-                                <DataTrigger TargetType="Entry" Binding="{Binding IsReceiptDateEditable}" Value="True">
-                                    <Setter Property="IsReadOnly" Value="False" />
-                                </DataTrigger>
-                            </Entry.Triggers>
-                        </Entry>
+                        <Entry Text="{Binding ReceiptDateText}" IsReadOnly="{Binding IsReceiptDateReadOnly}" InputTransparent="{Binding IsReceiptDateReadOnly}" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End" />
                     </Border>
 
                     <HorizontalStackLayout Grid.Row="4" Grid.Column="0" Spacing="6" VerticalOptions="Center">
@@ -75,13 +65,7 @@
                         <Label Text="Edited" IsVisible="{Binding IsOrNumberManuallyEdited}" VerticalOptions="Center" TextColor="{DynamicResource ThemeEditedText}" FontSize="11" FontAttributes="Bold" />
                     </HorizontalStackLayout>
                     <Border Grid.Row="4" Grid.Column="1" BackgroundColor="{DynamicResource ThemeSurface}" StrokeThickness="0" StrokeShape="RoundRectangle 16" HeightRequest="45" Padding="14,0">
-                        <Entry Text="{Binding OrNumber}" Placeholder="Optional" IsReadOnly="True" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End">
-                            <Entry.Triggers>
-                                <DataTrigger TargetType="Entry" Binding="{Binding IsOrNumberEditable}" Value="True">
-                                    <Setter Property="IsReadOnly" Value="False" />
-                                </DataTrigger>
-                            </Entry.Triggers>
-                        </Entry>
+                        <Entry Text="{Binding OrNumber}" Placeholder="Optional" IsReadOnly="{Binding IsOrNumberReadOnly}" InputTransparent="{Binding IsOrNumberReadOnly}" BackgroundColor="Transparent" VerticalOptions="Center" HorizontalTextAlignment="End" />
                     </Border>
 
                     <Label Grid.Row="5" Grid.Column="0" Text="Odometer" VerticalOptions="Center" TextColor="{DynamicResource LargaDarkText}" FontSize="15" />
@@ -138,7 +122,8 @@
                 </VerticalStackLayout>
             </Border>
 
-            <Button Text="Submit" Command="{Binding SubmitReportCommand}" IsEnabled="{Binding CanSubmit}"
+            <!-- Always tappable (FUEL-014): the command says what is still missing. -->
+            <Button Text="Submit" Command="{Binding SubmitReportCommand}"
                     BackgroundColor="{DynamicResource ThemePanel}" TextColor="{DynamicResource ThemeTextTertiary}"
                     CornerRadius="25" HeightRequest="55" FontSize="16" FontAttributes="Bold" Margin="0,10,0,20">
                 <Button.Triggers>

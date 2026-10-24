@@ -196,8 +196,13 @@ service cloud.firestore {
 
     match /emergency_alerts/{alertId} {
       allow read: if isStaff();
+      // SOS-006: the fields ManagerWeb's SosPushService writes (caller check, push claim, address,
+      // retention) and the Resolved state are never the driver's to set - a pre-set pushSentAt
+      // skipped the caller check and the push, leaving a driver-written callerCheck in place.
       allow create: if isDriver() && request.resource.data.driverId == request.auth.uid
-                    && !('expireAt' in request.resource.data)
+                    && request.resource.data.get('isResolved', false) == false
+                    && !request.resource.data.keys().hasAny(['expireAt', 'pushSentAt', 'callerCheck', 'callerVerified',
+                         'callerVerificationReason', 'address', 'addressSource', 'resolvedAt'])
                     && exists(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId))
                     && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid
                     && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.status == 'Active';
