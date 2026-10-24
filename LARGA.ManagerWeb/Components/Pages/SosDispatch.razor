@@ -131,11 +131,19 @@ else
                                 <Icon Name="message-circle" /> Message@(_unreadDriverIds.Contains(alert.DriverId) ? " · new" : "")
                             </button>
                         }
-                        <label class="sos-toggle" title="Mark this emergency as handled">
-                            <input type="checkbox" @key="(alert.AlertId, _toggleVersion)" checked="@alert.IsResolved" disabled="@(_busyAlertId == alert.AlertId)"
-                                   @onchange="e => HandleResolvedToggle(alert, e.Value is true)" />
-                            <span>Resolved</span>
-                        </label>
+                        @* SOS-007: only a Manager resolves (SosDispatchService checks it too). *@
+                        @if (_canManage)
+                        {
+                            <label class="sos-toggle" title="Mark this emergency as handled">
+                                <input type="checkbox" @key="(alert.AlertId, _toggleVersion)" checked="@alert.IsResolved" disabled="@(_busyAlertId == alert.AlertId)"
+                                       @onchange="e => HandleResolvedToggle(alert, e.Value is true)" />
+                                <span>Resolved</span>
+                            </label>
+                        }
+                        else
+                        {
+                            <span class="sos-no-phone">Only a Manager can mark this resolved.</span>
+                        }
                     </div>
                 </article>
             }
@@ -172,11 +180,18 @@ else
                                     <td>@(alert.ResolvedAt?.ToPhilippineTime().ToString("MMM d, h:mm tt") ?? "–")</td>
                                     <td>@(alert.HasLocation ? (string.IsNullOrWhiteSpace(alert.Address) ? Coordinates(alert) : alert.Address) : "unavailable")</td>
                                     <td>
-                                        <label class="sos-toggle" title="Untick to reopen this emergency">
-                                            <input type="checkbox" @key="(alert.AlertId, _toggleVersion)" checked="@alert.IsResolved" disabled="@(_busyAlertId == alert.AlertId)"
-                                                   @onchange="e => HandleResolvedToggle(alert, e.Value is true)" />
+                                        @if (_canManage)
+                                        {
+                                            <label class="sos-toggle" title="Untick to reopen this emergency">
+                                                <input type="checkbox" @key="(alert.AlertId, _toggleVersion)" checked="@alert.IsResolved" disabled="@(_busyAlertId == alert.AlertId)"
+                                                       @onchange="e => HandleResolvedToggle(alert, e.Value is true)" />
+                                                <span>Resolved</span>
+                                            </label>
+                                        }
+                                        else
+                                        {
                                             <span>Resolved</span>
-                                        </label>
+                                        }
                                     </td>
                                 </tr>
                             }
@@ -194,7 +209,7 @@ else
     ConfirmText="@_confirmButtonText" IsDangerous="_confirmIsDangerous" IsBusy="_confirmBusy" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm" />
 
 @code {
-    // Assistant Managers can view SOS alerts but can't open driver chats from here.
+    // Assistant Managers can view SOS alerts but can't resolve them or open driver chats from here.
     private bool _canManage;
 
     protected override async Task OnInitializedAsync()
@@ -332,6 +347,12 @@ else
 
     private Task HandleResolvedToggle(SosAlertView alert, bool isResolved)
     {
+        if (!_canManage)
+        {
+            _toggleVersion++;
+            return Task.CompletedTask;
+        }
+
         if (isResolved)
         {
             RequestConfirm("Mark This SOS Resolved?", $"This marks the alert from {alert.DriverName} as handled. Make sure the situation is actually resolved first.", "Mark Resolved", () => SetResolvedAsync(alert, true), isDangerous: false);
@@ -350,6 +371,10 @@ else
         {
             await Dispatch.SetResolvedAsync(alert.AlertId, isResolved, _managerUserId);
             await LoadAsync();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _loadError = ex.Message;
         }
         catch (Exception ex)
         {

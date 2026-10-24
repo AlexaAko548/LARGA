@@ -83,6 +83,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
     private readonly CrashDetector _crash = new();
     private EmergencyCallHandler? _callHandler;
     private IEmergencyAlertService? _alertService;
+    private IEmergencyFeedback? _feedback;
     private EmergencyCountdownCoordinator? _coordinator;
 
     private double _lastLat;
@@ -107,10 +108,12 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         IServiceProvider? services = IPlatformApplication.Current?.Services;
         _alertService = services?.GetService<IEmergencyAlertService>();
         _coordinator = services?.GetService<EmergencyCountdownCoordinator>();
+        _feedback = services?.GetService<IEmergencyFeedback>();
 
         if (_alertService != null)
         {
             _callHandler = new EmergencyCallHandler(this, _alertService);
+            _callHandler.CallConnected += OnCallConnected;
         }
 
         if (_coordinator != null)
@@ -345,7 +348,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         double t = SystemClock.ElapsedRealtime() / 1000.0;
         double? speed = location.HasSpeed ? location.Speed : (double?)null;
 #if DEBUG
-        Record(SensorTrace.FormatGps(t - _recordStart, speed));
+        Record(SensorTrace.FormatGps(t - _recordStart, speed) + "," + location.Provider);
         // Only when the speed changes, so logcat shows moving / stopped without one line per second.
         string speedText = speed is double v ? $"{v * 3.6:0} km/h" : "none";
         if (speedText != _lastLoggedSpeed)
@@ -370,16 +373,25 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
     private void BeginCountdown(string triggerType)
     {
-        // One emergency at a time: a second detection during a countdown is ignored.
+        // One emergency at a time: a second detection during a countdown, or while its alert is
+        // still being written, is ignored.
         if (!_countdownGate.TryBegin(triggerType, out CancellationToken token))
         {
-            EmergencyLog.Info($"{triggerType} detection ignored: a {_countdownGate.Active} countdown is already running.");
+            EmergencyLog.Info(_countdownGate.Sending
+                ? $"{triggerType} detection ignored: a {_countdownGate.Active} alert is still being written."
+                : $"{triggerType} detection ignored: a {_countdownGate.Active} countdown is already running.");
             return;
         }
 
         EmergencyLog.Info($"{triggerType} countdown started ({CountdownLength.TotalSeconds:0}s to cancel).");
 
         Vibrate(triggerType);
+        if (triggerType == EmergencyAlert.Crash)
+        {
+            // SOS-018: the crash countdown is loud (alarm stream, audible on silent), so a driver
+            // who is conscious notices it and can cancel. Hostile stays silent.
+            _feedback?.CrashCountdownStarted();
+        }
         ShowCountdownNotification(triggerType);
         _coordinator?.Begin(triggerType, CountdownLength);
 
@@ -400,24 +412,35 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
             }
 
             EmergencyLog.Info($"{triggerType} countdown expired - sending alert.");
-            if (triggerType == EmergencyAlert.Crash)
+            try
             {
-                await FireCrashAsync();
+                if (triggerType == EmergencyAlert.Crash)
+                {
+                    await FireCrashAsync();
+                }
+                else
+                {
+                    await FireHostileAsync();
+                }
             }
-            else
+            finally
             {
-                await FireHostileAsync();
+                _countdownGate.Finish();
             }
         });
     }
 
     private void OnPopupCancelRequested(object? sender, EventArgs e) => CancelCountdown("popup");
 
+    // SOS-024: the auto-answered crash callback is on the speakerphone; the alarm would drown it.
+    private void OnCallConnected(object? sender, EventArgs e) => _feedback?.StopAlarm();
+
     private void CancelCountdown(string source)
     {
         if (!_countdownGate.Cancel()) return;
 
         EmergencyLog.Info($"Countdown cancelled ({source}) - no alert sent.");
+        _feedback?.StopAlarm();
         ClearCountdownUi();
     }
 
@@ -731,7 +754,12 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         try { _sensorManager?.UnregisterListener(this); } catch { /* never registered */ }
         try { _locationManager?.RemoveUpdates(this); } catch { /* never requested */ }
 
-        _callHandler?.Disarm();
+        if (_callHandler != null)
+        {
+            _callHandler.CallConnected -= OnCallConnected;
+            // Also refuses an arming still on its way from an alert being written (SOS-027).
+            _callHandler.ShutDown();
+        }
 #if DEBUG
         StopRecording();
 #endif

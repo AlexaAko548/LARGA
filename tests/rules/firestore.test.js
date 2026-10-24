@@ -232,6 +232,12 @@ describe('SOS emergency_alerts (M7 SOS-002/006/007)', () => {
     await assertFails(addDoc(collection(as(MANAGER), 'emergency_alerts'), appSos()));
     await assertFails(addDoc(collection(as(ASSISTANT), 'emergency_alerts'), appSos()));
   });
+  for (const [field, value] of [['pushSentAt', serverTimestamp()], ['callerCheck', 'Verified'], ['callerVerified', true],
+                                ['callerVerificationReason', 'ok'], ['address', 'Somewhere'], ['addressSource', 'maptiler'],
+                                ['resolvedAt', serverTimestamp()], ['isResolved', true]]) {
+    it(`SOS-006 driver cannot pre-set the server-owned ${field} on an SOS`, async () =>
+      assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ [field]: value }))));
+  }
   it('manager and assistant manager can read alerts; drivers cannot', async () => {
     await seedAlert();
     await assertSucceeds(getDoc(doc(as(MANAGER), 'emergency_alerts', 'sos1')));

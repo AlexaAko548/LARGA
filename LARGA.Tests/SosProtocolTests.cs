@@ -67,6 +67,22 @@ public class SosProtocolTests
     }
 
     [Fact]
+    public void SOS_026_second_detection_while_the_first_alert_is_being_written_is_ignored()
+    {
+        var gate = new EmergencyCountdownGate();
+        gate.TryBegin(EmergencyAlert.Hostile, out _);
+        Assert.True(gate.TryComplete());          // countdown ran out - the alert is being written
+
+        Assert.True(gate.Sending);
+        Assert.False(gate.TryBegin(EmergencyAlert.Crash, out _));
+        Assert.False(gate.Cancel());              // too late to cancel
+        Assert.Equal(EmergencyAlert.Hostile, gate.Active);
+
+        gate.Finish();                            // written: a crash now gets its own countdown (SOS-025)
+        Assert.True(gate.TryBegin(EmergencyAlert.Crash, out _));
+    }
+
+    [Fact]
     public void SOS_026_cancel_and_expiry_racing_only_one_wins()
     {
         for (int run = 0; run < 200; run++)
@@ -100,6 +116,21 @@ public class SosProtocolTests
         Assert.True(state.OnIdle());                                // manager hangs up
         Assert.Equal(before, audio.Snapshot());
         Assert.Null(state.Mode);                                    // one call per emergency
+    }
+
+    [Fact]
+    public void SOS_013_manager_hanging_up_before_the_answer_still_gets_the_next_call_answered()
+    {
+        var (state, audio) = Armed(EmergencyCallMode.Stealth);
+        Assert.Equal(RingingDecision.Answer, state.OnRinging(Manager, T0.AddMinutes(1)));
+        state.BeginAnswer();
+        Assert.False(state.OnIdle());             // rang off before it was picked up
+
+        // Before the fix "answering" stayed set: this call was ignored, and the window never expired.
+        Assert.Equal(RingingDecision.Answer, state.OnRinging(Manager, T0.AddMinutes(2)));
+        state.AnswerFailed();
+        Assert.True(state.DisarmIfExpired(T0.AddMinutes(31)));
+        Assert.Equal((5, 3, false, false), audio.Snapshot());
     }
 
     [Fact]
@@ -140,15 +171,22 @@ public class SosProtocolTests
     [InlineData(false, false)]
     public void SOS_016_missing_phone_permissions_block_arming(bool phoneState, bool callLog)
     {
-        Assert.NotNull(EmergencyCallAutoAnswer.ArmBlockedReason(phoneState, callLog, null));
-        Assert.Null(EmergencyCallAutoAnswer.ArmBlockedReason(true, true, null));
+        Assert.NotNull(EmergencyCallAutoAnswer.ArmBlockedReason(phoneState, callLog, true, null));
+        Assert.Null(EmergencyCallAutoAnswer.ArmBlockedReason(true, true, true, null));
+    }
+
+    [Fact]
+    public void SOS_016_without_answer_phone_calls_it_is_not_armed_so_the_ringer_is_left_alone()
+    {
+        // Arming would only have silenced the ringer for 30 minutes - the call can't be picked up.
+        Assert.Contains("ANSWER_PHONE_CALLS", EmergencyCallAutoAnswer.ArmBlockedReason(true, true, false, null));
     }
 
     [Fact]
     public void SOS_017_no_manager_numbers_blocks_arming()
     {
-        Assert.Contains("managerPhoneNumbers", EmergencyCallAutoAnswer.ArmBlockedReason(true, true, 0));
-        Assert.Null(EmergencyCallAutoAnswer.ArmBlockedReason(true, true, 1));
+        Assert.Contains("managerPhoneNumbers", EmergencyCallAutoAnswer.ArmBlockedReason(true, true, true, 0));
+        Assert.Null(EmergencyCallAutoAnswer.ArmBlockedReason(true, true, true, 1));
     }
 
     [Fact]
@@ -174,6 +212,7 @@ public class SosProtocolTests
 
         state.Arm(EmergencyCallMode.Loud, new[] { Manager }, T0.AddMinutes(5));
         Assert.Equal(EmergencyCallMode.Loud, state.Mode);
+        Assert.Equal(5, audio.Volume[CallAudioStream.Ring]); // the crash callback rings out again
 
         ManagerCallConnects(state, Manager, T0.AddMinutes(6));
         Assert.True(audio.SpeakerphoneOn);
@@ -181,6 +220,20 @@ public class SosProtocolTests
 
         state.OnIdle();
         Assert.Equal((5, 3, false, false), audio.Snapshot()); // the driver's settings, not the stealth ones
+    }
+
+    [Fact]
+    public void SOS_027_arming_after_the_monitor_stopped_is_refused()
+    {
+        var (state, audio) = Armed(EmergencyCallMode.Stealth);
+        Assert.True(state.ShutDown());            // clock-out while armed: audio back to normal
+        Assert.Equal((5, 3, false, false), audio.Snapshot());
+
+        // An alert that was still being written at clock-out tries to arm afterwards.
+        Assert.False(state.Arm(EmergencyCallMode.Stealth, new[] { Manager }, T0.AddMinutes(1)));
+        Assert.Null(state.Mode);
+        Assert.Equal(5, audio.Volume[CallAudioStream.Ring]);
+        Assert.Equal(RingingDecision.Ignore, state.OnRinging(Manager, T0.AddMinutes(2)));
     }
 
     [Fact]
@@ -276,6 +329,42 @@ public class SosProtocolTests
         }
 
         Assert.Equal(SosCallerCheck.Unverified, SosCallerValidator.Validate(alert, shift, driver).Status);
+    }
+
+    // ---- Resolve (SOS-007) ---------------------------------------------------
+
+    [Theory]
+    [InlineData("Manager", true)]
+    [InlineData(" manager ", true)]
+    [InlineData("Assistant Manager", false)]
+    [InlineData("Driver", false)]
+    [InlineData(null, false)]
+    public void SOS_007_only_a_manager_can_resolve(string? role, bool allowed)
+    {
+        Assert.Equal(allowed, SosResolvePolicy.CanResolve(role));
+    }
+
+    // ---- Push age (SOS-004) -------------------------------------------------
+
+    [Fact]
+    public void SOS_004_sos_queued_offline_for_over_30_minutes_is_still_pushed_on_reconnect()
+    {
+        DateTime now = T0;
+        // Held 45 minutes ago with no signal, reached the server just now.
+        Assert.False(SosPushPolicy.IsTooOldToPush(serverCreatedAtUtc: now.AddSeconds(-2), phoneTimestampUtc: now.AddMinutes(-45), now));
+    }
+
+    [Fact]
+    public void SOS_004_phone_clock_running_behind_does_not_block_the_push()
+    {
+        Assert.False(SosPushPolicy.IsTooOldToPush(T0.AddSeconds(-1), T0.AddHours(-2), T0));
+    }
+
+    [Fact]
+    public void SOS_004_alerts_already_old_on_the_server_when_first_seen_are_not_pushed()
+    {
+        Assert.True(SosPushPolicy.IsTooOldToPush(T0.AddMinutes(-31), T0.AddMinutes(-31), T0));
+        Assert.True(SosPushPolicy.IsTooOldToPush(null, T0.AddMinutes(-31), T0)); // no create time: phone time
     }
 
     // ---- Push repeat filter (SOS-005) ---------------------------------------

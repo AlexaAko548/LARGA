@@ -20,14 +20,61 @@ public class SosDetectionTests
 
         var hostile = Assert.Single(detections);
         Assert.Equal(EmergencyAlert.Hostile, hostile.TriggerType);
+        // The shake starts at 1 s; it fired after 2.5 s of shaking before the SOS-010 fix.
+        Assert.InRange(hostile.T, 1 + 2.6, 1 + 3.5);
     }
 
     [Theory]
+    [InlineData("sos010_short_shake_2s.txt")]
     [InlineData("sos010_vertical_shake.txt")]
     [InlineData("sos010_rough_road_120s.txt")]
     public void SOS_010_short_vertical_or_road_shaking_does_not_trigger(string trace)
     {
         Assert.Empty(SosTraces.Replay(trace));
+    }
+
+    [Fact]
+    public void SOS_008_shake_recorded_on_the_emulator_with_the_screen_locked_triggers()
+    {
+        Assert.Equal(EmergencyAlert.Hostile, Assert.Single(SosTraces.Replay("emu_hostile_shake_locked.txt")).TriggerType);
+    }
+
+    [Fact]
+    public void SOS_010_shake_of_2_3_seconds_recorded_on_the_emulator_does_not_trigger()
+    {
+        // Started the countdown on the emulator before the fix (2026-10-24 07:24:27).
+        Assert.Empty(SosTraces.Replay("emu_short_shake_2s.txt"));
+    }
+
+    [Theory]
+    [InlineData(2.0)]
+    [InlineData(2.4)]
+    public void SOS_010_shakes_shorter_than_about_3_seconds_do_not_trigger(double seconds)
+    {
+        var detector = new HostileMotionDetector();
+        bool fired = false;
+        for (int i = 0; i <= 50 * 6; i++)
+        {
+            double t = i / 50.0;
+            double x = t >= 1 && t < 1 + seconds ? 8 * Math.Sin(2 * Math.PI * 3 * (t - 1)) : 0;
+            fired |= detector.OnSample(t, x, 0, 0);
+        }
+        Assert.False(fired);
+    }
+
+    [Fact]
+    public void SOS_010_shake_with_a_pause_in_the_middle_does_not_trigger()
+    {
+        var detector = new HostileMotionDetector();
+        bool fired = false;
+        for (int i = 0; i <= 50 * 6; i++)
+        {
+            double t = i / 50.0;
+            // 2 s of shaking, a 0.8 s pause, 1.7 s more: never 3 s without a pause.
+            bool shaking = t < 2.0 || (t >= 2.8 && t < 4.5);
+            fired |= detector.OnSample(t, shaking ? 8 * Math.Sin(2 * Math.PI * 3 * t) : 0, 0, 0);
+        }
+        Assert.False(fired);
     }
 
     [Theory]
@@ -40,9 +87,11 @@ public class SosDetectionTests
 
     [Theory]
     [InlineData(1.0, false)]
+    [InlineData(1.6, true)]
     [InlineData(2.0, true)]
     [InlineData(3.0, true)]
     [InlineData(5.0, true)]
+    [InlineData(5.8, true)]
     [InlineData(8.0, false)]
     public void SOS_011_swing_rate_limits(double hz, bool triggers)
     {
@@ -92,6 +141,15 @@ public class SosDetectionTests
     public void SOS_019_spike_while_the_car_keeps_moving_is_not_a_crash()
     {
         Assert.Empty(SosTraces.Replay("sos019_pothole_keeps_moving.txt"));
+    }
+
+    [Fact]
+    public void SOS_019_pothole_recorded_on_the_emulator_while_moving_is_not_a_crash()
+    {
+        // Live run: 46 km/h GPS fixes, a 60 m/s² spike on the virtual accelerometer, kept moving.
+        SensorTrace trace = SosTraces.Load("emu_pothole_moving.txt");
+        Assert.Contains(trace.Samples, s => !s.IsGps && s.X >= 59);
+        Assert.Empty(EmergencyTraceReplayer.Run(trace));
     }
 
     [Fact]

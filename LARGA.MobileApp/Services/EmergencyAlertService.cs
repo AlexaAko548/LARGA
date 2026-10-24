@@ -79,6 +79,12 @@ public interface IEmergencyFeedback
 
     /// <summary>Heads-up that an SOS was written, whatever started it. Crash also sounds the alarm.</summary>
     void AlertSent(string triggerType);
+
+    /// <summary>The crash protocol's cancel countdown started: sound the alarm (alarm stream).</summary>
+    void CrashCountdownStarted();
+
+    /// <summary>Stops the crash alarm (countdown cancelled, or the manager's callback connected).</summary>
+    void StopAlarm();
 }
 
 /// <summary>
@@ -101,6 +107,14 @@ public class NoOpEmergencyFeedback : IEmergencyFeedback
     }
 
     public void AlertSent(string triggerType)
+    {
+    }
+
+    public void CrashCountdownStarted()
+    {
+    }
+
+    public void StopAlarm()
     {
     }
 }

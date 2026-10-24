@@ -290,9 +290,14 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
 
     private async Task SendSosAsync()
     {
-        if (_isSendingSos)
+        // SOS-005: one alert per press. The overlay doesn't block the button underneath, and a
+        // send with good signal finishes in well under a second, so a second hold straight after
+        // the first used to write a second alert. Until the driver taps OK, holds are ignored.
+        if (_isSendingSos || IsSosAlertVisible)
         {
-            EmergencyAlertService.Log("SOS hold ignored: the previous SOS is still sending.");
+            EmergencyAlertService.Log(_isSendingSos
+                ? "SOS hold ignored: the previous SOS is still sending."
+                : "SOS hold ignored: the previous SOS was just sent (overlay still open).");
             return;
         }
         _isSendingSos = true;
