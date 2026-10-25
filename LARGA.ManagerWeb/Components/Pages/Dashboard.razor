@@ -299,7 +299,7 @@
                                 <strong>@Pct(driver.Performance.PaymentReliabilityPercent)</strong>
                                 <span title="Accident / damage reports from their shifts">Incidents</span>
                                 <strong>@driver.IncidentCount</strong>
-                                <span>Boundaries Remitted</span>
+                                <span title="Total paid toward boundaries from their completed shifts in the last @FleetReportingService.StandingsWindowDays days">Boundaries Remitted</span>
                                 <strong>₱ @driver.BoundariesRemitted.ToString("#,##0.00")</strong>
                             </div>
                         </div>
@@ -423,8 +423,11 @@
         _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
 
         // The snapshot and the collection trend are independent, so both load at once (PERFORMANCE_REPORT.md P3).
+        // Two weeks of ledger days: the current week for the chart, the prior week so Weekly
+        // Revenue below has something to compare against.
         Task<DashboardSnapshot> snapshotTask = FleetReporting.GetDashboardSnapshotAsync();
-        Task<List<LARGA.SharedCore.Models.FinancialLedger.DailySettlementSnapshot>> collectionTask = Ledger.GetCollectionTrendAsync(FleetUtilization.WindowDays, fromCache: true);
+        Task<List<LARGA.SharedCore.Models.FinancialLedger.DailySettlementSnapshot>> collectionTask =
+            Ledger.GetCollectionTrendAsync(FleetUtilization.WindowDays * 2, fromCache: true);
 
         try
         {
@@ -435,10 +438,18 @@
             _dataError = ex.Message;
         }
 
-        // Same per-day totals as Daily Settlements, so the chart and the ledger always agree.
+        // Same per-day totals as Daily Settlements, so the chart and the ledger always agree -
+        // and the Weekly Revenue stat card (below) is summed from these same days instead of a
+        // separately-windowed sum of raw payments, so it never drifts from what this chart (and
+        // the ledger) shows for the week.
         try
         {
-            _collection = (await collectionTask)
+            List<LARGA.SharedCore.Models.FinancialLedger.DailySettlementSnapshot> window = await collectionTask;
+            int thisWeekStart = Math.Max(0, window.Count - FleetUtilization.WindowDays);
+            List<LARGA.SharedCore.Models.FinancialLedger.DailySettlementSnapshot> thisWeek = window.Skip(thisWeekStart).ToList();
+            List<LARGA.SharedCore.Models.FinancialLedger.DailySettlementSnapshot> lastWeek = window.Take(thisWeekStart).ToList();
+
+            _collection = thisWeek
                 .Select(day => new CollectionDay
                 {
                     Date = day.Date,
@@ -448,6 +459,11 @@
                     Shifts = day.Rows.Count,
                 })
                 .ToList();
+
+            if (_snapshot is not null)
+            {
+                _snapshot.WeeklyRevenue = WeeklyRevenueFromLedger(thisWeek, lastWeek);
+            }
         }
         catch (Exception ex)
         {
@@ -501,6 +517,22 @@
         "mileage" when _mileageChart is not null => ("Fleet Mileage - Distance Covered", _mileageChart, "No mileage data"),
         _ => null,
     };
+
+    // Cash/GCash received plus overpayment credit applied, same as CollectionDay.Collected -
+    // so the Weekly Revenue stat card always agrees with the Boundary Collections chart and
+    // Daily Settlements, rather than a raw boundary_payments sum over a different window.
+    private static StatCard WeeklyRevenueFromLedger(
+        List<LARGA.SharedCore.Models.FinancialLedger.DailySettlementSnapshot> thisWeek,
+        List<LARGA.SharedCore.Models.FinancialLedger.DailySettlementSnapshot> lastWeek)
+    {
+        decimal current = thisWeek.Sum(d => d.CollectedSoFar + d.CreditApplied);
+        decimal previous = lastWeek.Sum(d => d.CollectedSoFar + d.CreditApplied);
+        return new StatCard
+        {
+            Value = current,
+            TrendPercent = previous == 0 ? (current == 0 ? 0 : null) : (double)((current - previous) / previous * 100),
+        };
+    }
 
     private double? CollectionPercent()
     {
