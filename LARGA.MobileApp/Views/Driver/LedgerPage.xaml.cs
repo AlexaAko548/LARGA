@@ -24,6 +24,17 @@ public partial class LedgerPage : ContentPage
             {
                 System.Diagnostics.Debug.WriteLine($"Ledger load failed: {ex.Message}");
             }
+
+            viewModel.StartListening();
+        }
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        if (BindingContext is LedgerViewModel viewModel)
+        {
+            viewModel.StopListening();
         }
     }
 }
