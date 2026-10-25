@@ -35,6 +35,9 @@ public class FuelReportViewModel : BindableObject
     // A stuck upload (no signal) fails after this instead of Firebase Storage's 10-minute retry window.
     private static readonly TimeSpan UploadTimeout = TimeSpan.FromSeconds(60);
 
+    // storage.rules isPhoto(): request.resource.size < 5 MB.
+    private const long MaxUploadBytes = 5 * 1024 * 1024;
+
     private readonly IOcrService _ocrService;
     private readonly IFuelService _fuelService;
 
@@ -226,7 +229,9 @@ public class FuelReportViewModel : BindableObject
     private string? _odometerTempPath;
 
     private bool _isSubmitting;
-    public bool IsSubmitting { get => _isSubmitting; set { _isSubmitting = value; OnPropertyChanged(); OnPropertyChanged(nameof(CanSubmit)); } }
+    public bool IsSubmitting { get => _isSubmitting; set { _isSubmitting = value; OnPropertyChanged(); OnPropertyChanged(nameof(CanSubmit)); OnPropertyChanged(nameof(SubmitButtonText)); } }
+
+    public string SubmitButtonText => IsSubmitting ? "Submitting…" : "Submit";
 
     private bool HasBothScans =>
         !string.IsNullOrWhiteSpace(Odometer) &&
@@ -374,7 +379,7 @@ public class FuelReportViewModel : BindableObject
             }
             catch (Exception uploadEx)
             {
-                System.Diagnostics.Debug.WriteLine($"Fuel image upload error: {uploadEx.Message}");
+                System.Diagnostics.Debug.WriteLine($"Fuel image upload error: {uploadEx}");
                 await ShowUploadFailedAsync();
                 return;
             }
@@ -528,11 +533,9 @@ public class FuelReportViewModel : BindableObject
                 // THE FIX: Add Guid.NewGuid() to prevent file lock crashes on rescans
                 string localFilePath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_{photo.FileName}");
 
-                using (var sourceStream = await photo.OpenReadAsync())
-                using (var localFileStream = File.OpenWrite(localFilePath))
-                {
-                    await sourceStream.CopyToAsync(localFileStream);
-                }
+                // A full-resolution camera photo is often over storage.rules' 5 MB limit, which made
+                // Submit fail with "Upload Failed". Same size as the pre/end-shift odometer photo.
+                await PhotoResizer.ResizeToJpegAsync(photo.FullPath, localFilePath, maxDimension: 2560, quality: 85);
 
                 MainThread.BeginInvokeOnMainThread(async () =>
                 {
@@ -580,6 +583,13 @@ public class FuelReportViewModel : BindableObject
         if (string.IsNullOrWhiteSpace(localFilePath) || !File.Exists(localFilePath))
         {
             throw new ArgumentException("File path is invalid or does not exist", nameof(localFilePath));
+        }
+
+        // A draft saved before photos were resized at capture can still hold one over the limit.
+        if (new FileInfo(localFilePath).Length >= MaxUploadBytes)
+        {
+            string resizedPath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_upload.jpg");
+            localFilePath = await PhotoResizer.ResizeToJpegAsync(localFilePath, resizedPath, maxDimension: 2560, quality: 85);
         }
 
         var storageRef = CrossFirebaseStorage.Current.GetRootReference().GetChild(remotePath);
