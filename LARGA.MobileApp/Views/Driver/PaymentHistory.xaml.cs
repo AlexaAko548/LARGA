@@ -7,10 +7,34 @@ namespace LARGA.MobileApp.Views.Driver;
 
 public partial class PaymentHistoryPage : ContentPage
 {
+    private readonly PaymentHistoryViewModel _viewModel;
+
     public PaymentHistoryPage(PaymentHistoryViewModel viewModel)
     {
         InitializeComponent();
+        _viewModel = viewModel;
         BindingContext = viewModel;
+    }
+
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+        try
+        {
+            await _viewModel.LoadDynamicPaymentDataAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Payment history load failed: {ex.Message}");
+        }
+
+        _viewModel.StartListening();
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        _viewModel.StopListening();
     }
 
     private async void OnBackButtonClicked(object sender, EventArgs e)

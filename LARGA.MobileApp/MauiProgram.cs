@@ -99,6 +99,16 @@ public static class MauiProgram
         // Depends only on IOcrService, so it resolves on every platform (ScanEReceiptPage needs it).
         builder.Services.AddSingleton<LARGA.MobileApp.Services.EReceiptOcrService>();
 
+        // Payment History export: saves straight to Downloads where the platform allows it silently
+        // (Android 10+, Windows), otherwise falls back to the share sheet (ShareDownloadService).
+#if ANDROID
+        builder.Services.AddSingleton<IDownloadService, LARGA.MobileApp.Platforms.Android.Services.AndroidDownloadService>();
+#elif WINDOWS
+        builder.Services.AddSingleton<IDownloadService, LARGA.MobileApp.Platforms.Windows.Services.WindowsDownloadService>();
+#else
+        builder.Services.AddSingleton<IDownloadService, ShareDownloadService>();
+#endif
+
 #if ANDROID
         // Crops the driver's face from the license photo for the profile avatar (ML Kit, on-device).
         builder.Services.AddSingleton<IFaceCropService, LARGA.MobileApp.Platforms.Android.Services.AndroidFaceCropService>();

@@ -23,6 +23,7 @@ public static class DriverDebtCalculator
 {
     public sealed class ShiftEntry
     {
+        public string ShiftId { get; init; } = string.Empty;
         public DateTime ShiftStartUtc { get; init; }
         public string TaxiId { get; init; } = string.Empty;
         public bool IsActive { get; init; }
@@ -121,6 +122,7 @@ public static class DriverDebtCalculator
         var result = new Result { Credit = debt.OverpaymentCredit, TotalDebt = debt.TotalDebt };
         result.Shifts.AddRange(debt.Shifts.Select(s => new ShiftEntry
         {
+            ShiftId = s.Shift.ShiftId,
             ShiftStartUtc = s.Shift.StartUtc is DateTime start && start.Year > 2000 ? start : DateTime.MinValue,
             TaxiId = s.Shift.TaxiId,
             IsActive = string.Equals(s.Shift.Status, "Active", StringComparison.OrdinalIgnoreCase),
