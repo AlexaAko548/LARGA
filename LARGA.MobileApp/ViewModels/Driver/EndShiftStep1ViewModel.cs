@@ -1,12 +1,15 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using Microsoft.Maui.Controls;
+using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
 public class EndShiftStep1ViewModel : BindableObject
 {
+    private readonly IShiftManagementService _shiftService;
     private readonly Dictionary<string, bool?> _items = new()
     {
         { "Tires", null },
@@ -15,6 +18,16 @@ public class EndShiftStep1ViewModel : BindableObject
         { "Interior", null },
         { "Exterior", null }
     };
+
+    // Review follow-up: these pages hard-coded another unit's plate instead of showing the one
+    // actually on this shift - every driver saw the same wrong plate. Same AssignedUnitPlate
+    // pattern (and the same GetCurrentUserAssignedTaxiAsync source) PreShiftStep1ViewModel uses.
+    private string _assignedUnitPlate = "Loading...";
+    public string AssignedUnitPlate
+    {
+        get => _assignedUnitPlate;
+        private set { _assignedUnitPlate = value; OnPropertyChanged(); }
+    }
 
     public string ProgressText => $"{_items.Values.Count(v => v != null)} / 5 completed";
     public double ProgressRatio => _items.Values.Count(v => v != null) / 5.0;
@@ -37,8 +50,11 @@ public class EndShiftStep1ViewModel : BindableObject
     public ICommand ReportDefectCommand { get; }
     public ICommand NextCommand { get; }
 
-    public EndShiftStep1ViewModel()
+    public EndShiftStep1ViewModel(IShiftManagementService shiftService)
     {
+        _shiftService = shiftService;
+        _ = LoadAssignedUnitAsync();
+
         PassItemCommand = new Command<string>((item) =>
         {
             _items[item] = _items[item] == true ? null : true;
@@ -72,6 +88,25 @@ public class EndShiftStep1ViewModel : BindableObject
                 { "inspection", _items.ToDictionary(kv => kv.Key, kv => kv.Value == true) },
             });
         });
+    }
+
+    private async Task LoadAssignedUnitAsync()
+    {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
+        try
+        {
+            var taxi = await _shiftService.GetCurrentUserAssignedTaxiAsync();
+            if (taxi != null)
+            {
+                AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber)
+                    ? taxi.Model
+                    : taxi.PlateNumber.Replace("-", " · ");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Assigned Unit Error: {ex.Message}");
+        }
     }
 
     private void UpdateProgress(string item)
