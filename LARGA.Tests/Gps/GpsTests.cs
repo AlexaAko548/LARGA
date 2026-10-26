@@ -16,12 +16,14 @@ public class GpsRuleTests
         (bool)typeof(FleetReportingService).GetMethod("IsMoving", BindingFlags.NonPublic | BindingFlags.Static)!
             .Invoke(null, new object[] { shift, thresholdMinutes, now })!;
 
-    private static ShiftLog Shift(DateTime now, double startedMinutesAgo, double? speed, double? lastFixMinutesAgo) => new()
+    private static ShiftLog Shift(DateTime now, double startedMinutesAgo, double? speed, double? lastFixMinutesAgo,
+        double? lastMovingMinutesAgo = null) => new()
     {
         ShiftId = "s1", Status = "Active",
         ShiftStart = now.AddMinutes(-startedMinutesAgo),
         CurrentSpeed = speed,
         CurrentPositionUpdatedAt = lastFixMinutesAgo is double m ? now.AddMinutes(-m) : null,
+        LastMovingAt = lastMovingMinutesAgo is double mv ? now.AddMinutes(-mv) : null,
     };
 
     // ---------- GPS-014 ----------
@@ -56,7 +58,14 @@ public class GpsRuleTests
         // 60 min into the shift, was driving until a minute ago, now at a red light: the latest
         // point has speed 0. It has not been still for the 15-minute threshold.
         DateTime now = DateTime.UtcNow;
-        Assert.True(IsMoving(Shift(now, 60, 0, 0.5), 15, now));
+        Assert.True(IsMoving(Shift(now, 60, 0, 0.5, lastMovingMinutesAgo: 1), 15, now));
+    }
+
+    [Fact]
+    public void Gps014_StoppedFor16MinutesMidShift_IsIdle()
+    {
+        DateTime now = DateTime.UtcNow;
+        Assert.False(IsMoving(Shift(now, 60, 0, 0.5, lastMovingMinutesAgo: 16), 15, now));
     }
 
     // ---------- GPS-010: jitter does not add distance ----------

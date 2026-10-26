@@ -67,9 +67,9 @@ public class SystemConfig
     [FirestoreProperty("maintenanceMonthlyIntervalDays")]
     public int MaintenanceMonthlyIntervalDays { get; set; } = 30;
 
-    // Oil change: every 2 months by default...
+    // Oil change: every 2.5 months (75 days) by default...
     [FirestoreProperty("oilChangeIntervalDays")]
-    public int OilChangeIntervalDays { get; set; } = 60;
+    public int OilChangeIntervalDays { get; set; } = 75;
 
     // ...and, for units listed here (taxiId -> km), also every N km - whichever comes first.
     [FirestoreProperty("oilChangeMileageIntervalKm")]

@@ -38,14 +38,9 @@ A plain run skips the emulator tests and does nothing in `Live/`, so it never ne
 
 ### Tests that fail on purpose
 
-Some tests pin a defect that hasn't been fixed yet. They fail until the fix lands:
+Some tests pin a defect that hasn't been fixed yet. None of the plain-run tests do right now; any that do are listed here and fail until the fix lands.
 
-| Test | Defect |
-|---|---|
-| `Gps014_StoppedForOneMinuteMidShift_IsNotIdleYet` | A unit that stops for a moment mid-shift is flagged Idle right away (GPS-014) |
-| `Mnt016_DefaultOilChangeInterval_Is75Days` | The oil change interval is 60 days; the spec says 75 (MNT-016, waiting on BLM) |
-
-With the emulator running, a few more fail: MNT-015/016 (alert timing), GPS-014 (the configured idle threshold is ignored, because
+With the emulator running, some do fail: MNT-015/016 (alert timing), GPS-014 (the configured idle threshold is ignored, because
 `FleetReportingService`'s config proxies lack `[FirestoreData]`), and the `Diag_*` tests that pin those causes.
 
 ## Emulator tests (Garage, idle detection)
