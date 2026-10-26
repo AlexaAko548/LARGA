@@ -46,6 +46,12 @@ public class ShiftLog
     [FirestoreProperty("currentPositionUpdatedAt")]
     public DateTime? CurrentPositionUpdatedAt { get; set; }
 
+    /// <summary>When the phone last wrote a GPS point with speed above 0 (GPS-014) - lets the dashboard
+    /// tell a unit stopped at a red light from one parked for the whole idle threshold. Null until the
+    /// unit first moves this shift (and on shifts from older app builds).</summary>
+    [FirestoreProperty("lastMovingAt")]
+    public DateTime? LastMovingAt { get; set; }
+
     [FirestoreProperty("managerNote")]
     public string ManagerNote { get; set; } = string.Empty;
 

@@ -61,7 +61,7 @@ service cloud.firestore {
       let after = request.resource.data;
       let changed = after.diff(before).affectedKeys();
       let gpsKeys = ['currentLatitude', 'currentLongitude', 'currentSpeed', 'currentHeading',
-                     'currentPositionUpdatedAt', 'distanceKm'];
+                     'currentPositionUpdatedAt', 'lastMovingAt', 'distanceKm'];
       return before.driverId == request.auth.uid
         && changed.hasOnly(gpsKeys.concat(['isOnBreak', 'shiftId', 'shiftEnd', 'endMileage', 'status',
                                            'managerNote', 'fuelPenalty']))

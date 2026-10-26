@@ -20,7 +20,7 @@ public static class MaintenanceSchedule
     public const int DefaultWeeklyIntervalDays = 7;
     public const int DefaultBiweeklyIntervalDays = 14;
     public const int DefaultMonthlyIntervalDays = 30;
-    public const int DefaultOilChangeIntervalDays = 60; // every 2 months
+    public const int DefaultOilChangeIntervalDays = 75; // every 2.5 months
     public const int DefaultDueSoonDays = 2;
 
     public const string DueSoonAlertType = "MaintenanceDueSoon";
