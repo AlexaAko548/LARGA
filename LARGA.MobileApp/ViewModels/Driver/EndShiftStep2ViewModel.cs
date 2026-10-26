@@ -43,6 +43,15 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
     private string? _odometerPhotoLocalPath;
     private string? _fuelPhotoLocalPath;
 
+    // Review follow-up: this page hard-coded another unit's plate instead of showing the one
+    // actually on this shift. Same AssignedUnitPlate pattern PreShiftStep2ViewModel uses.
+    private string _assignedUnitPlate = "Loading...";
+    public string AssignedUnitPlate
+    {
+        get => _assignedUnitPlate;
+        private set { _assignedUnitPlate = value; OnPropertyChanged(); }
+    }
+
     private string _finalOdometer = string.Empty;
     public string FinalOdometer
     {
@@ -120,6 +129,7 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
         _photoStorage = photoStorage;
         _telemetryService = telemetryService;
         _emergencyMonitor = emergencyMonitor;
+        _ = LoadAssignedUnitAsync();
 
         CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Register<EndShiftStep2ViewModel, OdometerScannedData, string>(this, "EndShiftOdometerScanned", (r, data) =>
         {
@@ -398,6 +408,25 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
         catch (Exception ex)
         {
             await Shell.Current.DisplayAlert("Error", $"Camera failed: {ex.Message}", "OK");
+        }
+    }
+
+    private async Task LoadAssignedUnitAsync()
+    {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
+        try
+        {
+            var taxi = await _shiftService.GetCurrentUserAssignedTaxiAsync();
+            if (taxi != null)
+            {
+                AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber)
+                    ? taxi.Model
+                    : taxi.PlateNumber.Replace("-", " · ");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Assigned Unit Error: {ex.Message}");
         }
     }
 

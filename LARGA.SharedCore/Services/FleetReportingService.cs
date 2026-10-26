@@ -827,12 +827,14 @@ public class FleetReportingService
     // manager-configured value in place. A narrow proxy - just the one field each actually needs -
     // can't be broken by a bad value anywhere else in that shared, hand-editable document. Same
     // pattern as ShiftManagementService's GarageConfigProxy.
+    [FirestoreData]
     private sealed class IdleThresholdConfigProxy
     {
         [FirestoreProperty("idleThresholdMinutes")]
         public double IdleThresholdMinutes { get; set; }
     }
 
+    [FirestoreData]
     private sealed class BoundaryRateConfigProxy
     {
         [FirestoreProperty("defaultBoundaryRate")]
