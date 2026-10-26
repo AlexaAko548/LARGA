@@ -1,12 +1,12 @@
 using LARGA.SharedCore.Emergency;
 
-namespace LARGA.Tests;
+namespace LARGA.Tests.Sos;
 
-/// <summary>Loads the SensorTrace fixtures (Fixtures/sos*.txt, emu_*.txt).</summary>
+/// <summary>Loads the SensorTrace fixtures (Fixtures/Sos/sos*.txt, emu_*.txt).</summary>
 internal static class SosTraces
 {
     public static SensorTrace Load(string name) =>
-        SensorTrace.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", name)));
+        SensorTrace.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Sos", name)));
 
     public static List<EmergencyTraceReplayer.Detection> Replay(string name) => EmergencyTraceReplayer.Run(Load(name));
 }

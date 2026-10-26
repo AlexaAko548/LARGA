@@ -1,6 +1,6 @@
 using Google.Cloud.Firestore;
 
-namespace LARGA.Tests.Alpha;
+namespace LARGA.Tests.Live;
 
 /// <summary>GPS-006 on the emulator: closes ONE named test shift the way ShiftDeadlineService's 6:00 AM
 /// auto-close does (status/isOnBreak/managerNote), then releases that shift's own locks as a clock-out

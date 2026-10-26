@@ -4,9 +4,10 @@ using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore;
 using LARGA.SharedCore.Models.Garage;
 using LARGA.SharedCore.Services;
+using LARGA.Tests.Support;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace LARGA.Tests.Alpha;
+namespace LARGA.Tests.Maintenance;
 
 /// <summary>M4 Vehicle Maintenance (MNT-xxx) - pure rules, and GarageService against the local emulator.</summary>
 public class MaintenanceRuleTests

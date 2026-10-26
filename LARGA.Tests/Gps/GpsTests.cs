@@ -4,9 +4,10 @@ using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore.Models.Alerts;
 using LARGA.SharedCore.Models.Dashboard;
 using LARGA.SharedCore.Services;
+using LARGA.Tests.Support;
 using Microsoft.Maui.Devices.Sensors;
 
-namespace LARGA.Tests.Alpha;
+namespace LARGA.Tests.Gps;
 
 /// <summary>M6 GPS Tracking (GPS-xxx) - idle rule, distance filter, idle alerts.</summary>
 public class GpsRuleTests

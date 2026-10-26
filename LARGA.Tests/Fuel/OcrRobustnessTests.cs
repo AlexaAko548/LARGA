@@ -2,7 +2,7 @@ using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
 using static LARGA.SharedCore.Services.FuelReceiptTextParser;
 
-namespace LARGA.Tests;
+namespace LARGA.Tests.Fuel;
 
 /// <summary>The parsing improvements beyond the sheet: tilted photos, OCR slips inside numbers,
 /// guessed totals, and odometer readings.</summary>

@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 using LARGA.SharedCore.Services;
 using static LARGA.SharedCore.Services.FuelReceiptTextParser;
 
-namespace LARGA.Tests;
+namespace LARGA.Tests.Fuel;
 
 /// <summary>
 /// What ScanFuelReceiptPage does with one OCR read (FuelReceiptTextParser.Parse). The display
@@ -33,7 +33,7 @@ public sealed record ReceiptScan(
     /// its line boxes when the capture has them ("LARGA-OCR line"), otherwise its blocks.</summary>
     public static IReadOnlyList<OcrBlock> FromLogcat(string fixture)
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture);
+        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Fuel", fixture);
         string kind = File.ReadLines(path).Any(l => l.Contains("LARGA-OCR line ")) ? "line" : "block";
 
         var blocks = new List<OcrBlock>();
@@ -56,7 +56,7 @@ public sealed record ReceiptScan(
     /// <summary>The block-level capture only (as before ML Kit lines were logged).</summary>
     public static IReadOnlyList<OcrBlock> BlocksFromLogcat(string fixture)
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture);
+        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Fuel", fixture);
         var blocks = new List<OcrBlock>();
         foreach (string line in File.ReadLines(path))
         {

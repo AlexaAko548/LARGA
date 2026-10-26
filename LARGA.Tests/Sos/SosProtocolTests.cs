@@ -1,7 +1,7 @@
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore.Emergency;
 
-namespace LARGA.Tests;
+namespace LARGA.Tests.Sos;
 
 /// <summary>
 /// M7 SOS Emergency - countdown gate, auto-answer of the manager's callback (window, caller check,

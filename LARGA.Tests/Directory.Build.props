@@ -1,7 +1,0 @@
-<Project>
-  <!-- Local-only (LARGA.Tests/ is gitignored for new files): lets the M4/M6 alpha tests reach
-       ManagerWeb's Garage page helpers without touching the tracked LARGA.Tests.csproj. -->
-  <ItemGroup>
-    <ProjectReference Include="..\LARGA.ManagerWeb\LARGA.ManagerWeb.csproj" />
-  </ItemGroup>
-</Project>
