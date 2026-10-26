@@ -21,7 +21,8 @@ public static class OdometerReadingParser
     private const int MaxDigits = 6;
 
     private static readonly Regex Separators = new(@"[\s]+", RegexOptions.CultureInvariant);
-    private static readonly Regex OdometerLabel = new(@"(?<![A-Z])(?:ODO|ODOMETER|TOTAL|KM|KMS)(?![A-Z])", RegexOptions.CultureInvariant);
+    // "KM" but not "KM/L" (fuel economy) or "KM/H" (speed).
+    private static readonly Regex OdometerLabel = new(@"(?<![A-Z])(?:ODO|ODOMETER|TOTAL|KM|KMS)(?![A-Z/])", RegexOptions.CultureInvariant);
     private static readonly Regex TripLabel = new(@"(?<![A-Z])(?:TRIP|TRP|RANGE|AVG|KM/L|L/100)(?![A-Z])", RegexOptions.CultureInvariant);
 
     /// <summary>Readings found in one OCR line or block, best first.</summary>

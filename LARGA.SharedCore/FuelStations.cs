@@ -32,10 +32,11 @@ public static class FuelStations
     // Dealer-run stations often print the operator's company name in the header instead of the
     // brand (e.g. "MH FUELS & MORE INC." for a Shell station) - their fuel products still name it:
     // Petron XCS / Blaze / Xtra Advance / Turbo Diesel / Diesel Max, Shell V-Power ("SVP") / FuelSave.
+    // Each must start a word, so "REFUEL SAVES YOU MORE" isn't FuelSave.
     private static readonly (string Brand, Regex Pattern)[] ProductPatterns =
     {
-        (Petron, new Regex(@"(?<![A-Z0-9])XCS(?![A-Z])|BLAZE\s*100|XTRA\s*ADVANCE|TURBO\s*DIESEL|DIESEL\s*MAX", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)),
-        (Shell, new Regex(@"V\s*-?\s*POWER|(?<![A-Z0-9])SVP\s*-?\s*(?:GAS|DIESEL|RACING|\b)|FUEL\s*SAVE", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)),
+        (Petron, new Regex(@"(?<![A-Z0-9])(?:XCS(?![A-Z])|BLAZE\s*100|XTRA\s*ADVANCE|TURBO\s*DIESEL|DIESEL\s*MAX)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)),
+        (Shell, new Regex(@"(?<![A-Z0-9])(?:V\s*-?\s*POWER|SVP\s*-?\s*(?:GAS|DIESEL|RACING|\b)|FUEL\s*SAVE)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)),
     };
 
     /// <summary>"Petron" or "Shell" when the text (an OCR'd receipt, or the station name the driver

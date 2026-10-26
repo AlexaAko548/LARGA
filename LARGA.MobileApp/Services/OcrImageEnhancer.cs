@@ -115,13 +115,7 @@ public static class OcrImageEnhancer
 
     private static SKBitmap ApplyOrientation(SKBitmap bitmap, SKEncodedOrigin origin)
     {
-        int degrees = origin switch
-        {
-            SKEncodedOrigin.RightTop => 90,
-            SKEncodedOrigin.BottomRight => 180,
-            SKEncodedOrigin.LeftBottom => 270,
-            _ => 0,
-        };
+        int degrees = PhotoOrientation.DegreesFromExif((int)origin);
         if (degrees == 0)
         {
             return bitmap.Copy();
