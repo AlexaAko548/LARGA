@@ -35,6 +35,9 @@ public class FuelReportViewModel : BindableObject
     // A stuck upload (no signal) fails after this instead of Firebase Storage's 10-minute retry window.
     private static readonly TimeSpan UploadTimeout = TimeSpan.FromSeconds(60);
 
+    // Typing in a field saves the draft once the driver pauses this long, not on every character.
+    private static readonly TimeSpan DraftSaveDelay = TimeSpan.FromMilliseconds(600);
+
     // storage.rules isPhoto(): request.resource.size < 5 MB.
     private const long MaxUploadBytes = 5 * 1024 * 1024;
 
@@ -55,7 +58,7 @@ public class FuelReportViewModel : BindableObject
             {
                 // FUEL-010: any change from what the scan read is flagged, whichever screen it was made on.
                 IsCostManuallyEdited = _hasReceiptScan && !NumericEquivalent(_cost, _originalCostValue);
-                SavePendingDraft();
+                ScheduleDraftSave();
             }
         }
     }
@@ -73,7 +76,7 @@ public class FuelReportViewModel : BindableObject
             if (!_isApplyingScanResult)
             {
                 IsQuantityManuallyEdited = _hasReceiptScan && !NumericEquivalent(_quantity, _originalQuantityValue);
-                SavePendingDraft();
+                ScheduleDraftSave();
             }
         }
     }
@@ -106,7 +109,7 @@ public class FuelReportViewModel : BindableObject
             {
                 IsOrNumberManuallyEdited = _hasReceiptScan &&
                     !string.Equals(NormalizeText(_orNumber), NormalizeText(_originalOrNumberValue), StringComparison.Ordinal);
-                SavePendingDraft();
+                ScheduleDraftSave();
             }
         }
     }
@@ -143,7 +146,7 @@ public class FuelReportViewModel : BindableObject
             if (!_isApplyingScanResult)
             {
                 IsReceiptDateManuallyEdited = _hasReceiptScan && !DateEquivalent(_receiptDateText, _originalReceiptDateText);
-                SavePendingDraft();
+                ScheduleDraftSave();
             }
         }
     }
@@ -228,6 +231,8 @@ public class FuelReportViewModel : BindableObject
     private string? _receiptTempPath;
     private string? _odometerTempPath;
 
+    private CancellationTokenSource? _draftSaveDelay;
+
     private bool _isSubmitting;
     public bool IsSubmitting { get => _isSubmitting; set { _isSubmitting = value; OnPropertyChanged(); OnPropertyChanged(nameof(CanSubmit)); OnPropertyChanged(nameof(SubmitButtonText)); } }
 
@@ -262,6 +267,7 @@ public class FuelReportViewModel : BindableObject
         WeakReferenceMessenger.Default.Register<FuelReportViewModel, OdometerScannedData, string>(this, "OdometerScanned", (r, data) =>
         {
             Odometer = data.OdometerText;
+            DeleteReplacedPhoto(_odometerTempPath, data.PhotoFilePath);
             _odometerTempPath = data.PhotoFilePath; // THE FIX: Assign path directly
             OnPropertyChanged(nameof(CanSubmit));
             SavePendingDraft();
@@ -305,6 +311,7 @@ public class FuelReportViewModel : BindableObject
             IsOrNumberManuallyEdited = orNumberEditedInline;
             _isApplyingScanResult = false;
 
+            DeleteReplacedPhoto(_receiptTempPath, data.PhotoFilePath);
             _receiptTempPath = data.PhotoFilePath; // THE FIX: Assign path directly
             ReceiptPhoto = null;
             ReceiptPhoto = ImageSource.FromFile(data.PhotoFilePath); // THE FIX: Bind from file
@@ -488,6 +495,7 @@ public class FuelReportViewModel : BindableObject
         _receiptTempPath = null;
         _odometerTempPath = null;
 
+        CancelScheduledDraftSave();
         ClearPendingDraft();
         _isApplyingScanResult = false;
         OnPropertyChanged(nameof(CanSubmit));
@@ -577,6 +585,18 @@ public class FuelReportViewModel : BindableObject
         }
     }
 
+    /// <summary>A rescan replaces the photo: the old one (usually the draft copy KeepPhoto made in
+    /// DraftPhotoFolder) is no longer needed, so it isn't left behind until submit/reset.</summary>
+    private static void DeleteReplacedPhoto(string? oldPath, string? newPath)
+    {
+        if (string.IsNullOrWhiteSpace(oldPath) || string.IsNullOrWhiteSpace(newPath)
+            || string.Equals(Path.GetFullPath(oldPath), Path.GetFullPath(newPath), StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        DeleteTempFile(oldPath);
+    }
+
     // THE FIX: Modify upload method to stream from file path directly
     private static async Task<string> UploadImageAsync(string localFilePath, string remotePath)
     {
@@ -644,6 +664,7 @@ public class FuelReportViewModel : BindableObject
     /// are moved into the app's own storage the first time.</summary>
     private void SavePendingDraft()
     {
+        CancelScheduledDraftSave();
         if (_isApplyingScanResult || (!_hasReceiptScan && string.IsNullOrWhiteSpace(Odometer)))
         {
             return;
@@ -693,6 +714,34 @@ public class FuelReportViewModel : BindableObject
         {
             System.Diagnostics.Debug.WriteLine($"Save fuel draft failed: {ex.Message}");
         }
+    }
+
+    /// <summary>SavePendingDraft after DraftSaveDelay with no further change (a field being typed
+    /// in); a save or reset meanwhile cancels it.</summary>
+    private void ScheduleDraftSave()
+    {
+        CancelScheduledDraftSave();
+        var delay = _draftSaveDelay = new CancellationTokenSource();
+        _ = Task.Delay(DraftSaveDelay, delay.Token).ContinueWith(t =>
+        {
+            if (!t.IsCanceled)
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    if (!delay.IsCancellationRequested)
+                    {
+                        SavePendingDraft();
+                    }
+                });
+            }
+        }, TaskScheduler.Default);
+    }
+
+    private void CancelScheduledDraftSave()
+    {
+        _draftSaveDelay?.Cancel();
+        _draftSaveDelay?.Dispose();
+        _draftSaveDelay = null;
     }
 
     /// <summary>A copy of the photo in DraftPhotoFolder (the cache file is removed).</summary>

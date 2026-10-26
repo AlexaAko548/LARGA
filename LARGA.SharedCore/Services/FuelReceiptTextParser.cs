@@ -177,7 +177,8 @@ public static class FuelReceiptTextParser
     /// The receipt total. <paramref name="uncertain"/> is true when it was only guessed (no total
     /// label matched and the VAT breakdown didn't confirm it), so the driver is asked to check it.
     /// <paramref name="blocks"/> are the OCR lines with boxes (as <paramref name="lines"/>, same
-    /// order); without them only labels and values on the same line are paired.
+    /// order); without them a label is paired with an amount on its own line or the line under it.
+    /// <paramref name="fullText"/> (the lines joined) is the fallback when no line pairing works.
     /// </summary>
     public static decimal? TryParseAmount(string fullText, List<string> lines, IReadOnlyList<OcrBlock>? blocks, out bool uncertain)
     {
@@ -213,12 +214,18 @@ public static class FuelReceiptTextParser
             {
                 labelled.Add((rowValue, score));
             }
-            else if (!rows[i].HasBox && i + 1 < rows.Count && IsValueOnlyLine(rows[i + 1].Text!)
-                     && MoneyIn(rows[i + 1].Text!).Where(IsUsable).LastOrDefault() is { Value: > 0 } below)
+            else if (ValueBelow(rows, i, IsUsable) is decimal below)
             {
-                // No boxes: the amount printed on the line under its label.
-                labelled.Add((below.Value, score - 1));
+                // Label and amount split across OCR lines: the amount printed under its label.
+                labelled.Add((below, score - 1));
             }
+        }
+
+        // Pairing by line found nothing (ML Kit cut the label and amount apart some other way): an
+        // amount right after a total label in the receipt's text, flagged for the driver to check.
+        if (labelled.Count == 0 && AmountAfterTotalLabel(fullText, IsUsable) is decimal fromText)
+        {
+            labelled.Add((fromText, 2));
         }
 
         // 2. BIR receipts print VATable Sales + VAT Amount (12 %), which add up to the total.
@@ -282,6 +289,53 @@ public static class FuelReceiptTextParser
             .Select(c => MoneyIn(c.Row.Text!).Where(isUsable).Select(m => (decimal?)m.Value).LastOrDefault())
             .FirstOrDefault(v => v.HasValue);
         return match;
+    }
+
+    /// <summary>The amount on the line after rows[labelIndex] when that line is only an amount -
+    /// never one from a VAT/discount/cash line or another total label (FUEL-001: "TOTAL" over
+    /// "VAT 175.97" is not a total of 175.97). With boxes, the line must sit just under the label.</summary>
+    private static decimal? ValueBelow(List<OcrBlock> rows, int labelIndex, Func<Money, bool> isUsable)
+    {
+        if (labelIndex + 1 >= rows.Count)
+        {
+            return null;
+        }
+
+        OcrBlock label = rows[labelIndex];
+        OcrBlock next = rows[labelIndex + 1];
+        string upper = next.Text!.ToUpperInvariant();
+        if (IsNonTotalLine(upper) || TotalLabelScore(upper) > 0 || !IsValueOnlyLine(next.Text!))
+        {
+            return null;
+        }
+
+        if (label.HasBox && next.HasBox
+            && (next.CenterY <= label.CenterY || next.CenterY - label.CenterY > 2.5 * Math.Max(label.Height, next.Height)))
+        {
+            return null;
+        }
+
+        return MoneyIn(next.Text!).Where(isUsable).Select(m => (decimal?)m.Value).LastOrDefault();
+    }
+
+    // "TOTAL AMOUNT DUE: P1,641.40" in the joined text. Not after SUB/VAT/DISCOUNT ("VAT TOTAL",
+    // "SUB-TOTAL"), and a negative amount never matches.
+    private static readonly Regex TotalLabelThenAmount = new(
+        @"(?<![A-Z])(?<!(?:SUB|VAT|DISC[A-Z]*)\s*-?\s*)(?:GRAND\s+TOTAL|TOTAL\s+AMOUNT(?:\s+DUE)?|TOTAL\s+DUE|AMOUNT\s+DUE|NET\s+AMOUNT|T[O0]TAL)(?![A-Z])\s*[:=]?\s*(?<amount>(?:PHP|P|₱)?\s*(?:\d{1,3}(?:,\d{3})+\.\d{2}|\d+[.,]\d{2}))(?!\d)",
+        RegexOptions.CultureInvariant);
+
+    private static decimal? AmountAfterTotalLabel(string fullText, Func<Money, bool> isUsable)
+    {
+        if (string.IsNullOrWhiteSpace(fullText))
+        {
+            return null;
+        }
+
+        return TotalLabelThenAmount.Matches(NormalizeNumbers(fullText).ToUpperInvariant())
+            .SelectMany(m => MoneyIn(m.Groups["amount"].Value))
+            .Where(isUsable)
+            .Select(m => (decimal?)m.Value)
+            .Max();
     }
 
     /// <summary>The photo's tilt: the median slope of the longer OCR lines (0 when unknown).</summary>
@@ -361,7 +415,32 @@ public static class FuelReceiptTextParser
             return fromPrice;
         }
 
-        return explicitLiters.Count > 0 ? explicitLiters.Max() : null;
+        if (explicitLiters.Count > 0)
+        {
+            return explicitLiters.Max();
+        }
+
+        // A quantity and its unit/label split across OCR lines ("QTY" / "25.5", "0.987L" / "x 96.700P/L")
+        // only line up in the joined text.
+        return LitersInText(NormalizeNumbers(fullText ?? string.Empty).ToUpperInvariant());
+    }
+
+    private static decimal? LitersInText(string text)
+    {
+        foreach (Match m in UnitPriceToken.Matches(text))
+        {
+            if (TryParseDecimal(m.Groups["qty"].Value, out decimal q) && q > 0m && q <= 200m)
+            {
+                return q;
+            }
+        }
+
+        var found = new[] { LitersAfterKeyword, LitersWithUnit }
+            .SelectMany(p => p.Matches(text).Cast<Match>())
+            .Select(m => TryParseDecimal(m.Groups[1].Value, out decimal q) ? q : 0m)
+            .Where(q => q > 0m && q <= 200m)
+            .ToList();
+        return found.Count > 0 ? found.Max() : null;
     }
 
     /// <summary>q x price = amount, with q a bare decimal and price/amount printed amounts.</summary>
@@ -410,24 +489,24 @@ public static class FuelReceiptTextParser
             }
         }
 
-        DateTime? bestKeywordDate = keywordDates
-            .Where(IsPlausibleReceiptDate)
-            .OrderBy(d => Math.Abs((d.Date - now).TotalDays))
-            .Select(d => (DateTime?)d.Date)
-            .FirstOrDefault();
-
-        if (bestKeywordDate.HasValue)
+        if (ClosestPlausibleDate(keywordDates, now) is DateTime bestKeywordDate)
         {
             return bestKeywordDate;
         }
 
-        return normalizedLines
-            .SelectMany(ExtractDatesFromText)
+        // Any date on a line, else one split across OCR lines ("OCT 24," / "2026") in the joined text -
+        // as printed too, since NormalizeNumbers joins "24, 2026" into one number.
+        string joined = fullText ?? string.Empty;
+        return ClosestPlausibleDate(normalizedLines.SelectMany(ExtractDatesFromText), now)
+               ?? ClosestPlausibleDate(ExtractDatesFromText(joined).Concat(ExtractDatesFromText(NormalizeNumbers(joined))), now);
+    }
+
+    private static DateTime? ClosestPlausibleDate(IEnumerable<DateTime> dates, DateTime now) =>
+        dates
             .Where(IsPlausibleReceiptDate)
             .OrderBy(d => Math.Abs((d.Date - now).TotalDays))
             .Select(d => (DateTime?)d.Date)
             .FirstOrDefault();
-    }
 
     public static bool TryParseDecimal(string token, out decimal value)
     {

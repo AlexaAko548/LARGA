@@ -58,14 +58,7 @@ public class AndroidFaceCropService : IFaceCropService
 
         // Camera photos are often stored sideways with an EXIF orientation tag. ML Kit reads
         // that tag for its own coordinates, so the crop has to be rotated the same way.
-        int orientation = new ExifInterface(path).GetAttributeInt(ExifInterface.TagOrientation, 1);
-        float degrees = orientation switch
-        {
-            6 => 90f,
-            3 => 180f,
-            8 => 270f,
-            _ => 0f,
-        };
+        float degrees = PhotoOrientation.ReadDegrees(path);
 
         if (degrees == 0f)
             return raw;

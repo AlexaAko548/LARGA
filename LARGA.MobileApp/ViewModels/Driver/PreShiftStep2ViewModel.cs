@@ -450,20 +450,7 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
             try
             {
                 // 1. Read EXIF Orientation
-                int rotationDegrees = 0;
-                try
-                {
-                    var exif = new Android.Media.ExifInterface(photo.FullPath);
-                    int orientation = exif.GetAttributeInt(Android.Media.ExifInterface.TagOrientation, 1);
-                    rotationDegrees = orientation switch
-                    {
-                        6 => 90,
-                        3 => 180,
-                        8 => 270,
-                        _ => 0
-                    };
-                }
-                catch { }
+                int rotationDegrees = PhotoOrientation.ReadDegrees(photo.FullPath);
 
                 // 2. Decode bounds only (no heavy memory allocation)
                 var options = new Android.Graphics.BitmapFactory.Options { InJustDecodeBounds = true };

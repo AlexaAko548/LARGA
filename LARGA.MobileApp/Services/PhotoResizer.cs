@@ -19,20 +19,7 @@ public static class PhotoResizer
 
             try
             {
-                int rotationDegrees = 0;
-                try
-                {
-                    var exif = new Android.Media.ExifInterface(sourcePath);
-                    int orientation = exif.GetAttributeInt(Android.Media.ExifInterface.TagOrientation, 1);
-                    rotationDegrees = orientation switch
-                    {
-                        6 => 90,
-                        3 => 180,
-                        8 => 270,
-                        _ => 0
-                    };
-                }
-                catch { }
+                int rotationDegrees = PhotoOrientation.ReadDegrees(sourcePath);
 
                 var options = new Android.Graphics.BitmapFactory.Options { InJustDecodeBounds = true };
                 using (var boundsStream = File.OpenRead(sourcePath))

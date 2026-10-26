@@ -63,6 +63,31 @@ public class OcrRobustnessTests
         Assert.Equal(1641.40m, ReceiptScan.FromLines("PETRON", "Total (incl. VAT)", "Php1,641.40", "VATable Sales", "Php1,465.54").Amount);
 
     [Fact]
+    public void LabelOverVatLine_WithoutBoxes_VatIsNotTheTotal()
+    {
+        // "TOTAL" with no amount, and the VAT line under it: 175.97 is VAT, not the total.
+        var scan = ReceiptScan.FromLines("PETRON", "TOTAL", "VAT 175.97", "CASH 2,000.00");
+        Assert.NotEqual(175.97m, scan.Amount);
+        Assert.True(scan.AmountUncertain);
+    }
+
+    [Fact]
+    public void LabelAndAmountSplitAcrossLines_FoundInJoinedText()
+    {
+        var scan = ReceiptScan.FromLines("PETRON", "TOTAL:", "PHP", "1,641.40");
+        Assert.Equal(1641.40m, scan.Amount);
+        Assert.True(scan.AmountUncertain);
+    }
+
+    [Fact]
+    public void LitersSplitFromTheirLabel_FoundInJoinedText() =>
+        Assert.Equal(25.5m, ReceiptScan.FromLines("PETRON", "QTY", "25.5", "TOTAL 1,000.00").Liters);
+
+    [Fact]
+    public void DateSplitAcrossLines_FoundInJoinedText() =>
+        Assert.Equal(new DateTime(2026, 10, 20), ReceiptScan.FromLines("PETRON", "Oct 20,", "2026", "TOTAL 500.00").Date);
+
+    [Fact]
     public void LitersFromQuantityTimesPrice_WhenPrintedWithoutUnit() =>
         Assert.Equal(31.94m, ReceiptScan.FromLines("PETRON", "Description Qty. Price Amount", "*XCS", "31.94", "Php56.39", "Php1,801.10", "Total Php1,801.10").Liters);
 
@@ -80,6 +105,8 @@ public class OcrRobustnessTests
     [InlineData("SVPRESIDENT JUAN DELA CRUZ")]
     [InlineData("CALTEX SILVER")]
     [InlineData("SEAOIL EXCEED")]
+    [InlineData("REFUEL SAVES YOU MORE")]
+    [InlineData("SUPERTURBO DIESELS")]
     public void NoFalseStation(string header) =>
         Assert.Null(ReceiptScan.FromLines(header, "TOTAL 500.00").Vendor);
 
@@ -111,6 +138,14 @@ public class OcrRobustnessTests
     public void Odometer_LabelledReadingComesFirst()
     {
         var candidates = OdometerReadingParser.Candidates(new[] { "TRIP 004521", "ODO 058700" });
+        Assert.Equal("058700", candidates[0]);
+    }
+
+    [Fact]
+    public void Odometer_FuelEconomyLineIsNotLabelledAsKm()
+    {
+        // "KM/L" is fuel economy, not the "km" next to an odometer reading.
+        var candidates = OdometerReadingParser.Candidates(new[] { "AVG KM/L 123456", "058700" });
         Assert.Equal("058700", candidates[0]);
     }
 }
