@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using LARGA.MobileApp.Services;
+using LARGA.SharedCore.Ledger;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Storage;
 using Plugin.Firebase.Auth;
@@ -17,7 +19,10 @@ public class ShiftCompletedViewModel : BindableObject, IQueryAttributable
         decimal lateFee = query.TryGetValue("lateFee", out var late) && late is decimal l ? l : 0m;
         decimal fuelPenalty = query.TryGetValue("fuelPenalty", out var fuel) && fuel is decimal f ? f : 0m;
 
-        BoundaryAmountDisplay = $"₱ {800 + lateFee + fuelPenalty:N0}";
+        // Was a hardcoded 800 - a manager-configured system_configs/global.defaultBoundaryRate (e.g. 900)
+        // never showed up here even though every other screen already reads it (QuickLedgerCalculator).
+        BoundaryAmountDisplay = $"₱ {QuickLedgerCalculator.FallbackBoundaryRate + lateFee + fuelPenalty:N0}";
+        _ = UpdateBoundaryDisplayAsync(lateFee, fuelPenalty);
 
         var notes = new List<string>();
         if (lateFee > 0)
@@ -54,11 +59,17 @@ public class ShiftCompletedViewModel : BindableObject, IQueryAttributable
         set { _completionMessage = value; OnPropertyChanged(); }
     }
 
-    private string _boundaryAmountDisplay = "₱ 800";
+    private string _boundaryAmountDisplay = $"₱ {QuickLedgerCalculator.FallbackBoundaryRate:N0}";
     public string BoundaryAmountDisplay
     {
         get => _boundaryAmountDisplay;
         set { _boundaryAmountDisplay = value; OnPropertyChanged(); }
+    }
+
+    private async Task UpdateBoundaryDisplayAsync(decimal lateFee, decimal fuelPenalty)
+    {
+        decimal boundaryRate = await QuickLedgerService.ReadDefaultBoundaryRateAsync();
+        BoundaryAmountDisplay = $"₱ {boundaryRate + lateFee + fuelPenalty:N0}";
     }
 
     public ICommand ReturnToHomeCommand { get; }
