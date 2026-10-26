@@ -173,6 +173,7 @@ public class GpsTelemetryService : IGpsTelemetryService
     {
         try
         {
+            bool wasOnBreak = false;
             _shiftListener = CrossFirebaseFirestore.Current
                 .GetCollection("shifts")
                 .GetDocument(shiftId)
@@ -185,6 +186,12 @@ public class GpsTelemetryService : IGpsTelemetryService
                         }
 
                         _onBreak = snapshot.Data.IsOnBreak;
+                        if (wasOnBreak && !_onBreak)
+                        {
+                            // Resumed: see DistanceTracker.ResetAnchor's own comment.
+                            _tracker?.ResetAnchor();
+                        }
+                        wasOnBreak = _onBreak;
 
                         string status = snapshot.Data.Status ?? string.Empty;
                         bool closed = status.Length > 0 && !string.Equals(status, "Active", StringComparison.OrdinalIgnoreCase);
@@ -328,9 +335,16 @@ public class GpsTelemetryService : IGpsTelemetryService
                 ExpireAt = RetentionRules.ExpireAt(now, RetentionRules.GpsTelemetry),
             };
 
-            await CrossFirebaseFirestore.Current
+            // GPS-011 (review follow-up): awaiting these inline used to block the polling loop on
+            // the server actually acknowledging the write. Firestore's own offline queue already
+            // persists a write locally and resolves the call once it's queued - the SDK here just
+            // doesn't, so while offline this await never completed, and every later tick sat
+            // behind it, skipped. Firing them off instead lets the loop keep polling location and
+            // queuing the next point every 30s regardless of connectivity; each write still gets a
+            // real attempt and any failure is logged, just not on the main loop's critical path.
+            FireAndForget(CrossFirebaseFirestore.Current
                 .GetCollection("gps_telemetry")
-                .AddDocumentAsync(point);
+                .AddDocumentAsync(point), "GPS telemetry point write");
 
             // Denormalized onto the shift doc itself (separate from the gps_telemetry trail
             // above, which stays append-only for history/distance calculations) so the Live
@@ -358,10 +372,10 @@ public class GpsTelemetryService : IGpsTelemetryService
                 shiftUpdate["lastMovingAt"] = now;
             }
 
-            await CrossFirebaseFirestore.Current
+            FireAndForget(CrossFirebaseFirestore.Current
                 .GetCollection("shifts")
                 .GetDocument(shiftId)
-                .UpdateDataAsync(shiftUpdate);
+                .UpdateDataAsync(shiftUpdate), "shift position update");
 
             if (distanceChanged && ReferenceEquals(tracker, _tracker))
             {
@@ -382,6 +396,19 @@ public class GpsTelemetryService : IGpsTelemetryService
             System.Diagnostics.Debug.WriteLine($"GPS telemetry tick failed: {ex.Message}");
             return null;
         }
+    }
+
+    // GPS-011: starts a Firestore write without the polling loop waiting on it. Firestore's local
+    // offline queue already means the write is durable the moment this call returns - this just
+    // stops a slow or absent server round-trip from blocking the next tick's location read. Errors
+    // are still observed, just off the critical path.
+    private static void FireAndForget(Task task, string description)
+    {
+        _ = task.ContinueWith(
+            t => System.Diagnostics.Debug.WriteLine($"GPS telemetry: {description} failed: {t.Exception?.GetBaseException().Message}"),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
     }
 
     /// <summary>
@@ -438,6 +465,12 @@ public class GpsTelemetryService : IGpsTelemetryService
     /// </summary>
     private sealed class DistanceTracker
     {
+        // Review follow-up: nothing sanity-checked a hop against how much time it took. Moving
+        // the emulator's mock GPS straight back to the garage - the same shape as a real GPS
+        // glitch/teleport - wrote a 1,184 km/h point and silently added ~9.9 km. 160 km/h is
+        // comfortably above anything a taxi legitimately does, even flooring it on a highway.
+        private const double MaxPlausibleKmh = 160;
+
         private Location? _lastFix;
 
         public double Meters { get; set; }
@@ -445,6 +478,17 @@ public class GpsTelemetryService : IGpsTelemetryService
         /// <summary>The fix behind the last point written - what the next tick compares
         /// against to tell whether the unit actually moved.</summary>
         public Location? LastWrittenFix { get; set; }
+
+        /// <summary>Review follow-up: resuming from a break used to compare the first post-resume
+        /// fix against whatever position was current when the break started, however long ago -
+        /// one straight-line "hop" covering the entire break, counted as driven distance even
+        /// though tracking was paused for all of it. Called when a break ends, so the next fix
+        /// just re-anchors instead of being measured against stale data.</summary>
+        public void ResetAnchor()
+        {
+            _lastFix = null;
+            LastWrittenFix = null;
+        }
 
         /// <returns>true when this fix added distance.</returns>
         public bool Add(Location fix)
@@ -462,6 +506,24 @@ public class GpsTelemetryService : IGpsTelemetryService
 
             if (_lastFix == null)
             {
+                _lastFix = fix;
+                return false;
+            }
+
+            // The plausibility check compares against LastWrittenFix (every tick's position,
+            // win or lose) rather than _lastFix (only updated on a credited hop) - _lastFix
+            // stays put through a stationary stretch (see the comment below), so comparing a
+            // teleport against it would spread the "impossible" distance over however long the
+            // unit had been parked, diluting its implied speed under MaxPlausibleKmh. The last
+            // actual poll, 30s ago, is what tells us whether this fix arrived too fast to be real.
+            Location recentPoll = LastWrittenFix ?? _lastFix;
+            double recentSeconds = (fix.Timestamp - recentPoll.Timestamp).TotalSeconds;
+            double recentHop = ShiftRules.DistanceMeters(
+                recentPoll.Latitude, recentPoll.Longitude, fix.Latitude, fix.Longitude);
+            if (recentSeconds > 0 && recentHop / recentSeconds * 3.6 > MaxPlausibleKmh)
+            {
+                // Not a real drive - a GPS glitch or a teleported fix. Re-anchor on the new
+                // position without crediting the impossible distance in between.
                 _lastFix = fix;
                 return false;
             }
