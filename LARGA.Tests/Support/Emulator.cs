@@ -2,7 +2,7 @@ using Google.Cloud.Firestore;
 using LARGA.SharedCore.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace LARGA.Tests.Alpha;
+namespace LARGA.Tests.Support;
 
 /// <summary>Local Firestore emulator only (demo- project, can never reach larga-blmtaxi).
 /// Start it with: cd tests/rules && ./node_modules/.bin/firebase emulators:start --only firestore --project demo-larga-tests

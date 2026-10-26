@@ -20,11 +20,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\LARGA.SharedCore\LARGA.SharedCore.csproj" />
+    <!-- Maintenance tests call the Garage page's own helpers (Garage.razor). -->
+    <ProjectReference Include="..\LARGA.ManagerWeb\LARGA.ManagerWeb.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- ML Kit blocks captured from the emulator (LARGA-OCR logcat lines, DEBUG test hook). -->
-    <None Include="Fixtures\*.txt" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Fixtures/Fuel: ML Kit blocks captured from the emulator (LARGA-OCR logcat lines, DEBUG test hook).
+         Fixtures/Sos: SensorTrace recordings and gen_sos_traces.py output. -->
+    <None Include="Fixtures\**\*.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

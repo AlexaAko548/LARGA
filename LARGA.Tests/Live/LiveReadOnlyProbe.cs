@@ -4,7 +4,7 @@ using Google.Cloud.Firestore;
 using LARGA.Shared.Models.Entities;
 using Xunit.Abstractions;
 
-namespace LARGA.Tests.Alpha;
+namespace LARGA.Tests.Live;
 
 /// <summary>READ-ONLY look at the live larga-blmtaxi project for the M4/M6 re-run (no writes anywhere).
 /// Run with LARGA_LIVE_READONLY=1 and LARGA_CREDENTIALS=path to the admin key.</summary>

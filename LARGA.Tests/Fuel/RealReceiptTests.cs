@@ -1,11 +1,11 @@
 using LARGA.SharedCore;
 using static LARGA.SharedCore.Services.FuelReceiptTextParser;
 
-namespace LARGA.Tests;
+namespace LARGA.Tests.Fuel;
 
 /// <summary>
 /// FUEL-001 / FUEL-002 / FUEL-006: the two real receipts, each in three layouts:
-///   (a) the exact blocks ML Kit returned on the emulator (Fixtures/*.txt),
+///   (a) the exact blocks ML Kit returned on the emulator (Fixtures/Fuel/*.txt),
 ///   (b) one block per printed line, no bounding boxes,
 ///   (c) a label column and a right-aligned value column as separate blocks, with realistic boxes.
 /// Every assertion is the value PRINTED on the receipt.

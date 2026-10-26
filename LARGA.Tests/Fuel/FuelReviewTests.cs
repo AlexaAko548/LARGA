@@ -4,7 +4,7 @@ using LARGA.SharedCore;
 using LARGA.SharedCore.Models.FuelVerification;
 using LARGA.SharedCore.Services;
 
-namespace LARGA.Tests;
+namespace LARGA.Tests.Fuel;
 
 /// <summary>FUEL-013 and FUEL-016 to FUEL-019 with each row's numbers and the default tolerances
 /// (8 % distance, PHP 4.50-7.50 per km, auto-flag from a 10 km leg / 2 km gap).</summary>

@@ -3,7 +3,7 @@ using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
 using static LARGA.SharedCore.Services.FuelReceiptTextParser;
 
-namespace LARGA.Tests;
+namespace LARGA.Tests.Fuel;
 
 /// <summary>FUEL-003 to FUEL-012: small inputs built from each row's Test Data and Pre-conditions.</summary>
 public class ReceiptRuleTests

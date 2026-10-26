@@ -1,7 +1,7 @@
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore.Emergency;
 
-namespace LARGA.Tests;
+namespace LARGA.Tests.Sos;
 
 /// <summary>
 /// M7 SOS Emergency - the Hostile shake and Crash detectors, fed the sensor traces in Fixtures
