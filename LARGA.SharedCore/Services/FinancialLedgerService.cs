@@ -374,6 +374,25 @@ public class FinancialLedgerService
             return new AdjustmentResult { Ok = false, ErrorMessage = inputError };
         }
 
+        // A "Credit" (amount < 0) is advance credit if it's more than the driver already owes - same
+        // rule Settle Debt enforces (SettleDebtAsync), and the same gap this test caught: this modal
+        // could hand a driver with no shifts an advance credit with nothing to hold it against, because
+        // it never looked at the driver's shifts at all before saving.
+        if (amount < 0)
+        {
+            (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetDriverLedgerDataAsync(driverId);
+            List<ShiftCharge> driverCharges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync())
+                .Where(c => c.DriverId == driverId)
+                .ToList();
+            List<DebtAdjustment> driverAdjustments = adjustments.Where(a => a.DriverId == driverId).ToList();
+
+            bool hasShift = driverCharges.Any();
+            if (!hasShift && -amount > TotalOwed(driverCharges, driverAdjustments))
+            {
+                return new AdjustmentResult { Ok = false, ErrorMessage = "This driver has no shifts yet to hold an advance credit - record only what they owe." };
+            }
+        }
+
         try
         {
             DateTime now = DateTime.UtcNow;
@@ -646,7 +665,12 @@ public class FinancialLedgerService
         {
             DriverId = driverId,
             DriverName = driver?.FullName ?? driverId,
-            CurrentOutstandingDebt = Math.Max(0, running),
+            // Not Math.Max(0, running): the day-by-day replay above can diverge from the Master Debt
+            // Ledger's own figure (e.g. overpayment credit booked before the debt it will cover still
+            // nets out differently transaction-by-transaction than all-at-once). Computing it the same
+            // way GetDebtLedgerAsync does is what the row and the modal are supposed to agree on, so do
+            // that directly instead of trusting the replay to land on the same number.
+            CurrentOutstandingDebt = TotalOwed(charges, driverAdjustments),
             Transactions = Enumerable.Reverse(chronological).ToList(),
         };
     }
