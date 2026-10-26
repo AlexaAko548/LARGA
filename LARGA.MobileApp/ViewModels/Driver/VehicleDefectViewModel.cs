@@ -211,12 +211,13 @@ public class VehicleDefectViewModel : BindableObject
                 var photo = await MediaPicker.Default.CapturePhotoAsync();
                 if (photo != null)
                 {
-                    using (Stream stream = await photo.OpenReadAsync())
-                    using (var buffer = new MemoryStream())
-                    {
-                        await stream.CopyToAsync(buffer);
-                        _photoBytes = buffer.ToArray();
-                    }
+                    // MNT-004 (review follow-up): a raw camera capture can be several MB - a real
+                    // mobile upload connection can need well over the 30s UploadPhotoAsync allows
+                    // for that, "Upload Failed" even though the connection is genuinely fine. Still
+                    // read into memory immediately, same as before (see the field comment on
+                    // _photoBytes) - just compressed first, the same resize-and-recompress every
+                    // other photo upload in this app already does.
+                    _photoBytes = await CompressPhotoAsync(photo, maxDimension: 1600, quality: 80);
                     byte[] bytes = _photoBytes;
                     DefectPhoto = ImageSource.FromStream(() => new MemoryStream(bytes));
                 }
@@ -226,6 +227,97 @@ public class VehicleDefectViewModel : BindableObject
         {
             await Shell.Current.DisplayAlert("Error", $"Camera failed: {ex.Message}", "OK");
         }
+    }
+
+    // Same resize/re-orient/recompress approach as PreShiftStep2ViewModel/EndShiftStep2ViewModel's
+    // ProcessAndOrientPhotoAsync, adapted to return bytes instead of writing to a file - this
+    // ViewModel keeps the photo in memory rather than a cache file path (see the comment on
+    // _photoBytes above).
+    private static async Task<byte[]> CompressPhotoAsync(FileResult photo, int maxDimension, int quality)
+    {
+        return await Task.Run(async () =>
+        {
+#if ANDROID
+            Android.Graphics.Bitmap? sampledBitmap = null;
+            Android.Graphics.Bitmap? finalBitmap = null;
+
+            try
+            {
+                int rotationDegrees = 0;
+                try
+                {
+                    var exif = new Android.Media.ExifInterface(photo.FullPath);
+                    int orientation = exif.GetAttributeInt(Android.Media.ExifInterface.TagOrientation, 1);
+                    rotationDegrees = orientation switch
+                    {
+                        6 => 90,
+                        3 => 180,
+                        8 => 270,
+                        _ => 0
+                    };
+                }
+                catch { }
+
+                var options = new Android.Graphics.BitmapFactory.Options { InJustDecodeBounds = true };
+                using (var boundsStream = await photo.OpenReadAsync())
+                {
+                    Android.Graphics.BitmapFactory.DecodeStream(boundsStream, null, options);
+                }
+
+                options.InSampleSize = 1;
+                int maxSourceDim = Math.Max(options.OutWidth, options.OutHeight);
+                while (maxSourceDim / options.InSampleSize > maxDimension)
+                {
+                    options.InSampleSize *= 2;
+                }
+                options.InJustDecodeBounds = false;
+
+                using (var decodeStream = await photo.OpenReadAsync())
+                {
+                    sampledBitmap = Android.Graphics.BitmapFactory.DecodeStream(decodeStream, null, options);
+                }
+
+                if (sampledBitmap == null) throw new Exception("Failed to decode image stream.");
+
+                if (rotationDegrees != 0)
+                {
+                    using var matrix = new Android.Graphics.Matrix();
+                    matrix.PostRotate(rotationDegrees);
+                    finalBitmap = Android.Graphics.Bitmap.CreateBitmap(sampledBitmap, 0, 0, sampledBitmap.Width, sampledBitmap.Height, matrix, true);
+                }
+                else
+                {
+                    finalBitmap = sampledBitmap;
+                }
+
+                using var outStream = new MemoryStream();
+                finalBitmap.Compress(Android.Graphics.Bitmap.CompressFormat.Jpeg, quality, outStream);
+                return outStream.ToArray();
+            }
+            finally
+            {
+                if (finalBitmap != null && finalBitmap != sampledBitmap)
+                {
+                    finalBitmap.Recycle();
+                    finalBitmap.Dispose();
+                }
+                if (sampledBitmap != null)
+                {
+                    sampledBitmap.Recycle();
+                    sampledBitmap.Dispose();
+                }
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+#else
+            using var stream = await photo.OpenReadAsync();
+            using var image = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(stream);
+            using var downsized = image.Downsize(maxDimension, true);
+            using var outStream = new MemoryStream();
+            downsized.Save(outStream, Microsoft.Maui.Graphics.ImageFormat.Jpeg, quality / 100f);
+            return outStream.ToArray();
+#endif
+        });
     }
 
     // Same pattern as FuelReportViewModel.UploadImageAsync - stores the actual photo in
