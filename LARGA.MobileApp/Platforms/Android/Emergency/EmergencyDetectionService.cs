@@ -21,9 +21,12 @@ namespace LARGA.MobileApp.Platforms.Android.Emergency;
 /// <summary>
 /// LAR-86/87 background emergency detection. Runs as a foreground service for the length of a
 /// shift so the accelerometer and GPS keep delivering with the app minimized or the screen off.
-/// A detected Hostile shake or Crash starts a 5-second cancel countdown (popup + notification +
-/// haptics); if it isn't cancelled the alert is written to Firestore and
-/// <see cref="EmergencyCallHandler"/> is armed to auto-answer the manager's callback.
+/// A detected Crash starts a 5-second cancel countdown (popup + notification + haptics). A Hostile
+/// trigger (shake, or the volume-button pattern from <see cref="VolumeSosAccessibilityService"/>)
+/// starts a 10-second one that stays hidden: two short taps and a disguised notification, no
+/// popup. If it isn't cancelled the alert is written to Firestore and
+/// <see cref="EmergencyCallHandler"/> is armed to auto-answer the manager's callback. The duress
+/// PIN skips the countdown (<see cref="TrySendDuressAlertAsync"/>).
 /// </summary>
 #if DEBUG
 // Exported in Debug builds only, so a test run can fire a protocol from adb (see SimulateHostile).
@@ -59,6 +62,9 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
     // Silent on purpose: a Hostile countdown must not chime in front of the passenger. Haptics
     // are driven by the service itself.
     private const string CountdownChannelId = "emergency_countdown_channel";
+    // Hostile countdown: low importance, so it never pops up as a banner over whatever is on screen.
+    // It only sits in the notification shade, worded like routine app activity.
+    private const string QuietCountdownChannelId = "emergency_quiet_channel";
     // Silent: the crash alarm is played by AndroidEmergencyFeedback, so the channel doesn't add a second one.
     private const string CrashAlertChannelId = "emergency_crash_alert_channel";
     // Created by earlier builds with a sound (channel sounds can't be changed afterwards), so they're
@@ -70,7 +76,14 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
     private const int CountdownNotificationId = 8602;
     private const int AlertNotificationId = 8603;
 
-    private static readonly TimeSpan CountdownLength = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan CrashCountdownLength = TimeSpan.FromSeconds(5);
+    // Longer: the hidden Hostile countdown takes a little more effort to cancel (pull down the
+    // shade, or repeat the volume pattern) than the Crash popup's big button.
+    private static readonly TimeSpan HostileCountdownLength = TimeSpan.FromSeconds(10);
+
+    // The service while it's monitoring a shift, for the in-process triggers (the accessibility
+    // service's volume pattern, the duress PIN). Null when no shift is being monitored.
+    private static EmergencyDetectionService? s_monitoring;
 
     private SensorManager? _sensorManager;
     private Sensor? _accelerometer;
@@ -220,6 +233,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         TryRequestLocationUpdates();
 
         _monitoring = true;
+        s_monitoring = this;
         EmergencyLog.Info("Monitoring started.");
     }
 
@@ -332,6 +346,47 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         // Not needed - the detectors tolerate the accuracy the hardware gives.
     }
 
+    // ---- In-process Hostile triggers ----------------------------------------
+
+    /// <summary>
+    /// The volume-button pattern was pressed (<see cref="VolumeSosAccessibilityService"/>). Starts
+    /// the hidden Hostile countdown, or cancels it when one is already running. False when no
+    /// shift is being monitored.
+    /// </summary>
+    internal static bool HandleVolumePattern()
+    {
+        EmergencyDetectionService? service = s_monitoring;
+        if (service == null) return false;
+
+        // Repeating the pattern is the eyes-free cancel: the driver never has to look at the phone.
+        if (service._countdownGate.Active == EmergencyAlert.Hostile && !service._countdownGate.Sending)
+        {
+            service.CancelCountdown("volume pattern repeated");
+            service.VibratePattern(CancelledPattern, VibrationEffect.DefaultAmplitude);
+            return true;
+        }
+
+        EmergencyLog.Info("Hostile volume-button pattern detected.");
+        service.BeginCountdown(EmergencyAlert.Hostile);
+        return true;
+    }
+
+    /// <summary>
+    /// The duress PIN was entered at clock-out: sends the Hostile alert straight away (typing it
+    /// is always deliberate, so there's no countdown) and arms the stealth callback. A countdown
+    /// already running is dropped in its favour. False when no shift is being monitored.
+    /// </summary>
+    internal static async Task<bool> TrySendDuressAlertAsync()
+    {
+        EmergencyDetectionService? service = s_monitoring;
+        if (service == null) return false;
+
+        EmergencyLog.Info("Duress PIN entered - sending a Hostile alert now (no countdown).");
+        service.CancelCountdown("duress PIN");
+        await service.FireHostileAsync();
+        return true;
+    }
+
     // ---- Location -----------------------------------------------------------
 
     public void OnLocationChanged(Location location)
@@ -383,7 +438,8 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
             return;
         }
 
-        EmergencyLog.Info($"{triggerType} countdown started ({CountdownLength.TotalSeconds:0}s to cancel).");
+        TimeSpan length = triggerType == EmergencyAlert.Crash ? CrashCountdownLength : HostileCountdownLength;
+        EmergencyLog.Info($"{triggerType} countdown started ({length.TotalSeconds:0}s to cancel).");
 
         Vibrate(triggerType);
         if (triggerType == EmergencyAlert.Crash)
@@ -392,14 +448,14 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
             // who is conscious notices it and can cancel. Hostile stays silent.
             _feedback?.CrashCountdownStarted();
         }
-        ShowCountdownNotification(triggerType);
-        _coordinator?.Begin(triggerType, CountdownLength);
+        ShowCountdownNotification(triggerType, length);
+        _coordinator?.Begin(triggerType, length);
 
         _ = Task.Run(async () =>
         {
             try
             {
-                await Task.Delay(CountdownLength, token);
+                await Task.Delay(length, token);
             }
             catch (TaskCanceledException)
             {
@@ -586,13 +642,19 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
     // ---- Notifications & haptics -------------------------------------------
 
-    private void ShowCountdownNotification(string triggerType)
+    private void ShowCountdownNotification(string triggerType, TimeSpan length)
     {
         bool crash = triggerType == EmergencyAlert.Crash;
 
         var cancelIntent = new Intent(this, typeof(EmergencyDetectionService)).SetAction(ActionCancelCountdown);
         PendingIntent? cancelPending = PendingIntent.GetService(
             this, 0, cancelIntent, PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable);
+
+        if (!crash)
+        {
+            Notifications.Notify(CountdownNotificationId, BuildHiddenHostileNotification(cancelPending, length));
+            return;
+        }
 
         // Opens (or raises) the app on the countdown popup - over the lock screen too.
         var showIntent = new Intent(this, typeof(MainActivity))
@@ -602,10 +664,8 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
             this, 1, showIntent, PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable);
 
         var builder = new NotificationCompat.Builder(this, CountdownChannelId);
-        builder.SetContentTitle(crash ? "Accident detected" : "Sending silent SOS");
-        builder.SetContentText(crash
-            ? "Alerting your manager in 5 seconds. Tap Cancel if you're OK."
-            : "A hostile-situation alert will be sent in 5 seconds. Tap Cancel to stop it.");
+        builder.SetContentTitle("Accident detected");
+        builder.SetContentText($"Alerting your manager in {length.TotalSeconds:0} seconds. Tap Cancel if you're OK.");
         builder.SetSmallIcon(global::Android.Resource.Drawable.IcDialogAlert);
         builder.SetPriority(NotificationCompat.PriorityMax);
         builder.SetCategory(NotificationCompat.CategoryAlarm);
@@ -616,6 +676,26 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         Notification notification = builder.Build()!;
 
         Notifications.Notify(CountdownNotificationId, notification);
+    }
+
+    /// <summary>
+    /// The Hostile countdown, dressed as routine app activity: same icon and title as the safety
+    /// monitor, no banner, no full-screen popup, nothing that says SOS. "Dismiss" cancels it. The
+    /// driver knows what it is from the two short taps that started it.
+    /// </summary>
+    private Notification BuildHiddenHostileNotification(PendingIntent? cancelPending, TimeSpan length)
+    {
+        var builder = new NotificationCompat.Builder(this, QuietCountdownChannelId);
+        builder.SetContentTitle("Safety monitor active");
+        builder.SetContentText("Syncing shift data…");
+        builder.SetSmallIcon(global::Android.Resource.Drawable.IcMenuMyCalendar);
+        builder.SetPriority(NotificationCompat.PriorityLow);
+        builder.SetOngoing(true);
+        builder.SetSilent(true);
+        // Clears itself if the service somehow misses the end of the countdown.
+        builder.SetTimeoutAfter((long)length.TotalMilliseconds + 2000);
+        builder.AddAction(global::Android.Resource.Drawable.IcMenuCloseClearCancel, "Dismiss", cancelPending);
+        return builder.Build()!;
     }
 
     private void ShowCrashNotification(bool sent)
@@ -633,22 +713,29 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         Notifications.Notify(AlertNotificationId, notification);
     }
 
+    // Crash: full-strength pulses for the length of its countdown.
+    private static readonly long[] CrashCountdownPattern = { 0, 800, 200, 800, 200, 800, 200, 800, 200, 800 };
+    // Hostile: two short taps, felt by the driver but too brief to be heard or noticed by anyone else.
+    private static readonly long[] HostileCountdownPattern = { 0, 60, 140, 60 };
+    // One short tap: the hidden Hostile countdown was cancelled by repeating the volume pattern.
+    private static readonly long[] CancelledPattern = { 0, 60 };
+
     private void Vibrate(string triggerType)
+    {
+        bool crash = triggerType == EmergencyAlert.Crash;
+        VibratePattern(crash ? CrashCountdownPattern : HostileCountdownPattern,
+            crash ? 255 : VibrationEffect.DefaultAmplitude);
+    }
+
+    private void VibratePattern(long[] pattern, int strength)
     {
         try
         {
             Vibrator? vibrator = GetVibrator();
             if (vibrator == null || !vibrator.HasVibrator) return;
 
-            // Both patterns last the length of the countdown. Crash is longer, full-strength pulses.
-            bool crash = triggerType == EmergencyAlert.Crash;
-            long[] pattern = crash
-                ? new long[] { 0, 800, 200, 800, 200, 800, 200, 800, 200, 800 }
-                : new long[] { 0, 400, 600, 400, 600, 400, 600, 400, 600, 400 };
-
             if (OperatingSystem.IsAndroidVersionAtLeast(26))
             {
-                int strength = crash ? 255 : VibrationEffect.DefaultAmplitude;
                 int[] amplitudes = new int[pattern.Length];
                 for (int i = 0; i < pattern.Length; i++)
                 {
@@ -711,6 +798,15 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         countdown.EnableVibration(false);
         countdown.LockscreenVisibility = NotificationVisibility.Public;
 
+        // Named like routine activity, since the driver's notification settings list it.
+        var quietCountdown = new NotificationChannel(QuietCountdownChannelId, "Shift Sync", NotificationImportance.Low)
+        {
+            Description = "Background shift activity.",
+        };
+        quietCountdown.SetSound(null, null);
+        quietCountdown.EnableVibration(false);
+        quietCountdown.LockscreenVisibility = NotificationVisibility.Public;
+
         var alert = new NotificationChannel(CrashAlertChannelId, "Accident Alert", NotificationImportance.High)
         {
             Description = "Shown after an accident alert is sent.",
@@ -721,6 +817,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
         manager.CreateNotificationChannel(monitor);
         manager.CreateNotificationChannel(countdown);
+        manager.CreateNotificationChannel(quietCountdown);
         manager.CreateNotificationChannel(alert);
     }
 
@@ -771,6 +868,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         _wakeLock = null;
 
         _monitoring = false;
+        if (s_monitoring == this) s_monitoring = null;
         EmergencyLog.Info("Monitoring stopped.");
 
         base.OnDestroy();

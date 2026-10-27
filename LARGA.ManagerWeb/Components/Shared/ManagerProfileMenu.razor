@@ -10,6 +10,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject PayoutAccountService PayoutAccounts
+@inject DuressPinService DuressPins
 
 @* Header profile menu: the same pill the header always showed, now opening Settings
    (contact number, password) and Logout. Styled with the app's own header/modal classes. *@
@@ -115,6 +116,34 @@
                         @if (!string.IsNullOrEmpty(_payoutError))
                         {
                             <div class="field-error">@_payoutError</div>
+                        }
+                    </div>
+
+                    @* Duress PIN: one PIN for every driver. Entered through "Enter PIN" on the app's
+                       clock-out screen, it sends a silent Hostile SOS and the clock-out carries on. *@
+                    <div class="report-section duress-pin">
+                        <label>Emergency PIN (drivers)</label>
+                        <span class="manager-menu-hint">
+                            Share this with all drivers. Entering it through "Enter PIN" on the clock-out screen silently sends a hostile-situation SOS,
+                            while the app carries on with a normal clock-out.
+                        </span>
+                        @if (_duressPin is null)
+                        {
+                            <span class="manager-menu-hint">Loading…</span>
+                        }
+                        else
+                        {
+                            <span class="manager-menu-hint">Current PIN: <strong>@(_duressPin.Length == 0 ? "not set" : _duressPin)</strong></span>
+                        }
+                        <div class="payout-account-add">
+                            <input class="text-input" type="text" inputmode="numeric" maxlength="@DuressPinService.MaxLength"
+                                   placeholder="@($"{DuressPinService.MinLength}-{DuressPinService.MaxLength} digits")"
+                                   @bind="_newDuressPin" @bind:event="oninput" />
+                            <button class="download-btn" type="button" disabled="@(_isSavingDuressPin || string.IsNullOrWhiteSpace(_newDuressPin))" @onclick="SaveDuressPinAsync">Save</button>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_duressPinMessage))
+                        {
+                            <div class="@(_duressPinSaved ? "field-ok" : "field-error")">@_duressPinMessage</div>
                         }
                     </div>
                 }
@@ -254,6 +283,53 @@
         if (IsManager)
         {
             await LoadPayoutAccountsAsync();
+            await LoadDuressPinAsync();
+        }
+    }
+
+    private string? _duressPin;
+    private string _newDuressPin = string.Empty;
+    private string? _duressPinMessage;
+    private bool _duressPinSaved;
+    private bool _isSavingDuressPin;
+
+    private async Task LoadDuressPinAsync()
+    {
+        try
+        {
+            _duressPin = await DuressPins.GetAsync();
+        }
+        catch (Exception)
+        {
+            _duressPin = string.Empty;
+            _duressPinSaved = false;
+            _duressPinMessage = "Couldn't load the emergency PIN. Please try again.";
+        }
+    }
+
+    private async Task SaveDuressPinAsync()
+    {
+        _isSavingDuressPin = true;
+        _duressPinMessage = null;
+        try
+        {
+            string? error = await DuressPins.SetAsync(_newDuressPin, await CurrentUserIdAsync());
+            _duressPinSaved = error is null;
+            _duressPinMessage = error ?? "Emergency PIN saved. Drivers' phones pick it up the next time they open the Active Shift screen.";
+            if (error is null)
+            {
+                _newDuressPin = string.Empty;
+                await LoadDuressPinAsync();
+            }
+        }
+        catch (Exception)
+        {
+            _duressPinSaved = false;
+            _duressPinMessage = "Couldn't save the emergency PIN. Please try again.";
+        }
+        finally
+        {
+            _isSavingDuressPin = false;
         }
     }
 
@@ -325,6 +401,8 @@
         _passwordError = null;
         _newPayoutAccount = string.Empty;
         _payoutError = null;
+        _newDuressPin = string.Empty;
+        _duressPinMessage = null;
     }
 
     private async Task UpdateContactNumberAsync()

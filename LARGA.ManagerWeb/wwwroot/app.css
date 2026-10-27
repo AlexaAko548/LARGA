@@ -5934,7 +5934,8 @@ font-weight: 500;
 }
 
 /* Manager Settings: authorized payout accounts (target account verification). */
-.payout-accounts .manager-menu-hint {
+.payout-accounts .manager-menu-hint,
+.duress-pin .manager-menu-hint {
 display: block;
 margin-bottom: 0.4rem;
 }

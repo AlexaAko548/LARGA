@@ -140,6 +140,7 @@ builder.Services.AddSingleton<DriverManagementService>();
 builder.Services.AddSingleton<FinancialLedgerService>();
 // Authorized GCash / bank accounts for boundary payments (Manager Settings).
 builder.Services.AddSingleton<PayoutAccountService>();
+builder.Services.AddSingleton<DuressPinService>();
 builder.Services.AddSingleton<GarageService>();
 builder.Services.AddSingleton<AlertService>();
 builder.Services.AddSingleton<InventoryAuditService>();

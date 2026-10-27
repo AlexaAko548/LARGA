@@ -132,12 +132,12 @@ public partial class App : Application
 			INavigation? navigation = Shell.Current?.Navigation;
 			if (navigation == null) return;
 
-			if (_countdown.Active != null && _countdownPage == null)
+			if (WantsCountdownPage && _countdownPage == null)
 			{
 				_countdownPage = new Views.Shared.EmergencyCountdownPage(_countdown);
 				await navigation.PushModalAsync(_countdownPage, false);
 			}
-			else if (_countdown.Active == null && _countdownPage != null)
+			else if (!WantsCountdownPage && _countdownPage != null)
 			{
 				Page page = _countdownPage;
 				_countdownPage = null;
@@ -160,9 +160,15 @@ public partial class App : Application
 
 		// A Changed that arrived while this was running may have flipped the state again.
 		bool shown = _countdownPage != null;
-		if (shown != (_countdown.Active != null))
+		if (shown != WantsCountdownPage)
 		{
 			await SyncCountdownPageAsync();
 		}
 	}
+
+	// Crash only. A Hostile countdown must not take over the screen in front of whoever is in the
+	// cab: it runs behind a disguised notification instead (EmergencyDetectionService), cancelled
+	// from that notification or by repeating the volume-button pattern.
+	private bool WantsCountdownPage =>
+		_countdown.Active is { } active && active.TriggerType != LARGA.Shared.Models.Entities.EmergencyAlert.Hostile;
 }

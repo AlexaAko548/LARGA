@@ -53,6 +53,13 @@ public interface IEmergencyAlertService
     /// read managers' users documents (firestore.rules), so this list is kept there instead.
     /// </summary>
     Task<IReadOnlyList<string>> GetManagerPhoneNumbersAsync();
+
+    /// <summary>
+    /// system_configs/global.duressPin, the one PIN the manager sets for all drivers in ManagerWeb
+    /// settings. Entered through the clock-out screen's "Enter PIN" link, it sends a silent Hostile
+    /// SOS. Falls back to the last PIN this phone saw (no signal); null when none was ever set.
+    /// </summary>
+    Task<string?> GetDuressPinAsync();
 }
 
 /// <summary>
@@ -66,6 +73,13 @@ public interface IEmergencyMonitor
     Task StartAsync(string shiftId);
 
     void Stop();
+
+    /// <summary>
+    /// The duress PIN was entered: sends a Hostile alert right away (no countdown) through the
+    /// running monitor, so the stealth callback is armed too. False when no monitor is running;
+    /// the caller then writes the alert itself.
+    /// </summary>
+    Task<bool> TrySendDuressAlertAsync();
 }
 
 /// <summary>
@@ -74,6 +88,15 @@ public interface IEmergencyMonitor
 /// </summary>
 public interface IEmergencyFeedback
 {
+    /// <summary>Light tick the moment the SOS button is pressed, so the driver knows the hold registered.</summary>
+    void HoldStarted();
+
+    /// <summary>Lighter pulse once per second while the SOS button is still held.</summary>
+    void HoldTick();
+
+    /// <summary>The SOS button was let go early: stop any hold vibration still running.</summary>
+    void HoldCancelled();
+
     /// <summary>Short pulse once a manual SOS press completes, so the driver knows to let go.</summary>
     void ButtonHeld();
 
@@ -98,10 +121,24 @@ public class NoOpEmergencyMonitor : IEmergencyMonitor
     public void Stop()
     {
     }
+
+    public Task<bool> TrySendDuressAlertAsync() => Task.FromResult(false);
 }
 
 public class NoOpEmergencyFeedback : IEmergencyFeedback
 {
+    public void HoldStarted()
+    {
+    }
+
+    public void HoldTick()
+    {
+    }
+
+    public void HoldCancelled()
+    {
+    }
+
     public void ButtonHeld()
     {
     }
@@ -155,6 +192,9 @@ public class EmergencyAlertService : IEmergencyAlertService
 
     // Last good copy of system_configs/global.managerPhoneNumbers, for Call Manager with no signal.
     private const string ManagerPhonesCacheKey = "ManagerPhoneNumbersCache";
+    private const string DuressPinCacheKey = "DuressPinCache";
+    // A driver typing the PIN under duress must not sit on a spinner: past this, the cached PIN is used.
+    private static readonly TimeSpan DuressPinLookupLimit = TimeSpan.FromSeconds(3);
 
     private readonly IShiftManagementService _shiftService;
     private readonly IEmergencyFeedback _feedback;
@@ -319,6 +359,51 @@ public class EmergencyAlertService : IEmergencyAlertService
             return Preferences.Get(ManagerPhonesCacheKey, string.Empty)
                 .Split(',', StringSplitOptions.RemoveEmptyEntries)
                 .ToList();
+        }
+    }
+
+    public async Task<string?> GetDuressPinAsync()
+    {
+        string? cached = null;
+        try { cached = await SecureStorage.GetAsync(DuressPinCacheKey); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Duress PIN cache read failed: {ex.Message}"); }
+
+        string? fresh = await WithinAsync(FetchDuressPinAsync(), DuressPinLookupLimit, null);
+        if (fresh == null)
+        {
+            return string.IsNullOrEmpty(cached) ? null : cached;
+        }
+
+        // Cleared in ManagerWeb: forget it here too, so an old PIN stops working.
+        if (fresh.Length == 0)
+        {
+            SecureStorage.Remove(DuressPinCacheKey);
+            return null;
+        }
+
+        if (fresh != cached)
+        {
+            try { await SecureStorage.SetAsync(DuressPinCacheKey, fresh); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Duress PIN cache write failed: {ex.Message}"); }
+        }
+        return fresh;
+    }
+
+    /// <summary>The PIN as stored ("" when none is set), or null when the read failed.</summary>
+    private static async Task<string?> FetchDuressPinAsync()
+    {
+        try
+        {
+            var config = await CrossFirebaseFirestore.Current
+                .GetCollection("system_configs")
+                .GetDocument("global")
+                .GetDocumentSnapshotAsync<DuressPinProxy>();
+            return config?.Data?.DuressPin?.Trim() ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Duress PIN lookup failed, using the cached PIN: {ex.Message}");
+            return null;
         }
     }
 
@@ -548,5 +633,11 @@ public class EmergencyAlertService : IEmergencyAlertService
     {
         [FirestoreProperty("managerPhoneNumbers")]
         public List<string> ManagerPhoneNumbers { get; set; } = new();
+    }
+
+    private class DuressPinProxy
+    {
+        [FirestoreProperty("duressPin")]
+        public string? DuressPin { get; set; }
     }
 }

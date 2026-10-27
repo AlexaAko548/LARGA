@@ -24,6 +24,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     private readonly IEmergencyAlertService _emergencyAlertService;
     private readonly IGpsTelemetryService _telemetryService;
     private readonly IEmergencyFeedback _emergencyFeedback;
+    private readonly IEmergencyMonitor _emergencyMonitor;
     private readonly IDispatcherTimer _shiftTimer;
     private TimeSpan _shiftDuration;
     private TimeSpan _timeRemaining;
@@ -158,6 +159,30 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         set { _isClockOutAlertVisible = value; OnPropertyChanged(); }
     }
 
+    // Duress PIN: the "Enter PIN" link under the clock-out Yes/No opens this. The manager's PIN
+    // sends a silent Hostile SOS and the clock-out then carries on as normal, so whoever is
+    // watching sees an ordinary end of shift.
+    private bool _isDuressPinVisible;
+    public bool IsDuressPinVisible
+    {
+        get => _isDuressPinVisible;
+        set { _isDuressPinVisible = value; OnPropertyChanged(); }
+    }
+
+    private string _duressPinEntry = string.Empty;
+    public string DuressPinEntry
+    {
+        get => _duressPinEntry;
+        set { _duressPinEntry = value ?? string.Empty; OnPropertyChanged(); }
+    }
+
+    private bool _isDuressPinWrong;
+    public bool IsDuressPinWrong
+    {
+        get => _isDuressPinWrong;
+        set { _isDuressPinWrong = value; OnPropertyChanged(); }
+    }
+
     private bool _isPauseAlertVisible;
     public bool IsPauseAlertVisible
     {
@@ -234,13 +259,17 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     public ICommand RequestPauseCommand { get; }
     public ICommand ConfirmPauseCommand { get; }
     public ICommand CancelPauseCommand { get; }
+    public ICommand ShowDuressPinCommand { get; }
+    public ICommand SubmitDuressPinCommand { get; }
+    public ICommand CancelDuressPinCommand { get; }
 
-    public ActiveShiftViewModel(IShiftManagementService shiftService, IEmergencyAlertService emergencyAlertService, IGpsTelemetryService telemetryService, IEmergencyFeedback emergencyFeedback)
+    public ActiveShiftViewModel(IShiftManagementService shiftService, IEmergencyAlertService emergencyAlertService, IGpsTelemetryService telemetryService, IEmergencyFeedback emergencyFeedback, IEmergencyMonitor emergencyMonitor)
     {
         _shiftService = shiftService;
         _emergencyAlertService = emergencyAlertService;
         _telemetryService = telemetryService;
         _emergencyFeedback = emergencyFeedback;
+        _emergencyMonitor = emergencyMonitor;
         // Each GPS point (every ~30s) may flip the unit between moving and Idle.
         _telemetryService.MovementChanged += (_, _) => MainThread.BeginInvokeOnMainThread(RaiseStatusChanged);
 
@@ -297,6 +326,21 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
             IsClockOutAlertVisible = false;
             await Shell.Current.GoToAsync("end-shift-step1");
         });
+
+        ShowDuressPinCommand = new Command(() =>
+        {
+            IsClockOutAlertVisible = false;
+            DuressPinEntry = string.Empty;
+            IsDuressPinWrong = false;
+            IsDuressPinVisible = true;
+        });
+        CancelDuressPinCommand = new Command(() =>
+        {
+            IsDuressPinVisible = false;
+            DuressPinEntry = string.Empty;
+            IsDuressPinWrong = false;
+        });
+        SubmitDuressPinCommand = new Command(async () => await SubmitDuressPinAsync());
 
         SendSosCommand = new Command(async () => await SendSosAsync());
         DismissSosCommand = new Command(() => IsSosAlertVisible = false);
@@ -460,14 +504,68 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     }
 
     // Driver name and unit for an SOS, looked up now while there's time, not when it's pressed.
+    // The duress PIN too, so it's cached on the phone before the driver might need it offline.
     private async Task PrepareSosAsync()
     {
         try
         {
             string? shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
             await _emergencyAlertService.PrepareForShiftAsync(shiftId ?? string.Empty);
+            await _emergencyAlertService.GetDuressPinAsync();
         }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"SOS prepare failed: {ex.Message}"); }
+    }
+
+    private bool _isCheckingDuressPin;
+
+    private async Task SubmitDuressPinAsync()
+    {
+        if (_isCheckingDuressPin) return;
+        _isCheckingDuressPin = true;
+        try
+        {
+            string entered = DuressPinEntry.Trim();
+            string? pin = await _emergencyAlertService.GetDuressPinAsync();
+
+            // Looks like any PIN prompt: a wrong (or unset) PIN just asks again. No SOS.
+            if (string.IsNullOrEmpty(pin) || entered != pin)
+            {
+                IsDuressPinWrong = true;
+                DuressPinEntry = string.Empty;
+                return;
+            }
+
+            IsDuressPinVisible = false;
+            IsDuressPinWrong = false;
+            DuressPinEntry = string.Empty;
+
+            // Not awaited: the screen moves on into the normal clock-out straight away while the
+            // alert goes out, so nothing on screen gives it away.
+            _ = SendDuressAlertAsync();
+            await Shell.Current.GoToAsync("end-shift-step1");
+        }
+        finally
+        {
+            _isCheckingDuressPin = false;
+        }
+    }
+
+    private async Task SendDuressAlertAsync()
+    {
+        try
+        {
+            EmergencyAlertService.Log("Duress PIN entered at clock-out - sending a Hostile SOS.");
+            // Through the running safety monitor when there is one, so the manager's callback is
+            // auto-answered in stealth mode too; otherwise straight to Firestore.
+            if (!await _emergencyMonitor.TrySendDuressAlertAsync())
+            {
+                await _emergencyAlertService.SendAlertAsync(EmergencyAlert.Hostile);
+            }
+        }
+        catch (Exception ex)
+        {
+            EmergencyAlertService.Log($"Duress SOS failed: {ex.Message}");
+        }
     }
 
     private async Task InitializeDynamicTaxiAsync()

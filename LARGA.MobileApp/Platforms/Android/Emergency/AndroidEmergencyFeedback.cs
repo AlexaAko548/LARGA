@@ -15,6 +15,11 @@ namespace LARGA.MobileApp.Platforms.Android.Emergency;
 /// </summary>
 public sealed class AndroidEmergencyFeedback : IEmergencyFeedback
 {
+    // Hold pulses: a crisp tick when the press lands, then a fainter one each second of the hold.
+    // Both are far shorter than the press-complete buzz, so the end of the hold still stands out.
+    private static readonly long[] HoldStartPattern = { 0, 30 };
+    private static readonly long[] HoldTickPattern = { 0, 15 };
+
     // Press-complete pulse: one firm buzz, short enough to release on.
     private static readonly long[] ButtonPattern = { 0, 200 };
 
@@ -28,6 +33,16 @@ public sealed class AndroidEmergencyFeedback : IEmergencyFeedback
     private readonly Handler _handler = new(Looper.MainLooper!);
     private MediaPlayer? _player;
     private int _alarmToken;
+
+    public void HoldStarted() => Vibrate(HoldStartPattern);
+
+    public void HoldTick() => Vibrate(HoldTickPattern);
+
+    public void HoldCancelled()
+    {
+        try { GetVibrator()?.Cancel(); }
+        catch (Exception ex) { EmergencyLog.Error("Hold vibration cancel failed", ex); }
+    }
 
     public void ButtonHeld() => Vibrate(ButtonPattern);
 
