@@ -249,6 +249,22 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         _telemetryService.DistanceChanged += (_, km) =>
             MainThread.BeginInvokeOnMainThread(() => Distance = FormatKm(km));
 
+        // GPS-006: App.xaml.cs already clears the shift Preferences/SecureStorage when the shift
+        // is closed elsewhere (6:00 AM auto-close, a manager), but this screen - if the driver is
+        // sitting on it when that happens - had no idea and kept showing "GPS Tracking On" with
+        // working Pause/Clock Out buttons. Tapping Clock Out then walked them through the full
+        // End-of-Shift checklist for a shift that no longer exists, ending in a false "Shift
+        // Completed" with their odometer/fuel/photo silently discarded (see EndShiftStep2ViewModel's
+        // own guard for the other half of that). Leaving for the dashboard here closes the gap at
+        // the source: the driver never gets the chance to start that checklist in the first place.
+        _telemetryService.ShiftClosedRemotely += (_, _) => MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            _shiftTimer.Stop();
+            await Shell.Current.DisplayAlert("Shift Ended",
+                "This shift was already ended (auto-closed, or by a manager). Returning to your dashboard.", "OK");
+            await Shell.Current.GoToAsync("//driver-dashboard");
+        });
+
         // Timer instantiation remains in the constructor so it exists globally
         _shiftTimer = Application.Current.Dispatcher.CreateTimer();
         _shiftTimer.Interval = TimeSpan.FromSeconds(1);

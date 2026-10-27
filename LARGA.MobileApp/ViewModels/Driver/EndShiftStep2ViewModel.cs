@@ -43,6 +43,15 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
     private string? _odometerPhotoLocalPath;
     private string? _fuelPhotoLocalPath;
 
+    // Review follow-up: this page hard-coded another unit's plate instead of showing the one
+    // actually on this shift. Same AssignedUnitPlate pattern PreShiftStep2ViewModel uses.
+    private string _assignedUnitPlate = "Loading...";
+    public string AssignedUnitPlate
+    {
+        get => _assignedUnitPlate;
+        private set { _assignedUnitPlate = value; OnPropertyChanged(); }
+    }
+
     private string _finalOdometer = string.Empty;
     public string FinalOdometer
     {
@@ -120,6 +129,7 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
         _photoStorage = photoStorage;
         _telemetryService = telemetryService;
         _emergencyMonitor = emergencyMonitor;
+        _ = LoadAssignedUnitAsync();
 
         CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Register<EndShiftStep2ViewModel, OdometerScannedData, string>(this, "EndShiftOdometerScanned", (r, data) =>
         {
@@ -163,46 +173,61 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
 
                 var charges = new ShiftEndCharges(0m, 0m);
                 string activeShiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
-                if (!string.IsNullOrEmpty(activeShiftId))
+
+                // GPS-006: this is empty when the shift was already closed elsewhere (6:00 AM
+                // auto-close, a manager) while the driver was mid-checklist - App.xaml.cs's
+                // ShiftClosedRemotely handler already cleared it. Falling through used to skip
+                // ClockOutAsync entirely (nothing left to call it on) yet still land on "Shift
+                // Completed" below with zeroed charges, silently discarding the odometer, fuel
+                // verification, and photos the driver just filled in. ActiveShiftViewModel now
+                // leaves for the dashboard the moment that happens, so reaching this screen at all
+                // with no shift to end should be rare - but fail loudly instead of faking success
+                // for whatever narrow timing window still lets it through.
+                if (string.IsNullOrEmpty(activeShiftId))
                 {
-                    // DSM-041: the final reading can't be below the one the shift started at.
-                    // No start reading on the shift: nothing to compare, so it's allowed.
-                    int? startMileage = await _shiftService.GetShiftStartMileageAsync(activeShiftId);
-                    if (startMileage is null)
-                    {
-#if ANDROID
-                        Android.Util.Log.Warn("LARGA_SHIFT", $"Shift {activeShiftId} has no startMileage - final odometer not checked.");
-#else
-                        System.Diagnostics.Debug.WriteLine($"Shift {activeShiftId} has no startMileage - final odometer not checked.");
-#endif
-                    }
-                    else if (endMileage < startMileage.Value)
-                    {
-                        await Shell.Current.DisplayAlert("Odometer below start",
-                            $"The final odometer ({endMileage:N0} km) is lower than the starting odometer ({startMileage.Value:N0} km). Please rescan the odometer.", "OK");
-                        return;
-                    }
-
-                    charges = await _shiftService.ClockOutAsync(activeShiftId, endMileage, IsBelowHalfTankSelected, "");
-
-                    // The shift is closed from here on. Release everything tied to it before the
-                    // photo uploads below, so a slow or stuck upload can't leave GPS tracking and
-                    // emergency detection running on a shift that has already ended.
-                    // LAR-77 Contextual Auto-Cutoff Protocol: telemetry severs strictly on a
-                    // successful clock-out.
-                    _telemetryService.Stop();
-
-                    // LAR-86/87: automated emergency detection stops with the shift.
-                    _emergencyMonitor.Stop();
-
-                    SecureStorage.Remove("ActiveShiftDocumentId");
-                    Preferences.Remove("IsShiftActive");
-                    Preferences.Remove("CurrentShiftId");
-
-                    await ShiftChecklistUploader.SubmitAsync(
-                        _shiftService, _photoStorage, activeShiftId, isEndShift: true, _inspection,
-                        IsBelowHalfTankSelected, _fuelPhotoLocalPath, _odometerPhotoLocalPath);
+                    await Shell.Current.DisplayAlert("Shift not ended",
+                        "This shift was already ended elsewhere, so nothing was submitted. Please check with your manager if you need your final odometer or fuel level recorded.", "OK");
+                    await Shell.Current.GoToAsync("//driver-dashboard");
+                    return;
                 }
+
+                // DSM-041: the final reading can't be below the one the shift started at.
+                // No start reading on the shift: nothing to compare, so it's allowed.
+                int? startMileage = await _shiftService.GetShiftStartMileageAsync(activeShiftId);
+                if (startMileage is null)
+                {
+#if ANDROID
+                    Android.Util.Log.Warn("LARGA_SHIFT", $"Shift {activeShiftId} has no startMileage - final odometer not checked.");
+#else
+                    System.Diagnostics.Debug.WriteLine($"Shift {activeShiftId} has no startMileage - final odometer not checked.");
+#endif
+                }
+                else if (endMileage < startMileage.Value)
+                {
+                    await Shell.Current.DisplayAlert("Odometer below start",
+                        $"The final odometer ({endMileage:N0} km) is lower than the starting odometer ({startMileage.Value:N0} km). Please rescan the odometer.", "OK");
+                    return;
+                }
+
+                charges = await _shiftService.ClockOutAsync(activeShiftId, endMileage, IsBelowHalfTankSelected, "");
+
+                // The shift is closed from here on. Release everything tied to it before the
+                // photo uploads below, so a slow or stuck upload can't leave GPS tracking and
+                // emergency detection running on a shift that has already ended.
+                // LAR-77 Contextual Auto-Cutoff Protocol: telemetry severs strictly on a
+                // successful clock-out.
+                _telemetryService.Stop();
+
+                // LAR-86/87: automated emergency detection stops with the shift.
+                _emergencyMonitor.Stop();
+
+                SecureStorage.Remove("ActiveShiftDocumentId");
+                Preferences.Remove("IsShiftActive");
+                Preferences.Remove("CurrentShiftId");
+
+                await ShiftChecklistUploader.SubmitAsync(
+                    _shiftService, _photoStorage, activeShiftId, isEndShift: true, _inspection,
+                    IsBelowHalfTankSelected, _fuelPhotoLocalPath, _odometerPhotoLocalPath);
 
                 Preferences.Remove("IsShiftActive");
                 Preferences.Remove("CurrentShiftId");
@@ -485,6 +510,25 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
             return targetPath;
 #endif
         });
+    }
+
+    private async Task LoadAssignedUnitAsync()
+    {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
+        try
+        {
+            var taxi = await _shiftService.GetCurrentUserAssignedTaxiAsync();
+            if (taxi != null)
+            {
+                AssignedUnitPlate = string.IsNullOrWhiteSpace(taxi.PlateNumber)
+                    ? taxi.Model
+                    : taxi.PlateNumber.Replace("-", " · ");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Assigned Unit Error: {ex.Message}");
+        }
     }
 
     private static void TryDeleteCachedFile(string? filePath)
