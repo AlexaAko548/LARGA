@@ -1,3 +1,4 @@
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 using Plugin.Firebase.Firestore;
 using System;
@@ -46,6 +47,57 @@ public class LedgerViewModel : INotifyPropertyChanged
         RefreshCommand = new Command(async () => await RefreshAsync());
     }
 
+    // -- Live updates: the manager recording a boundary payment on Quick Ledger shows up here without the
+    // driver pulling to refresh (test gap: "doesn't automatically refresh"). Two listeners (this driver's
+    // shifts and boundary_payments) just trigger the same reload RefreshCommand already runs, debounced so
+    // the near-simultaneous events a payment write produces collapse into one Firestore read.
+    private IDisposable? _shiftsListener;
+    private IDisposable? _paymentsListener;
+    private DebouncedAction? _reloadDebounced;
+    private bool _isListening;
+
+    public void StartListening()
+    {
+        if (_isListening) return;
+        var user = CrossFirebaseAuth.Current.CurrentUser;
+        if (user == null) return;
+        _isListening = true;
+
+        _reloadDebounced ??= new DebouncedAction(() =>
+        {
+            MainThread.BeginInvokeOnMainThread(async () => await LoadDynamicLedgerDataAsync(forceRefresh: true));
+            return Task.CompletedTask;
+        }, TimeSpan.FromMilliseconds(400));
+        SessionEvents.SigningOut += OnSigningOut;
+
+        _shiftsListener = CrossFirebaseFirestore.Current
+            .GetCollection("shifts")
+            .WhereEqualsTo("driverId", user.Uid)
+            .AddSnapshotListener<QuickLedgerService.ShiftProxy>(
+                _ => _reloadDebounced.Trigger(),
+                ex => System.Diagnostics.Debug.WriteLine($"Ledger shifts listener error: {ex.Message}"));
+
+        _paymentsListener = CrossFirebaseFirestore.Current
+            .GetCollection("boundary_payments")
+            .WhereEqualsTo("driverId", user.Uid)
+            .AddSnapshotListener<QuickLedgerService.BoundaryPaymentProxy>(
+                _ => _reloadDebounced.Trigger(),
+                ex => System.Diagnostics.Debug.WriteLine($"Ledger payments listener error: {ex.Message}"));
+    }
+
+    public void StopListening()
+    {
+        _isListening = false;
+        SessionEvents.SigningOut -= OnSigningOut;
+        _shiftsListener?.Dispose();
+        _paymentsListener?.Dispose();
+        _shiftsListener = _paymentsListener = null;
+        _reloadDebounced?.Dispose();
+        _reloadDebounced = null;
+    }
+
+    private void OnSigningOut(object? sender, EventArgs e) => StopListening();
+
     private bool _isRefreshing;
     public bool IsRefreshing
     {
@@ -68,6 +120,10 @@ public class LedgerViewModel : INotifyPropertyChanged
 
     private bool _isLoading;
 
+    // Test gap: the empty-list message ("No payments recorded yet.") showed while the fetch was still
+    // running (the list is cleared before it lands), reading as if the driver truly had none.
+    public string EmptyStateMessage => _isLoading ? "Loading your payment history…" : "No payments recorded yet.";
+
     /// <summary>
     /// Called by LedgerPage each time the tab appears: Shell keeps the tab page alive, so loading
     /// once in the constructor would never show payments recorded after the first visit.
@@ -80,6 +136,7 @@ public class LedgerViewModel : INotifyPropertyChanged
         var user = CrossFirebaseAuth.Current.CurrentUser;
         if (user == null || _isLoading) return;
         _isLoading = true;
+        OnPropertyChanged(nameof(EmptyStateMessage));
 
         try
         {
@@ -123,6 +180,7 @@ public class LedgerViewModel : INotifyPropertyChanged
         finally
         {
             _isLoading = false;
+            OnPropertyChanged(nameof(EmptyStateMessage));
         }
     }
 

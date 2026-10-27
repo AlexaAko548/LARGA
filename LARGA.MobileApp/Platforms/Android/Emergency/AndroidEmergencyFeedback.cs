@@ -22,6 +22,8 @@ public sealed class AndroidEmergencyFeedback : IEmergencyFeedback
     private static readonly long[] SentPattern = { 0, 250, 150, 250, 150, 250 };
 
     private static readonly TimeSpan CrashAlarmLength = TimeSpan.FromSeconds(10);
+    // Covers the 5-second countdown; AlertSent then restarts it for CrashAlarmLength.
+    private static readonly TimeSpan CountdownAlarmLength = TimeSpan.FromSeconds(8);
 
     private readonly Handler _handler = new(Looper.MainLooper!);
     private MediaPlayer? _player;
@@ -35,15 +37,27 @@ public sealed class AndroidEmergencyFeedback : IEmergencyFeedback
 
         if (triggerType == EmergencyAlert.Crash)
         {
-            PlayCrashAlarm();
+            PlayCrashAlarm(CrashAlarmLength);
         }
     }
 
-    private void PlayCrashAlarm()
+    public void CrashCountdownStarted() => PlayCrashAlarm(CountdownAlarmLength);
+
+    public void StopAlarm()
+    {
+        _alarmToken++; // a stop already scheduled for this alarm has nothing left to do
+        if (_player != null)
+        {
+            StopPlayer();
+            EmergencyLog.Info("Crash alarm stopped.");
+        }
+    }
+
+    private void PlayCrashAlarm(TimeSpan length)
     {
         try
         {
-            StopAlarm();
+            StopPlayer();
 
             // Alarm usage plays on the alarm stream, so it's audible even when the ringer is silent.
             var player = new MediaPlayer();
@@ -61,19 +75,19 @@ public sealed class AndroidEmergencyFeedback : IEmergencyFeedback
             int token = ++_alarmToken;
             _handler.PostDelayed(() =>
             {
-                if (token == _alarmToken) StopAlarm();
-            }, (long)CrashAlarmLength.TotalMilliseconds);
+                if (token == _alarmToken) StopPlayer();
+            }, (long)length.TotalMilliseconds);
 
             EmergencyLog.Info("Crash alarm playing.");
         }
         catch (Exception ex)
         {
             EmergencyLog.Error("Crash alarm failed", ex);
-            StopAlarm();
+            StopPlayer();
         }
     }
 
-    private void StopAlarm()
+    private void StopPlayer()
     {
         MediaPlayer? player = _player;
         _player = null;

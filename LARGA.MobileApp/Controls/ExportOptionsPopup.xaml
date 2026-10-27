@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Export format + date range, used by the Payment History Export button. Same card as
+     ConfirmationPopup/OptionPickerPopup. Show it with ExportOptionsPopup.ShowAsync(...). -->
+<toolkit:Popup xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
+                x:Class="LARGA.MobileApp.Controls.ExportOptionsPopup"
+                Color="Transparent">
+
+    <Border BackgroundColor="{DynamicResource ThemeSurface}"
+            Stroke="{DynamicResource LargaCardBorder}"
+            StrokeThickness="1"
+            StrokeShape="RoundRectangle 20"
+            Padding="20,18"
+            WidthRequest="320">
+        <Border.Shadow>
+            <Shadow Brush="{StaticResource LargaNavy}" Opacity="0.18" Radius="18" Offset="0,8" />
+        </Border.Shadow>
+
+        <VerticalStackLayout Spacing="14">
+            <Label Text="Export Payment History"
+                   FontFamily="BarlowCondensedBold" FontSize="21"
+                   TextColor="{DynamicResource ThemeTextBlack}" />
+
+            <Label Text="FORMAT" FontSize="11" FontFamily="InterBold"
+                   TextColor="{DynamicResource ThemeTextSecondary}" CharacterSpacing="1" />
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                <Border x:Name="CsvOption" Grid.Column="0" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12" Padding="0" HeightRequest="42">
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnCsvTapped" />
+                    </Border.GestureRecognizers>
+                    <Label x:Name="CsvLabel" Text="CSV" HorizontalOptions="Center" VerticalOptions="Center"
+                           FontFamily="BarlowCondensedSemiBold" FontAttributes="Bold" FontSize="15" />
+                </Border>
+                <Border x:Name="PdfOption" Grid.Column="1" StrokeThickness="0"
+                        StrokeShape="RoundRectangle 12" Padding="0" HeightRequest="42">
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnPdfTapped" />
+                    </Border.GestureRecognizers>
+                    <Label x:Name="PdfLabel" Text="PDF" HorizontalOptions="Center" VerticalOptions="Center"
+                           FontFamily="BarlowCondensedSemiBold" FontAttributes="Bold" FontSize="15" />
+                </Border>
+            </Grid>
+
+            <Label Text="DATE RANGE" FontSize="11" FontFamily="InterBold"
+                   TextColor="{DynamicResource ThemeTextSecondary}" CharacterSpacing="1" Margin="0,4,0,0" />
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                <VerticalStackLayout Grid.Column="0" Spacing="2">
+                    <Label Text="From" FontSize="12" TextColor="{DynamicResource ThemeTextSecondary}" />
+                    <DatePicker x:Name="FromPicker" Format="MMM d, yyyy" FontSize="14"
+                                TextColor="{DynamicResource LargaDarkText}" BackgroundColor="Transparent"
+                                DateSelected="OnDateSelected" />
+                </VerticalStackLayout>
+                <VerticalStackLayout Grid.Column="1" Spacing="2">
+                    <Label Text="To" FontSize="12" TextColor="{DynamicResource ThemeTextSecondary}" />
+                    <DatePicker x:Name="ToPicker" Format="MMM d, yyyy" FontSize="14"
+                                TextColor="{DynamicResource LargaDarkText}" BackgroundColor="Transparent"
+                                DateSelected="OnDateSelected" />
+                </VerticalStackLayout>
+            </Grid>
+
+            <Label x:Name="ErrorLabel" FontSize="12" TextColor="{DynamicResource LargaDanger}" IsVisible="False" />
+
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Margin="0,4,0,0">
+                <Button Grid.Column="0" Text="Cancel" Clicked="OnCancelClicked"
+                        BackgroundColor="{DynamicResource LargaLightBlue}"
+                        TextColor="{DynamicResource LargaDarkText}"
+                        FontFamily="BarlowCondensedSemiBold" FontAttributes="Bold" FontSize="15"
+                        CornerRadius="19" HeightRequest="42" TextTransform="None" Margin="0" />
+                <Button x:Name="ExportButton" Grid.Column="1" Text="Export" Clicked="OnExportClicked"
+                        BackgroundColor="{DynamicResource LargaPrimaryBlue}"
+                        TextColor="{DynamicResource LargaWhite}"
+                        FontFamily="BarlowCondensedSemiBold" FontAttributes="Bold" FontSize="15"
+                        CornerRadius="19" HeightRequest="42" TextTransform="None" Margin="0" />
+            </Grid>
+        </VerticalStackLayout>
+    </Border>
+</toolkit:Popup>

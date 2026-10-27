@@ -1,6 +1,6 @@
 using System;
 
-namespace LARGA.MobileApp.Platforms.Android.Emergency;
+namespace LARGA.SharedCore.Emergency;
 
 /// <summary>
 /// LAR-87 Accident Protocol trigger: a G-force spike above 4G immediately followed by the taxi's

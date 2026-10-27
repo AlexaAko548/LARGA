@@ -54,15 +54,18 @@ else
 
     <!-- Date range, Search & Meta Bar (ANA-015: the whole history, a page at a time) -->
     <div class="toolbar">
-        <div class="audit-range date-range">
-            <div class="date-field">
-                <span>From</span>
-                <input type="date" max="@PhilippineTime.Now.ToString("yyyy-MM-dd")" value="@_fromDate.ToString("yyyy-MM-dd")" @onchange="OnFromDateChanged" />
-            </div>
-            <div class="date-field">
-                <span>To</span>
-                <input type="date" max="@PhilippineTime.Now.ToString("yyyy-MM-dd")" value="@_toDate.ToString("yyyy-MM-dd")" @onchange="OnToDateChanged" />
-            </div>
+        <div class="filter-dropdown">
+            <span class="toolbar-filter-label text-muted">Filter by date:</span>
+            <button class="filter-btn" type="button" @onclick="() => _showDateFilterMenu = !_showDateFilterMenu"><Icon Name="calendar" /> @_dateFilter</button>
+            @if (_showDateFilterMenu)
+            {
+                <div class="filter-menu">
+                    @foreach (string option in DateFilterOptions)
+                    {
+                        <button type="button" @onclick="() => SetDateFilterAsync(option)">@option</button>
+                    }
+                </div>
+            }
         </div>
         <div class="search-box">
             <input type="text" class="input-search" placeholder="Search logs in this date range..." value="@searchQuery" @oninput="OnSearchInput" />
@@ -77,6 +80,19 @@ else
             </button>
         </div>
     </div>
+    @if (_dateFilter == SpecificTimeFrame)
+    {
+        <div class="date-range custom-log-range">
+            <div class="date-field">
+                <span>From</span>
+                <input type="date" max="@PhilippineTime.Now.ToString("yyyy-MM-dd")" value="@_fromDate.ToString("yyyy-MM-dd")" @onchange="OnFromDateChanged" />
+            </div>
+            <div class="date-field">
+                <span>To</span>
+                <input type="date" max="@PhilippineTime.Now.ToString("yyyy-MM-dd")" value="@_toDate.ToString("yyyy-MM-dd")" @onchange="OnToDateChanged" />
+            </div>
+        </div>
+    }
     <FieldError Message="@RangeError" />
 
     <!-- Audit Logs Container -->
@@ -163,9 +179,14 @@ else
     private string? _exportError;
     private bool _isExporting;
 
-    // ANA-015: Philippine-time dates, both inclusive - last 30 days by default.
+    // ANA-015: Philippine-time dates, both inclusive - last 30 days ("Month") by default.
     private DateTime _fromDate = PhilippineTime.Now.Date.AddDays(-29);
     private DateTime _toDate = PhilippineTime.Now.Date;
+
+    private const string SpecificTimeFrame = "Specific Time Frame";
+    private static readonly string[] DateFilterOptions = { "All", "7 Days", "Month", SpecificTimeFrame };
+    private string _dateFilter = "Month";
+    private bool _showDateFilterMenu;
 
     private string searchQuery = string.Empty;
 
@@ -237,6 +258,30 @@ else
             _toDate = date.Date;
             await ReloadAsync();
         }
+    }
+
+    /// <summary>A preset date filter was picked - "Specific Time Frame" just reveals the
+    /// From/To pickers below (the range they're already on stays put); every other option
+    /// sets the range itself and reloads. "All" is bounded to a year back rather than truly
+    /// unbounded, same read-cost reasoning as DriverShifts' "All Dates".</summary>
+    private async Task SetDateFilterAsync(string filter)
+    {
+        _dateFilter = filter;
+        _showDateFilterMenu = false;
+        if (filter == SpecificTimeFrame)
+        {
+            return;
+        }
+
+        DateTime today = PhilippineTime.Now.Date;
+        _toDate = today;
+        _fromDate = filter switch
+        {
+            "All" => today.AddDays(-365),
+            "7 Days" => today.AddDays(-6),
+            _ => today.AddDays(-29), // "Month"
+        };
+        await ReloadAsync();
     }
 
     private async Task OnSearchInput(ChangeEventArgs e)
@@ -390,7 +435,7 @@ else
             List<InventoryAuditService.AuditLogListItem> rows = await GetExportRowsAsync();
 
             var csv = new StringBuilder();
-            csv.AppendLine("Timestamp,Actor,Role,Action,Target");
+            csv.AppendLine("Timestamp,Actor,Action,Target");
 
             foreach (InventoryAuditService.AuditLogListItem row in rows)
             {
@@ -398,7 +443,6 @@ else
                 csv
                     .Append(Csv(localTime)).Append(',')
                     .Append(Csv(row.Actor)).Append(',')
-                    .Append(Csv(row.Role)).Append(',')
                     .Append(Csv(row.Action)).Append(',')
                     .Append(Csv(row.Target))
                     .AppendLine();
@@ -446,12 +490,12 @@ else
                 {
                     new LARGA.SharedCore.Models.Dashboard.ReportTable
                     {
-                        Headers = new[] { "Timestamp", "User", "Role", "Action", "Details" },
+                        Headers = new[] { "Timestamp", "User", "Action", "Details" },
                         Rows = rows.Select(r => new object?[]
                         {
-                            r.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm:ss"), r.Actor, r.Role, r.Action, r.Target,
+                            r.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm:ss"), r.Actor, r.Action, r.Target,
                         }).ToList(),
-                        RelativeWidths = new[] { 1.7f, 2f, 1.3f, 2f, 6f },
+                        RelativeWidths = new[] { 1.7f, 2f, 2f, 6f },
                     },
                 },
             };

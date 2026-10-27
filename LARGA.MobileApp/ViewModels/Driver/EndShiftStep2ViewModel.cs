@@ -352,7 +352,7 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                 {
                     string localFilePath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_{photo.FileName}");
 
-                    await ProcessAndOrientPhotoAsync(photo.FullPath, localFilePath, maxDimension: 1024, quality: 75);
+                    await PhotoResizer.ResizeToJpegAsync(photo.FullPath, localFilePath, maxDimension: 1024, quality: 75);
 
                     string? oldFilePath = _fuelPhotoLocalPath;
                     _fuelPhotoLocalPath = localFilePath;
@@ -386,7 +386,7 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
 
                     // Same reasoning as PreShiftStep2ViewModel.ScanOdometerAsync - odometer
                     // digits need more effective pixels than the 1280px default gives them.
-                    await ProcessAndOrientPhotoAsync(photo.FullPath, localFilePath, maxDimension: 2560, quality: 85);
+                    await PhotoResizer.ResizeToJpegAsync(photo.FullPath, localFilePath, maxDimension: 2560, quality: 85);
 
                     string? oldFilePath = _odometerPhotoLocalPath;
                     _odometerPhotoLocalPath = localFilePath;
@@ -409,107 +409,6 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
         {
             await Shell.Current.DisplayAlert("Error", $"Camera failed: {ex.Message}", "OK");
         }
-    }
-
-    private static Task<string> ProcessAndOrientPhotoAsync(string sourcePath, string targetPath, int maxDimension = 1280, int quality = 80)
-    {
-        return Task.Run(() =>
-        {
-#if ANDROID
-            Android.Graphics.Bitmap? sampledBitmap = null;
-            Android.Graphics.Bitmap? finalBitmap = null;
-            Android.Graphics.Matrix? matrix = null;
-
-            try
-            {
-                int rotationDegrees = 0;
-                try
-                {
-                    var exif = new Android.Media.ExifInterface(sourcePath);
-                    int orientation = exif.GetAttributeInt(Android.Media.ExifInterface.TagOrientation, 1);
-                    rotationDegrees = orientation switch
-                    {
-                        6 => 90,
-                        3 => 180,
-                        8 => 270,
-                        _ => 0
-                    };
-                }
-                catch { }
-
-                var options = new Android.Graphics.BitmapFactory.Options { InJustDecodeBounds = true };
-                using (var boundsStream = File.OpenRead(sourcePath))
-                {
-                    Android.Graphics.BitmapFactory.DecodeStream(boundsStream, null, options);
-                }
-
-                int sampleSize = 1;
-                int maxSourceDim = Math.Max(options.OutWidth, options.OutHeight);
-                while (maxSourceDim / sampleSize > maxDimension)
-                {
-                    sampleSize *= 2;
-                }
-
-                options.InJustDecodeBounds = false;
-                options.InSampleSize = sampleSize;
-
-                using (var decodeStream = File.OpenRead(sourcePath))
-                {
-                    sampledBitmap = Android.Graphics.BitmapFactory.DecodeStream(decodeStream, null, options);
-                }
-
-                if (sampledBitmap == null) throw new Exception("Native stream decode failed.");
-
-                finalBitmap = sampledBitmap;
-                if (rotationDegrees != 0)
-                {
-                    matrix = new Android.Graphics.Matrix();
-                    matrix.PostRotate(rotationDegrees);
-                    finalBitmap = Android.Graphics.Bitmap.CreateBitmap(
-                        sampledBitmap, 0, 0, sampledBitmap.Width, sampledBitmap.Height, matrix, true);
-                }
-
-                using (var fileStream = File.Create(targetPath))
-                {
-                    finalBitmap.Compress(Android.Graphics.Bitmap.CompressFormat.Jpeg!, quality, fileStream);
-                }
-
-                return targetPath;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Native image processing error: {ex.Message}");
-                using var stream = File.OpenRead(sourcePath);
-                using var image = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(stream);
-                using var downsized = image.Downsize(maxDimension, true);
-                using var outStream = File.Create(targetPath);
-                downsized.Save(outStream, Microsoft.Maui.Graphics.ImageFormat.Jpeg, quality / 100f);
-
-                return targetPath;
-            }
-            finally
-            {
-                if (finalBitmap != null && finalBitmap != sampledBitmap)
-                {
-                    finalBitmap.Recycle();
-                    finalBitmap.Dispose();
-                }
-                if (sampledBitmap != null)
-                {
-                    sampledBitmap.Recycle();
-                    sampledBitmap.Dispose();
-                }
-                matrix?.Dispose();
-            }
-#else
-            using var stream = File.OpenRead(sourcePath);
-            using var image = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(stream);
-            using var downsized = image.Downsize(maxDimension, true);
-            using var outStream = File.Create(targetPath);
-            downsized.Save(outStream, Microsoft.Maui.Graphics.ImageFormat.Jpeg, quality / 100f);
-            return targetPath;
-#endif
-        });
     }
 
     private async Task LoadAssignedUnitAsync()

@@ -457,7 +457,15 @@ public class FleetReportingService
         }
 
         bool isRecent = lastFixAt >= now.AddMinutes(-idleThresholdMinutes);
-        return isRecent && (shift.CurrentSpeed ?? 0) > 0;
+        if (isRecent && (shift.CurrentSpeed ?? 0) > 0)
+        {
+            return true;
+        }
+
+        // GPS-014: stopped (a red light, a passenger stop) but moved within the threshold - not idle yet.
+        // With no lastMovingAt (never moved this shift, or an older app build) the shift-age check above
+        // already gave the grace period.
+        return shift.LastMovingAt is DateTime movedAt && (now - movedAt).TotalMinutes < idleThresholdMinutes;
     }
 
     /// <summary>Which taxis are *currently* computed as Idle, with enough identity to raise an

@@ -241,53 +241,7 @@ else
                             </div>
                         </div>
 
-                        <div class="review-col">
-                            <div class="review-col-title">System Data &amp; Validation</div>
-
-                            <div class="review-status-badge @StatusBadgeCss(_reviewDetail.MatchesExpectedRange)">
-                                <span class="badge-icon"><Icon Name="@StatusBadgeIcon(_reviewDetail.MatchesExpectedRange)" /></span>
-                                <div>
-                                    <div class="badge-title">@StatusBadgeTitle(_reviewDetail)</div>
-                                    <div class="badge-sub">@StatusBadgeSubtext(_reviewDetail)</div>
-                                </div>
-                            </div>
-
-                            <div class="review-fact">
-                                <div class="fact-label">Previous Odometer</div>
-                                <div class="fact-value">@(_reviewDetail.PreviousOdometerReading?.ToString("N0") ?? "—") km</div>
-                                <div class="fact-sub">@_reviewDetail.PreviousOdometerLabel</div>
-                            </div>
-                            <div class="review-fact">
-                                <div class="fact-label">Current Odometer</div>
-                                <div class="fact-value">@_reviewDetail.OdometerReading.ToString("N0") km</div>
-                                <div class="fact-sub">@_reviewDetail.RefuelLabel</div>
-                            </div>
-                            <div class="review-fact">
-                                <div class="fact-label">Driver's Claimed Distance</div>
-                                <div class="fact-value">@(_reviewDetail.ClaimedDistanceKm?.ToString("N0") ?? "—") km</div>
-                                <div class="fact-sub">Current odo − previous odo</div>
-                            </div>
-                            <div class="review-fact">
-                                <div class="fact-label">System GPS Distance</div>
-                                <div class="fact-value">@(_reviewDetail.GpsDistanceKm.HasValue ? $"{_reviewDetail.GpsDistanceKm.Value:N0} km" : "No data")</div>
-                                <div class="fact-sub">Tracked between refuel timestamps</div>
-                            </div>
-                            @if (_reviewDetail.VarianceKm.HasValue)
-                            {
-                                <div class="review-fact">
-                                    <div class="fact-label">Odometer vs. GPS Variance</div>
-                                    <div class="fact-value">@_reviewDetail.VarianceKm.Value.ToString("N0") km (@_reviewDetail.VariancePercent?.ToString("N0")%)</div>
-                                </div>
-                            }
-                            @if (_reviewDetail.CostPerKm.HasValue)
-                            {
-                                <div class="review-fact">
-                                    <div class="fact-label">Cost / km sanity check</div>
-                                    <div class="fact-value">₱@_reviewDetail.CostPerKm.Value.ToString("N2") /km</div>
-                                    <div class="fact-sub">Typical range: ₱@_reviewDetail.Tolerances.CostPerKmMin.ToString("N2")–@_reviewDetail.Tolerances.CostPerKmMax.ToString("N2")/km</div>
-                                </div>
-                            }
-                        </div>
+                        @SystemValidationColumn(_reviewDetail)
                     </div>
 
                     <div class="report-section">
@@ -310,7 +264,7 @@ else
                     {
                         <button class="cancel-btn" type="button" disabled="@_isSavingReview" @onclick='() => RequestConfirm("Reset to Pending?", "This clears the current decision and sends the submission back to the pending queue for re-review.", "Reset to Pending", () => ResolveAsync(ResolveAction.ResetToPending))'>Reset to Pending</button>
                     }
-                    <button class="cancel-btn" type="button" disabled="@(_isSavingReview || FlagReasonError is not null)" title="@(FlagReasonError is null ? "" : "Write a flag reason first")" @onclick='() => RequestConfirm("Flag This Submission?", "This flags the fuel submission as irregular and notifies the driver. Make sure the flag reason above is accurate.", "Flag Irregularity", () => ResolveAsync(ResolveAction.Flag))'><Icon Name="flag" /> Flag Irregularity</button>
+                    <button class="cancel-btn" type="button" disabled="@(_isSavingReview || FlagReasonError is not null)" title="@(FlagReasonError is null ? "" : "Write a flag reason first")" @onclick='() => RequestConfirm("Flag This Submission?", "This flags the fuel submission as irregular and moves it to the Flagged queue. Make sure the flag reason above is accurate.", "Flag Irregularity", () => ResolveAsync(ResolveAction.Flag))'><Icon Name="flag" /> Flag Irregularity</button>
                     <button class="download-btn" type="button" disabled="@_isSavingReview" @onclick='() => RequestConfirm("Verify & Approve This Submission?", "This marks the fuel submission as verified and approved.", "Verify & Approve", () => ResolveAsync(ResolveAction.Verify), isDangerous: false)' aria-busy="@_isSavingReview">@if (_isSavingReview) { <text>Saving…</text> } else { <Icon Name="check" /> <text>Verify &amp; Approve</text> }</button>
                 }
             </div>
@@ -395,7 +349,7 @@ else
                                 </div>
                                 <div class="ocr-row">
                                     <span>Receipt Date</span>
-                                    <span>@(_reviewDetail.Timestamp.HasValue ? _reviewDetail.Timestamp.Value.ToLocalTime().ToString("MMM d, yyyy h:mm tt") : "—") @OcrTag(_reviewDetail.IsReceiptDateManuallyEdited)</span>
+                                    <span>@(_reviewDetail.Timestamp.HasValue ? FuelReportDates.ReceiptDate(_reviewDetail.Timestamp.Value).ToString("MMM d, yyyy") : "—") @OcrTag(_reviewDetail.IsReceiptDateManuallyEdited) @DateMismatchTag(_reviewDetail)</span>
                                 </div>
                                 <div class="ocr-row">
                                     <span>Total Cost</span>
@@ -420,53 +374,7 @@ else
                             </div>
                         </div>
 
-                        <div class="review-col">
-                            <div class="review-col-title">System Data &amp; Validation</div>
-
-                            <div class="review-status-badge @StatusBadgeCss(_reviewDetail.MatchesExpectedRange)">
-                                <span class="badge-icon"><Icon Name="@StatusBadgeIcon(_reviewDetail.MatchesExpectedRange)" /></span>
-                                <div>
-                                    <div class="badge-title">@StatusBadgeTitle(_reviewDetail)</div>
-                                    <div class="badge-sub">@StatusBadgeSubtext(_reviewDetail)</div>
-                                </div>
-                            </div>
-
-                            <div class="review-fact">
-                                <div class="fact-label">Previous Odometer</div>
-                                <div class="fact-value">@(_reviewDetail.PreviousOdometerReading?.ToString("N0") ?? "—") km</div>
-                                <div class="fact-sub">@_reviewDetail.PreviousOdometerLabel</div>
-                            </div>
-                            <div class="review-fact">
-                                <div class="fact-label">Current Odometer</div>
-                                <div class="fact-value">@_reviewDetail.OdometerReading.ToString("N0") km</div>
-                                <div class="fact-sub">@_reviewDetail.RefuelLabel</div>
-                            </div>
-                            <div class="review-fact">
-                                <div class="fact-label">Driver's Claimed Distance</div>
-                                <div class="fact-value">@(_reviewDetail.ClaimedDistanceKm?.ToString("N0") ?? "—") km</div>
-                                <div class="fact-sub">Current odo − previous odo</div>
-                            </div>
-                            <div class="review-fact">
-                                <div class="fact-label">System GPS Distance</div>
-                                <div class="fact-value">@(_reviewDetail.GpsDistanceKm.HasValue ? $"{_reviewDetail.GpsDistanceKm.Value:N0} km" : "No data")</div>
-                                <div class="fact-sub">Tracked between refuel timestamps</div>
-                            </div>
-                            @if (_reviewDetail.VarianceKm.HasValue)
-                            {
-                                <div class="review-fact">
-                                    <div class="fact-label">Odometer vs. GPS Variance</div>
-                                    <div class="fact-value">@_reviewDetail.VarianceKm.Value.ToString("N0") km (@_reviewDetail.VariancePercent?.ToString("N0")%)</div>
-                                </div>
-                            }
-                            @if (_reviewDetail.CostPerKm.HasValue)
-                            {
-                                <div class="review-fact">
-                                    <div class="fact-label">Cost / km sanity check</div>
-                                    <div class="fact-value">₱@_reviewDetail.CostPerKm.Value.ToString("N2") /km</div>
-                                    <div class="fact-sub">Typical range: ₱@_reviewDetail.Tolerances.CostPerKmMin.ToString("N2")–@_reviewDetail.Tolerances.CostPerKmMax.ToString("N2")/km</div>
-                                </div>
-                            }
-                        </div>
+                        @SystemValidationColumn(_reviewDetail)
                     </div>
                 }
 
@@ -816,4 +724,64 @@ else
         }
         return parts.Count > 0 ? string.Join("; ", parts) : "Looks consistent with GPS tracking.";
     }
+
+    /// <summary>The "System Data & Validation" column - shown in both the Review and the Resolve
+    /// modal.</summary>
+    private RenderFragment<FuelReviewDetail> SystemValidationColumn => detail => @<text>
+        <div class="review-col">
+            <div class="review-col-title">System Data &amp; Validation</div>
+
+            <div class="review-status-badge @StatusBadgeCss(detail.MatchesExpectedRange)">
+                <span class="badge-icon"><Icon Name="@StatusBadgeIcon(detail.MatchesExpectedRange)" /></span>
+                <div>
+                    <div class="badge-title">@StatusBadgeTitle(detail)</div>
+                    <div class="badge-sub">@StatusBadgeSubtext(detail)</div>
+                </div>
+            </div>
+
+            <div class="review-fact">
+                <div class="fact-label">Previous Odometer</div>
+                <div class="fact-value">@(detail.PreviousOdometerReading?.ToString("N0") ?? "—") km</div>
+                <div class="fact-sub">@detail.PreviousOdometerLabel</div>
+            </div>
+            <div class="review-fact">
+                <div class="fact-label">Current Odometer</div>
+                <div class="fact-value">@detail.OdometerReading.ToString("N0") km</div>
+                <div class="fact-sub">@detail.RefuelLabel</div>
+            </div>
+            <div class="review-fact">
+                <div class="fact-label">Driver's Claimed Distance</div>
+                <div class="fact-value">@(detail.ClaimedDistanceKm?.ToString("N0") ?? "—") km</div>
+                <div class="fact-sub">Current odo − previous odo</div>
+            </div>
+            <div class="review-fact">
+                <div class="fact-label">System GPS Distance</div>
+                <div class="fact-value">@(detail.GpsDistanceKm.HasValue ? $"{detail.GpsDistanceKm.Value:N0} km" : "No data")</div>
+                <div class="fact-sub">Tracked between refuel timestamps</div>
+            </div>
+            @if (detail.VarianceKm.HasValue)
+            {
+                <div class="review-fact">
+                    <div class="fact-label">Odometer vs. GPS Variance</div>
+                    <div class="fact-value">@detail.VarianceKm.Value.ToString("N0") km (@detail.VariancePercent?.ToString("N0")%)</div>
+                </div>
+            }
+            @if (detail.CostPerKm.HasValue)
+            {
+                <div class="review-fact">
+                    <div class="fact-label">Cost / km sanity check</div>
+                    <div class="fact-value">₱@detail.CostPerKm.Value.ToString("N2") /km</div>
+                    <div class="fact-sub">Typical range: ₱@detail.Tolerances.CostPerKmMin.ToString("N2")–@detail.Tolerances.CostPerKmMax.ToString("N2")/km</div>
+                </div>
+            }
+            @if (detail.KmPerLiter is decimal kmPerLiter)
+            {
+                <div class="review-fact">
+                    <div class="fact-label">Fuel efficiency</div>
+                    <div class="fact-value">@kmPerLiter.ToString("N1") km/L</div>
+                    <div class="fact-sub">@(detail.ExpectedKmPerLiter is double expectedKmPerLiter ? $"Expected for this unit: {expectedKmPerLiter:N1} km/L" : "Claimed distance ÷ liters bought")</div>
+                </div>
+            }
+        </div>
+    </text>;
 }
