@@ -42,9 +42,15 @@ public sealed class ShiftTrackingService : Service
 
     public override IBinder? OnBind(Intent? intent) => null;
 
+    // GPS-012: QA found the service never actually running (dumpsys showed no ShiftTrackingService,
+    // and neither this class's success nor failure path had ever logged anything) with no exception
+    // anywhere to explain why - this entry log at least confirms whether OnStartCommand is reached
+    // at all, which the two existing catch blocks alone couldn't tell us.
     [return: GeneratedEnum]
     public override StartCommandResult OnStartCommand(Intent? intent, [GeneratedEnum] StartCommandFlags flags, int startId)
     {
+        global::Android.Util.Log.Info("LARGA_GPS", $"ShiftTrackingService.OnStartCommand: action={intent?.Action ?? "(null)"}");
+
         if (intent?.Action != ActionStart)
         {
             // Restarted by the system with no shift to track (see the class summary).
@@ -55,6 +61,7 @@ public sealed class ShiftTrackingService : Service
         try
         {
             StartInForeground();
+            global::Android.Util.Log.Info("LARGA_GPS", "Shift tracking foreground service started.");
         }
         catch (Exception ex)
         {

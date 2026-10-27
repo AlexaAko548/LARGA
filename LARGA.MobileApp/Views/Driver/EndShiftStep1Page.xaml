@@ -13,7 +13,7 @@
 
             <Label Text="STEP 1 OF 2" Style="{StaticResource StatusDataStyle}" TextColor="{DynamicResource ThemeTextGray}" FontSize="12" />
             <Label Text="End-of-Shift Inspection" FontSize="32" Style="{StaticResource HeaderStyle}" TextColor="{DynamicResource ThemeTextBlack}" LineHeight="1.1" />
-            <Label Text="GHK·4471·MP · Complete all items before ending your shift." FontSize="12" TextColor="{DynamicResource ThemeTextGray}" />
+            <Label Text="{Binding AssignedUnitPlate, StringFormat='{0} · Complete all items before ending your shift.'}" FontSize="12" TextColor="{DynamicResource ThemeTextGray}" />
 
             <ProgressBar Progress="{Binding ProgressRatio}" ProgressColor="#0099CC" HeightRequest="4" Margin="0,10,0,0" />
             <Label Text="{Binding ProgressText}" FontSize="14" Style="{StaticResource StatusDataStyle}" TextColor="{DynamicResource ThemeTextBlack}" Margin="0,5,0,0" />

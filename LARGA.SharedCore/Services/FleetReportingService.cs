@@ -440,6 +440,17 @@ public class FleetReportingService
     // latest point (currentPositionUpdatedAt / currentSpeed, written with every gps_telemetry point).
     private static bool IsMoving(ShiftLog shift, double idleThresholdMinutes, DateTime now)
     {
+        // GPS-014: a unit that hasn't driven yet this shift has CurrentSpeed stuck at 0 from its
+        // very first telemetry tick, so it used to be flagged idle within moments of clocking in -
+        // not after genuinely sitting still for idleThresholdMinutes, which is what the ticket (and
+        // the manager configuring that number) actually expects. Until the shift itself is at least
+        // that old, a driver who simply hasn't started driving yet (a pre-trip check, waiting for a
+        // passenger) isn't idle.
+        if (shift.ShiftStart is DateTime shiftStart && (now - shiftStart).TotalMinutes < idleThresholdMinutes)
+        {
+            return true;
+        }
+
         if (shift.CurrentPositionUpdatedAt is not DateTime lastFixAt)
         {
             return false; // no telemetry yet - can't confirm movement, treat as Idle
@@ -561,7 +572,7 @@ public class FleetReportingService
         try
         {
             DocumentSnapshot snapshot = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
-            if (snapshot.Exists && snapshot.ConvertTo<SystemConfig>().DefaultBoundaryRate is double rate && rate > 0)
+            if (snapshot.Exists && snapshot.ConvertTo<BoundaryRateConfigProxy>().DefaultBoundaryRate is double rate && rate > 0)
             {
                 return (decimal)rate;
             }
@@ -801,6 +812,27 @@ public class FleetReportingService
     // Helpers
     // ---------------------------------------------------------------------
 
+    // GPS-014: system_configs/global had fuelExpectedKmPerLiter stored as an empty string against
+    // a Dictionary<string, double> field - ConvertTo<SystemConfig> throws for the whole document
+    // over that one unrelated field, so GetIdleThresholdMinutesAsync and GetDefaultBoundaryRateAsync
+    // (the two full-document readers here) were silently falling back to their defaults even with a
+    // manager-configured value in place. A narrow proxy - just the one field each actually needs -
+    // can't be broken by a bad value anywhere else in that shared, hand-editable document. Same
+    // pattern as ShiftManagementService's GarageConfigProxy.
+    [FirestoreData]
+    private sealed class IdleThresholdConfigProxy
+    {
+        [FirestoreProperty("idleThresholdMinutes")]
+        public double IdleThresholdMinutes { get; set; }
+    }
+
+    [FirestoreData]
+    private sealed class BoundaryRateConfigProxy
+    {
+        [FirestoreProperty("defaultBoundaryRate")]
+        public double DefaultBoundaryRate { get; set; }
+    }
+
     private async Task<double> GetIdleThresholdMinutesAsync()
     {
         DocumentSnapshot snapshot = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
@@ -811,7 +843,7 @@ public class FleetReportingService
 
         try
         {
-            SystemConfig config = snapshot.ConvertTo<SystemConfig>();
+            IdleThresholdConfigProxy config = snapshot.ConvertTo<IdleThresholdConfigProxy>();
             return config.IdleThresholdMinutes > 0 ? config.IdleThresholdMinutes : DefaultIdleThresholdMinutes;
         }
         catch (Exception ex)
