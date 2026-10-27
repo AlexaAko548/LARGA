@@ -59,12 +59,19 @@ public static class SevenSegmentDecoder
     private const double OnBand = 0.65;
     private const double DecisionThreshold = 0.50;
 
+    // A lit green LCD scores well above this on green-minus-other-channels; white/grey digits
+    // (drum odometers, white or amber backlit LCDs) only reach it through JPEG noise.
+    private const int MinColorScore = 80;
+    // Below this luminance spread the frame is a flat patch with nothing to read.
+    private const int MinLuminanceContrast = 40;
+
     public static DecodeResult Decode(SKBitmap crop, int expectedDigitCount)
     {
         int w = crop.Width, h = crop.Height;
         var on = new bool[w, h];
         var score = new int[w, h];
-        int maxScore = 0;
+        var luminance = new int[w, h];
+        int maxScore = 0, minLum = 255, maxLum = 0;
 
         for (int y = 0; y < h; y++)
         {
@@ -78,25 +85,40 @@ public static class SevenSegmentDecoder
                 int s = Math.Max(0, c.Green * 2 - c.Red - c.Blue);
                 score[x, y] = s;
                 if (s > maxScore) maxScore = s;
+
+                int l = (299 * c.Red + 587 * c.Green + 114 * c.Blue) / 1000;
+                luminance[x, y] = l;
+                if (l < minLum) minLum = l;
+                if (l > maxLum) maxLum = l;
             }
         }
 
-        if (maxScore == 0)
+        // Anything that isn't a lit green display is read by brightness instead. With the
+        // color score alone, white digits score ~0 everywhere, the threshold collapses onto
+        // JPEG noise, and every speck became its own narrow cell decoded as '1'.
+        bool useColor = maxScore >= MinColorScore;
+        if (!useColor && maxLum - minLum < MinLuminanceContrast)
         {
             return new DecodeResult();
         }
 
-        int threshold = maxScore / 3;
+        int[,] signal = useColor ? score : luminance;
+        int threshold = OtsuThreshold(signal, w, h, useColor ? 510 : 255);
+        int onTotal = 0;
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
-                on[x, y] = score[x, y] >= threshold;
+            {
+                on[x, y] = signal[x, y] > threshold;
+                if (on[x, y]) onTotal++;
+            }
 
-        var colCounts = new int[w];
-        for (int x = 0; x < w; x++)
+        // Digits are the minority of a tight frame - when "bright" is the majority, the digits
+        // are the dark ones (dark numerals on a light face).
+        if (!useColor && onTotal > w * h / 2)
         {
-            int count = 0;
-            for (int y = 0; y < h; y++) if (on[x, y]) count++;
-            colCounts[x] = count;
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                    on[x, y] = !on[x, y];
         }
 
         var rowCounts = new int[h];
@@ -107,20 +129,41 @@ public static class SevenSegmentDecoder
             rowCounts[y] = count;
         }
 
-        int inkTop = 0, inkBottom = h - 1;
-        for (int y = 0; y < h; y++) { if (rowCounts[y] > 0) { inkTop = y; break; } }
-        for (int y = h - 1; y >= 0; y--) { if (rowCounts[y] > 0) { inkBottom = y; break; } }
+        // Rows with only a stray pixel or two are noise, not the top/bottom of a digit.
+        int minRowInk = Math.Max(1, w / 40);
+        int inkTop = -1, inkBottom = -1;
+        for (int y = 0; y < h; y++) { if (rowCounts[y] >= minRowInk) { inkTop = y; break; } }
+        for (int y = h - 1; y >= 0; y--) { if (rowCounts[y] >= minRowInk) { inkBottom = y; break; } }
+        if (inkTop < 0 || inkBottom <= inkTop)
+        {
+            return new DecodeResult();
+        }
+        int inkHeight = inkBottom - inkTop + 1;
 
-        // Tier 1: split on fully-empty columns (real gaps between digits).
+        var colCounts = new int[w];
+        for (int x = 0; x < w; x++)
+        {
+            int count = 0;
+            for (int y = inkTop; y <= inkBottom; y++) if (on[x, y]) count++;
+            colCounts[x] = count;
+        }
+
+        // Tier 1: split on (near-)empty columns (real gaps between digits). A column needs a
+        // real share of the ink band to count, so isolated specks don't open runs of their own.
+        int minColInk = Math.Max(1, inkHeight / 8);
         var runs = new List<(int start, int end)>();
         int runStart = -1;
         for (int x = 0; x < w; x++)
         {
-            bool colOn = colCounts[x] > 0;
+            bool colOn = colCounts[x] >= minColInk;
             if (colOn && runStart < 0) runStart = x;
             else if (!colOn && runStart >= 0) { runs.Add((runStart, x - 1)); runStart = -1; }
         }
         if (runStart >= 0) runs.Add((runStart, w - 1));
+
+        // A digit (even a '1') is tall - a run whose ink covers little of the band is a speck,
+        // glare or a dial mark at the frame's edge.
+        runs.RemoveAll(r => RunInkHeight(on, r.start, r.end, inkTop, inkBottom) < inkHeight * 0.5);
 
         if (runs.Count == 0)
         {
@@ -159,6 +202,14 @@ public static class SevenSegmentDecoder
             finalRuns.Add((segStart, r.end));
         }
 
+        // Far more cells than an odometer has digits means the frame holds texture (a dial
+        // face, printed text, a screen's pixel grid), not a seven-segment readout - report
+        // nothing rather than a wall of guessed digits.
+        if (finalRuns.Count > expectedDigitCount + 2)
+        {
+            return new DecodeResult();
+        }
+
         var result = new DecodeResult();
         for (int i = 0; i < finalRuns.Count; i++)
         {
@@ -188,6 +239,55 @@ public static class SevenSegmentDecoder
         }
 
         return result;
+    }
+
+    private static int RunInkHeight(bool[,] on, int start, int end, int top, int bottom)
+    {
+        int first = -1, last = -1;
+        for (int y = top; y <= bottom; y++)
+        {
+            for (int x = start; x <= end; x++)
+            {
+                if (!on[x, y]) continue;
+                if (first < 0) first = y;
+                last = y;
+                break;
+            }
+        }
+        return first < 0 ? 0 : last - first + 1;
+    }
+
+    /// <summary>Otsu's threshold: the value that best splits the signal into two classes
+    /// (background and strokes), so the cut adapts to dim or glary photos instead of a fixed
+    /// fraction of the brightest pixel.</summary>
+    private static int OtsuThreshold(int[,] signal, int w, int h, int maxValue)
+    {
+        var histogram = new long[maxValue + 1];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                histogram[Math.Clamp(signal[x, y], 0, maxValue)]++;
+
+        long total = (long)w * h;
+        double sumAll = 0;
+        for (int i = 0; i <= maxValue; i++) sumAll += i * (double)histogram[i];
+
+        double sumBelow = 0, bestVariance = -1;
+        long countBelow = 0;
+        int best = 0;
+        for (int t = 0; t <= maxValue; t++)
+        {
+            countBelow += histogram[t];
+            if (countBelow == 0) continue;
+            long countAbove = total - countBelow;
+            if (countAbove == 0) break;
+
+            sumBelow += t * (double)histogram[t];
+            double meanBelow = sumBelow / countBelow;
+            double meanAbove = (sumAll - sumBelow) / countAbove;
+            double variance = (double)countBelow * countAbove * (meanBelow - meanAbove) * (meanBelow - meanAbove);
+            if (variance > bestVariance) { bestVariance = variance; best = t; }
+        }
+        return best;
     }
 
     private static readonly Dictionary<string, char> Patterns = new()
