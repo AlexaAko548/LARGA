@@ -28,7 +28,7 @@ public partial class LandingPage : ContentPage
         if (currentUser != null)
         {
             // 2. Fetch their role to know which dashboard to load
-            string role;
+            string? role;
             try
             {
                 role = await _authService.GetUserRoleAsync(currentUser.Uid);

@@ -58,7 +58,11 @@ public class InventoryAuditService
         part.Brand = (part.Brand ?? string.Empty).Trim();
         part.Supplier = (part.Supplier ?? string.Empty).Trim();
         part.Unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit.Trim();
-        part.StockQuantity = Math.Max(0, part.StockQuantity);
+        // INV-007: a part is logged with the stock bought - checked here too, not just on the form.
+        if (part.StockQuantity < 1)
+        {
+            throw new ArgumentException("Enter a quantity of at least 1 - a new part is logged with the stock you have.");
+        }
         part.ReorderLevel = Math.Max(0, part.ReorderLevel);
 
         DocumentReference partDoc = Db.Collection("spare_parts").Document();

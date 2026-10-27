@@ -237,8 +237,8 @@ else
                 </div>
                 <div class="form-group">
                     <label>Quantity</label>
-                    <input type="number" min="0" max="@MaxStock" step="1" placeholder="e.g. 10" @bind="newPart.StockQuantity" @bind:event="oninput" />
-                    <FieldError Message="@PartQuantityError" />
+                    <input type="number" min="@(IsEditingPart ? 0 : 1)" max="@MaxStock" step="1" placeholder="e.g. 10" @bind="newPart.StockQuantity" @bind:event="oninput" />
+                    <FieldError Show="_partAttempted || IsEditingPart || newPart.StockQuantity != 0" Message="@PartQuantityError" />
                 </div>
                 <div class="form-group">
                     <label>Unit</label>
@@ -360,7 +360,11 @@ else
     private const decimal MaxUnitPrice = 1_000_000m;
     private bool _partAttempted;
     private string? PartNameError => InputValidator.ValidateText(newPart.PartName, "the part name", 60, required: true, minLength: 2);
-    private string? PartQuantityError => InputValidator.ValidateWholeNumber(newPart.StockQuantity, "the quantity", 0, MaxStock);
+    // INV-007: a new part is logged with the stock bought (at least 1). Editing can correct a count
+    // down to 0 - the stock really ran out.
+    private string? PartQuantityError => !IsEditingPart && newPart.StockQuantity < 1
+        ? "Enter a quantity of at least 1 - a new part is logged with the stock you have."
+        : InputValidator.ValidateWholeNumber(newPart.StockQuantity, "the quantity", 0, MaxStock);
     private string? PartUnitError => InputValidator.ValidateText(newPart.Unit, "the unit", 10, required: true);
     private string? PartReorderError => InputValidator.ValidateWholeNumber(newPart.ReorderLevel, "the min stock level", 0, MaxStock);
     private string? PartPriceError => InputValidator.ValidateAmount(newPart.UnitPrice, "the unit price", MaxUnitPrice, allowZero: true);
