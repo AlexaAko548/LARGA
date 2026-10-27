@@ -23,7 +23,7 @@
 
                     <VerticalStackLayout BindableLayout.ItemsSource="{Binding FullPaymentHistory}" Spacing="15">
                         <BindableLayout.EmptyView>
-                            <Label Text="No payments recorded yet." FontSize="14" TextColor="{DynamicResource ThemeTextTertiary}" HorizontalOptions="Center" Margin="0,16" />
+                            <Label Text="{Binding EmptyStateMessage}" FontSize="14" TextColor="{DynamicResource ThemeTextTertiary}" HorizontalOptions="Center" Margin="0,16" />
                         </BindableLayout.EmptyView>
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:PaymentRecord">

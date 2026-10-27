@@ -1376,7 +1376,7 @@ internal static class Program
             MaintenanceWeeklyIntervalDays = 7,
             MaintenanceBiweeklyIntervalDays = 14,
             MaintenanceMonthlyIntervalDays = 30,
-            OilChangeIntervalDays = 60,
+            OilChangeIntervalDays = 75,
             MaintenanceDueSoonDays = 2,
         });
     }

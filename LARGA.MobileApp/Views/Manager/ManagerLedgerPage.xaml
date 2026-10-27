@@ -179,6 +179,11 @@
                                             IsReadOnly="{Binding RecordPayment.IsEWallet}"
                                             Keyboard="Numeric" Placeholder="0.00" />
                         </Border>
+                        <!-- Read-only, comma-grouped echo of the amount above - never fed back into the
+                             Entry itself (that crashed on Android past 3 digits; see AmountReceivedText). -->
+                        <Label Text="{Binding RecordPayment.AmountPreviewText}"
+                               IsVisible="{Binding RecordPayment.HasAmountPreview}"
+                               Style="{StaticResource Ledger.Caption}" />
 
                         <!-- Notes: what this payment is about (Other Payment only), kept on the records for audit -->
                         <VerticalStackLayout Spacing="6" IsVisible="{Binding RecordPayment.IsOtherMode}">

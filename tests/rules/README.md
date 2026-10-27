@@ -35,3 +35,4 @@ The `PERMISSION_DENIED` lines in the output are expected. They are the denied wr
 | 2026-10-19 | **live console rules** (pasted) | Firestore 63, Storage 10 | Firestore 24, Storage 25 | What production allows today; see SECURITY_AUDIT.md "Live console rules vs repo" |
 
 
+| 2026-10-24 | `fix/emergency-sos-alpha-defects` (repo rules) | Firestore 107, Storage 35 | 0 | M7 SOS: emergency_alerts block (own active shift only, Manager-only resolve, no deletes, no server-owned fields from the driver) |

@@ -7,7 +7,9 @@ using System.Windows.Input;
 using LARGA.MobileApp.Services;
 using LARGA.SharedCore;
 using LARGA.SharedCore.Ledger;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
+using Plugin.Firebase.Firestore;
 
 namespace LARGA.MobileApp.ViewModels.Manager;
 
@@ -241,6 +243,54 @@ public class ManagerLedgerViewModel : BindableObject
                 $"Something went wrong while loading the ledger{step}. Tap Retry.",
         };
     }
+
+    // -- Live updates: a payment recorded on another phone (or the web) moves between Pending/Done Today
+    // here without pulling to refresh (test gap: "doesn't automatically reflect in the pending section").
+    // Manager sees every driver, so these listen unfiltered - they only trigger the existing full reload,
+    // never read the documents themselves, debounced so one payment write's several events collapse into
+    // a single reload.
+    private IDisposable? _shiftsListener;
+    private IDisposable? _paymentsListener;
+    private DebouncedAction? _reloadDebounced;
+    private bool _isListening;
+
+    public void StartListening()
+    {
+        if (_isListening) return;
+        _isListening = true;
+
+        _reloadDebounced ??= new DebouncedAction(() =>
+        {
+            MainThread.BeginInvokeOnMainThread(async () => await LoadAsync(force: true));
+            return Task.CompletedTask;
+        }, TimeSpan.FromMilliseconds(400));
+        SessionEvents.SigningOut += OnSigningOut;
+
+        _shiftsListener = CrossFirebaseFirestore.Current
+            .GetCollection("shifts")
+            .AddSnapshotListener<QuickLedgerService.ShiftProxy>(
+                _ => _reloadDebounced.Trigger(),
+                ex => Debug.WriteLine($"Quick Ledger shifts listener error: {ex.Message}"));
+
+        _paymentsListener = CrossFirebaseFirestore.Current
+            .GetCollection("boundary_payments")
+            .AddSnapshotListener<QuickLedgerService.BoundaryPaymentProxy>(
+                _ => _reloadDebounced.Trigger(),
+                ex => Debug.WriteLine($"Quick Ledger payments listener error: {ex.Message}"));
+    }
+
+    public void StopListening()
+    {
+        _isListening = false;
+        SessionEvents.SigningOut -= OnSigningOut;
+        _shiftsListener?.Dispose();
+        _paymentsListener?.Dispose();
+        _shiftsListener = _paymentsListener = null;
+        _reloadDebounced?.Dispose();
+        _reloadDebounced = null;
+    }
+
+    private void OnSigningOut(object? sender, EventArgs e) => StopListening();
 
     private void OpenPending(PendingBoundaryItem? item)
     {

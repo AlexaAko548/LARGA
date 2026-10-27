@@ -356,18 +356,26 @@ public class GpsTelemetryService : IGpsTelemetryService
 
             // distanceKm rides along on the same update - the live total for the Active Shift
             // screen, and what SeedDistanceAsync resumes from after an app restart.
+            var shiftUpdate = new Dictionary<object, object>
+            {
+                { "currentLatitude", location.Latitude },
+                { "currentLongitude", location.Longitude },
+                { "currentSpeed", speedKmh },
+                { "currentHeading", headingDegrees },
+                { "currentPositionUpdatedAt", now },
+                { "distanceKm", Math.Round(tracker.Meters / 1000.0, 2) },
+            };
+
+            // GPS-014: the dashboard counts idle time from the last moving point, not the latest one.
+            if (speedKmh > 0)
+            {
+                shiftUpdate["lastMovingAt"] = now;
+            }
+
             FireAndForget(CrossFirebaseFirestore.Current
                 .GetCollection("shifts")
                 .GetDocument(shiftId)
-                .UpdateDataAsync(new Dictionary<object, object>
-                {
-                    { "currentLatitude", location.Latitude },
-                    { "currentLongitude", location.Longitude },
-                    { "currentSpeed", speedKmh },
-                    { "currentHeading", headingDegrees },
-                    { "currentPositionUpdatedAt", now },
-                    { "distanceKm", Math.Round(tracker.Meters / 1000.0, 2) },
-                }), "shift position update");
+                .UpdateDataAsync(shiftUpdate), "shift position update");
 
             if (distanceChanged && ReferenceEquals(tracker, _tracker))
             {

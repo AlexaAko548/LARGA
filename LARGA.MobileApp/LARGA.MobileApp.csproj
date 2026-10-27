@@ -95,6 +95,9 @@
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.8" />
 		<PackageReference Include="Plugin.Firebase.CloudMessaging" Version="4.0.1" />
 		<PackageReference Include="Plugin.Firebase.Core" Version="4.1.0" />
+		<!-- Payment History export (PDF): SKDocument.CreatePdf (same package Mapsui's rendering already
+		     needs below) - not QuestPDF, whose Settings static initializer crashes on Android. -->
+		<PackageReference Include="SkiaSharp" Version="3.119.2" />
 	</ItemGroup>
 
 	<ItemGroup>

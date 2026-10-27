@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace LARGA.MobileApp.Platforms.Android.Emergency;
+namespace LARGA.SharedCore.Emergency;
 
 /// <summary>
 /// LAR-86 Hostile Protocol trigger: continuous, rhythmic X/Y-axis shaking for 3 seconds (the
@@ -20,6 +20,12 @@ public sealed class HostileMotionDetector
     private const double MaxFrequencyHz = 6.0;
     // ...in every one-second slice of the window, so a single bump or pothole can't pass.
     private const int Slices = 3;
+    // The swings themselves must span most of the window, with no pause: a one-second slice at the
+    // window's edge that is only half shaken still counts 1.5 swings a second, which let a 2-second
+    // shake through (SOS-010). The first to last swing must cover this much of the window...
+    private const double MinSwingSpanSeconds = 2.5;
+    // ...and no two consecutive swings may be further apart than this (half a swing at 1 Hz).
+    private const double MaxQuietSeconds = 0.5;
     private const double CooldownSeconds = 30.0;
 
     private readonly Queue<(double T, double X, double Y, double Z)> _window = new();
@@ -71,6 +77,11 @@ public sealed class HostileMotionDetector
         bool useX = sumX >= sumY;
         double axisRms = Math.Sqrt((useX ? sumX : sumY) / samples.Length);
 
+        if (!SwingsFillWindow(samples, useX, axisRms))
+        {
+            return false; // too short a shake, or one with a pause in it
+        }
+
         double start = samples[0].T;
         double sliceLength = (samples[^1].T - start) / Slices;
         for (int slice = 0; slice < Slices; slice++)
@@ -85,6 +96,33 @@ public sealed class HostileMotionDetector
         }
 
         return true;
+    }
+
+    /// <summary>True when the swings (sign changes, same hysteresis as below) run from near the start of
+    /// the window to its end without a pause.</summary>
+    private static bool SwingsFillWindow((double T, double X, double Y, double Z)[] samples, bool useX, double axisRms)
+    {
+        double band = axisRms * 0.5;
+        int side = 0;
+        double? first = null, last = null;
+        foreach (var s in samples)
+        {
+            double v = useX ? s.X : s.Y;
+            int current = v > band ? 1 : v < -band ? -1 : 0;
+            if (current == 0) continue;
+
+            if (side != 0 && current != side)
+            {
+                if (last is double previous && s.T - previous > MaxQuietSeconds) return false;
+                first ??= s.T;
+                last = s.T;
+            }
+            side = current;
+        }
+
+        return first is double from && last is double to
+            && to - from >= MinSwingSpanSeconds
+            && samples[^1].T - to <= MaxQuietSeconds;
     }
 
     /// <summary>

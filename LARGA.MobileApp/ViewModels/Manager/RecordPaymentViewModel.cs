@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -47,6 +48,7 @@ public class RecordPaymentViewModel : BindableObject
     private string _plateText = string.Empty;
     private string _expectedText = string.Empty;
     private string _amountReceivedText = string.Empty;
+    private string _amountPreviewText = string.Empty;
     private string _errorText = string.Empty;
     private string _allocationText = string.Empty;
     private string _receiptDateText = NotScanned;
@@ -58,6 +60,10 @@ public class RecordPaymentViewModel : BindableObject
 
     private const string NotScanned = "---";
     private const int MaxNotesLength = 500;
+    // Same cap and message as ManagerWeb's Record Payment / Settle Debt (FinancialLedger.razor), via the
+    // shared InputValidator.ValidateAmount - was missing here, so the mobile form let an amount of any size
+    // through instead of rejecting it before it became advance credit.
+    private const decimal MaxPayment = 100_000m;
     private string _notesText = string.Empty;
 
     /// <summary>Raised after a payment is saved, so the ledger can reload.</summary>
@@ -121,9 +127,90 @@ public class RecordPaymentViewModel : BindableObject
         get => _amountReceivedText;
         set
         {
-            Set(ref _amountReceivedText, value);
+            // Only ever strips characters here (digits + at most one dot, decimals capped at 2) - never
+            // inserts any. Growing the string (e.g. adding thousands commas) while it's the live text of a
+            // two-way-bound Entry crashed the native Android EditText mid-keystroke (its cursor/selection
+            // logic doesn't expect its own TextChanged callback to come back with a longer string) - that
+            // was the "more than 3 digits crashes the app" bug, since 4 digits is where a first comma would
+            // have been inserted. AmountPreviewText below shows the comma-grouped amount instead, in its own
+            // read-only label that never feeds back into this Entry.
+            string sanitized = SanitizeAmountInput(value);
+            _amountReceivedText = sanitized;
+            // Not Set(): a 3rd+ decimal digit (e.g. typing "5" after "...55") truncates to the same 2-decimal
+            // string already held, so the usual equality check would skip notifying - and the Entry would
+            // keep showing every digit the driver typed instead of being corrected back down to 2 decimals
+            // (the "decimal input validation" screenshot - preview label capped correctly, the field didn't).
+            // Always notifying re-pushes the shorter, sanitized text back into the Entry even then.
+            OnPropertyChanged();
+            AmountPreviewText = FormatAmountPreview(_amountReceivedText);
             RefreshAllocation();
         }
+    }
+
+    /// <summary>₱ 1,234.56 preview of <see cref="AmountReceivedText"/> for clarity on large amounts - shown in
+    /// its own label next to the input field, never written back into it (see AmountReceivedText).</summary>
+    public string AmountPreviewText
+    {
+        get => _amountPreviewText;
+        private set
+        {
+            Set(ref _amountPreviewText, value);
+            OnPropertyChanged(nameof(HasAmountPreview));
+        }
+    }
+    public bool HasAmountPreview => !string.IsNullOrEmpty(AmountPreviewText);
+
+    /// <summary>Strips anything but digits and one decimal point, and caps the decimal part at 2 digits -
+    /// e.g. "1000.567" typed so far becomes "1000.56".</summary>
+    private static string SanitizeAmountInput(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return raw;
+
+        var digits = new StringBuilder();
+        bool sawDot = false;
+        foreach (char c in raw)
+        {
+            if (char.IsDigit(c))
+            {
+                digits.Append(c);
+            }
+            else if (c == '.' && !sawDot)
+            {
+                digits.Append(c);
+                sawDot = true;
+            }
+        }
+
+        string cleaned = digits.ToString();
+        if (cleaned.Length == 0) return string.Empty;
+
+        int dotIndex = cleaned.IndexOf('.');
+        if (dotIndex < 0) return cleaned;
+
+        string integerPart = cleaned[..dotIndex];
+        string decimalPart = cleaned[(dotIndex + 1)..];
+        if (decimalPart.Length > 2)
+        {
+            decimalPart = decimalPart[..2];
+        }
+
+        return $"{integerPart}.{decimalPart}";
+    }
+
+    /// <summary>The sanitized amount, grouped with thousands commas, for the read-only preview label.</summary>
+    private static string FormatAmountPreview(string sanitized)
+    {
+        if (string.IsNullOrEmpty(sanitized)) return string.Empty;
+
+        int dotIndex = sanitized.IndexOf('.');
+        string integerPart = dotIndex < 0 ? sanitized : sanitized[..dotIndex];
+        string? decimalPart = dotIndex < 0 ? null : sanitized[(dotIndex + 1)..];
+
+        string grouped = integerPart.Length > 0 && long.TryParse(integerPart, NumberStyles.None, CultureInfo.InvariantCulture, out long whole)
+            ? whole.ToString("#,##0", CultureInfo.InvariantCulture)
+            : integerPart;
+
+        return decimalPart is null ? $"₱ {grouped}" : $"₱ {grouped}.{decimalPart}";
     }
 
     /// <summary>Where the amount entered will go when it's more than this shift / debt (empty otherwise). Same split
@@ -346,9 +433,10 @@ public class RecordPaymentViewModel : BindableObject
 
         ErrorText = string.Empty;
 
-        if (!TryReadAmount(out decimal amount))
+        string? amountError = ValidateAmount(out decimal amount);
+        if (amountError is not null)
         {
-            ErrorText = "Enter the amount received.";
+            ErrorText = amountError;
             return;
         }
 
@@ -562,13 +650,24 @@ public class RecordPaymentViewModel : BindableObject
             TargetAccountStatus: _receipt.AccountCheck?.Status);
     }
 
-    private bool TryReadAmount(out decimal amount)
+    private decimal? ParseAmount()
     {
         string text = AmountReceivedText.Trim().Replace(",", string.Empty);
-        return decimal.TryParse(text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out amount)
-               && amount > 0
-               && decimal.Round(amount, 2) == amount;
+        return decimal.TryParse(text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out decimal value)
+            ? value
+            : null;
     }
+
+    /// <summary>Null when the typed amount is usable (more than ₱0, at most 2 decimals, at most <see cref="MaxPayment"/>);
+    /// otherwise the specific reason, same wording as ManagerWeb's Record Payment / Settle Debt.</summary>
+    private string? ValidateAmount(out decimal amount)
+    {
+        decimal? parsed = ParseAmount();
+        amount = parsed ?? 0m;
+        return InputValidator.ValidateAmount(parsed, "the amount received", MaxPayment);
+    }
+
+    private bool TryReadAmount(out decimal amount) => ValidateAmount(out amount) is null;
 
     private static string Money(decimal amount) =>
         "₱ " + amount.ToString("#,##0.00", CultureInfo.InvariantCulture);

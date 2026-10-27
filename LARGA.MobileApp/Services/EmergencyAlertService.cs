@@ -7,6 +7,7 @@ using Microsoft.Maui.Storage;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
 using LARGA.SharedCore;
+using LARGA.SharedCore.Emergency;
 using LARGA.SharedCore.Services;
 
 namespace LARGA.MobileApp.Services;
@@ -78,6 +79,12 @@ public interface IEmergencyFeedback
 
     /// <summary>Heads-up that an SOS was written, whatever started it. Crash also sounds the alarm.</summary>
     void AlertSent(string triggerType);
+
+    /// <summary>The crash protocol's cancel countdown started: sound the alarm (alarm stream).</summary>
+    void CrashCountdownStarted();
+
+    /// <summary>Stops the crash alarm (countdown cancelled, or the manager's callback connected).</summary>
+    void StopAlarm();
 }
 
 /// <summary>
@@ -102,14 +109,33 @@ public class NoOpEmergencyFeedback : IEmergencyFeedback
     public void AlertSent(string triggerType)
     {
     }
+
+    public void CrashCountdownStarted()
+    {
+    }
+
+    public void StopAlarm()
+    {
+    }
 }
 
 public class EmergencyAlertService : IEmergencyAlertService
 {
+    /// <summary>Logcat (tag LARGA-SOS) on Android, so an SOS from any source can be followed with
+    /// <c>adb logcat -s LARGA-SOS</c>; Debug output elsewhere.</summary>
+    internal static void Log(string message)
+    {
+#if ANDROID
+        Platforms.Android.Emergency.EmergencyLog.Info(message);
+#else
+        System.Diagnostics.Debug.WriteLine(message);
+#endif
+    }
+
     // emergency_alerts.locationSource values.
-    public const string LocationSourceLive = "live";
-    public const string LocationSourceLastShiftFix = "lastShiftFix";
-    public const string LocationSourceNone = "none";
+    public const string LocationSourceLive = SosLocation.SourceLive;
+    public const string LocationSourceLastShiftFix = SosLocation.SourceLastShiftFix;
+    public const string LocationSourceNone = SosLocation.SourceNone;
 
     public string LastLocationSource { get; private set; } = LocationSourceLive;
 
@@ -154,6 +180,7 @@ public class EmergencyAlertService : IEmergencyAlertService
         string? shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
         if (string.IsNullOrWhiteSpace(shiftId))
         {
+            Log($"{triggerType} SOS not written: no active shift.");
             return null;
         }
 
@@ -167,28 +194,16 @@ public class EmergencyAlertService : IEmergencyAlertService
         // An SOS is never dropped for lack of GPS: live fix, else the shift's last telemetry
         // point, else no location at all (0/0 - ManagerWeb and the Alert Center show
         // "location unavailable" for that and still dispatch on driver + unit).
-        string locationSource = LocationSourceLive;
-        if (latitude is null || longitude is null)
+        (double, double)? live = latitude is double passedLat && longitude is double passedLng ? (passedLat, passedLng) : null;
+        if (live is null && tryLiveFix && await TryGetLocationAsync() is Location location)
         {
-            Location? location = tryLiveFix ? await TryGetLocationAsync() : null;
-            if (location != null)
-            {
-                latitude = location.Latitude;
-                longitude = location.Longitude;
-            }
-            else if (await WithinAsync(TryGetLastShiftFixAsync(shiftId), LastShiftFixLookupLimit, null) is (double lastLat, double lastLng))
-            {
-                latitude = lastLat;
-                longitude = lastLng;
-                locationSource = LocationSourceLastShiftFix;
-            }
-            else
-            {
-                latitude = 0;
-                longitude = 0;
-                locationSource = LocationSourceNone;
-            }
+            live = (location.Latitude, location.Longitude);
         }
+        (double, double)? lastShiftFix = live is null
+            ? await WithinAsync(TryGetLastShiftFixAsync(shiftId), LastShiftFixLookupLimit, null)
+            : null;
+        SosLocation.Resolved position = SosLocation.Resolve(live, lastShiftFix);
+        string locationSource = position.Source;
         LastLocationSource = locationSource;
 
         string fallbackName = string.IsNullOrWhiteSpace(user?.DisplayName) ? "Unknown Driver" : user.DisplayName;
@@ -203,8 +218,8 @@ public class EmergencyAlertService : IEmergencyAlertService
             DriverId = driverId,
             DriverName = driverName,
             TaxiUnit = taxiUnit,
-            Latitude = latitude.Value,
-            Longitude = longitude.Value,
+            Latitude = position.Latitude,
+            Longitude = position.Longitude,
             IsResolved = false,
             Timestamp = DateTime.UtcNow,
             TriggerType = triggerType,
@@ -226,7 +241,7 @@ public class EmergencyAlertService : IEmergencyAlertService
         if (LastSendQueued)
         {
             // Observe the eventual outcome, so a later failure is logged rather than lost.
-            _ = write.ContinueWith(t => System.Diagnostics.Debug.WriteLine(t.IsFaulted
+            _ = write.ContinueWith(t => Log(t.IsFaulted
                     ? $"Queued SOS {doc.Id} failed to sync: {t.Exception?.GetBaseException().Message}"
                     : $"Queued SOS {doc.Id} reached the server."),
                 TaskScheduler.Default);
@@ -235,6 +250,9 @@ public class EmergencyAlertService : IEmergencyAlertService
         {
             await write; // surfaces a real refusal (e.g. permission denied) as before
         }
+
+        Log($"{triggerType} SOS emergency_alerts/{doc.Id} {(LastSendQueued ? "queued offline (no server confirmation in 10 s)" : "confirmed by the server")}; "
+            + $"locationSource {locationSource}{(locationSource == LocationSourceNone ? " (0/0)" : string.Empty)}.");
 
         // Logged here so both the manual SOS button and automated detection are audited.
         // Not awaited: the alert is already saved, so the driver's confirmation doesn't wait on a second write.

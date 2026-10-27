@@ -40,12 +40,19 @@
             <!-- Payment History Card -->
             <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                 <VerticalStackLayout Spacing="10">
-                    <Label Text="PAYMENT HISTORY" FontSize="12" TextColor="{DynamicResource ThemeTextBlack}" CharacterSpacing="1" Margin="0,0,0,5"/>
+                    <Grid ColumnDefinitions="*, Auto" Margin="0,0,0,5">
+                        <Label Grid.Column="0" Text="PAYMENT HISTORY" FontSize="12" TextColor="{DynamicResource ThemeTextBlack}" CharacterSpacing="1" VerticalOptions="Center"/>
+                        <Label Grid.Column="1" Text="See all" FontSize="14" TextColor="{DynamicResource ThemeTextBlack}" TextDecorations="Underline" VerticalOptions="Center">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding ViewAllHistoryCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
 
                     <!-- Dynamic List Generator -->
                     <VerticalStackLayout BindableLayout.ItemsSource="{Binding PaymentHistory}" Spacing="10">
                         <BindableLayout.EmptyView>
-                            <Label Text="No payments recorded yet." FontSize="14" TextColor="{DynamicResource ThemeTextTertiary}" HorizontalOptions="Center" Margin="0,16" />
+                            <Label Text="{Binding EmptyStateMessage}" FontSize="14" TextColor="{DynamicResource ThemeTextTertiary}" HorizontalOptions="Center" Margin="0,16" />
                         </BindableLayout.EmptyView>
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:PaymentRecord">
@@ -56,13 +63,6 @@
                             </DataTemplate>
                         </BindableLayout.ItemTemplate>
                     </VerticalStackLayout>
-
-                    <!-- See All Button -->
-                    <Label Text="See all" FontSize="14" TextColor="{DynamicResource ThemeTextBlack}" TextDecorations="Underline" HorizontalOptions="End" Margin="0,10,0,0">
-                        <Label.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding ViewAllHistoryCommand}"/>
-                        </Label.GestureRecognizers>
-                    </Label>
                 </VerticalStackLayout>
             </Border>
 

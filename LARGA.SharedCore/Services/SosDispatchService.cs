@@ -121,9 +121,23 @@ public class SosDispatchService
                 views.Where(v => v.IsResolved).OrderByDescending(v => v.ResolvedAt).ToList());
     }
 
-    /// <summary>The Resolved toggle (EmergencyAlert.IsResolved). Reopening clears ResolvedAt.</summary>
-    public async Task SetResolvedAsync(string alertId, bool isResolved, string? actorUserId = null)
+    /// <summary>The Resolved toggle (EmergencyAlert.IsResolved). Reopening clears ResolvedAt. Only a
+    /// Manager may do either (<see cref="SosResolvePolicy"/>): the actor's role is read from their
+    /// users document, and anyone else gets an UnauthorizedAccessException with nothing written.</summary>
+    public async Task SetResolvedAsync(string alertId, bool isResolved, string? actorUserId)
     {
+        string? role = null;
+        if (!string.IsNullOrWhiteSpace(actorUserId))
+        {
+            DocumentSnapshot actor = await Db.Collection("users").Document(actorUserId).GetSnapshotAsync();
+            role = actor.Exists && actor.TryGetValue("role", out object? value) ? value?.ToString() : null;
+        }
+        if (!SosResolvePolicy.CanResolve(role))
+        {
+            _logger.LogWarning("SOS resolve refused for emergency_alerts/{AlertId}: user {UserId} has role {Role}", alertId, actorUserId, role);
+            throw new UnauthorizedAccessException(SosResolvePolicy.DeniedMessage);
+        }
+
         DocumentSnapshot snapshot = await Db.Collection("emergency_alerts").Document(alertId).GetSnapshotAsync();
         string who = snapshot.Exists && snapshot.TryGetValue("driverName", out string? driverName) ? driverName : "unknown driver";
         string unit = snapshot.Exists && snapshot.TryGetValue("taxiUnit", out string? taxiUnit) ? taxiUnit : "unknown unit";

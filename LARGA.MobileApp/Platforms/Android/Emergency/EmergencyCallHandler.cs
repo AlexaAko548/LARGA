@@ -11,110 +11,104 @@ using Android.Telecom;
 using Android.Telephony;
 using AndroidX.Core.Content;
 using LARGA.MobileApp.Services;
-using LARGA.SharedCore;
+using LARGA.SharedCore.Emergency;
 using Stream = Android.Media.Stream;
 
 namespace LARGA.MobileApp.Platforms.Android.Emergency;
-
-public enum EmergencyCallMode
-{
-    /// <summary>Hostile: answer on the earpiece with the volume at zero, so the manager can
-    /// listen in without anyone in the cab hearing them.</summary>
-    Stealth,
-
-    /// <summary>Crash: answer on the speakerphone at full volume, so a hurt driver can talk
-    /// without holding the phone.</summary>
-    Loud,
-}
 
 /// <summary>
 /// After an automated SOS, auto-answers the next incoming call from a manager number
 /// (system_configs/global.managerPhoneNumbers) and forces the call audio for the protocol.
 /// Listens to the PHONE_STATE broadcast, which carries the caller's number when READ_CALL_LOG
-/// is granted (TelephonyCallback doesn't, on Android 12+).
+/// is granted (TelephonyCallback doesn't, on Android 12+). The rules (window, caller check,
+/// audio save/restore) are <see cref="EmergencyCallAutoAnswer"/> in SharedCore; this class only
+/// wires them to Android.
 /// </summary>
 internal sealed class EmergencyCallHandler : BroadcastReceiver
 {
-    private static readonly TimeSpan ArmedFor = TimeSpan.FromMinutes(30);
-
     private readonly Context _context;
     private readonly IEmergencyAlertService _alertService;
-    private readonly AudioManager _audio;
     private readonly Handler _mainHandler = new(Looper.MainLooper!);
+    private readonly EmergencyCallAutoAnswer _state;
 
-    private EmergencyCallMode? _mode;
-    private DateTime _armedUntilUtc;
-    private IReadOnlyList<string> _managerNumbers = Array.Empty<string>();
     private bool _registered;
-    private bool _answering;
-    private bool _inHandledCall;
-    private SavedAudio? _saved;
+
+    /// <summary>Raised on the main thread when an auto-answered call connects.</summary>
+    public event EventHandler? CallConnected;
 
     public EmergencyCallHandler(Context context, IEmergencyAlertService alertService)
     {
         _context = context;
         _alertService = alertService;
-        _audio = (AudioManager)context.GetSystemService(Context.AudioService)!;
+        _state = new EmergencyCallAutoAnswer(new AndroidCallAudio((AudioManager)context.GetSystemService(Context.AudioService)!));
     }
 
     public async Task ArmAsync(EmergencyCallMode mode)
     {
-        if (!HasPermission(Manifest.Permission.ReadPhoneState) || !HasPermission(Manifest.Permission.ReadCallLog))
+        bool phoneState = HasPermission(Manifest.Permission.ReadPhoneState);
+        bool callLog = HasPermission(Manifest.Permission.ReadCallLog);
+        bool answer = OperatingSystem.IsAndroidVersionAtLeast(26) && HasPermission(Manifest.Permission.AnswerPhoneCalls);
+        if (EmergencyCallAutoAnswer.ArmBlockedReason(phoneState, callLog, answer, managerNumberCount: null) is string permissionReason)
         {
-            EmergencyLog.Warn("Auto-answer NOT armed: READ_PHONE_STATE / READ_CALL_LOG not granted.");
+            EmergencyLog.Warn($"Auto-answer NOT armed: {permissionReason}");
             return;
         }
 
         IReadOnlyList<string> numbers = await _alertService.GetManagerPhoneNumbersAsync();
-        if (numbers.Count == 0)
+        if (EmergencyCallAutoAnswer.ArmBlockedReason(phoneState, callLog, answer, numbers.Count) is string reason)
         {
-            EmergencyLog.Warn("Auto-answer NOT armed: system_configs/global.managerPhoneNumbers is empty or unreadable.");
+            EmergencyLog.Warn($"Auto-answer NOT armed: {reason}");
             return;
         }
 
         _mainHandler.Post(() =>
         {
-            // A Crash arriving while a Hostile call is armed (or vice versa) switches the mode;
-            // the audio already saved for restoring stays the driver's original settings.
-            _managerNumbers = numbers;
-            _mode = mode;
-            _armedUntilUtc = DateTime.UtcNow + ArmedFor;
-
-            if (mode == EmergencyCallMode.Stealth)
+            if (!_state.Arm(mode, numbers, DateTime.UtcNow))
             {
-                SaveAudio();
-                // The ring itself would give the phone away before it's answered.
-                TrySetVolume(Stream.Ring, MinVolume(Stream.Ring));
+                EmergencyLog.Warn("Auto-answer NOT armed: the monitor stopped (shift ended) while the alert was being written.");
+                return;
             }
-
             Register();
-            _mainHandler.PostDelayed(DisarmIfExpired, (long)ArmedFor.TotalMilliseconds + 1000);
-            EmergencyLog.Info($"Auto-answer armed ({mode}) for {ArmedFor.TotalMinutes:0} min; {numbers.Count} manager number(s) allowed.");
+            _mainHandler.PostDelayed(DisarmIfExpired, (long)EmergencyCallAutoAnswer.ArmedFor.TotalMilliseconds + 1000);
+            EmergencyLog.Info($"Auto-answer armed ({mode}) for {EmergencyCallAutoAnswer.ArmedFor.TotalMinutes:0} min; {numbers.Count} manager number(s) allowed.");
         });
     }
 
     private void DisarmIfExpired()
     {
-        if (_mode != null && !_answering && !_inHandledCall && DateTime.UtcNow > _armedUntilUtc)
+        if (_state.DisarmIfExpired(DateTime.UtcNow))
         {
-            Disarm();
+            EmergencyLog.Info("Auto-answer disarmed; audio settings restored.");
+            Unregister();
         }
     }
 
-    /// <summary>Stops waiting for a call and puts the driver's audio settings back.</summary>
-    public void Disarm()
+#if DEBUG
+    /// <summary>DEBUG (AGE_ARMED): as if the SOS had been sent <paramref name="by"/> earlier.</summary>
+    public void AgeArmedWindow(TimeSpan by) => _mainHandler.Post(() =>
     {
-        if (_mode != null || _inHandledCall)
+        if (_state.Mode is null)
+        {
+            EmergencyLog.Info("AGE_ARMED: auto-answer isn't armed.");
+            return;
+        }
+        _state.AgeArmedWindow(by);
+        EmergencyLog.Info($"AGE_ARMED: window moved back {by.TotalMinutes:0} min; armed until {_state.ArmedUntilUtc:HH:mm:ss}Z.");
+        DisarmIfExpired();
+    });
+#endif
+
+    /// <summary>The monitor is stopping: stops waiting for a call, puts the driver's audio settings
+    /// back, and refuses to arm again, so an alert still being written can't arm it after clock-out.
+    /// Runs on the main thread, after any arming already queued there.</summary>
+    public void ShutDown() => _mainHandler.Post(() =>
+    {
+        if (_state.ShutDown())
         {
             EmergencyLog.Info("Auto-answer disarmed; audio settings restored.");
         }
-
-        _mode = null;
-        _answering = false;
-        _inHandledCall = false;
-        RestoreAudio();
         Unregister();
-    }
+    });
 
     public override void OnReceive(Context? context, Intent? intent)
     {
@@ -124,38 +118,33 @@ internal sealed class EmergencyCallHandler : BroadcastReceiver
 
         if (state == TelephonyManager.ExtraStateRinging)
         {
-            if (_mode is null || _inHandledCall) return;
-
-            if (DateTime.UtcNow > _armedUntilUtc)
-            {
-                EmergencyLog.Info("Incoming call after the armed window expired - not answering.");
-                Disarm();
-                return;
-            }
-
-            // The broadcast arrives twice per call; only the copy with the number is useful.
 #pragma warning disable CS0618, CA1422 // still the only way to get the incoming number without being the dialer
             string? number = intent.GetStringExtra(TelephonyManager.ExtraIncomingNumber);
 #pragma warning restore CS0618, CA1422
-            if (string.IsNullOrWhiteSpace(number) || _answering) return;
 
-            if (_managerNumbers.Any(m => InputValidator.SamePhone(m, number)))
+            switch (_state.OnRinging(number, DateTime.UtcNow))
             {
-                EmergencyLog.Info($"Incoming call from manager {Mask(number)} - auto-answering.");
-                AnswerCall();
-            }
-            else
-            {
-                EmergencyLog.Info($"Incoming call from {Mask(number)} is not a manager number - ignoring.");
+                case RingingDecision.Expired:
+                    EmergencyLog.Info("Incoming call after the armed window expired - not answering.");
+                    EmergencyLog.Info("Auto-answer disarmed; audio settings restored.");
+                    Unregister();
+                    break;
+                case RingingDecision.Answer:
+                    EmergencyLog.Info($"Incoming call from manager {EmergencyCallAutoAnswer.Mask(number!)} - auto-answering.");
+                    AnswerCall();
+                    break;
+                case RingingDecision.NotManager:
+                    EmergencyLog.Info($"Incoming call from {EmergencyCallAutoAnswer.Mask(number!)} is not a manager number - ignoring.");
+                    break;
             }
         }
         else if (state == TelephonyManager.ExtraStateOffhook)
         {
-            if (!_answering) return;
+            if (!_state.OnOffhook()) return;
 
-            _answering = false;
-            _inHandledCall = true;
-            EmergencyLog.Info($"Call connected - applying {_mode} audio.");
+            EmergencyLog.Info($"Call connected - applying {_state.Mode} audio.");
+            // The crash alarm would drown the manager out on the speakerphone.
+            CallConnected?.Invoke(this, EventArgs.Empty);
             ApplyCallAudio();
             // Some dialers reset routing just after the call connects - apply it again.
             _mainHandler.PostDelayed(ApplyCallAudio, 700);
@@ -163,13 +152,16 @@ internal sealed class EmergencyCallHandler : BroadcastReceiver
         }
         else if (state == TelephonyManager.ExtraStateIdle)
         {
-            if (_inHandledCall)
+            // One call per emergency: the manager has been connected.
+            if (_state.OnIdle())
             {
-                // One call per emergency: the manager has been connected.
-                Disarm();
+                EmergencyLog.Info("Auto-answer disarmed; audio settings restored.");
+                Unregister();
             }
         }
     }
+
+    private void ApplyCallAudio() => _state.ApplyCallAudio();
 
     private void AnswerCall()
     {
@@ -179,8 +171,7 @@ internal sealed class EmergencyCallHandler : BroadcastReceiver
             return;
         }
 
-        SaveAudio();
-        _answering = true;
+        _state.BeginAnswer();
         try
         {
             var telecom = (TelecomManager)_context.GetSystemService(Context.TelecomService)!;
@@ -190,98 +181,8 @@ internal sealed class EmergencyCallHandler : BroadcastReceiver
         }
         catch (Exception ex)
         {
-            _answering = false;
+            _state.AnswerFailed();
             EmergencyLog.Error("Auto-answer failed", ex);
-        }
-    }
-
-    private void ApplyCallAudio()
-    {
-        if (!_inHandledCall || _mode is not EmergencyCallMode mode) return;
-
-        bool loud = mode == EmergencyCallMode.Loud;
-        RouteToSpeaker(loud);
-
-        if (loud)
-        {
-            TrySetVolume(Stream.VoiceCall, _audio.GetStreamMaxVolume(Stream.VoiceCall));
-        }
-        else
-        {
-            // Most devices won't go below 1 for a call, so mute the stream as well.
-            TrySetVolume(Stream.VoiceCall, MinVolume(Stream.VoiceCall));
-            try { _audio.AdjustStreamVolume(Stream.VoiceCall, Adjust.Mute, 0); }
-            catch (Exception ex) { EmergencyLog.Error("Voice call mute refused", ex); }
-        }
-    }
-
-    private void RouteToSpeaker(bool speaker)
-    {
-        try
-        {
-            if (OperatingSystem.IsAndroidVersionAtLeast(31))
-            {
-                if (speaker)
-                {
-                    AudioDeviceInfo? builtIn = _audio.AvailableCommunicationDevices
-                        .FirstOrDefault(d => d.Type == AudioDeviceType.BuiltinSpeaker);
-                    if (builtIn != null) _audio.SetCommunicationDevice(builtIn);
-                }
-                else
-                {
-                    _audio.ClearCommunicationDevice();
-                }
-            }
-
-#pragma warning disable CS0618, CA1422 // still honoured for cellular calls on many devices; harmless where it isn't
-            _audio.SpeakerphoneOn = speaker;
-#pragma warning restore CS0618, CA1422
-        }
-        catch (Exception ex)
-        {
-            EmergencyLog.Error("Call audio routing failed", ex);
-        }
-    }
-
-    private void SaveAudio()
-    {
-        if (_saved != null) return;
-
-#pragma warning disable CS0618, CA1422
-        _saved = new SavedAudio(
-            _audio.GetStreamVolume(Stream.Ring),
-            _audio.GetStreamVolume(Stream.VoiceCall),
-            _audio.SpeakerphoneOn);
-#pragma warning restore CS0618, CA1422
-    }
-
-    private void RestoreAudio()
-    {
-        if (_saved is not SavedAudio saved) return;
-        _saved = null;
-
-        try { _audio.AdjustStreamVolume(Stream.VoiceCall, Adjust.Unmute, 0); }
-        catch (Exception) { /* not muted, or the device doesn't allow it - nothing to undo */ }
-
-        TrySetVolume(Stream.VoiceCall, saved.VoiceCallVolume);
-        TrySetVolume(Stream.Ring, saved.RingVolume);
-        RouteToSpeaker(saved.SpeakerphoneOn);
-    }
-
-    // GetStreamMinVolume is API 28+; below that every stream's minimum is 0.
-    private int MinVolume(Stream stream) =>
-        OperatingSystem.IsAndroidVersionAtLeast(28) ? _audio.GetStreamMinVolume(stream) : 0;
-
-    private void TrySetVolume(Stream stream, int volume)
-    {
-        try
-        {
-            _audio.SetStreamVolume(stream, volume, 0);
-        }
-        catch (Exception ex)
-        {
-            // e.g. lowering the ring volume to 0 while Do Not Disturb is on needs DND access.
-            EmergencyLog.Error($"Couldn't set {stream} volume", ex);
         }
     }
 
@@ -304,12 +205,83 @@ internal sealed class EmergencyCallHandler : BroadcastReceiver
         _registered = false;
     }
 
-    /// <summary>Last 4 digits only - logcat isn't the place for full phone numbers.</summary>
-    private static string Mask(string number) =>
-        number.Length <= 4 ? "****" : new string('*', number.Length - 4) + number[^4..];
-
     private bool HasPermission(string permission) =>
         ContextCompat.CheckSelfPermission(_context, permission) == Permission.Granted;
 
-    private sealed record SavedAudio(int RingVolume, int VoiceCallVolume, bool SpeakerphoneOn);
+    /// <summary><see cref="ICallAudio"/> over AudioManager; every refusal is logged, never thrown.</summary>
+    private sealed class AndroidCallAudio : ICallAudio
+    {
+        private readonly AudioManager _audio;
+
+        public AndroidCallAudio(AudioManager audio) => _audio = audio;
+
+        private static Stream ToStream(CallAudioStream stream) =>
+            stream == CallAudioStream.Ring ? Stream.Ring : Stream.VoiceCall;
+
+        public int GetVolume(CallAudioStream stream) => _audio.GetStreamVolume(ToStream(stream));
+
+        public void SetVolume(CallAudioStream stream, int volume)
+        {
+            try
+            {
+                _audio.SetStreamVolume(ToStream(stream), volume, 0);
+            }
+            catch (Exception ex)
+            {
+                // e.g. lowering the ring volume to 0 while Do Not Disturb is on needs DND access.
+                EmergencyLog.Error($"Couldn't set {ToStream(stream)} volume", ex);
+            }
+        }
+
+        // GetStreamMinVolume is API 28+; below that every stream's minimum is 0.
+        public int MinVolume(CallAudioStream stream) =>
+            OperatingSystem.IsAndroidVersionAtLeast(28) ? _audio.GetStreamMinVolume(ToStream(stream)) : 0;
+
+        public int MaxVolume(CallAudioStream stream) => _audio.GetStreamMaxVolume(ToStream(stream));
+
+#pragma warning disable CS0618, CA1422
+        public bool SpeakerphoneOn => _audio.SpeakerphoneOn;
+#pragma warning restore CS0618, CA1422
+
+        public void RouteToSpeaker(bool speaker)
+        {
+            try
+            {
+                if (OperatingSystem.IsAndroidVersionAtLeast(31))
+                {
+                    if (speaker)
+                    {
+                        AudioDeviceInfo? builtIn = _audio.AvailableCommunicationDevices
+                            .FirstOrDefault(d => d.Type == AudioDeviceType.BuiltinSpeaker);
+                        if (builtIn != null) _audio.SetCommunicationDevice(builtIn);
+                    }
+                    else
+                    {
+                        _audio.ClearCommunicationDevice();
+                    }
+                }
+
+#pragma warning disable CS0618, CA1422 // still honoured for cellular calls on many devices; harmless where it isn't
+                _audio.SpeakerphoneOn = speaker;
+#pragma warning restore CS0618, CA1422
+            }
+            catch (Exception ex)
+            {
+                EmergencyLog.Error("Call audio routing failed", ex);
+            }
+        }
+
+        public void SetVoiceCallMuted(bool muted)
+        {
+            try
+            {
+                _audio.AdjustStreamVolume(Stream.VoiceCall, muted ? Adjust.Mute : Adjust.Unmute, 0);
+            }
+            catch (Exception ex)
+            {
+                // Unmuting: not muted, or the device doesn't allow it - nothing to undo.
+                if (muted) EmergencyLog.Error("Voice call mute refused", ex);
+            }
+        }
+    }
 }

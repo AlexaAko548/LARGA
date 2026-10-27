@@ -18,5 +18,12 @@ public partial class ManagerLedgerPage : ContentPage
         base.OnAppearing();
         // Reload every time the tab is shown so payments recorded elsewhere show up.
         _viewModel.LoadCommand.Execute(null);
+        _viewModel.StartListening();
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        _viewModel.StopListening();
     }
 }
