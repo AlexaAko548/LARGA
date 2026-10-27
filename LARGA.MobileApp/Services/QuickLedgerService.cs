@@ -299,9 +299,12 @@ public class QuickLedgerService
             ["timestamp"] = FieldValue.ServerTimestamp(),
         };
 
+        // SetDataAsync, not AddDocumentAsync: AddDocumentAsync has only an (object) overload, which maps a dictionary
+        // as a typed object and stores none of these fields - firestore.rules then refuse the entry (no userId).
         await Timed(CrossFirebaseFirestore.Current
             .GetCollection("audit_logs")
-            .AddDocumentAsync(entry), "Writing the audit entry");
+            .CreateDocument()
+            .SetDataAsync(entry, SetOptions.Merge()), "Writing the audit entry");
     }
 
     /// <summary>

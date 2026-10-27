@@ -585,8 +585,8 @@ public class RecordPaymentViewModel : BindableObject
     {
         string status = plan.PaymentUpdates.FirstOrDefault(w => w.ShiftId == row.ShiftKey)?.PaymentStatus ?? "Partial";
         string split = DescribeAllocation(plan, isOtherMode: false);
-        return $"Recorded {Money(amount)} {method} payment against {row.DriverName}'s boundary for shift {row.ShiftKey} " +
-               $"(transaction {plan.TransactionId}). Shift status: {status}." +
+        return $"Recorded {Money(amount)} {method} payment against {row.DriverName}'s boundary for shift {row.ShiftKey}. " +
+               $"Shift status: {status}." +
                (split.Length > 0 ? " " + split : string.Empty) + EvidenceSuffix(evidence);
     }
 
@@ -599,7 +599,7 @@ public class RecordPaymentViewModel : BindableObject
         string advance = plan.Advance > 0 ? $", and {Money(plan.Advance)} kept as advance credit" : string.Empty;
 
         string category = (evidence?.Category ??QuickLedgerCalculator.DebtCategory).ToLowerInvariant();
-        return $"Recorded {Money(amount)} {method} {category} payment from {driverName} (transaction {plan.TransactionId}), " +
+        return $"Recorded {Money(amount)} {method} {category} payment from {driverName}, " +
                $"applied to {plan.PaymentUpdates.Count} shift(s){credit}{advance}." + EvidenceSuffix(evidence);
     }
 
