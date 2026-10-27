@@ -29,15 +29,18 @@ public static class AuditLogWriter
             // Server time, not the phone's: firestore.rules accept only an entry stamped by the server
             // (audit A-05), so a phone clock can't backdate one. A dictionary, because FieldValue
             // doesn't fit a typed proxy - the same shape QuickLedgerService.WriteAuditAsync writes.
+            // SetDataAsync, not AddDocumentAsync: AddDocumentAsync has only an (object) overload, which
+            // stores none of a dictionary's fields, so firestore.rules refuse the entry.
             await CrossFirebaseFirestore.Current
                 .GetCollection("audit_logs")
-                .AddDocumentAsync(new Dictionary<object, object>
+                .CreateDocument()
+                .SetDataAsync(new Dictionary<object, object>
                 {
                     ["userId"] = uid,
                     ["actionType"] = actionType,
                     ["auditLogDetails"] = details,
                     ["timestamp"] = FieldValue.ServerTimestamp(),
-                });
+                }, SetOptions.Merge());
         }
         catch (Exception ex)
         {
