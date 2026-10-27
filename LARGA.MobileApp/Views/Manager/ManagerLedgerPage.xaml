@@ -39,7 +39,11 @@
                 </Grid>
 
                 <Border IsVisible="{Binding HasError}" Style="{StaticResource Ledger.Row}" BackgroundColor="{DynamicResource LargaDangerBg}">
-                    <Label Text="{Binding ErrorMessage}" Style="{StaticResource Ledger.Error}" />
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="{Binding ErrorMessage}" Style="{StaticResource Ledger.Error}" />
+                        <Button Text="Retry" Command="{Binding RetryCommand}" HorizontalOptions="Start"
+                                Style="{StaticResource LargaButtonStyle}" HeightRequest="40" Padding="24,0" />
+                    </VerticalStackLayout>
                 </Border>
 
                 <Label Text="{Binding WarningText}" Style="{StaticResource Ledger.Error}" TextColor="{DynamicResource LargaWarning}"

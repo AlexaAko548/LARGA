@@ -6,7 +6,9 @@
 @using LARGA.SharedCore.Models.Garage
 @using LARGA.SharedCore.Services
 @using LARGA.Shared.Models.Entities
-@rendermode InteractiveServer
+@* Rendered once, live (PERFORMANCE_REPORT.md P1): with prerendering its data loaded twice - once for the
+   prerendered HTML and again when the live connection started. The page shows its loading spinner meanwhile. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Security.Claims
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
@@ -486,6 +488,8 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md): the prerender pass and the live pass are logged separately.
+        using var _perf = LARGA.SharedCore.PerfLog.Start($"Web Garage load ({(RendererInfo.IsInteractive ? "live" : "prerender")})");
         AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
         _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
     }
@@ -883,7 +887,8 @@ else
             totals[row.PartId] = totals.GetValueOrDefault(row.PartId) + row.Quantity;
         }
 
-        // The service clamps stock at zero rather than refusing, so block over-use here.
+        // Early feedback from the stock shown in this form; LogPartsUsedAsync checks again against
+        // current stock and refuses an over-deduction itself (INV-006).
         var usage = new List<(string PartId, int Quantity)>();
         var summaryParts = new List<string>();
         foreach ((string partId, int quantity) in totals)

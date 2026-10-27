@@ -48,4 +48,9 @@ public class SystemAlert
 
     [FirestoreProperty("isRead")]
     public bool IsRead { get; set; }
+
+    /// <summary>LowStock alerts (one per part, lowstock_{partId}): "Low Stock", "Critical" (out of
+    /// stock) or "Resolved" (restocked above the minimum). Empty for the other alert types.</summary>
+    [FirestoreProperty("status")]
+    public string Status { get; set; } = string.Empty;
 }

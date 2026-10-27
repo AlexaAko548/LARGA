@@ -110,7 +110,7 @@ public class ClockInApprovalService
                 ["decidedAt"] = DateTime.UtcNow,
                 ["managerNote"] = note?.Trim() ?? string.Empty,
             });
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "ClockInApproved",
@@ -191,7 +191,7 @@ public class ClockInApprovalService
                 ["decidedAt"] = now,
                 ["managerNote"] = note.Trim(),
             });
-            batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "ClockInDenied",

@@ -30,4 +30,52 @@ public class SystemConfig
     // "BDO 001234567890" - only the digits are compared.
     [FirestoreProperty("authorizedPayoutAccounts")]
     public List<string> AuthorizedPayoutAccounts { get; set; } = new();
+
+    // FUEL-017: fuel submissions outside these are flagged automatically (FuelAutoCheckService).
+    // Odometer distance vs GPS distance, as a % of the GPS distance.
+    [FirestoreProperty("fuelDistanceTolerancePercent")]
+    public double FuelDistanceTolerancePercent { get; set; } = 8.0;
+
+    // Plausible fuel cost per odometer km, in pesos.
+    [FirestoreProperty("fuelCostPerKmMin")]
+    public double FuelCostPerKmMin { get; set; } = 4.50;
+
+    [FirestoreProperty("fuelCostPerKmMax")]
+    public double FuelCostPerKmMax { get; set; } = 7.50;
+
+    // Optional, per unit (taxiId -> km/L): flagged when a refuel's km/L is off by more than the
+    // distance tolerance %. Units not listed aren't checked.
+    [FirestoreProperty("fuelExpectedKmPerLiter")]
+    public Dictionary<string, double> FuelExpectedKmPerLiter { get; set; } = new();
+
+    // Only the odometer-vs-GPS check auto-flags, and only on a leg at least this long (km, by
+    // odometer or GPS) with at least this many km between them - shorter gaps are GPS sampling
+    // error. Cost per km and km/L stay indicators in the manager's review.
+    [FirestoreProperty("fuelAutoFlagMinDistanceKm")]
+    public double FuelAutoFlagMinDistanceKm { get; set; } = 10.0;
+
+    [FirestoreProperty("fuelAutoFlagMinVarianceKm")]
+    public double FuelAutoFlagMinVarianceKm { get; set; } = 2.0;
+
+    // MNT-014/015/016: recurring preventive maintenance (MaintenanceSchedulerService), in days.
+    [FirestoreProperty("maintenanceWeeklyIntervalDays")]
+    public int MaintenanceWeeklyIntervalDays { get; set; } = 7;
+
+    [FirestoreProperty("maintenanceBiweeklyIntervalDays")]
+    public int MaintenanceBiweeklyIntervalDays { get; set; } = 14;
+
+    [FirestoreProperty("maintenanceMonthlyIntervalDays")]
+    public int MaintenanceMonthlyIntervalDays { get; set; } = 30;
+
+    // Oil change: every 2 months by default...
+    [FirestoreProperty("oilChangeIntervalDays")]
+    public int OilChangeIntervalDays { get; set; } = 60;
+
+    // ...and, for units listed here (taxiId -> km), also every N km - whichever comes first.
+    [FirestoreProperty("oilChangeMileageIntervalKm")]
+    public Dictionary<string, int> OilChangeMileageIntervalKm { get; set; } = new();
+
+    // A DueSoon bell alert is raised this many days before a check is due.
+    [FirestoreProperty("maintenanceDueSoonDays")]
+    public int MaintenanceDueSoonDays { get; set; } = 2;
 }

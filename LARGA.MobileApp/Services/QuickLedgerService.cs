@@ -28,6 +28,18 @@ public sealed record QuickLedgerSnapshot(
     public long LedgerVersionFor(string driverId) => LedgerVersions.TryGetValue(driverId, out long version) ? version : 0;
 }
 
+/// <summary>A Quick Ledger read failed. <see cref="Exception.InnerException"/> is the Firestore or timeout error.</summary>
+public sealed class QuickLedgerLoadException : Exception
+{
+    public QuickLedgerLoadException(string step, Exception inner)
+        : base($"{step} failed: {inner.Message}", inner)
+    {
+        Step = step;
+    }
+
+    public string Step { get; }
+}
+
 /// <summary>Another payment for the driver was recorded after this page loaded its balances; nothing was saved.</summary>
 public sealed class LedgerConflictException : InvalidOperationException
 {
@@ -55,16 +67,34 @@ public class QuickLedgerService
 
         // Versions first, before any balance: a payment recorded while the reads below run then shows up as a newer
         // version at save time, never as balances that silently miss it.
-        IReadOnlyDictionary<string, long> ledgerVersions = await Timed(ReadLedgerVersionsAsync(warnings), "Reading payment versions");
+        IReadOnlyDictionary<string, long> ledgerVersions = await Step(ReadLedgerVersionsAsync(warnings), "Reading payment versions");
 
-        // Each read has a timeout. A read that never returns would otherwise keep the page loading forever.
-        IReadOnlyList<ShiftRecord> shifts = await Timed(ReadShiftsAsync(warnings), "Reading shifts");
-        IReadOnlyList<BoundaryPaymentRecord> payments = await Timed(ReadPaymentsAsync(warnings), "Reading boundary payments");
-        IReadOnlyList<DebtAdjustmentRecord> adjustments = await Timed(ReadAdjustmentsAsync(warnings), "Reading debt adjustments");
-        UserDirectory users = await Timed(ReadUsersAsync(), "Reading users");
-        decimal defaultRate = await Timed(ReadDefaultBoundaryRateAsync(), "Reading boundary rate");
+        // The rest run together (they don't depend on each other), so the page waits for the slowest read rather than
+        // the sum of all of them. Each read has a timeout. A read that never returns would otherwise keep the page
+        // loading forever. A failed read is rethrown as a QuickLedgerLoadException naming the step, so the log says
+        // which collection failed. List<T> is not thread-safe, so each reader gets its own warnings list, merged after.
+        var shiftWarnings = new List<string>();
+        var paymentWarnings = new List<string>();
+        var adjustmentWarnings = new List<string>();
+        Task<IReadOnlyList<ShiftRecord>> shiftsTask = Step(ReadShiftsAsync(shiftWarnings), "Reading shifts");
+        Task<IReadOnlyList<BoundaryPaymentRecord>> paymentsTask = Step(ReadPaymentsAsync(paymentWarnings), "Reading boundary payments");
+        Task<IReadOnlyList<DebtAdjustmentRecord>> adjustmentsTask = Step(ReadAdjustmentsAsync(adjustmentWarnings), "Reading debt adjustments");
+        Task<UserDirectory> usersTask = Step(ReadUsersAsync(), "Reading users");
+        Task<decimal> rateTask = Step(ReadDefaultBoundaryRateAsync(), "Reading boundary rate");
+        // Plates are only labels: if taxis can't be read, rows show the taxi ID instead of failing the whole page.
+        Task<IReadOnlyDictionary<string, string>> platesTask = ReadTaxiPlatesBestEffortAsync();
 
-        IReadOnlyDictionary<string, string> taxiPlates = await Timed(ReadTaxiPlatesAsync(), "Reading taxis");
+        await Task.WhenAll(shiftsTask, paymentsTask, adjustmentsTask, usersTask, rateTask, platesTask);
+
+        IReadOnlyList<ShiftRecord> shifts = shiftsTask.Result;
+        IReadOnlyList<BoundaryPaymentRecord> payments = paymentsTask.Result;
+        IReadOnlyList<DebtAdjustmentRecord> adjustments = adjustmentsTask.Result;
+        UserDirectory users = usersTask.Result;
+        decimal defaultRate = rateTask.Result;
+        IReadOnlyDictionary<string, string> taxiPlates = platesTask.Result;
+        warnings.AddRange(shiftWarnings);
+        warnings.AddRange(paymentWarnings);
+        warnings.AddRange(adjustmentWarnings);
 
         var input = new QuickLedgerInput(shifts, payments, adjustments, users.Names, users.DriverIds, taxiPlates, defaultRate);
         QuickLedgerResult result = QuickLedgerCalculator.Build(input, PhilippineTime.Now);
@@ -153,14 +183,41 @@ public class QuickLedgerService
         IDocumentReference creditDoc = firestore.GetCollection("debt_adjustments").CreateDocument();
         IDocumentReference lockDoc = firestore.GetCollection("ledger_locks").GetDocument(driverId);
 
+        // BRP-008: an E-Wallet payment claims payment_references/{normalized reference} in the same commit, so one
+        // GCash reference can't be recorded twice (here or on the web). Cash has no reference and isn't checked.
+        string? reference = PaymentReferenceRules.Normalize(plan.Evidence?.ReferenceNumber);
+        IDocumentReference? referenceDoc = reference is null
+            ? null
+            : firestore.GetCollection(PaymentReferenceRules.Collection).GetDocument(reference);
+        Dictionary<object, object>? referenceFields = referenceDoc is null ? null : new Dictionary<object, object>
+        {
+            ["paymentId"] = payments.Count > 0 ? payments[0].Doc.Id : plan.TransactionId,
+            ["driverId"] = driverId,
+            ["transactionId"] = plan.TransactionId,
+            ["referenceNumber"] = plan.Evidence!.ReferenceNumber!,
+            ["createdAt"] = FieldValue.ServerTimestamp(),
+        };
+        bool duplicateReference = false;
+
         // The transaction body runs on a native thread and may be retried by Firestore, so it returns a flag rather than
         // throwing: a .NET exception thrown in there doesn't reliably come back out as itself.
         bool committed = await Timed(firestore.RunTransactionAsync(transaction =>
         {
+            duplicateReference = false; // the body can be retried
             long current = LedgerVersionOf(transaction.GetDocument<LedgerLockProxy>(lockDoc)?.Data);
             if (current != expectedLedgerVersion)
             {
                 return false; // nothing written - the whole transaction is a no-op
+            }
+
+            if (referenceDoc is not null)
+            {
+                // All reads before any write. Every claim carries a paymentId, so a missing one means no claim.
+                if (!string.IsNullOrEmpty(transaction.GetDocument<PaymentReferenceProxy>(referenceDoc)?.Data?.PaymentId))
+                {
+                    duplicateReference = true;
+                    return false;
+                }
             }
 
             // Dictionary + Merge creates the document. The tuple-array overload stored no amount on the document
@@ -175,6 +232,12 @@ public class QuickLedgerService
                 transaction.SetData(creditDoc, credit, SetOptions.Merge());
             }
 
+            if (referenceDoc is not null)
+            {
+                // Lands as a create; firestore.rules refuse it as an update if the document appeared in the meantime.
+                transaction.SetData(referenceDoc, referenceFields!, SetOptions.Merge());
+            }
+
             transaction.SetData(lockDoc, new Dictionary<object, object>
             {
                 ["version"] = current + 1,
@@ -185,7 +248,7 @@ public class QuickLedgerService
 
         if (!committed)
         {
-            throw new LedgerConflictException();
+            throw duplicateReference ? new DuplicatePaymentReferenceException() : new LedgerConflictException();
         }
 
         foreach (var payment in payments)
@@ -207,6 +270,7 @@ public class QuickLedgerService
             var snapshot = await CrossFirebaseFirestore.Current
                 .GetCollection("ledger_locks")
                 .GetDocumentsAsync<LedgerLockProxy>();
+            PerfLog.Reads("ledger_locks", snapshot.Documents.Count());
 
             return snapshot.Documents
                 .Where(doc => doc.Data is not null)
@@ -299,6 +363,7 @@ public class QuickLedgerService
         var snapshot = driverId is null
             ? await collection.GetDocumentsAsync<ShiftProxy>()
             : await collection.WhereEqualsTo("driverId", driverId).GetDocumentsAsync<ShiftProxy>();
+        PerfLog.Reads("shifts", snapshot.Documents.Count());
 
         var records = new List<ShiftRecord>();
         foreach (var doc in snapshot.Documents)
@@ -332,6 +397,7 @@ public class QuickLedgerService
         var snapshot = driverId is null
             ? await collection.GetDocumentsAsync<BoundaryPaymentProxy>()
             : await collection.WhereEqualsTo("driverId", driverId).GetDocumentsAsync<BoundaryPaymentProxy>();
+        PerfLog.Reads("boundary_payments", snapshot.Documents.Count());
 
         var records = new List<BoundaryPaymentRecord>();
         foreach (var doc in snapshot.Documents)
@@ -367,6 +433,7 @@ public class QuickLedgerService
         var snapshot = driverId is null
             ? await collection.GetDocumentsAsync<DebtAdjustmentProxy>()
             : await collection.WhereEqualsTo("driverId", driverId).GetDocumentsAsync<DebtAdjustmentProxy>();
+        PerfLog.Reads("debt_adjustments", snapshot.Documents.Count());
 
         var records = new List<DebtAdjustmentRecord>();
         foreach (var doc in snapshot.Documents)
@@ -392,6 +459,7 @@ public class QuickLedgerService
         var snapshot = await CrossFirebaseFirestore.Current
             .GetCollection("users")
             .GetDocumentsAsync<UserProxy>();
+        PerfLog.Reads("users", snapshot.Documents.Count());
 
         var names = new Dictionary<string, string>();
         var driverIds = new List<string>();
@@ -420,6 +488,7 @@ public class QuickLedgerService
         var snapshot = await CrossFirebaseFirestore.Current
             .GetCollection("taxis")
             .GetDocumentsAsync<TaxiProxy>();
+        PerfLog.Reads("taxis", snapshot.Documents.Count());
 
         var plates = new Dictionary<string, string>();
         foreach (var doc in snapshot.Documents)
@@ -435,6 +504,19 @@ public class QuickLedgerService
         }
 
         return plates;
+    }
+
+    private static async Task<IReadOnlyDictionary<string, string>> ReadTaxiPlatesBestEffortAsync()
+    {
+        try
+        {
+            return await Timed(ReadTaxiPlatesAsync(), "Reading taxis");
+        }
+        catch (Exception ex)
+        {
+            FirestoreErrors.Log("Quick Ledger taxi plates (showing taxi IDs instead)", ex);
+            return new Dictionary<string, string>();
+        }
     }
 
     // Falls back to the same default the web ledger uses when the config is missing or unreadable.
@@ -551,6 +633,20 @@ public class QuickLedgerService
         return await work;
     }
 
+    /// <summary><see cref="Timed{T}"/> for the page load: any failure comes back as a
+    /// <see cref="QuickLedgerLoadException"/> naming the read that failed.</summary>
+    private static async Task<T> Step<T>(Task<T> work, string what)
+    {
+        try
+        {
+            return await Timed(work, what);
+        }
+        catch (Exception ex)
+        {
+            throw new QuickLedgerLoadException(what, ex);
+        }
+    }
+
     private static async Task Timed(Task work, string what)
     {
         Task finished = await Task.WhenAny(work, Task.Delay(OperationTimeout));
@@ -566,6 +662,26 @@ public class QuickLedgerService
     // Firestore proxies: field names match the camelCase names the web writes.
     // Plain values are object? so that any stored number type converts (see the class comment).
     // ---------------------------------------------------------------------
+
+    /// <summary>Whether this GCash reference is already on a payment (payment_references, BRP-008) - checked before
+    /// the receipt photo is uploaded. SavePaymentPlanAsync checks again in its transaction; that's the one that counts.</summary>
+    public async Task<bool> IsReferenceRecordedAsync(string? referenceNumber)
+    {
+        string? reference = PaymentReferenceRules.Normalize(referenceNumber);
+        if (reference is null) return false;
+
+        var snapshot = await Timed(CrossFirebaseFirestore.Current
+            .GetCollection(PaymentReferenceRules.Collection)
+            .GetDocument(reference)
+            .GetDocumentSnapshotAsync<PaymentReferenceProxy>(), "Checking the GCash reference");
+        return !string.IsNullOrEmpty(snapshot?.Data?.PaymentId);
+    }
+
+    public class PaymentReferenceProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("paymentId")]
+        public string? PaymentId { get; set; }
+    }
 
     public class LedgerLockProxy
     {

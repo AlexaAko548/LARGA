@@ -129,6 +129,11 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
         ScanOdometerCommand = new Command(async () => await ScanOdometerAsync());
         AttachPhotoCommand = new Command(async () => await AttachPhotoAsync());
         ConfirmStartShiftCommand = new Command(async () => await ConfirmStartShiftAsync());
+        _submitGate.Changed += (_, _) =>
+        {
+            OnPropertyChanged(nameof(IsNotSubmitting));
+            OnPropertyChanged(nameof(StartButtonText));
+        };
     }
 
     public void ApplyQueryAttributes(IDictionary<string, object> query)
@@ -245,28 +250,17 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
         }
     }
 
-    private async Task ConfirmStartShiftAsync()
-    {
-        // Clock-in + photo uploads take a few seconds - without this, a second tap in that
-        // window starts a second shift (and the first run's cleanup deletes the photos the
-        // second run is still trying to upload).
-        if (_isSubmitting)
-        {
-            return;
-        }
+    // Clock-in + photo uploads take a few seconds - without the gate, a second tap in that
+    // window starts a second shift (and the first run's cleanup deletes the photos the
+    // second run is still trying to upload). The button is disabled and says "Starting…"
+    // meanwhile, with the app-wide loading indicator.
+    private Task ConfirmStartShiftAsync() => _submitGate.RunAsync(StartShiftCoreAsync);
 
-        _isSubmitting = true;
-        try
-        {
-            await StartShiftCoreAsync();
-        }
-        finally
-        {
-            _isSubmitting = false;
-        }
-    }
+    private readonly BusyGate _submitGate = new();
 
-    private bool _isSubmitting;
+    public bool IsNotSubmitting => !_submitGate.IsBusy;
+
+    public string StartButtonText => _submitGate.IsBusy ? "Starting shift…" : "🛡️ Confirm & Start Shift";
 
     private static readonly Dictionary<string, string> InspectionLabels = new()
     {
@@ -337,7 +331,8 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
         }
         catch (Exception ex)
         {
-            await SafeDisplayAlert("Error", $"Couldn't send your inspection to the manager: {ex.Message}");
+            FirestoreErrors.Log("Pre-shift clock-in request", ex);
+            await SafeDisplayAlert("Not sent", FirestoreErrors.FriendlyMessage(ex, "send your inspection to the manager"));
         }
     }
 
@@ -439,7 +434,8 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
         }
         catch (Exception ex)
         {
-            await SafeDisplayAlert("Error", $"Failed to start shift: {ex.Message}");
+            FirestoreErrors.Log("Start shift", ex);
+            await SafeDisplayAlert("Shift not started", FirestoreErrors.FriendlyMessage(ex, "start your shift"));
         }
     }
 

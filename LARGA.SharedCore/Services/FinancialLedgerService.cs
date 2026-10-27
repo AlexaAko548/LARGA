@@ -26,14 +26,17 @@ public class FinancialLedgerService
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly Lazy<PhotoStorageTarget> _storageLazy;
     private readonly ILogger<FinancialLedgerService> _logger;
+    private readonly CollectionCache _cache;
 
     private FirestoreDb Db => _dbLazy.Value;
 
-    public FinancialLedgerService(Lazy<FirestoreDb> dbLazy, Lazy<PhotoStorageTarget> storageLazy, ILogger<FinancialLedgerService> logger)
+    public FinancialLedgerService(Lazy<FirestoreDb> dbLazy, Lazy<PhotoStorageTarget> storageLazy, ILogger<FinancialLedgerService> logger,
+        CollectionCache cache)
     {
         _dbLazy = dbLazy;
         _storageLazy = storageLazy;
         _logger = logger;
+        _cache = cache;
     }
 
     /// <summary>A receipt's link fields for a boundary_payments document, after uploading its
@@ -79,9 +82,12 @@ public class FinancialLedgerService
     /// calendar days (oldest first, ending today) - the Executive Dashboard's boundary
     /// collection chart. Same figures as opening each day in Daily Settlements.
     /// </summary>
-    public async Task<List<DailySettlementSnapshot>> GetCollectionTrendAsync(int days = 7)
+    /// <param name="fromCache">The read-only Dashboard: the full ledger history (still all of it - credit from
+    /// any day changes which shifts are paid) from CollectionCache's listeners instead of re-reading every
+    /// shift and payment on each visit (PERFORMANCE_REPORT.md P4).</param>
+    public async Task<List<DailySettlementSnapshot>> GetCollectionTrendAsync(int days = 7, bool fromCache = false)
     {
-        SettlementContext context = await LoadSettlementContextAsync();
+        SettlementContext context = await LoadSettlementContextAsync(fromCache);
         DateTime today = ShiftClock.UtcNow.ToPhilippineTime().Date;
         return Enumerable.Range(0, Math.Max(1, days))
             .Select(i => BuildDailySettlement(today.AddDays(i - days + 1), context))
@@ -97,9 +103,9 @@ public class FinancialLedgerService
         Dictionary<string, ShiftCharge> ChargeByShift,
         Dictionary<string, decimal> OwedAfterCredit);
 
-    private async Task<SettlementContext> LoadSettlementContextAsync()
+    private async Task<SettlementContext> LoadSettlementContextAsync(bool fromCache = false)
     {
-        (List<ShiftLog> allShifts, List<BoundaryPayment> payments, _, List<UserProfile> drivers) = await GetFullLedgerDataAsync();
+        (List<ShiftLog> allShifts, List<BoundaryPayment> payments, _, List<UserProfile> drivers) = await GetFullLedgerDataAsync(fromCache);
         decimal defaultRate = await GetDefaultBoundaryRateAsync();
 
         // Per shift: what it still owes after credit (shifts not listed owe nothing).
@@ -233,6 +239,13 @@ public class FinancialLedgerService
                 return new RecordPaymentResult { Ok = false, ErrorMessage = "This shift no longer exists." };
             }
 
+            // BRP-008: a reference already on another payment is refused before the photo goes up.
+            // (BookPaymentAsync checks again in its transaction - that's the one that counts.)
+            if (await IsReferenceRecordedAsync(receipt?.ReferenceNo))
+            {
+                return new RecordPaymentResult { Ok = false, ErrorMessage = PaymentReferenceRules.DuplicateMessage };
+            }
+
             // Uploaded once, before the attempts below - a retry re-reads balances, not the photo.
             var receiptLink = await UploadReceiptAsync(shift.DriverId, receipt);
 
@@ -275,6 +288,10 @@ public class FinancialLedgerService
         catch (LedgerConflictException)
         {
             return new RecordPaymentResult { Ok = false, ErrorMessage = ConflictMessage };
+        }
+        catch (DuplicatePaymentReferenceException ex)
+        {
+            return new RecordPaymentResult { Ok = false, ErrorMessage = ex.Message };
         }
         catch (Exception ex)
         {
@@ -384,7 +401,7 @@ public class FinancialLedgerService
 
             WriteBatch batch = Db.StartBatch();
             batch.Set(adjustmentDoc, adjustment);
-            batch.Set(auditDoc, audit);
+            batch.Create(auditDoc, audit);
             // The balance changed, so a payment planned against the old one must re-read it.
             batch.Set(LedgerLockRef(driverId), LedgerLockBump(), SetOptions.MergeAll);
             await batch.CommitAsync();
@@ -688,6 +705,12 @@ public class FinancialLedgerService
                 // off several shifts - each document links it.
                 if (!receiptUploaded)
                 {
+                    // BRP-008: same up-front check as RecordPaymentAsync.
+                    if (await IsReferenceRecordedAsync(receipt?.ReferenceNo))
+                    {
+                        return new SettleDebtResult { Ok = false, ErrorMessage = PaymentReferenceRules.DuplicateMessage };
+                    }
+
                     receiptLink = await UploadReceiptAsync(driverId, receipt);
                     receiptUploaded = true;
                 }
@@ -731,6 +754,10 @@ public class FinancialLedgerService
         catch (LedgerConflictException)
         {
             return new SettleDebtResult { Ok = false, ErrorMessage = ConflictMessage };
+        }
+        catch (DuplicatePaymentReferenceException ex)
+        {
+            return new SettleDebtResult { Ok = false, ErrorMessage = ex.Message };
         }
         catch (Exception ex)
         {
@@ -839,13 +866,37 @@ public class FinancialLedgerService
         // balances above were read at: another cashier's payment in between (web or the app's
         // Quick Ledger, which bump the same version) makes this throw LedgerConflictException,
         // and the caller re-reads the balances and allocates again.
+        //
+        // BRP-008: an E-Wallet payment also claims payment_references/{normalized reference} in
+        // the same commit. If another payment already holds that reference, nothing is saved
+        // (DuplicatePaymentReferenceException).
         DocumentReference lockRef = LedgerLockRef(driverId);
+        string? reference = PaymentReferenceRules.Normalize(receiptLink?.ReferenceNo);
+        DocumentReference? referenceRef = reference is null ? null : Db.Collection(PaymentReferenceRules.Collection).Document(reference);
         await Db.RunTransactionAsync(async transaction =>
         {
             DocumentSnapshot lockSnapshot = await transaction.GetSnapshotAsync(lockRef);
             if (LedgerVersionOf(lockSnapshot) != expectedLedgerVersion)
             {
                 throw new LedgerConflictException();
+            }
+
+            if (referenceRef is not null)
+            {
+                DocumentSnapshot referenceSnapshot = await transaction.GetSnapshotAsync(referenceRef);
+                if (referenceSnapshot.Exists)
+                {
+                    throw new DuplicatePaymentReferenceException();
+                }
+
+                transaction.Create(referenceRef, new Dictionary<string, object>
+                {
+                    ["paymentId"] = paymentDocs.Count > 0 ? paymentDocs[0].Doc.Id : transactionId,
+                    ["driverId"] = driverId,
+                    ["transactionId"] = transactionId,
+                    ["referenceNumber"] = receiptLink!.Value.ReferenceNo!,
+                    ["createdAt"] = now,
+                });
             }
 
             foreach ((DocumentReference doc, Dictionary<string, object> fields) in paymentDocs)
@@ -889,6 +940,20 @@ public class FinancialLedgerService
     }
 
     private DocumentReference LedgerLockRef(string driverId) => Db.Collection("ledger_locks").Document(driverId);
+
+    /// <summary>Whether payment_references already holds this GCash reference (BRP-008). No
+    /// reference (cash): false.</summary>
+    private async Task<bool> IsReferenceRecordedAsync(string? referenceNo)
+    {
+        string? reference = PaymentReferenceRules.Normalize(referenceNo);
+        if (reference is null)
+        {
+            return false;
+        }
+
+        DocumentSnapshot snapshot = await Db.Collection(PaymentReferenceRules.Collection).Document(reference).GetSnapshotAsync();
+        return snapshot.Exists;
+    }
 
     /// <summary>The fields that bump a driver's ledger version (merged, so the doc is created on first use).</summary>
     private static Dictionary<string, object> LedgerLockBump() => new()
@@ -974,7 +1039,8 @@ public class FinancialLedgerService
     /// </summary>
     public async Task ProcessDebtFlagsAsync()
     {
-        (List<ShiftLog> shifts, List<BoundaryPayment> payments, _, List<UserProfile> drivers) = await GetFullLedgerDataAsync();
+        // Background check (every 30 min): from the listener cache, not a full re-read (PERFORMANCE_REPORT.md P2).
+        (List<ShiftLog> shifts, List<BoundaryPayment> payments, _, List<UserProfile> drivers) = await GetFullLedgerDataAsync(fromCache: true);
         List<ShiftCharge> charges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync());
         DateTime now = DateTime.UtcNow;
 
@@ -1254,16 +1320,22 @@ public class FinancialLedgerService
     private async Task<List<T>> GetWhereEqualAsync<T>(string collection, string field, object value) where T : class
     {
         QuerySnapshot snapshot = await Db.Collection(collection).WhereEqualTo(field, value).GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 
-    private async Task<(List<ShiftLog> Shifts, List<BoundaryPayment> Payments, List<DebtAdjustment> Adjustments, List<UserProfile> Drivers)> GetFullLedgerDataAsync()
+    /// <param name="fromCache">Background checks only: the same documents from CollectionCache's listeners
+    /// (falls back to a direct read if the cache isn't ready). Pages read directly, so a list never misses
+    /// a payment they have just saved.</param>
+    private async Task<(List<ShiftLog> Shifts, List<BoundaryPayment> Payments, List<DebtAdjustment> Adjustments, List<UserProfile> Drivers)> GetFullLedgerDataAsync(bool fromCache = false)
     {
-        List<ShiftLog> shifts = await GetAllAsync<ShiftLog>("shifts");
-        List<BoundaryPayment> payments = await GetAllAsync<BoundaryPayment>("boundary_payments");
-        List<DebtAdjustment> adjustments = await GetAllAsync<DebtAdjustment>("debt_adjustments");
-        List<UserProfile> drivers = await GetDriversAsync();
-        return (shifts, payments, adjustments, drivers);
+        // Independent reads, run together (PERFORMANCE_REPORT.md P3).
+        Task<List<ShiftLog>> shifts = GetAllAsync<ShiftLog>("shifts", fromCache);
+        Task<List<BoundaryPayment>> payments = GetAllAsync<BoundaryPayment>("boundary_payments", fromCache);
+        Task<List<DebtAdjustment>> adjustments = GetAllAsync<DebtAdjustment>("debt_adjustments", fromCache);
+        Task<List<UserProfile>> drivers = GetDriversAsync(fromCache);
+        await Task.WhenAll(shifts, payments, adjustments, drivers);
+        return (shifts.Result, payments.Result, adjustments.Result, drivers.Result);
     }
 
     // ---------------------------------------------------------------------
@@ -1307,14 +1379,20 @@ public class FinancialLedgerService
         }
     }
 
-    private async Task<List<UserProfile>> GetDriversAsync() =>
-        (await GetAllAsync<UserProfile>("users"))
+    private async Task<List<UserProfile>> GetDriversAsync(bool fromCache = false) =>
+        (await GetAllAsync<UserProfile>("users", fromCache))
             .Where(u => string.Equals(u.Role, "Driver", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-    private async Task<List<T>> GetAllAsync<T>(string collection) where T : class
+    private async Task<List<T>> GetAllAsync<T>(string collection, bool fromCache = false) where T : class
     {
+        if (fromCache && await _cache.GetDocumentsAsync(collection) is IReadOnlyList<DocumentSnapshot> cached)
+        {
+            return ConvertDocuments<T>(cached, collection);
+        }
+
         QuerySnapshot snapshot = await Db.Collection(collection).GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 
@@ -1324,19 +1402,24 @@ public class FinancialLedgerService
             .WhereGreaterThanOrEqualTo(dateField, fromUtc)
             .WhereLessThanOrEqualTo(dateField, toUtc)
             .GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 
     private async Task<List<T>> GetWhereInAsync<T>(string collection, string field, List<string> values) where T : class
     {
         QuerySnapshot snapshot = await Db.Collection(collection).WhereIn(field, values).GetSnapshotAsync();
+        PerfLog.Reads(collection, snapshot.Count);
         return ConvertDocuments<T>(snapshot, collection);
     }
 
-    private List<T> ConvertDocuments<T>(QuerySnapshot snapshot, string collection) where T : class
+    private List<T> ConvertDocuments<T>(QuerySnapshot snapshot, string collection) where T : class =>
+        ConvertDocuments<T>(snapshot.Documents, collection);
+
+    private List<T> ConvertDocuments<T>(IReadOnlyList<DocumentSnapshot> documents, string collection) where T : class
     {
-        var results = new List<T>(snapshot.Documents.Count);
-        foreach (DocumentSnapshot doc in snapshot.Documents)
+        var results = new List<T>(documents.Count);
+        foreach (DocumentSnapshot doc in documents)
         {
             try
             {

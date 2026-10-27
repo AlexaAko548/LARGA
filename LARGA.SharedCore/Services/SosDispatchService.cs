@@ -136,7 +136,7 @@ public class SosDispatchService
             ["isResolved"] = isResolved,
             ["resolvedAt"] = isResolved ? (object)now : null!,
         });
-        batch.Set(Db.Collection("audit_logs").Document(), new AuditLog
+        batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
         {
             UserId = actorUserId ?? string.Empty,
             ActionType = isResolved ? "SosResolved" : "SosReopened",

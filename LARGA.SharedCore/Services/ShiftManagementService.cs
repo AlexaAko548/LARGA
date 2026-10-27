@@ -28,6 +28,10 @@ public interface IShiftManagementService
     Task<string?> GetClockInBlockReasonAsync(string taxiId);
     Task<ShiftEndCharges> ClockOutAsync(string shiftDocumentId, int endMileage, bool fuelBelowHalf, string managerNote = "");
     Task<DriverShiftSummary?> GetMyOpenShiftAsync();
+
+    /// <summary>The shift's starting odometer (shifts.startMileage), or null when it's missing or
+    /// unreadable - clock-out then can't compare against it (DSM-041).</summary>
+    Task<int?> GetShiftStartMileageAsync(string shiftDocumentId);
     Task SetOnBreakAsync(string shiftDocumentId, bool isOnBreak);
     Task<bool> SubmitHandoverChecklistAsync(HandoverChecklistSubmission checklist);
 
@@ -635,6 +639,25 @@ public class ShiftManagementService : IShiftManagementService
 
     public const string AutoClosedStatus = "Auto-Closed";
 
+    public async Task<int?> GetShiftStartMileageAsync(string shiftDocumentId)
+    {
+        if (string.IsNullOrWhiteSpace(shiftDocumentId)) return null;
+        try
+        {
+            var snapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .GetDocument(shiftDocumentId)
+                .GetDocumentSnapshotAsync<ShiftStartMileageProxy>();
+            double reading = snapshot?.Data?.StartMileage ?? 0;
+            return reading > 0 ? (int)reading : null;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Start mileage read failed: {ex.Message}");
+            return null;
+        }
+    }
+
     /// <summary>The signed-in driver's shift that's still open (status Active), if any - used
     /// to put the phone back into its active-shift state when it has lost track (reinstall,
     /// cleared data, different phone), so the driver can end it normally.</summary>
@@ -652,11 +675,28 @@ public class ShiftManagementService : IShiftManagementService
 
     private static async Task<List<DriverShiftSummary>> GetMyShiftsAsync(string driverId)
     {
-        // Single equality filter (auto-indexed); status is checked client-side.
-        var query = await CrossFirebaseFirestore.Current
-            .GetCollection("shifts")
-            .WhereEqualsTo("driverId", driverId)
-            .GetDocumentsAsync<ShiftReadProxy>();
+        // Only the driver's open (Active) and Auto-Closed shifts, filtered by Firestore instead of reading every
+        // shift the driver ever had (PERFORMANCE_REPORT.md P8). Equality filters only (== and in), which
+        // Firestore serves from its automatic single-field indexes - no composite index.
+        IQuerySnapshot<ShiftReadProxy> query;
+        try
+        {
+            query = await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .WhereEqualsTo("driverId", driverId)
+                .WhereFieldIn("status", new object[] { "Active", AutoClosedStatus })
+                .GetDocumentsAsync<ShiftReadProxy>();
+        }
+        catch (Exception ex) when (ex.ToString().Contains("FAILED_PRECONDITION", StringComparison.OrdinalIgnoreCase))
+        {
+            // The project wants a composite index for this query (firestore.indexes.json) and it isn't
+            // deployed yet: read all of the driver's shifts as before, so clock-in never breaks on it.
+            query = await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .WhereEqualsTo("driverId", driverId)
+                .GetDocumentsAsync<ShiftReadProxy>();
+        }
+        PerfLog.Reads("shifts (own, open)", query.Documents.Count());
 
         return query.Documents
             .Where(d => d.Data != null && (d.Data.Status == "Active" || d.Data.Status == AutoClosedStatus))
@@ -683,7 +723,8 @@ public class ShiftManagementService : IShiftManagementService
 
     /// <summary>The value to write for shiftStart/shiftEnd: Firestore server time, which
     /// firestore.rules require. Debug builds running the test clock (system_configs/global
-    /// testClockPh - the rules accept any time only while it's set) write the pretend time.</summary>
+    /// testClockPh) write the pretend time - production rules refuse it (audit B-03), so the test
+    /// clock only works on the emulator or a dev project.</summary>
     private static object ShiftTimestamp() =>
         ShiftClock.IsPretending ? ShiftClock.UtcNow : FieldValue.ServerTimestamp();
 
@@ -698,6 +739,13 @@ public class ShiftManagementService : IShiftManagementService
 
         [Plugin.Firebase.Firestore.FirestoreProperty("shiftEnd")]
         public DateTime ShiftEnd { get; set; }
+    }
+
+    private class ShiftStartMileageProxy
+    {
+        // double, not int - see ShiftReadProxy.EndMileage below. A missing field reads as 0.
+        [Plugin.Firebase.Firestore.FirestoreProperty("startMileage")]
+        public double StartMileage { get; set; }
     }
 
     private class ShiftReadProxy

@@ -20,6 +20,9 @@ using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// PDF exports (Audit Logs, Generate Reports - PdfReportRenderer).
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+
 // Untracked, developer-local config overrides (Firestore service account path, etc.) -
 // see appsettings.Local.json.example. Never commit the real appsettings.Local.json.
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
@@ -68,6 +71,8 @@ builder.Services.AddSingleton(sp => new Lazy<FirestoreDb>(() =>
     return FirestoreDb.Create(projectId, client);
 }));
 
+// Listener-backed collections for the background checks (PERFORMANCE_REPORT.md P2).
+builder.Services.AddSingleton<CollectionCache>();
 builder.Services.AddSingleton<FleetReportingService>();
 
 // Firebase Admin SDK - lets ManagerWeb create/manage driver Auth accounts server-side
@@ -158,6 +163,11 @@ builder.Services.AddHostedService<ManagerPhoneAllowlistSyncService>();
 // Pushes each new SOS to every Manager/Assistant Manager phone (FCM), app open or not.
 builder.Services.AddHostedService<SosPushService>();
 builder.Services.AddSingleton<FuelVerificationService>();
+// FUEL-017 / FUEL-004: auto-flags fuel submissions outside the system_configs tolerances, and
+// raises a bell alert for every automatic flag.
+builder.Services.AddHostedService<FuelAutoCheckService>();
+// MNT-014/015/016: recurring routine checks + due/overdue bell alerts, on startup and hourly.
+builder.Services.AddHostedService<MaintenanceSchedulerService>();
 builder.Services.AddScoped<IManagerAuthService, ManagerAuthService>();
 builder.Services.AddSingleton<ManagerSignInService>();
 builder.Services
@@ -209,6 +219,13 @@ builder.Services.AddScoped<AuthenticationStateProvider, ManagerRevalidatingAuthS
 
 var app = builder.Build();
 
+// P0 load timings (PERFORMANCE_REPORT.md): on in Development, or anywhere with the setting Perf:Enabled=true
+// (e.g. Cloud Run env var Perf__Enabled=true). Lines go to the normal log under category LARGA.Perf.
+LARGA.SharedCore.PerfLog.Enabled = app.Configuration.GetValue("Perf:Enabled", app.Environment.IsDevelopment());
+LARGA.SharedCore.PerfLog.Build = "Web";
+ILogger perfLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("LARGA.Perf");
+LARGA.SharedCore.PerfLog.Sink = line => perfLogger.LogInformation("{PerfLine}", line);
+
 if (onCloudRun)
 {
     app.UseForwardedHeaders();
@@ -223,6 +240,8 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+// Framing, MIME-sniffing, referrer and CSP (Report-Only) headers on every response (audit G-01).
+app.UseLargaSecurityHeaders();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();

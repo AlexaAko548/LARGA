@@ -5,7 +5,9 @@
 @using LARGA.SharedCore
 @using LARGA.SharedCore.Models.DriverShifts
 @using LARGA.SharedCore.Services
-@rendermode InteractiveServer
+@* Rendered once, live (PERFORMANCE_REPORT.md P1): with prerendering its data loaded twice - once for the
+   prerendered HTML and again when the live connection started. The page shows its loading spinner meanwhile. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Security.Claims
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
@@ -1085,6 +1087,8 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md): the prerender pass and the live pass are logged separately.
+        using var _perf = LARGA.SharedCore.PerfLog.Start($"Web DriverShifts load ({(RendererInfo.IsInteractive ? "live" : "prerender")})");
         AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
         _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
     }

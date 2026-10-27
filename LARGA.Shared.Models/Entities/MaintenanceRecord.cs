@@ -147,4 +147,9 @@ public class MaintenanceRecord
     /// before scheduling existed - those count from DateLogged.</summary>
     [FirestoreProperty("scheduledDate")]
     public DateTime? ScheduledDate { get; set; }
+
+    /// <summary>For a job booked from a recurring routine check: its type (RoutineCheckItem.RoutineType),
+    /// so the next check is generated from this job's completion date.</summary>
+    [FirestoreProperty("routineType")]
+    public string? RoutineType { get; set; }
 }

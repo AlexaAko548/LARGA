@@ -364,6 +364,8 @@ public class FleetMapViewModel : BindableObject
 
     private async Task InitializeStaticDataAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Fleet Map load");
         using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         _idleThresholdMinutes = await GetIdleThresholdMinutesAsync();
 

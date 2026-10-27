@@ -8,7 +8,9 @@
 @using LARGA.SharedCore.Services
 @using LARGA.Shared.Models.Entities
 @using System.Security.Claims
-@rendermode InteractiveServer
+@* Rendered once, live (PERFORMANCE_REPORT.md P1): with prerendering its data loaded twice - once for the
+   prerendered HTML and again when the live connection started. The page shows its loading spinner meanwhile. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
@@ -282,7 +284,7 @@ else
                                 <div class="review-fact">
                                     <div class="fact-label">Cost / km sanity check</div>
                                     <div class="fact-value">₱@_reviewDetail.CostPerKm.Value.ToString("N2") /km</div>
-                                    <div class="fact-sub">Typical range: ₱@FuelReviewDetail.TypicalCostPerKmMin.ToString("N2")–@FuelReviewDetail.TypicalCostPerKmMax.ToString("N2")/km</div>
+                                    <div class="fact-sub">Typical range: ₱@_reviewDetail.Tolerances.CostPerKmMin.ToString("N2")–@_reviewDetail.Tolerances.CostPerKmMax.ToString("N2")/km</div>
                                 </div>
                             }
                         </div>
@@ -461,7 +463,7 @@ else
                                 <div class="review-fact">
                                     <div class="fact-label">Cost / km sanity check</div>
                                     <div class="fact-value">₱@_reviewDetail.CostPerKm.Value.ToString("N2") /km</div>
-                                    <div class="fact-sub">Typical range: ₱@FuelReviewDetail.TypicalCostPerKmMin.ToString("N2")–@FuelReviewDetail.TypicalCostPerKmMax.ToString("N2")/km</div>
+                                    <div class="fact-sub">Typical range: ₱@_reviewDetail.Tolerances.CostPerKmMin.ToString("N2")–@_reviewDetail.Tolerances.CostPerKmMax.ToString("N2")/km</div>
                                 </div>
                             }
                         </div>
@@ -497,6 +499,8 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // P0 timing (PERFORMANCE_REPORT.md): the prerender pass and the live pass are logged separately.
+        using var _perf = LARGA.SharedCore.PerfLog.Start($"Web FuelVerification load ({(RendererInfo.IsInteractive ? "live" : "prerender")})");
         AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
         _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
         _managerUserId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
@@ -800,11 +804,15 @@ else
         if (d.VariancePercent.HasValue)
         {
             var toleranceWord = d.IsWithinOdometerTolerance == true ? "within" : "over";
-            parts.Add($"{d.VariancePercent.Value:N0}% deviation vs. GPS - {toleranceWord} the acceptable {FuelReviewDetail.OdometerToleranceComparisonPercent:N0}% tolerance");
+            parts.Add($"{d.VariancePercent.Value:N0}% deviation vs. GPS - {toleranceWord} the acceptable {d.Tolerances.DistanceTolerancePercent:N0}% tolerance");
         }
         if (d.IsWithinCostRange == false)
         {
             parts.Add("cost/km is outside the typical range");
+        }
+        if (d.IsWithinExpectedKmPerLiter == false)
+        {
+            parts.Add("km/L is off from this unit's expected figure");
         }
         return parts.Count > 0 ? string.Join("; ", parts) : "Looks consistent with GPS tracking.";
     }

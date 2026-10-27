@@ -610,3 +610,8 @@ obj/
 .context/
 
 CLAUDE.md
+
+
+# Android signing keys (audit E-04) - *.keystore is above; Java KeyStore and PKCS#12 too
+*.jks
+*.p12

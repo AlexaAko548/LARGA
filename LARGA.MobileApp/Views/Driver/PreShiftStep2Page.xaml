@@ -100,7 +100,7 @@
             </Border>
 
             <!-- Confirm & Start Shift Button -->
-            <Button Text="🛡️ Confirm &amp; Start Shift" Command="{Binding ConfirmStartShiftCommand}" 
+            <Button Text="{Binding StartButtonText}" IsEnabled="{Binding IsNotSubmitting}" Command="{Binding ConfirmStartShiftCommand}" 
                     BackgroundColor="{DynamicResource ThemePanel}" TextColor="#0099CC" CornerRadius="25" Style="{StaticResource LargaButtonStyle}" HeightRequest="60" FontSize="18" Margin="0,15,0,0">
                 <Button.Triggers>
                     <DataTrigger TargetType="Button" Binding="{Binding CanStartShift}" Value="True">

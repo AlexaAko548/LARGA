@@ -19,15 +19,18 @@ namespace LARGA.SeedTool;
 /// instead of creating duplicates - safe to run again before a demo to reset state.
 ///
 /// Usage:
-///   dotnet run --project LARGA.SeedTool -- <path-to-service-account-key.json> [projectId]
+///   dotnet run --project LARGA.SeedTool -- <path-to-service-account-key.json | -> <projectId> [--production]
 ///
-/// If no key path is given, falls back to Application Default Credentials
+/// "-" instead of a key path uses Application Default Credentials
 /// (GOOGLE_APPLICATION_CREDENTIALS env var or `gcloud auth application-default login`).
-/// Default project id is "larga-blmtaxi" (from firebase-auth.js).
+/// The project ID is required - there is no default (audit E-03). The live project
+/// ("larga-blmtaxi") is refused unless --production is passed, because the fixed IDs below
+/// overwrite real users, shifts and payments that share them.
 /// </summary>
 internal static class Program
 {
-    private const string DefaultProjectId = "larga-blmtaxi";
+    private const string ProductionProjectId = "larga-blmtaxi";
+    private const string ProductionFlag = "--production";
 
     // Fixed, meaningful IDs so reruns are idempotent and console records are easy to read.
     // Note: "WD2nFT8xngMPNYQb0xEeIyPAenl1" (the real Firebase Auth manager) is intentionally
@@ -47,12 +50,32 @@ internal static class Program
 
     private static async Task<int> Main(string[] args)
     {
-        string? keyPath = args.Length > 0 ? args[0] : null;
-        string projectId = args.Length > 1 ? args[1] : DefaultProjectId;
+        bool allowProduction = args.Contains(ProductionFlag);
+        string[] positional = args.Where(a => a != ProductionFlag).ToArray();
+        string? keyPath = positional.Length > 0 && positional[0] != "-" ? positional[0] : null;
+        string? projectId = positional.Length > 1 ? positional[1] : null;
+
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+            Console.WriteLine("Usage: dotnet run --project LARGA.SeedTool -- <service-account-key.json | -> <projectId> [--production]");
+            Console.WriteLine("The project ID is required. Seed a dev/test project, not the live one.");
+            return 1;
+        }
+
+        if (projectId == ProductionProjectId && !allowProduction)
+        {
+            Console.WriteLine($"Refusing to seed the live project \"{ProductionProjectId}\": it would overwrite real records.");
+            Console.WriteLine($"Use a dev project, or add {ProductionFlag} if you really mean it.");
+            return 1;
+        }
 
         Console.WriteLine("LARGA Firestore Seed Tool");
         Console.WriteLine("=========================");
         Console.WriteLine($"Target project : {projectId}");
+        if (projectId == ProductionProjectId)
+        {
+            Console.WriteLine("!! THIS IS THE LIVE PROJECT - real data with the same IDs will be overwritten !!");
+        }
         Console.WriteLine($"Credentials    : {(keyPath is null ? "Application Default Credentials" : keyPath)}");
         Console.WriteLine();
         Console.WriteLine("This will write/overwrite fixed-ID documents in: users, taxis, shifts,");
@@ -134,6 +157,21 @@ internal static class Program
     {
         await db.Collection(collection).Document(docId).SetAsync(entity, SetOptions.Overwrite);
         Console.WriteLine($"  wrote {collection}/{docId}");
+    }
+
+    /// <summary>For append-only collections (audit_logs, ANA-014): writes the document only if it
+    /// isn't there yet, so a re-run never overwrites an existing entry.</summary>
+    private static async Task CreateIfMissingAsync<T>(FirestoreDb db, string collection, string docId, T entity) where T : class
+    {
+        try
+        {
+            await db.Collection(collection).Document(docId).CreateAsync(entity);
+            Console.WriteLine($"  wrote {collection}/{docId}");
+        }
+        catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
+        {
+            Console.WriteLine($"  kept existing {collection}/{docId}");
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -678,7 +716,7 @@ internal static class Program
         await SetAsync(db, "fuel_logs", $"{ShiftMariaAug29}_FUEL", new FuelLog
         {
             ShiftId = ShiftMariaAug29,
-            FuelStation = "Caltex - Bicutan",
+            FuelStation = "Petron - Bicutan",
             LitersRefueled = 8.0m,
             FuelCost = 496,
             ORNumber = "OR-2026-000103",
@@ -694,7 +732,7 @@ internal static class Program
         await SetAsync(db, "fuel_logs", $"{ShiftMariaSep4}_FUEL", new FuelLog
         {
             ShiftId = ShiftMariaSep4,
-            FuelStation = "Caltex - Bicutan",
+            FuelStation = "Petron - Bicutan",
             LitersRefueled = 7.5m,
             FuelCost = 465,
             ORNumber = "OR-2026-000106",
@@ -710,7 +748,7 @@ internal static class Program
         await SetAsync(db, "fuel_logs", $"{ShiftPedroSep3}_FUEL", new FuelLog
         {
             ShiftId = ShiftPedroSep3,
-            FuelStation = "Phoenix - Ortigas",
+            FuelStation = "Shell - Ortigas",
             LitersRefueled = 9.0m,
             FuelCost = 558,
             ORNumber = "OR-2026-000105",
@@ -765,8 +803,12 @@ internal static class Program
             ReceiptImageUrl = "https://storage.googleapis.com/larga-blmtaxi.appspot.com/fuel_receipts/SHIFT_2026090502.jpg",
             ReceiptTimestamp = DateTime.UtcNow.Date.AddHours(5).AddMinutes(50),
             SubmittedAt = DateTime.UtcNow.Date.AddHours(5).AddMinutes(50).AddMinutes(10),
-            VerificationStatus = FuelVerificationStatus.Pending,
-            FuelLogDetails = string.Empty,
+            // FUEL-004 example: not a Petron/Shell receipt, so the app submitted it already
+            // Flagged with the reason (FuelStations.NotAllowedReason).
+            VerificationStatus = FuelVerificationStatus.Flagged,
+            FuelLogDetails = "Station is not Petron or Shell",
+            AutoFlagged = true,
+            FlaggedAt = DateTime.UtcNow.Date.AddHours(5).AddMinutes(50).AddMinutes(10),
             OdometerReading = 95475,
             OdometerPhotoUrl = "https://storage.googleapis.com/larga-blmtaxi.appspot.com/odometer/SHIFT_2026090502.jpg",
         });
@@ -1122,7 +1164,7 @@ internal static class Program
     {
         Console.WriteLine("Seeding audit_logs...");
 
-        await SetAsync(db, "audit_logs", "AUDIT_001", new AuditLog
+        await CreateIfMissingAsync(db, "audit_logs", "AUDIT_001", new AuditLog
         {
             UserId = SampleManagerUid,
             ActionType = "Login",
@@ -1131,7 +1173,7 @@ internal static class Program
             Timestamp = DateTime.UtcNow.AddHours(-2),
         });
 
-        await SetAsync(db, "audit_logs", "AUDIT_002", new AuditLog
+        await CreateIfMissingAsync(db, "audit_logs", "AUDIT_002", new AuditLog
         {
             UserId = SampleManagerUid,
             ActionType = "ResolveMaintenanceTicket",
@@ -1140,7 +1182,7 @@ internal static class Program
             Timestamp = new DateTime(2026, 8, 21, 10, 0, 33, DateTimeKind.Utc),
         });
 
-        await SetAsync(db, "audit_logs", "AUDIT_003", new AuditLog
+        await CreateIfMissingAsync(db, "audit_logs", "AUDIT_003", new AuditLog
         {
             UserId = SampleManagerUid,
             ActionType = "VerifyFuelReceipt",
@@ -1149,7 +1191,7 @@ internal static class Program
             Timestamp = new DateTime(2026, 8, 31, 19, 0, 0, DateTimeKind.Utc),
         });
 
-        await SetAsync(db, "audit_logs", "AUDIT_004", new AuditLog
+        await CreateIfMissingAsync(db, "audit_logs", "AUDIT_004", new AuditLog
         {
             UserId = DriverAna,
             ActionType = "EmergencyAlertTriggered",
@@ -1158,7 +1200,7 @@ internal static class Program
             Timestamp = DateTime.UtcNow.AddMinutes(-15),
         });
 
-        await SetAsync(db, "audit_logs", "AUDIT_005", new AuditLog
+        await CreateIfMissingAsync(db, "audit_logs", "AUDIT_005", new AuditLog
         {
             UserId = SampleManagerUid,
             ActionType = "FlagFuelReceipt",
@@ -1324,6 +1366,18 @@ internal static class Program
             ManagerPhoneNumbers = new List<string> { "+639171234567" },
             // Target account verification: the GCash number boundary e-receipts must be sent to.
             AuthorizedPayoutAccounts = new List<string> { "0917 123 4567" },
+            // FUEL-017 auto-flag tolerances (the defaults; no per-unit km/L set).
+            FuelDistanceTolerancePercent = 8.0,
+            FuelCostPerKmMin = 4.50,
+            FuelCostPerKmMax = 7.50,
+            FuelAutoFlagMinDistanceKm = 10,
+            FuelAutoFlagMinVarianceKm = 2,
+            // MNT-014/015/016 recurring maintenance intervals (days) - the defaults.
+            MaintenanceWeeklyIntervalDays = 7,
+            MaintenanceBiweeklyIntervalDays = 14,
+            MaintenanceMonthlyIntervalDays = 30,
+            OilChangeIntervalDays = 60,
+            MaintenanceDueSoonDays = 2,
         });
     }
 }

@@ -37,6 +37,15 @@ public class ShiftLog
     [FirestoreProperty("isOnBreak")]
     public bool IsOnBreak { get; set; }
 
+    /// <summary>Speed (km/h) of the phone's latest GPS point, copied onto the shift with every point
+    /// (GpsTelemetryService) - lets the dashboard tell moving from idle without reading gps_telemetry.</summary>
+    [FirestoreProperty("currentSpeed")]
+    public double? CurrentSpeed { get; set; }
+
+    /// <summary>When the latest GPS point was taken (same value as that point's timestamp).</summary>
+    [FirestoreProperty("currentPositionUpdatedAt")]
+    public DateTime? CurrentPositionUpdatedAt { get; set; }
+
     [FirestoreProperty("managerNote")]
     public string ManagerNote { get; set; } = string.Empty;
 

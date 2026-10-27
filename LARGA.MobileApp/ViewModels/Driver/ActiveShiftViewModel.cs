@@ -423,7 +423,13 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Break Sync Error: {ex.Message}");
+            // The manager would otherwise keep seeing the driver as Active (or On Break).
+            FirestoreErrors.Log("Break status sync", ex);
+            await Shell.Current.DisplayAlert("Not sent to manager",
+                isOnBreak
+                    ? "Your break couldn't be sent to your manager. Check your internet connection. Your manager may still see you as driving."
+                    : "Your return from break couldn't be sent to your manager. Check your internet connection.",
+                "OK");
         }
     }
 

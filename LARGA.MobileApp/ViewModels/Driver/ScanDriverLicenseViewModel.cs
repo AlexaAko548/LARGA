@@ -298,7 +298,14 @@ public class ScanDriverLicenseViewModel : BindableObject
 
         var storageRef = CrossFirebaseStorage.Current.GetRootReference()
             .GetChild($"lto_ids/{_targetUserId}/{DateTime.UtcNow:yyyyMMddHHmmss}{extension.ToLowerInvariant()}");
-        await storageRef.PutFile(_localFilePath).AwaitAsync();
+        // The content type is explicit: storage.rules accept images only.
+        string contentType = extension.ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            _ => "image/jpeg",
+        };
+        await storageRef.PutFile(_localFilePath, new StorageMetadata(contentType: contentType)).AwaitAsync();
         return await storageRef.GetDownloadUrlAsync();
     }
 
@@ -315,7 +322,7 @@ public class ScanDriverLicenseViewModel : BindableObject
 
             var storageRef = CrossFirebaseStorage.Current.GetRootReference()
                 .GetChild($"lto_ids/{_targetUserId}/face_{DateTime.UtcNow:yyyyMMddHHmmss}.jpg");
-            await storageRef.PutFile(facePath).AwaitAsync();
+            await storageRef.PutFile(facePath, new StorageMetadata(contentType: "image/jpeg")).AwaitAsync();
             return await storageRef.GetDownloadUrlAsync();
         }
         catch (Exception ex)

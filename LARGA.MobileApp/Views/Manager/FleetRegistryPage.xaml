@@ -16,6 +16,9 @@
 
             <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                 <VerticalStackLayout BindableLayout.ItemsSource="{Binding Taxis}" Spacing="12">
+                    <BindableLayout.EmptyView>
+                        <Label Text="No units found." FontSize="14" TextColor="{DynamicResource ThemeTextTertiary}" HorizontalOptions="Center" Margin="0,16" />
+                    </BindableLayout.EmptyView>
                     <BindableLayout.ItemTemplate>
                         <DataTemplate x:DataType="vm:TaxiListItem">
                             <VerticalStackLayout Spacing="12">

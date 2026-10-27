@@ -5,7 +5,9 @@
 @using LARGA.SharedCore
 @using LARGA.Shared.Models.Entities
 @using LARGA.SharedCore.Services
-@rendermode InteractiveServer
+@* Rendered once, live (PERFORMANCE_REPORT.md P1): with prerendering its data loaded twice - once for the
+   prerendered HTML and again when the live connection started. The page shows its loading spinner meanwhile. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Security.Claims
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
@@ -583,6 +585,11 @@ else
             {
                 await LoadHistoryAsync(updated);
             }
+        }
+        catch (InventoryAuditService.InsufficientStockException ex)
+        {
+            // INV-006: nothing was deducted - say how many are actually left.
+            _actionError = ex.Message;
         }
         catch (Exception ex)
         {

@@ -142,8 +142,13 @@ public class ManagerDriverProfileViewModel : BindableObject
         }
     }
 
+    private bool _isOpeningCamera;
+
     private async Task UploadLicensePhotoAsync()
     {
+        // A second tap while the camera is opening would open it twice.
+        if (_isOpeningCamera) return;
+        _isOpeningCamera = true;
         try
         {
             if (string.IsNullOrWhiteSpace(DriverId)) return;
@@ -176,7 +181,12 @@ public class ManagerDriverProfileViewModel : BindableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Manager Upload License Photo Error: {ex.Message}");
+            FirestoreErrors.Log("Manager license photo", ex);
+            await Shell.Current.DisplayAlert("Camera problem", "Could not take the license photo. Please try again.", "OK");
+        }
+        finally
+        {
+            _isOpeningCamera = false;
         }
     }
 
