@@ -85,6 +85,7 @@ public class ChangePasswordViewModel : BindableObject
             // and also doubles as verifying the current password is actually correct.
             await CrossFirebaseAuth.Current.SignInWithEmailAndPasswordAsync(email, CurrentPassword);
             await CrossFirebaseAuth.Current.CurrentUser.UpdatePasswordAsync(NewPassword);
+            await LARGA.MobileApp.Services.MustChangePasswordFlag.ClearAsync();
             AuditLogWriter.Record("ManagerPasswordChanged", "Changed their own mobile app password.");
 
             CurrentPassword = string.Empty;

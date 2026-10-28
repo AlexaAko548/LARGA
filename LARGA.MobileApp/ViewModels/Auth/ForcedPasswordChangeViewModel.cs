@@ -1,12 +1,10 @@
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using LARGA.MobileApp.Services;
 using LARGA.SharedCore;
 using Microsoft.Maui.Controls;
 using Plugin.Firebase.Auth;
-using Plugin.Firebase.Firestore;
 
 namespace LARGA.MobileApp.ViewModels.Auth;
 
@@ -83,7 +81,7 @@ public class ForcedPasswordChangeViewModel : BindableObject
             {
                 // Firebase needs a recent sign-in to change the password.
                 await CrossFirebaseAuth.Current.SignInWithEmailAndPasswordAsync(user.Email, CurrentPassword);
-                await CrossFirebaseAuth.Current.CurrentUser.UpdatePasswordAsync(NewPassword);
+                await (CrossFirebaseAuth.Current.CurrentUser ?? user).UpdatePasswordAsync(NewPassword);
             }
             catch (Exception ex)
             {
@@ -92,18 +90,7 @@ public class ForcedPasswordChangeViewModel : BindableObject
                 return;
             }
 
-            try
-            {
-                await CrossFirebaseFirestore.Current
-                    .GetCollection("users")
-                    .GetDocument(user.Uid)
-                    .UpdateDataAsync(new Dictionary<object, object> { [ForcedPasswordChangeRules.Field] = false });
-            }
-            catch (Exception ex)
-            {
-                // The password is changed; the flag clears next time (this screen would show again).
-                FirestoreErrors.Log("Clear mustChangePassword", ex);
-            }
+            await MustChangePasswordFlag.ClearAsync();
 
             CurrentPassword = NewPassword = ConfirmNewPassword = string.Empty;
             await Shell.Current.DisplayAlert("Password updated", "Your new password is set. Use it the next time you sign in.", "OK");

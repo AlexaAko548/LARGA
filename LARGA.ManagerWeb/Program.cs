@@ -159,6 +159,8 @@ builder.Services.AddScoped<LARGA.ManagerWeb.Services.ChatDrawerState>();
 builder.Services.AddScoped<LARGA.ManagerWeb.Services.SosBannerState>();
 builder.Services.AddHostedService<IdleAlertMonitorService>();
 builder.Services.AddHostedService<PaymentDriverIdBackfillService>();
+// Clears mustChangePassword for users who already replaced their temporary password.
+builder.Services.AddHostedService<MustChangePasswordCleanupService>();
 // LAR-86/87: mirror Manager and Assistant Manager numbers into the driver app's SOS auto-answer allowlist (live).
 builder.Services.AddHostedService<ManagerPhoneAllowlistSyncService>();
 // Pushes each new SOS to every Manager/Assistant Manager phone (FCM), app open or not.

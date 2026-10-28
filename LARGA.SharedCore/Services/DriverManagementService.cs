@@ -1009,6 +1009,7 @@ public class DriverManagementService
             Role = "Driver",
             DateJoined = DateTime.UtcNow,
             MustChangePassword = true,
+            TemporaryPasswordSetAt = DateTime.UtcNow,
         };
 
         try
@@ -1056,6 +1057,73 @@ public class DriverManagementService
         };
     }
 
+    /// <summary>
+    /// Clears users.mustChangePassword for everyone who has already replaced their temporary password
+    /// (ForcedPasswordChangeRules.ChangedSinceTemporary): the Auth account's last password change is
+    /// later than when the temporary one was set. That covers drivers who changed it before the app
+    /// enforced the flag, and changes made through the forgot-password email. When the profile has no
+    /// temporaryPasswordSetAt (set before it existed), the temporary password dates from the later of
+    /// the account's creation and the driver's last DriverPasswordReset audit entry. Each clear is
+    /// audited. Returns how many were cleared. Run by ManagerWeb on startup.
+    /// </summary>
+    public async Task<int> ClearReplacedTemporaryPasswordFlagsAsync()
+    {
+        QuerySnapshot flagged = await Db.Collection("users").WhereEqualTo(ForcedPasswordChangeRules.Field, true).GetSnapshotAsync();
+        if (flagged.Count == 0)
+        {
+            return 0;
+        }
+
+        List<AuditLog>? resets = null;
+        int cleared = 0;
+        foreach (DocumentSnapshot doc in flagged.Documents)
+        {
+            UserProfile profile = doc.ConvertTo<UserProfile>();
+            UserRecord account;
+            try
+            {
+                account = await Auth.GetUserAsync(doc.Id);
+            }
+            catch (FirebaseAuthException ex) when (ex.AuthErrorCode == AuthErrorCode.UserNotFound)
+            {
+                continue;
+            }
+
+            DateTime? setAt = profile.TemporaryPasswordSetAt;
+            if (setAt is null)
+            {
+                resets ??= (await Db.Collection("audit_logs").WhereEqualTo("actionType", "DriverPasswordReset").GetSnapshotAsync())
+                    .Documents.Select(d => d.ConvertTo<AuditLog>()).ToList();
+                DateTime? lastReset = resets
+                    .Where(a => !string.IsNullOrWhiteSpace(profile.FullName)
+                                && (a.AuditLogDetails ?? string.Empty).EndsWith($"for driver {profile.FullName}.", StringComparison.Ordinal))
+                    .Select(a => (DateTime?)a.Timestamp)
+                    .Max();
+                DateTime? created = account.UserMetaData?.CreationTimestamp;
+                setAt = lastReset is DateTime r && (created is null || r > created) ? r : created;
+            }
+
+            if (!ForcedPasswordChangeRules.ChangedSinceTemporary(account.TokensValidAfterTimestamp, setAt))
+            {
+                continue;
+            }
+
+            WriteBatch batch = Db.StartBatch();
+            batch.Update(doc.Reference, ForcedPasswordChangeRules.Field, false);
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = string.Empty, // System
+                ActionType = "MustChangePasswordCleared",
+                AuditLogDetails = $"Cleared the forced password change for {(string.IsNullOrWhiteSpace(profile.FullName) ? doc.Id : profile.FullName)} - they had already replaced the temporary password.",
+                Timestamp = DateTime.UtcNow,
+            });
+            await batch.CommitAsync();
+            cleared++;
+        }
+
+        return cleared;
+    }
+
     public async Task<ResetPasswordResult> ResetDriverPasswordAsync(string driverId, string? newPassword, string? actorUserId = null)
     {
         if (InputValidator.ValidatePassword(newPassword, required: false) is string passwordError)
@@ -1069,7 +1137,11 @@ public class DriverManagementService
             await Auth.UpdateUserAsync(new UserRecordArgs { Uid = driverId, Password = password });
 
             WriteBatch batch = Db.StartBatch();
-            batch.Update(Db.Collection("users").Document(driverId), new Dictionary<string, object> { ["mustChangePassword"] = true });
+            batch.Update(Db.Collection("users").Document(driverId), new Dictionary<string, object>
+            {
+                [ForcedPasswordChangeRules.Field] = true,
+                [ForcedPasswordChangeRules.SetAtField] = DateTime.UtcNow,
+            });
             batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
             {
                 UserId = actorUserId ?? string.Empty,

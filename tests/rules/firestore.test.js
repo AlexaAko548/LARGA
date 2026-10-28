@@ -469,6 +469,10 @@ describe('mustChangePassword (forced password change)', () => {
     await flag(ASSISTANT, true);
     await assertSucceeds(updateDoc(doc(as(ASSISTANT), 'users', ASSISTANT), { mustChangePassword: false }));
   });
+  it('a regular password change may write false even when the flag was never set', async () =>
+    assertSucceeds(updateDoc(doc(as(ASSISTANT), 'users', ASSISTANT), { mustChangePassword: false })));
+  it('a user cannot set temporaryPasswordSetAt (the web stamps it)', async () =>
+    assertFails(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { mustChangePassword: false, temporaryPasswordSetAt: serverTimestamp() })));
   it('a user cannot set their own flag to true', async () => {
     await flag(DRIVER_A, false);
     await assertFails(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { mustChangePassword: true }));

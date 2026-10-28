@@ -82,4 +82,9 @@ public class UserProfile
     // so that enforcement has something to check whenever it is built.
     [FirestoreProperty("mustChangePassword")]
     public bool MustChangePassword { get; set; }
+
+    /// <summary>When a manager last set a temporary password (account creation or reset) - compared
+    /// with the Auth account's last password change to tell whether the user has replaced it.</summary>
+    [FirestoreProperty("temporaryPasswordSetAt")]
+    public DateTime? TemporaryPasswordSetAt { get; set; }
 }

@@ -81,6 +81,8 @@ public class DriverChangePasswordViewModel : BindableObject
 
             await CrossFirebaseAuth.Current.SignInWithEmailAndPasswordAsync(email, CurrentPassword);
             await CrossFirebaseAuth.Current.CurrentUser.UpdatePasswordAsync(NewPassword);
+            // A manager's temporary password is replaced now too - no forced change at the next login.
+            await LARGA.MobileApp.Services.MustChangePasswordFlag.ClearAsync();
 
             CurrentPassword = string.Empty;
             NewPassword = string.Empty;

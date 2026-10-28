@@ -22,4 +22,24 @@ public class ForcedPasswordChangeRulesTests
     [Fact]
     public void Validate_AcceptsANewValidPassword() =>
         Assert.Null(ForcedPasswordChangeRules.Validate("temp123", "myOwnPass9", "myOwnPass9"));
+
+    private static readonly DateTime TempSet = new(2026, 9, 1, 2, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void ChangedSinceTemporary_LaterPasswordChange_ClearsTheFlag() =>
+        Assert.True(ForcedPasswordChangeRules.ChangedSinceTemporary(TempSet.AddDays(3), TempSet));
+
+    [Theory]
+    [InlineData(0)]   // Firebase's own timestamp for the manager's write
+    [InlineData(1)]   // within the margin
+    [InlineData(-60)] // before the temporary password
+    public void ChangedSinceTemporary_NoLaterChange_KeepsTheFlag(int minutesAfter) =>
+        Assert.False(ForcedPasswordChangeRules.ChangedSinceTemporary(TempSet.AddMinutes(minutesAfter), TempSet));
+
+    [Fact]
+    public void ChangedSinceTemporary_UnknownTimes_KeepsTheFlag()
+    {
+        Assert.False(ForcedPasswordChangeRules.ChangedSinceTemporary(null, TempSet));
+        Assert.False(ForcedPasswordChangeRules.ChangedSinceTemporary(TempSet.AddDays(3), null));
+    }
 }
