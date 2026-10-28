@@ -178,6 +178,33 @@ public class AlertService
         }
     }
 
+    /// <summary>SRS REQ-4.5-1: an archived part isn't tracked any more, so its open low-stock alert is
+    /// closed (Resolved, read). Restoring the part raises it again if it's still low.</summary>
+    public async Task CloseLowStockAlertForArchivedPartAsync(SparePart part)
+    {
+        try
+        {
+            DocumentReference docRef = Db.Collection("system_alerts").Document(LowStockAlertId(part.PartId));
+            DocumentSnapshot existing = await docRef.GetSnapshotAsync();
+            if (!existing.Exists || (existing.TryGetValue("status", out string? status) && status == ResolvedStatus))
+            {
+                return;
+            }
+
+            await docRef.UpdateAsync(new Dictionary<string, object>
+            {
+                ["status"] = ResolvedStatus,
+                ["message"] = $"{part.DisplayName} was archived - no longer tracked for low stock.",
+                ["resolvedAt"] = DateTime.UtcNow,
+                ["isRead"] = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to close the low-stock alert for archived part {PartId}", part.PartId);
+        }
+    }
+
     /// <summary>Closes the part's open low-stock alert once it's restocked above its minimum, so the
     /// next drop reopens it (INV-010). No alert, or one already resolved: nothing to do.</summary>
     public async Task ResolveLowStockAlertAsync(SparePart part)

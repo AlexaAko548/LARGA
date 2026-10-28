@@ -33,6 +33,18 @@ public class SparePart
     [FirestoreProperty("supplier")]
     public string Supplier { get; set; } = string.Empty;
 
+    // SRS REQ-4.5-1: parts are archived, never deleted (maintenance_parts_used references the ID).
+    // An archived part is left out of the inventory list, the Garage parts picker and low-stock alerts.
+    [FirestoreProperty("isArchived")]
+    public bool IsArchived { get; set; }
+
+    [FirestoreProperty("archivedAt")]
+    public DateTime? ArchivedAt { get; set; }
+
+    /// <summary>The Manager who archived it (users/{uid}).</summary>
+    [FirestoreProperty("archivedBy")]
+    public string? ArchivedBy { get; set; }
+
     /// <summary>"Brake Pads · Bendix · AutoParts PH" - the part name plus whatever tells this
     /// variant apart. Not stored.</summary>
     public string DisplayName

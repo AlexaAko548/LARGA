@@ -3847,6 +3847,17 @@ grid-template-columns: repeat(3, 1fr);
 .status-bullet.bullet-normal { background-color: #1b8b52; }
 .status-bullet.bullet-low { background-color: #b87400; }
 .status-bullet.bullet-critical { background-color: #b53d4a; }
+.status-bullet.bullet-archived { background-color: var(--muted); }
+
+/* Inventory: "Show archived" (SRS REQ-4.5-1). */
+.archived-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    cursor: pointer;
+}
 
 .col-actions {
     white-space: nowrap;

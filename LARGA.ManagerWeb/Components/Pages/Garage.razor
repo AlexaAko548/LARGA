@@ -854,7 +854,8 @@ else
 
         try
         {
-            _availableParts = await InventoryAudit.GetSparePartsAsync();
+            // REQ-4.5-1: archived parts can't go into a work order.
+            _availableParts = SparePartArchiveRules.Active(await InventoryAudit.GetSparePartsAsync()).ToList();
         }
         catch (Exception ex)
         {

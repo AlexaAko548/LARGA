@@ -55,8 +55,13 @@ else
     <!-- Filter & Action Controls -->
     <div class="toolbar">
         <div class="filter-pills">
-            <span class="filter-pill">@parts.Count(p => GetStatus(p) == "Normal") Normal</span>
-            <span class="filter-pill active-pill">@parts.Count(p => GetStatus(p) != "Normal") Low / Critical</span>
+            <span class="filter-pill">@ActiveParts.Count(p => GetStatus(p) == "Normal") Normal</span>
+            <span class="filter-pill active-pill">@ActiveParts.Count(p => GetStatus(p) != "Normal") Low / Critical</span>
+            @* SRS REQ-4.5-1: archived parts are hidden unless asked for. *@
+            <label class="archived-toggle">
+                <input type="checkbox" @bind="_showArchived" />
+                Show archived (@parts.Count(p => p.IsArchived))
+            </label>
         </div>
         <button class="btn-log-part" @onclick="OpenNewPartModal">
             + LOG NEW SPARE PART
@@ -78,17 +83,18 @@ else
                 </tr>
             </thead>
             <tbody>
-                @if (parts.Count == 0)
+                @if (ShownParts.Count == 0)
                 {
                     <tr>
-                        <td colspan="7" class="table-empty">No spare parts found.</td>
+                        <td colspan="7" class="table-empty">@(_showArchived ? "No archived spare parts." : "No spare parts found.")</td>
                     </tr>
                 }
                 else
                 {
-                    @for (int i = 0; i < parts.Count; i++)
+                    List<SparePart> shown = ShownParts;
+                    @for (int i = 0; i < shown.Count; i++)
                     {
-                        SparePart item = parts[i];
+                        SparePart item = shown[i];
                         string status = GetStatus(item);
                         bool isExpanded = _expandedPartId == item.PartId;
                         <tr class="part-row @(status == "Normal" ? "row-highlighted" : "")" title="Click to show this part's usage history"
@@ -114,15 +120,33 @@ else
                             <td class="col-min font-mono">@item.ReorderLevel @item.Unit</td>
                             <td class="col-min font-mono">@(item.UnitPrice > 0 ? $"₱{item.UnitPrice:#,##0.00}" : "–")</td>
                             <td class="col-status">
-                                <span class="status-badge">
-                                    <span class="status-bullet @GetStatusClass(status)"></span>
-                                    @status
-                                </span>
+                                @if (item.IsArchived)
+                                {
+                                    <span class="status-badge" title="@(item.ArchivedAt is DateTime at ? $"Archived {at.ToPhilippineTime():MMM d, yyyy}" : "Archived")">
+                                        <span class="status-bullet bullet-archived"></span>
+                                        Archived
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="status-badge">
+                                        <span class="status-bullet @GetStatusClass(status)"></span>
+                                        @status
+                                    </span>
+                                }
                             </td>
                             <td class="col-actions" @onclick:stopPropagation="true">
-                                <button class="btn-table-action" type="button" @onclick="() => OpenAdjustStockModal(item, true)">+ Add</button>
-                                <button class="btn-table-action" type="button" @onclick="() => OpenAdjustStockModal(item, false)"><Icon Name="minus" /> Deduct</button>
-                                <button class="btn-table-action" type="button" title="Edit this part's details" @onclick="() => OpenEditPartModal(item)"><Icon Name="pencil" /> Edit</button>
+                                @if (item.IsArchived)
+                                {
+                                    <button class="btn-table-action" type="button" disabled="@_isArchiving" title="Bring this part back into the inventory" @onclick="() => RestorePartAsync(item)"><Icon Name="rotate-ccw" /> Restore</button>
+                                }
+                                else
+                                {
+                                    <button class="btn-table-action" type="button" @onclick="() => OpenAdjustStockModal(item, true)">+ Add</button>
+                                    <button class="btn-table-action" type="button" @onclick="() => OpenAdjustStockModal(item, false)"><Icon Name="minus" /> Deduct</button>
+                                    <button class="btn-table-action" type="button" title="Edit this part's details" @onclick="() => OpenEditPartModal(item)"><Icon Name="pencil" /> Edit</button>
+                                    <button class="btn-table-action" type="button" title="Hide this part from the inventory (its usage history is kept)" @onclick="() => RequestArchive(item)"><Icon Name="archive" /> Archive</button>
+                                }
                             </td>
                         </tr>
                         @if (isExpanded)
@@ -341,6 +365,11 @@ else
 </div>
 }
 
+<ConfirmationModal Show="_showConfirm" Title="@_confirmTitle" ConfirmText="Archive" IsDangerous="true"
+    IsBusy="_isArchiving" OnConfirm="ConfirmArchiveAsync" OnCancel="CancelArchive">
+    <p>@_confirmMessage</p>
+</ConfirmationModal>
+
 @code {
     // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
     private bool _isLoading = true;
@@ -369,12 +398,114 @@ else
     // LAR-114: only an exact repeat (same name, brand, supplier and price) is refused - anything
     // that differs is a separate variant row.
     private string? NewPartError => PartNameError ?? PartBrandError ?? PartSupplierError ?? PartQuantityError ?? PartUnitError ?? PartReorderError ?? PartPriceError
-        ?? (parts.Any(p => p.PartId != _editingPartId && p.IsSameVariant(newPart.PartName, newPart.Brand, newPart.Supplier, Math.Max(0m, newPart.UnitPrice)))
-            ? $"This exact part (same name, brand, supplier and price) is already in the inventory - use + Add on it instead." : null);
+        ?? (ActiveParts.Any(p => p.PartId != _editingPartId && p.IsSameVariant(newPart.PartName, newPart.Brand, newPart.Supplier, Math.Max(0m, newPart.UnitPrice)))
+            ? $"This exact part (same name, brand, supplier and price) is already in the inventory - use + Add on it instead."
+            : parts.Any(p => p.IsArchived && p.PartId != _editingPartId && p.IsSameVariant(newPart.PartName, newPart.Brand, newPart.Supplier, Math.Max(0m, newPart.UnitPrice)))
+                ? SparePartArchiveRules.ArchivedDuplicateMessage : null);
     private int SameNameCount => string.IsNullOrWhiteSpace(newPart.PartName) ? 0
-        : parts.Count(p => p.PartId != _editingPartId && string.Equals(p.PartName.Trim(), newPart.PartName.Trim(), StringComparison.OrdinalIgnoreCase));
+        : ActiveParts.Count(p => p.PartId != _editingPartId && string.Equals(p.PartName.Trim(), newPart.PartName.Trim(), StringComparison.OrdinalIgnoreCase));
     private int VariantCount(SparePart part) =>
-        parts.Count(p => string.Equals(p.PartName.Trim(), part.PartName.Trim(), StringComparison.OrdinalIgnoreCase));
+        (part.IsArchived ? parts.Where(p => p.IsArchived) : ActiveParts)
+            .Count(p => string.Equals(p.PartName.Trim(), part.PartName.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    // SRS REQ-4.5-1: archived parts are kept (usage history points at them) but hidden by default.
+    private bool _showArchived;
+    private bool _isArchiving;
+    private IEnumerable<SparePart> ActiveParts => SparePartArchiveRules.Active(parts);
+    private List<SparePart> ShownParts => parts.Where(p => p.IsArchived == _showArchived).ToList();
+
+    private bool _showConfirm;
+    private string _confirmTitle = string.Empty;
+    private string _confirmMessage = string.Empty;
+    private SparePart? _archiveCandidate;
+
+    private void RequestArchive(SparePart item)
+    {
+        _archiveCandidate = item;
+        _confirmTitle = "Archive This Part?";
+        _confirmMessage = SparePartArchiveRules.ArchiveConfirmMessage(item);
+        _showConfirm = true;
+    }
+
+    private void CancelArchive()
+    {
+        _showConfirm = false;
+        _archiveCandidate = null;
+    }
+
+    private async Task ConfirmArchiveAsync()
+    {
+        if (_archiveCandidate is not SparePart item)
+        {
+            CancelArchive();
+            return;
+        }
+
+        _isArchiving = true;
+        _actionError = null;
+        try
+        {
+            SparePart? archived = await InventoryAudit.ArchivePartAsync(item.PartId, _managerUserId);
+            if (archived is null)
+            {
+                _actionError = "That part no longer exists.";
+                await LoadPartsAsync();
+                return;
+            }
+
+            ReplacePart(archived);
+            if (_expandedPartId == archived.PartId)
+            {
+                _expandedPartId = null;
+                _history = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _actionError = $"Couldn't archive the part: {ex.Message}";
+        }
+        finally
+        {
+            _isArchiving = false;
+            _showConfirm = false;
+            _archiveCandidate = null;
+        }
+    }
+
+    private async Task RestorePartAsync(SparePart item)
+    {
+        _isArchiving = true;
+        _actionError = null;
+        try
+        {
+            SparePart? restored = await InventoryAudit.RestorePartAsync(item.PartId, _managerUserId);
+            if (restored is null)
+            {
+                _actionError = "That part no longer exists.";
+                await LoadPartsAsync();
+                return;
+            }
+
+            ReplacePart(restored);
+        }
+        catch (Exception ex)
+        {
+            _actionError = $"Couldn't restore the part: {ex.Message}";
+        }
+        finally
+        {
+            _isArchiving = false;
+        }
+    }
+
+    private void ReplacePart(SparePart updated)
+    {
+        int index = parts.FindIndex(p => p.PartId == updated.PartId);
+        if (index >= 0)
+        {
+            parts[index] = updated;
+        }
+    }
 
     // Add Stock at a price other than the row's: a new variant row (default) or update the price.
     private bool addAsNewVariant = true;
@@ -608,6 +739,11 @@ else
     private async Task AddStockAsNewVariantAsync(SparePart from, int amount, decimal price)
     {
         SparePart? existing = parts.FirstOrDefault(p => p.IsSameVariant(from.PartName, from.Brand, from.Supplier, price));
+        if (existing is { IsArchived: true })
+        {
+            // REQ-4.5-1: no second row next to an archived one - it's restored first.
+            throw new PartArchivedException(existing);
+        }
         if (existing is not null)
         {
             SparePart? updated = await InventoryAudit.AddPartStockAsync(existing.PartId, amount, actorUserId: _managerUserId);
