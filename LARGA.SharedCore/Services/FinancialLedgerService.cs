@@ -155,7 +155,7 @@ public class FinancialLedgerService
                 ? charge.Outstanding - owedAfterCredit.GetValueOrDefault(shift.DocumentId)
                 : 0m;
 
-            SettlementStatus status = ComputeStatus(charge.Payment?.PaymentStatus, paid, expected);
+            SettlementStatus status = ComputeStatus(paid, expected);
             if (status != SettlementStatus.Cleared && credit > 0)
             {
                 status = paid + credit >= expected ? SettlementStatus.Cleared : SettlementStatus.Partial;
@@ -193,9 +193,10 @@ public class FinancialLedgerService
         };
     }
 
-    private static SettlementStatus ComputeStatus(PaymentStatus? status, decimal paid, decimal expected)
+    // From the amounts only, like ShiftCharge.Outstanding - a stored "Paid" can predate a late fee.
+    private static SettlementStatus ComputeStatus(decimal paid, decimal expected)
     {
-        if (status == PaymentStatus.Paid || (paid > 0 && paid >= expected))
+        if (paid > 0 && paid >= expected)
         {
             return SettlementStatus.Cleared;
         }
@@ -351,6 +352,10 @@ public class FinancialLedgerService
     // Manual adjustments
     // ---------------------------------------------------------------------
 
+    // Shown by the + Adjustment modal too, so the field and the save give the same message.
+    public const string AdjustmentZeroMessage = "Amount can't be zero.";
+    public const string AdjustmentReasonRequiredMessage = "A reason is required for every adjustment.";
+
     public async Task<AdjustmentResult> AddAdjustmentAsync(string driverId, decimal amount, string reason, string? actorUserId = null)
     {
         if (string.IsNullOrWhiteSpace(driverId))
@@ -360,12 +365,12 @@ public class FinancialLedgerService
 
         if (amount == 0)
         {
-            return new AdjustmentResult { Ok = false, ErrorMessage = "Amount can't be zero." };
+            return new AdjustmentResult { Ok = false, ErrorMessage = AdjustmentZeroMessage };
         }
 
         if (string.IsNullOrWhiteSpace(reason))
         {
-            return new AdjustmentResult { Ok = false, ErrorMessage = "A reason is required for every adjustment." };
+            return new AdjustmentResult { Ok = false, ErrorMessage = AdjustmentReasonRequiredMessage };
         }
 
         if ((InputValidator.ValidateAmount(Math.Abs(amount), "the amount", 50_000m)
@@ -1120,13 +1125,15 @@ public class FinancialLedgerService
     /// <summary>What one shift owes and has paid, for the Master Debt Ledger / Settle Debt.
     /// Payment is null when nobody has paid anything on the shift yet (no document).</summary>
     /// <param name="Payment">The shift's most recent payment document - where its expected
-    /// boundary and Paid/Partial status come from.</param>
+    /// boundary comes from.</param>
     /// <param name="Payments">All of its payment documents (one per payment).</param>
     /// <param name="Paid">The total paid across them (BoundaryPaymentRules.TotalPaid).</param>
     private sealed record ShiftCharge(string DriverId, ShiftLog? Shift, BoundaryPayment? Payment, IReadOnlyList<BoundaryPayment> Payments,
         DateTime Date, decimal Expected, ExtraCharges Extras, decimal Paid)
     {
-        public decimal Outstanding => Payment?.PaymentStatus == PaymentStatus.Paid ? 0 : Math.Max(0, Expected - Paid);
+        /// <summary>From the amounts, never the stored paymentStatus: a shift marked "Paid" before its late fee was
+        /// applied still owes the fee, and the History replay (Expected minus payments) counts it the same way.</summary>
+        public decimal Outstanding => Math.Max(0, Expected - Paid);
 
         /// <summary>Paid above the shift's total - credit toward the driver's other debt.</summary>
         public decimal Overpaid => Math.Max(0, Paid - Expected);
@@ -1134,8 +1141,8 @@ public class FinancialLedgerService
 
     private static ShiftCharge NewCharge(ShiftLog shift, IReadOnlyList<BoundaryPayment> documents, decimal defaultRate)
     {
-        // The most recent document carries the shift's current expected boundary and status
-        // (the Quick Ledger's "target" document); the default rate when it has none.
+        // The most recent document carries the shift's current expected boundary (the Quick
+        // Ledger's "target" document); the default rate when it has none.
         BoundaryPayment? latest = documents.OrderByDescending(d => d.RecordedAt).FirstOrDefault();
         ExtraCharges extras = ExtrasFor(shift, latest);
         decimal boundary = latest is not null && latest.ExpectedBoundary > 0 ? latest.ExpectedBoundary : defaultRate;

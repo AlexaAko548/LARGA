@@ -1,5 +1,6 @@
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Networking;
 using Plugin.Firebase.Firestore;
 using System;
 using System.Collections.Generic;
@@ -36,6 +37,14 @@ public class LedgerViewModel : INotifyPropertyChanged
 
     public ObservableCollection<PaymentRecord> PaymentHistory { get; set; } = new();
 
+    private bool _isShowingCachedData;
+    /// <summary>The balance and list came from the phone's offline copy, so the page says they may be out of date.</summary>
+    public bool IsShowingCachedData
+    {
+        get => _isShowingCachedData;
+        private set { _isShowingCachedData = value; OnPropertyChanged(); }
+    }
+
     public ICommand ViewDebtDetailsCommand { get; }
     public ICommand ViewAllHistoryCommand { get; }
     public ICommand RefreshCommand { get; }
@@ -69,6 +78,7 @@ public class LedgerViewModel : INotifyPropertyChanged
             return Task.CompletedTask;
         }, TimeSpan.FromMilliseconds(400));
         SessionEvents.SigningOut += OnSigningOut;
+        Connectivity.Current.ConnectivityChanged += OnConnectivityChanged;
 
         _shiftsListener = CrossFirebaseFirestore.Current
             .GetCollection("shifts")
@@ -89,6 +99,7 @@ public class LedgerViewModel : INotifyPropertyChanged
     {
         _isListening = false;
         SessionEvents.SigningOut -= OnSigningOut;
+        Connectivity.Current.ConnectivityChanged -= OnConnectivityChanged;
         _shiftsListener?.Dispose();
         _paymentsListener?.Dispose();
         _shiftsListener = _paymentsListener = null;
@@ -97,6 +108,13 @@ public class LedgerViewModel : INotifyPropertyChanged
     }
 
     private void OnSigningOut(object? sender, EventArgs e) => StopListening();
+
+    // Back online with an offline copy on screen: reload from the server. The listeners don't fire for this when
+    // nothing changed meanwhile.
+    private void OnConnectivityChanged(object? sender, ConnectivityChangedEventArgs e)
+    {
+        if (e.NetworkAccess == NetworkAccess.Internet && IsShowingCachedData) _reloadDebounced?.Trigger();
+    }
 
     private bool _isRefreshing;
     public bool IsRefreshing
@@ -145,6 +163,7 @@ public class LedgerViewModel : INotifyPropertyChanged
             // Same per-shift calculation as the web's Master Debt Ledger, so the driver and the
             // manager see the same balance (see DriverDebtCalculator).
             var ledger = await DriverDebtCalculator.LoadAsync(user.Uid, forceRefresh);
+            IsShowingCachedData = ledger.IsFromCache;
             OutstandingDebtBalance = $"₱ {ledger.TotalDebt:N2}";
 
             var payments = ledger.Shifts
@@ -173,6 +192,7 @@ public class LedgerViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             // Not "₱ 0.00": a failed read must not look like the driver owes nothing.
+            IsShowingCachedData = false;
             OutstandingDebtBalance = "--";
             CurrentShiftPayment = "ERROR";
             await FirestoreErrors.ShowLoadFailureAsync("Driver ledger", ex, "your ledger", canPullToRefresh: true);

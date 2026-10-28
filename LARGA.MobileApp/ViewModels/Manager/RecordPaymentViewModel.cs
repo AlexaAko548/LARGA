@@ -127,7 +127,7 @@ public class RecordPaymentViewModel : BindableObject
         get => _amountReceivedText;
         set
         {
-            // Only ever strips characters here (digits + at most one dot, decimals capped at 2) - never
+            // Only ever strips characters here (a leading minus, digits + at most one dot) - never
             // inserts any. Growing the string (e.g. adding thousands commas) while it's the live text of a
             // two-way-bound Entry crashed the native Android EditText mid-keystroke (its cursor/selection
             // logic doesn't expect its own TextChanged callback to come back with a longer string) - that
@@ -136,11 +136,9 @@ public class RecordPaymentViewModel : BindableObject
             // read-only label that never feeds back into this Entry.
             string sanitized = SanitizeAmountInput(value);
             _amountReceivedText = sanitized;
-            // Not Set(): a 3rd+ decimal digit (e.g. typing "5" after "...55") truncates to the same 2-decimal
-            // string already held, so the usual equality check would skip notifying - and the Entry would
-            // keep showing every digit the driver typed instead of being corrected back down to 2 decimals
-            // (the "decimal input validation" screenshot - preview label capped correctly, the field didn't).
-            // Always notifying re-pushes the shorter, sanitized text back into the Entry even then.
+            // Not Set(): when a stripped character leaves the same string already held, the usual equality
+            // check would skip notifying and the Entry would keep showing it. Always notifying re-pushes the
+            // sanitized text back into the Entry even then.
             OnPropertyChanged();
             AmountPreviewText = FormatAmountPreview(_amountReceivedText);
             RefreshAllocation();
@@ -160,17 +158,22 @@ public class RecordPaymentViewModel : BindableObject
     }
     public bool HasAmountPreview => !string.IsNullOrEmpty(AmountPreviewText);
 
-    /// <summary>Strips anything but digits and one decimal point, and caps the decimal part at 2 digits -
-    /// e.g. "1000.567" typed so far becomes "1000.56".</summary>
+    /// <summary>Strips anything but a leading minus, digits and one decimal point. A minus and extra decimals are
+    /// kept rather than dropped, so "-100" and "800.555" reach InputValidator and get its message ("must be more
+    /// than ₱0", "at most 2 decimal places") instead of quietly turning into ₱100 / ₱800.55.</summary>
     private static string SanitizeAmountInput(string raw)
     {
         if (string.IsNullOrEmpty(raw)) return raw;
 
         var digits = new StringBuilder();
         bool sawDot = false;
-        foreach (char c in raw)
+        foreach (char c in raw.TrimStart())
         {
             if (char.IsDigit(c))
+            {
+                digits.Append(c);
+            }
+            else if (c == '-' && digits.Length == 0)
             {
                 digits.Append(c);
             }
@@ -181,20 +184,7 @@ public class RecordPaymentViewModel : BindableObject
             }
         }
 
-        string cleaned = digits.ToString();
-        if (cleaned.Length == 0) return string.Empty;
-
-        int dotIndex = cleaned.IndexOf('.');
-        if (dotIndex < 0) return cleaned;
-
-        string integerPart = cleaned[..dotIndex];
-        string decimalPart = cleaned[(dotIndex + 1)..];
-        if (decimalPart.Length > 2)
-        {
-            decimalPart = decimalPart[..2];
-        }
-
-        return $"{integerPart}.{decimalPart}";
+        return digits.ToString();
     }
 
     /// <summary>The sanitized amount, grouped with thousands commas, for the read-only preview label.</summary>
@@ -202,15 +192,17 @@ public class RecordPaymentViewModel : BindableObject
     {
         if (string.IsNullOrEmpty(sanitized)) return string.Empty;
 
-        int dotIndex = sanitized.IndexOf('.');
-        string integerPart = dotIndex < 0 ? sanitized : sanitized[..dotIndex];
-        string? decimalPart = dotIndex < 0 ? null : sanitized[(dotIndex + 1)..];
+        string sign = sanitized.StartsWith('-') ? "-" : string.Empty;
+        string unsigned = sanitized[sign.Length..];
+        int dotIndex = unsigned.IndexOf('.');
+        string integerPart = dotIndex < 0 ? unsigned : unsigned[..dotIndex];
+        string? decimalPart = dotIndex < 0 ? null : unsigned[(dotIndex + 1)..];
 
         string grouped = integerPart.Length > 0 && long.TryParse(integerPart, NumberStyles.None, CultureInfo.InvariantCulture, out long whole)
             ? whole.ToString("#,##0", CultureInfo.InvariantCulture)
             : integerPart;
 
-        return decimalPart is null ? $"₱ {grouped}" : $"₱ {grouped}.{decimalPart}";
+        return decimalPart is null ? $"₱ {sign}{grouped}" : $"₱ {sign}{grouped}.{decimalPart}";
     }
 
     /// <summary>Where the amount entered will go when it's more than this shift / debt (empty otherwise). Same split
@@ -653,7 +645,8 @@ public class RecordPaymentViewModel : BindableObject
     private decimal? ParseAmount()
     {
         string text = AmountReceivedText.Trim().Replace(",", string.Empty);
-        return decimal.TryParse(text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out decimal value)
+        // Leading sign allowed, so "-100" is "must be more than ₱0" rather than read as blank.
+        return decimal.TryParse(text, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out decimal value)
             ? value
             : null;
     }

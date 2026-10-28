@@ -16,6 +16,11 @@
             <Label Text="{Binding CurrentDate}" TextColor="{DynamicResource LargaDarkText}" FontSize="14" Margin="0,10,0,0"/>
             <Label Text="My Ledger" FontSize="32" Style="{StaticResource HeaderTitleStyle}" TextColor="{DynamicResource LargaDarkText}" Margin="0,0,0,10"/>
 
+            <!-- Offline: everything below is the copy saved on this phone -->
+            <Border IsVisible="{Binding IsShowingCachedData}" BackgroundColor="{DynamicResource LargaWarningBg}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="12,10">
+                <Label Text="Offline - showing the copy saved on this phone. It may be out of date." FontSize="13" TextColor="{DynamicResource LargaWarning}"/>
+            </Border>
+
             <!-- Current Shift Payment Card -->
             <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                 <VerticalStackLayout Spacing="5">

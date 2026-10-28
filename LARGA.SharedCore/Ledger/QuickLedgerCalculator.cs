@@ -260,7 +260,8 @@ public static class QuickLedgerCalculator
                 Remaining: s.Remaining,
                 OwedAfterCredit: credit.OwedByShift.GetValueOrDefault(s.Shift.DocumentId),
                 HasPayment: s.HasPaymentRecord,
-                PaymentStatus: string.IsNullOrEmpty(s.Target?.PaymentStatus) ? "Unpaid" : s.Target!.PaymentStatus,
+                // From the amounts, like Remaining - a stored "Paid" can predate a late fee.
+                PaymentStatus: s.TotalPaid > 0 ? StatusFor(s.TotalPaid, s.Expected) : "Unpaid",
                 LatestPaymentUtc: s.Target?.TimestampUtc))
             .ToList();
 
@@ -469,15 +470,14 @@ public sealed record ShiftPaymentState(
 {
     public decimal Expected => ExpectedBoundary + LateFees + FuelPenalty;
 
-    /// <summary>The most recent document says the shift is paid (e.g. a manager marked it so).</summary>
-    public bool IsMarkedPaid => string.Equals(Target?.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase);
-
-    public decimal Remaining => IsMarkedPaid ? 0 : Math.Max(0, Expected - TotalPaid);
+    /// <summary>From the amounts, never the stored paymentStatus: a shift marked "Paid" before its late fee was applied
+    /// still owes the fee. Same as the web's ShiftCharge.Outstanding.</summary>
+    public decimal Remaining => Math.Max(0, Expected - TotalPaid);
 
     /// <summary>Paid above the shift's total - credit toward the driver's other shifts.</summary>
     public decimal Overpaid => HasPaymentRecord ? Math.Max(0, TotalPaid - Expected) : 0;
 
-    public bool IsCleared => IsMarkedPaid || (TotalPaid > 0 && TotalPaid >= Expected);
+    public bool IsCleared => TotalPaid > 0 && TotalPaid >= Expected;
 
     /// <summary>Counts toward the driver's debt: anything already paid on, or an ended shift with a driver. A shift
     /// still Active isn't owed yet (the boundary is paid at the end of the day). Same as the web's BuildCharges.</summary>
