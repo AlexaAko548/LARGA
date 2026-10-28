@@ -26,7 +26,8 @@ public static class SignOutService
     private static readonly TimeSpan PendingWritesWait = TimeSpan.FromSeconds(5);
 
     private static readonly string[] ShiftKeys =
-        { "IsShiftActive", "CurrentShiftId", "ShiftStartTime", ClockInPendingViewModel.PendingRequestKey };
+        { "IsShiftActive", "CurrentShiftId", "ShiftStartTime", ClockInPendingViewModel.PendingRequestKey,
+          LastShiftStore.LastShiftIdKey, LastShiftStore.LastShiftEndedAtKey };
 
     private static readonly string[] PhotoExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".heic" };
 

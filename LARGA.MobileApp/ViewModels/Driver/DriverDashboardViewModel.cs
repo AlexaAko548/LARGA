@@ -219,6 +219,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                 _emergencyMonitor.Stop();
 
                 Microsoft.Maui.Storage.SecureStorage.Remove("ActiveShiftDocumentId");
+                LastShiftStore.RememberEnded(Microsoft.Maui.Storage.Preferences.Get("CurrentShiftId", string.Empty));
                 Microsoft.Maui.Storage.Preferences.Remove("CurrentShiftId");
                 Microsoft.Maui.Storage.Preferences.Remove("IsShiftActive");
                 Microsoft.Maui.Storage.Preferences.Remove("ShiftStartTime");

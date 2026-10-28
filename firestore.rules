@@ -180,9 +180,24 @@ service cloud.firestore {
                     && request.resource.data.litersRefueled > 0 && request.resource.data.litersRefueled <= 200
                     && request.resource.data.fuelCost is number
                     && request.resource.data.fuelCost > 0 && request.resource.data.fuelCost <= 20000
-                    && (request.resource.data.shiftId == 'UNKNOWN_SHIFT'
-                        || get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid);
+                    && fuelShiftOk(request.resource.data.shiftId);
       allow update: if isManager();
+    }
+
+    // REQ-4.3-3 / REQ-5.5-6 (FuelShiftRules): a fuel log is always linked to one of the driver's own
+    // shifts - the active one, or one that ended within the last 12 hours. An Auto-Closed shift has
+    // no shiftEnd (closed at 6:00 AM the day after it started), so its window is bounded from
+    // shiftStart: at most 24 h to the auto-close plus the 12 h.
+    function fuelShiftOk(shiftId) {
+      let shiftPath = /databases/$(database)/documents/shifts/$(shiftId);
+      let shift = get(shiftPath).data;
+      return shiftId is string && shiftId.size() > 0
+        && exists(shiftPath)
+        && shift.driverId == request.auth.uid
+        && (shift.status == 'Active'
+            || (shift.status == 'Completed' && shift.get('shiftEnd', null) is timestamp
+                && request.time < shift.shiftEnd + duration.value(12, 'h'))
+            || (shift.status == 'Auto-Closed' && request.time < shift.shiftStart + duration.value(36, 'h')));
     }
 
     match /gps_telemetry/{logId} {

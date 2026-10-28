@@ -17,6 +17,14 @@
       ]
     },
     {
+      "collectionGroup": "shifts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "driverId", "order": "ASCENDING" },
+        { "fieldPath": "shiftStart", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "emergency_alerts",
       "queryScope": "COLLECTION",
       "fields": [

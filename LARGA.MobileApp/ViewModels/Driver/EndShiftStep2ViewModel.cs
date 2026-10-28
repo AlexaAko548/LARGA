@@ -224,6 +224,8 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                 SecureStorage.Remove("ActiveShiftDocumentId");
                 Preferences.Remove("IsShiftActive");
                 Preferences.Remove("CurrentShiftId");
+                // REQ-4.3-3: a fuel report filed after clock-out still goes to this shift.
+                LastShiftStore.RememberEnded(activeShiftId);
 
                 await ShiftChecklistUploader.SubmitAsync(
                     _shiftService, _photoStorage, activeShiftId, isEndShift: true, _inspection,

@@ -31,6 +31,7 @@ let env;
 
 const as = (uid) => env.authenticatedContext(uid).firestore();
 const anon = () => env.unauthenticatedContext().firestore();
+const hoursAgo = (h) => Timestamp.fromDate(new Date(Date.now() - h * 3600 * 1000));
 
 async function seed(extra) {
   await env.withSecurityRulesDisabled(async (ctx) => {
@@ -177,8 +178,8 @@ describe('Driver tampering with their own money and records', () => {
     assertSucceeds(addDoc(collection(as(DRIVER_A), 'fuel_logs'), {
       driverId: DRIVER_A, shiftId: 'shiftA', verificationStatus: 'Pending', submittedAt: serverTimestamp(),
       litersRefueled: 30.5, fuelCost: 1950 })));
-  it('can submit a fuel receipt with the app\'s "UNKNOWN_SHIFT" placeholder', async () =>
-    assertSucceeds(addDoc(collection(as(DRIVER_A), 'fuel_logs'), {
+  it('cannot submit a fuel receipt with the old "UNKNOWN_SHIFT" placeholder (REQ-4.3-3)', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), {
       driverId: DRIVER_A, shiftId: 'UNKNOWN_SHIFT', verificationStatus: 'Pending', submittedAt: serverTimestamp(),
       litersRefueled: 30.5, fuelCost: 1950 })));
   it('[GAP D-03] cannot submit a fuel receipt with a negative cost', async () =>
@@ -339,4 +340,40 @@ describe('Alerts', () => {
   });
   it('nobody can create a system alert from a client', async () =>
     assertFails(setDoc(doc(as(MANAGER), 'system_alerts', 'fake'), { type: 'SOS', isRead: false })));
+});
+
+describe('Fuel logs linked to a shift (REQ-4.3-3, REQ-5.5-6)', () => {
+  const fuel = (shiftId) => ({
+    driverId: DRIVER_A, shiftId, verificationStatus: 'Pending', submittedAt: serverTimestamp(), litersRefueled: 30, fuelCost: 1950,
+  });
+  async function seedShift(id, fields) {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'shifts', id),
+      { shiftId: id, driverId: DRIVER_A, taxiId: 'TX-01', ...fields }));
+  }
+
+  it('can file against a shift that ended 2 hours ago', async () => {
+    await seedShift('ended2h', { status: 'Completed', shiftStart: hoursAgo(14), shiftEnd: hoursAgo(2) });
+    await assertSucceeds(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('ended2h')));
+  });
+  it('cannot file against a shift that ended 13 hours ago', async () => {
+    await seedShift('ended13h', { status: 'Completed', shiftStart: hoursAgo(25), shiftEnd: hoursAgo(13) });
+    await assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('ended13h')));
+  });
+  it('can file against a recent Auto-Closed shift (no shiftEnd)', async () => {
+    await seedShift('auto', { status: 'Auto-Closed', shiftStart: hoursAgo(25) });
+    await assertSucceeds(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('auto')));
+  });
+  it('cannot file against an old Auto-Closed shift', async () => {
+    await seedShift('autoOld', { status: 'Auto-Closed', shiftStart: hoursAgo(40) });
+    await assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('autoOld')));
+  });
+  it('cannot file against a shift that does not exist', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('noSuchShift'))));
+  it('cannot file with no shift at all', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel(''))));
+  it("cannot file against B's recently ended shift", async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'shifts', 'bEnded'),
+      { driverId: DRIVER_B, status: 'Completed', shiftStart: hoursAgo(10), shiftEnd: hoursAgo(1) }));
+    await assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('bEnded')));
+  });
 });

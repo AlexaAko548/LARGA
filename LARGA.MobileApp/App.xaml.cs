@@ -1,4 +1,5 @@
 ﻿using Plugin.Firebase.CloudMessaging;
+using LARGA.MobileApp.Services;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.ApplicationModel;
 using System.Threading.Tasks;
@@ -34,6 +35,7 @@ public partial class App : Application
 				}
 				Preferences.Remove("IsShiftActive");
 				Preferences.Remove("CurrentShiftId");
+				LastShiftStore.RememberEnded(shiftId);
 			}
 			catch (Exception ex)
 			{
