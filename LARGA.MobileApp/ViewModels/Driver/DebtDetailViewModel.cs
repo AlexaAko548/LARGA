@@ -14,6 +14,19 @@ public class DebtDetailViewModel : BindableObject
 {
     public ObservableCollection<DebtRecord> DebtHistory { get; set; } = new();
 
+    private bool _isShowingCachedData;
+    /// <summary>The list came from the phone's offline copy, so the page says it may be out of date.</summary>
+    public bool IsShowingCachedData
+    {
+        get => _isShowingCachedData;
+        private set
+        {
+            if (_isShowingCachedData == value) return;
+            _isShowingCachedData = value;
+            OnPropertyChanged();
+        }
+    }
+
     public DebtDetailViewModel()
     {
         _ = LoadDynamicDebtDataAsync();
@@ -34,6 +47,7 @@ public class DebtDetailViewModel : BindableObject
             // What makes up the balance on the Ledger screen: each shift that still owes
             // something, and each manual adjustment (see DriverDebtCalculator).
             var ledger = await DriverDebtCalculator.LoadAsync(user.Uid);
+            IsShowingCachedData = ledger.IsFromCache;
 
             var records = ledger.Shifts
                 .Where(s => s.Outstanding > 0)

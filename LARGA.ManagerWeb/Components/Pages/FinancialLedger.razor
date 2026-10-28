@@ -15,7 +15,6 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject FinancialLedgerService Ledger
-@inject FleetReportingService FleetReporting
 @inject DriverManagementService DriverManagement
 
 <PageTitle>Financial Ledger &amp; Debts</PageTitle>
@@ -358,9 +357,9 @@ else
 
                 <div class="report-section">
                     <label>Amount Received (PHP)</label>
-                    <input class="text-input @(PaymentAmountError is not null && _paymentAmountInput != 0 ? "invalid" : "")" type="number" min="0" max="@MaxPayment" step="0.01" @bind="_paymentAmountInput" @bind:event="oninput"
+                    <input class="text-input @(PaymentAmountError is not null && _paymentAmountTouched ? "invalid" : "")" type="number" min="0" max="@MaxPayment" step="0.01" @bind="_paymentAmountInput" @bind:event="oninput" @bind:after="TouchPaymentAmount"
                            readonly="@(_paymentMethod == "EWallet")" placeholder="@(_paymentMethod == "EWallet" ? "Filled in from the receipt" : "")" />
-                    <FieldError Show="_paymentAmountInput != 0" Message="@PaymentAmountError" />
+                    <FieldError Show="_paymentAmountTouched" Message="@PaymentAmountError" />
                 </div>
 
                 <div class="payment-method-toggle">
@@ -404,7 +403,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="ClosePaymentModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingPayment || PaymentAmountError is not null || (PaymentExtra > 0 && _paymentOtherDebt is null) || (_paymentMethod == "EWallet" && !IsReceiptReady))" @onclick='() => RequestConfirm("Confirm This Payment?", "Recording ₱" + _paymentAmountInput.ToString("N2") + " (" + (_paymentMethod == "EWallet" ? "E-Wallet / GCash" : "Cash") + ") for " + _paymentRow.DriverName + ".", "Confirm Payment", ConfirmPaymentAsync)' aria-busy="@_isSavingPayment">@(_isSavingPayment ? "Saving…" : "Confirm Payment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingPayment || (PaymentExtra > 0 && _paymentOtherDebt is null) || (_paymentMethod == "EWallet" && !IsReceiptReady))" @onclick="TryConfirmPayment" aria-busy="@_isSavingPayment">@(_isSavingPayment ? "Saving…" : "Confirm Payment")</button>
             </div>
         </div>
     </div>
@@ -431,12 +430,13 @@ else
                             }
                         }
                     </select>
+                    <FieldError Show="_adjustmentSubmitted" Message="@AdjustmentDriverError" />
                 </div>
 
                 <div class="report-section">
                     <label>Amount (PHP)</label>
-                    <input class="text-input @(AdjustmentAmountError is not null && _adjustmentAmountInput != 0 ? "invalid" : "")" type="number" min="0" max="@MaxAdjustment" step="0.01" placeholder="e.g. 200" @bind="_adjustmentAmountInput" @bind:event="oninput" />
-                    <FieldError Show="_adjustmentAmountInput != 0" Message="@AdjustmentAmountError" />
+                    <input class="text-input @(AdjustmentAmountError is not null && (_adjustmentAmountTouched || _adjustmentSubmitted) ? "invalid" : "")" type="number" min="0" max="@MaxAdjustment" step="0.01" placeholder="e.g. 200" @bind="_adjustmentAmountInput" @bind:event="oninput" @bind:after="TouchAdjustmentAmount" @onblur="TouchAdjustmentAmount" />
+                    <FieldError Show="_adjustmentAmountTouched || _adjustmentSubmitted" Message="@AdjustmentAmountError" />
                 </div>
 
                 <div class="report-section">
@@ -449,8 +449,8 @@ else
 
                 <div class="report-section">
                     <label>Note</label>
-                    <textarea class="text-input textarea" maxlength="300" @bind="_adjustmentReason" @bind:event="oninput" placeholder="Reason for adjustment (required)"></textarea>
-                    <FieldError Show="_adjustmentReason.Length > 0" Message="@AdjustmentReasonError" />
+                    <textarea class="text-input textarea" maxlength="300" @bind="_adjustmentReason" @bind:event="oninput" @bind:after="TouchAdjustmentReason" @onblur="TouchAdjustmentReason" placeholder="Reason for adjustment (required)"></textarea>
+                    <FieldError Show="_adjustmentReasonTouched || _adjustmentSubmitted" Message="@AdjustmentReasonError" />
                     <small class="receipt-hint">@_adjustmentReason.Length / 300</small>
                 </div>
 
@@ -463,7 +463,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseAdjustmentModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingAdjustment || string.IsNullOrEmpty(_adjustmentDriverId) || AdjustmentAmountError is not null || AdjustmentReasonError is not null)" @onclick='() => RequestConfirm("Save This Adjustment?", "Posting a ₱" + _adjustmentAmountInput.ToString("N2") + " " + (_adjustmentDirection == "Add" ? "penalty / debt addition" : "credit / write-off") + " to the driver ledger.", "Save Adjustment", ConfirmAdjustmentAsync)' aria-busy="@_isSavingAdjustment">@(_isSavingAdjustment ? "Saving…" : "Save Adjustment")</button>
+                <button class="download-btn" type="button" disabled="@_isSavingAdjustment" @onclick="TryConfirmAdjustment" aria-busy="@_isSavingAdjustment">@(_isSavingAdjustment ? "Saving…" : "Save Adjustment")</button>
             </div>
         </div>
     </div>
@@ -487,9 +487,9 @@ else
 
                 <div class="report-section">
                     <label>Amount Received (PHP)</label>
-                    <input class="text-input @(SettleAmountError is not null && _settleAmountInput != 0 ? "invalid" : "")" type="number" min="0" max="@MaxPayment" step="0.01" @bind="_settleAmountInput" @bind:event="oninput"
+                    <input class="text-input @(SettleAmountError is not null && _settleAmountTouched ? "invalid" : "")" type="number" min="0" max="@MaxPayment" step="0.01" @bind="_settleAmountInput" @bind:event="oninput" @bind:after="TouchSettleAmount"
                            readonly="@(_settleMethod == "EWallet")" placeholder="@(_settleMethod == "EWallet" ? "Filled in from the receipt" : "")" />
-                    <FieldError Show="_settleAmountInput != 0" Message="@SettleAmountError" />
+                    <FieldError Show="_settleAmountTouched" Message="@SettleAmountError" />
                 </div>
 
                 <div class="payment-method-toggle">
@@ -524,7 +524,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseSettleModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingSettle || SettleAmountError is not null || (_settleMethod == "EWallet" && !IsReceiptReady))" @onclick='() => RequestConfirm("Confirm This Payment?", "Recording ₱" + _settleAmountInput.ToString("N2") + " (" + (_settleMethod == "EWallet" ? "E-Wallet / GCash" : "Cash") + ") for " + _settleRow.DriverName + ".", "Confirm Payment", ConfirmSettleAsync)' aria-busy="@_isSavingSettle">@(_isSavingSettle ? "Saving…" : "Confirm Payment")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingSettle || (_settleMethod == "EWallet" && !IsReceiptReady))" @onclick="TryConfirmSettle" aria-busy="@_isSavingSettle">@(_isSavingSettle ? "Saving…" : "Confirm Payment")</button>
             </div>
         </div>
     </div>
@@ -717,7 +717,9 @@ else
 
     private bool _showPaymentModal;
     private SettlementRow? _paymentRow;
-    private decimal _paymentAmountInput;
+    // Nullable so a cleared field reads as blank ("Enter the amount received.") rather than 0.
+    private decimal? _paymentAmountInput;
+    private decimal PaymentAmount => _paymentAmountInput ?? 0;
 
     // Amount checks (InputValidator) - one handover is never more than this, so a bigger number
     // is a typo (an extra zero) rather than a real payment.
@@ -725,8 +727,26 @@ else
     private const decimal MaxAdjustment = 50_000m;
     private string? PaymentAmountError => InputValidator.ValidateAmount(_paymentAmountInput, "the amount received", MaxPayment);
     private string? SettleAmountError => InputValidator.ValidateAmount(_settleAmountInput, "the amount received", MaxPayment);
-    private string? AdjustmentAmountError => InputValidator.ValidateAmount(_adjustmentAmountInput, "the amount", MaxAdjustment);
-    private string? AdjustmentReasonError => InputValidator.ValidateText(_adjustmentReason, "a reason", 300, required: true, minLength: 5);
+    private string? AdjustmentDriverError => string.IsNullOrEmpty(_adjustmentDriverId) ? "Select a driver." : null;
+    private string? AdjustmentAmountError => _adjustmentAmountInput == 0
+        ? FinancialLedgerService.AdjustmentZeroMessage
+        : InputValidator.ValidateAmount(_adjustmentAmountInput, "the amount", MaxAdjustment);
+    private string? AdjustmentReasonError => string.IsNullOrWhiteSpace(_adjustmentReason)
+        ? FinancialLedgerService.AdjustmentReasonRequiredMessage
+        : InputValidator.ValidateText(_adjustmentReason, "a reason", 300, required: true, minLength: 5);
+
+    // A field's message shows once it's been edited, or once Confirm / Save was pressed - not on a
+    // freshly opened form, but never just a silently disabled button either.
+    private bool _paymentAmountTouched;
+    private bool _settleAmountTouched;
+    private bool _adjustmentAmountTouched;
+    private bool _adjustmentReasonTouched;
+    private bool _adjustmentSubmitted;
+    private void TouchPaymentAmount() => _paymentAmountTouched = true;
+    private void TouchSettleAmount() => _settleAmountTouched = true;
+    private void TouchAdjustmentAmount() => _adjustmentAmountTouched = true;
+    private void TouchAdjustmentReason() => _adjustmentReasonTouched = true;
+
     private string _paymentMethod = "Cash";
     private bool _isSavingPayment;
     private string? _paymentError;
@@ -734,14 +754,15 @@ else
     private bool _showAdjustmentModal;
     private string _adjustmentDriverId = string.Empty;
     private string _adjustmentDirection = "Add";
-    private decimal _adjustmentAmountInput;
+    private decimal? _adjustmentAmountInput;
     private string _adjustmentReason = string.Empty;
     private bool _isSavingAdjustment;
     private string? _adjustmentError;
 
     private bool _showSettleModal;
     private DebtLedgerRow? _settleRow;
-    private decimal _settleAmountInput;
+    private decimal? _settleAmountInput;
+    private decimal SettleAmount => _settleAmountInput ?? 0;
     private string _settleMethod = "Cash";
     private bool _isSavingSettle;
     private string? _settleError;
@@ -761,7 +782,7 @@ else
                 return SettlementStatus.Waiting;
             }
 
-            decimal totalPaid = _paymentRow.AmountPaid + _paymentRow.CreditApplied + Math.Max(0, _paymentAmountInput);
+            decimal totalPaid = _paymentRow.AmountPaid + _paymentRow.CreditApplied + Math.Max(0, PaymentAmount);
             if (totalPaid >= _paymentRow.ExpectedTotal)
             {
                 return SettlementStatus.Cleared;
@@ -771,25 +792,25 @@ else
         }
     }
 
-    private decimal PreviewShortfall => Math.Max(0, PaymentRemaining - Math.Max(0, _paymentAmountInput));
+    private decimal PreviewShortfall => Math.Max(0, PaymentRemaining - Math.Max(0, PaymentAmount));
 
     // What the driver owes apart from this shift (older unpaid shifts + adjustment debt, net of
     // overpayment credit) - loaded when Record Payment opens; null while loading. Money above
     // this shift's balance goes there (paper: carried debt is added onto the day's rent).
     private decimal? _paymentOtherDebt;
 
-    private decimal PaymentExtra => Math.Max(0, Math.Max(0, _paymentAmountInput) - PaymentRemaining);
+    private decimal PaymentExtra => Math.Max(0, Math.Max(0, PaymentAmount) - PaymentRemaining);
 
     // Above this shift and all older debt: kept as advance credit toward the next boundary.
     private decimal PaymentAdvance => _paymentOtherDebt is decimal other ? Math.Max(0, PaymentExtra - other) : 0;
 
     private decimal SettlePreviewRemaining => _settleRow is null
         ? 0
-        : Math.Max(0, _settleRow.TotalDebt - Math.Max(0, _settleAmountInput));
+        : Math.Max(0, _settleRow.TotalDebt - Math.Max(0, SettleAmount));
 
     private decimal SettlePreviewOverpaid => _settleRow is null
         ? 0
-        : Math.Max(0, Math.Max(0, _settleAmountInput) - _settleRow.TotalDebt);
+        : Math.Max(0, Math.Max(0, SettleAmount) - _settleRow.TotalDebt);
 
     private List<LedgerTransaction> FilteredHistoryTransactions
     {
@@ -915,6 +936,7 @@ else
     {
         _paymentRow = row;
         _paymentAmountInput = Math.Max(0, row.ExpectedTotal - row.AmountPaid);
+        _paymentAmountTouched = false;
         _paymentMethod = "Cash";
         _paymentError = null;
         _paymentOtherDebt = null;
@@ -937,6 +959,20 @@ else
         _showPaymentModal = false;
         _paymentRow = null;
         _ = ResetReceiptAsync();
+    }
+
+    /// <summary>Confirm Payment: shows the amount's message instead of going on when it's invalid.</summary>
+    private void TryConfirmPayment()
+    {
+        _paymentAmountTouched = true;
+        if (_paymentRow is null || PaymentAmountError is not null)
+        {
+            return;
+        }
+
+        RequestConfirm("Confirm This Payment?",
+            $"Recording ₱{PaymentAmount:N2} ({(_paymentMethod == "EWallet" ? "E-Wallet / GCash" : "Cash")}) for {_paymentRow.DriverName}.",
+            "Confirm Payment", ConfirmPaymentAsync);
     }
 
     // -- GCash receipt OCR -------------------------------------------------
@@ -977,7 +1013,7 @@ else
         _paymentMethod = method;
         if (method == "EWallet")
         {
-            _paymentAmountInput = _receiptAmountValue ?? 0;
+            _paymentAmountInput = _receiptAmountValue;
         }
     }
 
@@ -986,7 +1022,7 @@ else
         _settleMethod = method;
         if (method == "EWallet")
         {
-            _settleAmountInput = _receiptAmountValue ?? 0;
+            _settleAmountInput = _receiptAmountValue;
         }
     }
     private bool _isReadingReceipt;
@@ -1002,7 +1038,7 @@ else
 
     // Only one payment window is open at a time, so they share the scanner and its state;
     // this is the Amount Received of whichever one is open.
-    private decimal ReceiptCompareAmount => _showSettleModal ? _settleAmountInput : _paymentAmountInput;
+    private decimal ReceiptCompareAmount => _showSettleModal ? SettleAmount : PaymentAmount;
 
     private bool ReceiptAmountMismatch =>
         _receiptAmountValue is decimal amount && ReceiptCompareAmount > 0 && amount != ReceiptCompareAmount;
@@ -1188,7 +1224,7 @@ else
         _paymentError = null;
         try
         {
-            RecordPaymentResult result = await Ledger.RecordPaymentAsync(_paymentRow.ShiftId, _paymentAmountInput, _paymentMethod,
+            RecordPaymentResult result = await Ledger.RecordPaymentAsync(_paymentRow.ShiftId, PaymentAmount, _paymentMethod,
                 _paymentMethod == "EWallet" ? PendingReceipt() : null, actorUserId: _managerUserId);
             if (!result.Ok)
             {
@@ -1211,17 +1247,36 @@ else
     {
         _adjustmentDriverId = string.Empty;
         _adjustmentDirection = "Add";
-        _adjustmentAmountInput = 0;
+        _adjustmentAmountInput = null;
         _adjustmentReason = string.Empty;
+        _adjustmentAmountTouched = false;
+        _adjustmentReasonTouched = false;
+        _adjustmentSubmitted = false;
         _adjustmentError = null;
         _showAdjustmentModal = true;
     }
 
     private void CloseAdjustmentModal() => _showAdjustmentModal = false;
 
+    private bool IsAdjustmentValid => AdjustmentDriverError is null && AdjustmentAmountError is null && AdjustmentReasonError is null;
+
+    /// <summary>Save Adjustment: shows every field's message instead of going on when one is invalid.</summary>
+    private void TryConfirmAdjustment()
+    {
+        _adjustmentSubmitted = true;
+        if (!IsAdjustmentValid)
+        {
+            return;
+        }
+
+        RequestConfirm("Save This Adjustment?",
+            $"Posting a ₱{_adjustmentAmountInput:N2} {(_adjustmentDirection == "Add" ? "penalty / debt addition" : "credit / write-off")} to the driver ledger.",
+            "Save Adjustment", ConfirmAdjustmentAsync);
+    }
+
     private async Task ConfirmAdjustmentAsync()
     {
-        if (string.IsNullOrEmpty(_adjustmentDriverId) || AdjustmentAmountError is not null || AdjustmentReasonError is not null)
+        if (!IsAdjustmentValid || _adjustmentAmountInput is not decimal amount)
         {
             return;
         }
@@ -1230,7 +1285,7 @@ else
         _adjustmentError = null;
         try
         {
-            decimal signedAmount = _adjustmentDirection == "Credit" ? -_adjustmentAmountInput : _adjustmentAmountInput;
+            decimal signedAmount = _adjustmentDirection == "Credit" ? -amount : amount;
             AdjustmentResult result = await Ledger.AddAdjustmentAsync(_adjustmentDriverId, signedAmount, _adjustmentReason, actorUserId: _managerUserId);
             if (!result.Ok)
             {
@@ -1258,7 +1313,8 @@ else
         // without editing a pre-filled number), silently closing the row out and hiding
         // "Settle" (debt = 0) far sooner than intended. Blank forces a deliberate amount,
         // matching the mockup itself showing a partial typed-in amount, not the full balance.
-        _settleAmountInput = 0;
+        _settleAmountInput = null;
+        _settleAmountTouched = false;
         _settleMethod = "Cash";
         _settleError = null;
         _ = ResetReceiptAsync();
@@ -1272,6 +1328,20 @@ else
         _ = ResetReceiptAsync();
     }
 
+    /// <summary>Settle's Confirm Payment: shows the amount's message instead of going on when it's invalid.</summary>
+    private void TryConfirmSettle()
+    {
+        _settleAmountTouched = true;
+        if (_settleRow is null || SettleAmountError is not null)
+        {
+            return;
+        }
+
+        RequestConfirm("Confirm This Payment?",
+            $"Recording ₱{SettleAmount:N2} ({(_settleMethod == "EWallet" ? "E-Wallet / GCash" : "Cash")}) for {_settleRow.DriverName}.",
+            "Confirm Payment", ConfirmSettleAsync);
+    }
+
     private async Task ConfirmSettleAsync()
     {
         if (_settleRow is null || SettleAmountError is not null)
@@ -1283,7 +1353,7 @@ else
         _settleError = null;
         try
         {
-            SettleDebtResult result = await Ledger.SettleDebtAsync(_settleRow.DriverId, _settleAmountInput, _settleMethod,
+            SettleDebtResult result = await Ledger.SettleDebtAsync(_settleRow.DriverId, SettleAmount, _settleMethod,
                 _settleMethod == "EWallet" ? PendingReceipt() : null, actorUserId: _managerUserId);
             if (!result.Ok)
             {
@@ -1385,10 +1455,24 @@ else
             }
             else
             {
-                DateTime dayStart = DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc);
-                DateTime dayEnd = dayStart.AddDays(1).AddTicks(-1);
-                csv = await FleetReporting.BuildReportCsvAsync("Financial Summary", dayStart, dayEnd);
-                fileName = $"Daily_Settlements_{dayStart:yyyyMMdd}.csv";
+                // The rows on screen, for the day being viewed (a Philippine day). The old export ran the
+                // Financial Summary report over the UTC day instead, which could come back header-only
+                // while this tab showed rows.
+                if (_snapshot is null)
+                {
+                    await LoadSettlementAsync();
+                }
+                DailySettlementSnapshot snapshot = _snapshot ?? throw new InvalidOperationException(_settlementError ?? "Settlements couldn't be loaded.");
+                var headers = new[] { "Date", "Status", "Driver", "Unit", "ShiftEnded", "Boundary", "LateFee", "FuelPenalty", "TotalDue", "Paid", "CoveredByCredit", "Balance" };
+                var rows = snapshot.Rows.Select(r => new object?[]
+                {
+                    _settlementDay.ToString("yyyy-MM-dd"), r.Status, r.DriverName, r.TaxiId,
+                    r.ShiftEnd?.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm"),
+                    r.ExpectedTotal - r.LateFee - r.FuelPenalty, r.LateFee, r.FuelPenalty, r.ExpectedTotal,
+                    r.AmountPaid, r.CreditApplied, r.Balance,
+                });
+                csv = BuildCsv(headers, rows);
+                fileName = $"Daily_Settlements_{_settlementDay:yyyyMMdd}.csv";
             }
 
             _fileDownloadModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/file-download.js");

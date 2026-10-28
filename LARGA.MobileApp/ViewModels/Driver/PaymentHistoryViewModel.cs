@@ -3,6 +3,7 @@ using LARGA.MobileApp.Services;
 using LARGA.SharedCore;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Networking;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
 using System;
@@ -45,6 +46,19 @@ public class PaymentHistoryViewModel : BindableObject
 
     public string EmptyStateMessage => IsLoading ? "Loading your payment history…" : "No payments recorded yet.";
 
+    private bool _isShowingCachedData;
+    /// <summary>The list came from the phone's offline copy, so the page says it may be out of date.</summary>
+    public bool IsShowingCachedData
+    {
+        get => _isShowingCachedData;
+        private set
+        {
+            if (_isShowingCachedData == value) return;
+            _isShowingCachedData = value;
+            OnPropertyChanged();
+        }
+    }
+
     public PaymentHistoryViewModel(IDownloadService downloadService)
     {
         _downloadService = downloadService;
@@ -67,6 +81,7 @@ public class PaymentHistoryViewModel : BindableObject
             // Same records as the Ledger screen (DriverDebtCalculator reads them through typed
             // proxies - Plugin.Firebase returns Dictionary<string, object> reads empty).
             var ledger = await DriverDebtCalculator.LoadAsync(user.Uid, forceRefresh);
+            IsShowingCachedData = ledger.IsFromCache;
             _paidShifts = ledger.Shifts.Where(s => s.HasPayment).ToList();
 
             var payments = _paidShifts
@@ -89,6 +104,7 @@ public class PaymentHistoryViewModel : BindableObject
         }
         catch (Exception ex)
         {
+            IsShowingCachedData = false;
             await FirestoreErrors.ShowLoadFailureAsync("Payment history", ex, "your payment history", canPullToRefresh: false);
         }
         finally
@@ -183,6 +199,7 @@ public class PaymentHistoryViewModel : BindableObject
             return Task.CompletedTask;
         }, TimeSpan.FromMilliseconds(400));
         SessionEvents.SigningOut += OnSigningOut;
+        Connectivity.Current.ConnectivityChanged += OnConnectivityChanged;
 
         _shiftsListener = CrossFirebaseFirestore.Current
             .GetCollection("shifts")
@@ -203,6 +220,7 @@ public class PaymentHistoryViewModel : BindableObject
     {
         _isListening = false;
         SessionEvents.SigningOut -= OnSigningOut;
+        Connectivity.Current.ConnectivityChanged -= OnConnectivityChanged;
         _shiftsListener?.Dispose();
         _paymentsListener?.Dispose();
         _shiftsListener = _paymentsListener = null;
@@ -211,6 +229,12 @@ public class PaymentHistoryViewModel : BindableObject
     }
 
     private void OnSigningOut(object? sender, EventArgs e) => StopListening();
+
+    // Back online with an offline copy on screen: reload from the server (same as LedgerViewModel).
+    private void OnConnectivityChanged(object? sender, ConnectivityChangedEventArgs e)
+    {
+        if (e.NetworkAccess == NetworkAccess.Internet && IsShowingCachedData) _reloadDebounced?.Trigger();
+    }
 }
 
 // Note: Ensure PaymentRecord class matches the one in LedgerViewModel.cs

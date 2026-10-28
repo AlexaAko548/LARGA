@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using LARGA.SharedCore.Ledger;
+using Microsoft.Maui.Networking;
+using Plugin.Firebase.Firestore;
 
 namespace LARGA.MobileApp.Services;
 
@@ -55,6 +57,9 @@ public static class DriverDebtCalculator
 
         /// <summary>Everything the driver owes - the web's Master Debt Ledger TotalDebt.</summary>
         public decimal TotalDebt { get; init; }
+
+        /// <summary>Read from the phone's offline copy, not the server - the screens say it may be out of date.</summary>
+        public bool IsFromCache { get; init; }
     }
 
     // Ledger, Debt Details and Payment History show the same records, usually opened one after another:
@@ -69,8 +74,10 @@ public static class DriverDebtCalculator
     {
         lock (CacheLock)
         {
+            // An offline copy isn't reused once the phone is back online - that read should go to the server.
             if (!forceRefresh && _cached is { } cached && cached.DriverId == driverId
-                && DateTime.UtcNow - cached.LoadedUtc < SharedResultLifetime && !cached.Load.IsFaulted)
+                && DateTime.UtcNow - cached.LoadedUtc < SharedResultLifetime && !cached.Load.IsFaulted
+                && !(cached.Load.IsCompletedSuccessfully && cached.Load.Result.IsFromCache && !IsOffline()))
             {
                 return cached.Load;
             }
@@ -91,16 +98,29 @@ public static class DriverDebtCalculator
 
     private static async Task<Result> ReadAsync(string driverId)
     {
+        // Offline, read the phone's copy straight away: the default source first waits for the server to time out,
+        // which left Payment History on "Loading…" for a long while before the cached list appeared.
+        bool offline = IsOffline();
+        Source source = offline ? Source.Cache : Source.Default;
+        var origin = new QuickLedgerService.ReadOrigin();
+
         // The four reads don't depend on each other, so they run together; List<T> isn't thread-safe,
         // so each reader gets its own warnings list.
         var shiftWarnings = new List<string>();
         var paymentWarnings = new List<string>();
         var adjustmentWarnings = new List<string>();
-        Task<IReadOnlyList<ShiftRecord>> shifts = QuickLedgerService.ReadShiftsAsync(shiftWarnings, driverId);
-        Task<IReadOnlyList<BoundaryPaymentRecord>> payments = QuickLedgerService.ReadPaymentsAsync(paymentWarnings, driverId);
-        Task<IReadOnlyList<DebtAdjustmentRecord>> adjustments = QuickLedgerService.ReadAdjustmentsAsync(adjustmentWarnings, driverId);
-        Task<decimal> rate = QuickLedgerService.ReadDefaultBoundaryRateAsync();
+        Task<IReadOnlyList<ShiftRecord>> shifts = QuickLedgerService.ReadShiftsAsync(shiftWarnings, driverId, source, origin);
+        Task<IReadOnlyList<BoundaryPaymentRecord>> payments = QuickLedgerService.ReadPaymentsAsync(paymentWarnings, driverId, source, origin);
+        Task<IReadOnlyList<DebtAdjustmentRecord>> adjustments = QuickLedgerService.ReadAdjustmentsAsync(adjustmentWarnings, driverId, source, origin);
+        Task<decimal> rate = QuickLedgerService.ReadDefaultBoundaryRateAsync(source);
         await Task.WhenAll(shifts, payments, adjustments, rate);
+
+        // Nothing saved on this phone yet: an empty ledger would read as "owes ₱0.00", so it's a load failure
+        // instead (FirestoreErrors reports it as no connection).
+        if (offline && shifts.Result.Count == 0 && payments.Result.Count == 0 && adjustments.Result.Count == 0)
+        {
+            throw new InvalidOperationException("No saved copy of the ledger on this phone to show offline.");
+        }
 
         var warnings = shiftWarnings.Concat(paymentWarnings).Concat(adjustmentWarnings).ToList();
         var input = new QuickLedgerInput(
@@ -119,7 +139,7 @@ public static class DriverDebtCalculator
 
         DriverDebtResult debt = QuickLedgerCalculator.DriverDebt(input, driverId);
 
-        var result = new Result { Credit = debt.OverpaymentCredit, TotalDebt = debt.TotalDebt };
+        var result = new Result { Credit = debt.OverpaymentCredit, TotalDebt = debt.TotalDebt, IsFromCache = offline || origin.FromCache };
         result.Shifts.AddRange(debt.Shifts.Select(s => new ShiftEntry
         {
             ShiftId = s.Shift.ShiftId,
@@ -140,5 +160,17 @@ public static class DriverDebtCalculator
         }));
 
         return result;
+    }
+
+    private static bool IsOffline()
+    {
+        try
+        {
+            return Connectivity.Current.NetworkAccess != NetworkAccess.Internet;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
