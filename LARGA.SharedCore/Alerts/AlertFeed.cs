@@ -42,7 +42,13 @@ public static class AlertFeed
         [MaintenanceSchedule.OverdueAlertType] = "Maintenance overdue",
         [ShiftDeadlineService.LateReturnAlertType] = "Late return",
         [ShiftDeadlineService.MissedClockOutAlertType] = "Missed clock-out",
+        [SubmissionAlerts.DefectReportedType] = "Defect report",
+        [SubmissionAlerts.FuelSubmittedType] = "Fuel submission",
     };
+
+    /// <summary>Whether the phone's Alert Center lists (and counts) this type. Every fuel submission
+    /// (FuelSubmitted) is a web-bell notice only - the phone already gets a card for each flagged one.</summary>
+    public static bool ShownOnPhone(string? type) => type != SubmissionAlerts.FuelSubmittedType;
 
     public static string TitleFor(string? type) =>
         type is not null && TypeTitles.TryGetValue(type, out string? title) ? title : "Notice";

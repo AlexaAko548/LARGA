@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
+using LARGA.SharedCore.Alerts;
 using LARGA.SharedCore.Models.Garage;
 using LARGA.Shared.Models.Entities;
 using Microsoft.Extensions.Logging;
@@ -209,6 +210,7 @@ public class GarageService
             await batch.CommitAsync();
 
             await ReturnUnitToServiceIfDoneAsync(docRef);
+            await SubmissionAlerts.MarkReviewedAsync(Db, SubmissionAlerts.DefectAlertId(maintenanceId)); // REQ-4.3-7: reviewed
             return new GarageActionResult { Ok = true };
         }
         catch (Exception ex)
@@ -263,6 +265,7 @@ public class GarageService
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
+            await SubmissionAlerts.MarkReviewedAsync(Db, SubmissionAlerts.DefectAlertId(maintenanceId)); // REQ-4.3-7: reviewed
             return new GarageActionResult { Ok = true };
         }
         catch (Exception ex)

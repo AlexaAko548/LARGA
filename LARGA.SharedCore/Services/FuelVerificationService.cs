@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
+using LARGA.SharedCore.Alerts;
 using LARGA.SharedCore.Models.FuelVerification;
 using LARGA.Shared.Models.Entities;
 using Microsoft.Extensions.Logging;
@@ -483,6 +484,7 @@ public class FuelVerificationService
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
+            await SubmissionAlerts.MarkReviewedAsync(Db, SubmissionAlerts.FuelSubmittedAlertId(fuelId)); // REQ-4.4-8: reviewed
             return new FuelActionResult { Ok = true };
         }
         catch (Exception ex)
@@ -522,6 +524,7 @@ public class FuelVerificationService
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
+            await SubmissionAlerts.MarkReviewedAsync(Db, SubmissionAlerts.FuelSubmittedAlertId(fuelId)); // REQ-4.4-8: reviewed
             return new FuelActionResult { Ok = true };
         }
         catch (Exception ex)
@@ -567,6 +570,7 @@ public class FuelVerificationService
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
+            await SubmissionAlerts.MarkReviewedAsync(Db, SubmissionAlerts.FuelSubmittedAlertId(fuelId)); // REQ-4.4-8: reviewed
             return new FuelActionResult { Ok = true };
         }
         catch (Exception ex)

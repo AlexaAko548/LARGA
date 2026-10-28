@@ -340,8 +340,9 @@ public class AlertCenterViewModel : BindableObject
             .AddSnapshotListener<SystemAlertProxy>(snapshot =>
             {
                 FirstSnapshotArrived();
+                // Every fuel submission is a web-bell notice only (AlertFeed.ShownOnPhone).
                 var items = snapshot.Documents
-                    .Where(doc => doc.Data != null)
+                    .Where(doc => doc.Data != null && AlertFeed.ShownOnPhone(doc.Data.Type))
                     .Select(doc => BellItem(doc.Reference.Id, doc.Data!))
                     .ToList();
 
@@ -856,6 +857,7 @@ public class AlertCenterViewModel : BindableObject
             });
             // Same as the web's ResolveFlagAsync: the flag's bell row (fuel_{id}) is read once it's resolved.
             await MarkBellReadAsync(AlertFeed.FuelBellId(alert.Id));
+            await MarkBellReadAsync(LARGA.SharedCore.Alerts.SubmissionAlerts.FuelSubmittedAlertId(alert.Id)); // REQ-4.4-8: reviewed
             AuditLogWriter.Record("FuelFlagResolved",
                 $"Resolved the flag on shift {snapshot?.Data?.ShiftId ?? "unknown"}'s fuel submission: {note}");
             await Shell.Current.DisplayAlert("Fuel flag resolved", "The receipt is now marked Verified with your note.", "OK");

@@ -53,8 +53,10 @@ public partial class App : Application
         {
             if (e.Notification?.Data != null)
             {
-                // SOS push to a manager (ManagerWeb SosPushService): open the Alert Center.
-                if (e.Notification.Data.TryGetValue("type", out var sosType) && sosType?.ToString() == "sos_alert")
+                // SOS push to a manager (ManagerWeb SosPushService), or a new defect report
+                // (SubmissionAlertService): open the Alert Center.
+                if (e.Notification.Data.TryGetValue("type", out var sosType)
+                    && (sosType?.ToString() == "sos_alert" || sosType?.ToString() == LARGA.SharedCore.Alerts.SubmissionAlerts.DefectPushType))
                 {
                     // Scroll the Alert Center to this alert (emergency type and address are on the card).
                     if (e.Notification.Data.TryGetValue("alertId", out var alertId) && !string.IsNullOrWhiteSpace(alertId?.ToString()))

@@ -170,6 +170,8 @@ builder.Services.AddSingleton<ShiftRouteService>();
 builder.Services.AddHostedService<FuelAutoCheckService>();
 // Proposal §4.2.4.5: one-time claim of the OR numbers on fuel logs saved before the duplicate check.
 builder.Services.AddHostedService<FuelOrNumberBackfillService>();
+// REQ-4.3-7 / REQ-4.4-8: a bell alert for every defect report (plus a staff push) and fuel submission.
+builder.Services.AddHostedService<SubmissionAlertService>();
 // MNT-014/015/016: recurring routine checks + due/overdue bell alerts, on startup and hourly.
 builder.Services.AddHostedService<MaintenanceSchedulerService>();
 builder.Services.AddScoped<IManagerAuthService, ManagerAuthService>();
