@@ -117,6 +117,10 @@ public class InventoryAuditService
 
             SparePart part = snapshot.ConvertTo<SparePart>();
             part.PartId = snapshot.Id;
+            if (part.IsArchived)
+            {
+                throw new PartArchivedException(part);
+            }
             string oldName = part.DisplayName;
             string oldUnit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
 
@@ -214,6 +218,10 @@ public class InventoryAuditService
 
             SparePart part = snapshot.ConvertTo<SparePart>();
             part.PartId = snapshot.Id;
+            if (part.IsArchived)
+            {
+                throw new PartArchivedException(part);
+            }
 
             string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
             int inStock = Math.Max(0, part.StockQuantity);
@@ -269,6 +277,123 @@ public class InventoryAuditService
 
     /// <summary>Restocks a part. <paramref name="unitPrice"/>, when given, becomes the part's
     /// unit price from now on (past usage keeps the price it was recorded at).</summary>
+    /// <summary>
+    /// SRS REQ-4.5-1: archives a part instead of deleting it - usage history (maintenance_parts_used)
+    /// keeps its ID, name and price. Records who and when, writes an InventoryPartArchived audit entry
+    /// in the same transaction, and closes the part's open low-stock alert. Returns null when the part
+    /// no longer exists; an already archived part is returned unchanged.
+    /// </summary>
+    public async Task<SparePart?> ArchivePartAsync(string partId, string? actorUserId = null)
+    {
+        if (string.IsNullOrWhiteSpace(partId))
+        {
+            return null;
+        }
+
+        bool changed = false;
+        SparePart? archived = await Db.RunTransactionAsync(async transaction =>
+        {
+            changed = false; // the transaction can re-run
+            DocumentReference doc = Db.Collection("spare_parts").Document(partId);
+            DocumentSnapshot snapshot = await transaction.GetSnapshotAsync(doc);
+            if (!snapshot.Exists)
+            {
+                return null;
+            }
+
+            SparePart part = snapshot.ConvertTo<SparePart>();
+            part.PartId = snapshot.Id;
+            if (part.IsArchived)
+            {
+                return part;
+            }
+
+            DateTime now = DateTime.UtcNow;
+            transaction.Update(doc, new Dictionary<string, object>
+            {
+                ["isArchived"] = true,
+                ["archivedAt"] = now,
+                ["archivedBy"] = actorUserId ?? string.Empty,
+            });
+            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+            transaction.Create(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = SparePartArchiveRules.ArchivedAction,
+                AuditLogDetails = $"Archived spare part '{part.DisplayName}' ({part.StockQuantity} {unit} in stock).",
+                Timestamp = now,
+            });
+
+            part.IsArchived = true;
+            part.ArchivedAt = now;
+            part.ArchivedBy = actorUserId;
+            changed = true;
+            return part;
+        });
+
+        if (archived is not null && changed)
+        {
+            await _alerts.CloseLowStockAlertForArchivedPartAsync(archived);
+        }
+        return archived;
+    }
+
+    /// <summary>Brings an archived part back into the inventory (InventoryPartRestored audit entry);
+    /// a part still at or below its minimum gets its low-stock alert again. Returns null when the part
+    /// no longer exists.</summary>
+    public async Task<SparePart?> RestorePartAsync(string partId, string? actorUserId = null)
+    {
+        if (string.IsNullOrWhiteSpace(partId))
+        {
+            return null;
+        }
+
+        bool changed = false;
+        SparePart? restored = await Db.RunTransactionAsync(async transaction =>
+        {
+            changed = false;
+            DocumentReference doc = Db.Collection("spare_parts").Document(partId);
+            DocumentSnapshot snapshot = await transaction.GetSnapshotAsync(doc);
+            if (!snapshot.Exists)
+            {
+                return null;
+            }
+
+            SparePart part = snapshot.ConvertTo<SparePart>();
+            part.PartId = snapshot.Id;
+            if (!part.IsArchived)
+            {
+                return part;
+            }
+
+            transaction.Update(doc, new Dictionary<string, object>
+            {
+                ["isArchived"] = false,
+                ["archivedAt"] = FieldValue.Delete,
+                ["archivedBy"] = FieldValue.Delete,
+            });
+            transaction.Create(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = SparePartArchiveRules.RestoredAction,
+                AuditLogDetails = $"Restored archived spare part '{part.DisplayName}'.",
+                Timestamp = DateTime.UtcNow,
+            });
+
+            part.IsArchived = false;
+            part.ArchivedAt = null;
+            part.ArchivedBy = null;
+            changed = true;
+            return part;
+        });
+
+        if (restored is not null && changed && restored.StockQuantity <= restored.ReorderLevel)
+        {
+            await _alerts.CreateLowStockAlertAsync(restored);
+        }
+        return restored;
+    }
+
     public async Task<SparePart?> AddPartStockAsync(string partId, int amount = 1, string? actorUserId = null, decimal? unitPrice = null)
     {
         if (string.IsNullOrWhiteSpace(partId))
@@ -291,6 +416,10 @@ public class InventoryAuditService
 
             SparePart part = snapshot.ConvertTo<SparePart>();
             part.PartId = snapshot.Id;
+            if (part.IsArchived)
+            {
+                throw new PartArchivedException(part);
+            }
 
             int updatedQuantity = Math.Max(0, part.StockQuantity + increment);
             var updates = new Dictionary<string, object> { ["stockQuantity"] = updatedQuantity };

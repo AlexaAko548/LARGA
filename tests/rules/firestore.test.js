@@ -15,7 +15,7 @@ const {
 } = require('@firebase/rules-unit-testing');
 const {
   doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, getDocs, query, where,
-  serverTimestamp, Timestamp,
+  serverTimestamp, Timestamp, writeBatch,
 } = require('firebase/firestore');
 
 const PROJECT_ID = 'demo-larga-rules';
@@ -31,6 +31,7 @@ let env;
 
 const as = (uid) => env.authenticatedContext(uid).firestore();
 const anon = () => env.unauthenticatedContext().firestore();
+const hoursAgo = (h) => Timestamp.fromDate(new Date(Date.now() - h * 3600 * 1000));
 
 async function seed(extra) {
   await env.withSecurityRulesDisabled(async (ctx) => {
@@ -177,8 +178,8 @@ describe('Driver tampering with their own money and records', () => {
     assertSucceeds(addDoc(collection(as(DRIVER_A), 'fuel_logs'), {
       driverId: DRIVER_A, shiftId: 'shiftA', verificationStatus: 'Pending', submittedAt: serverTimestamp(),
       litersRefueled: 30.5, fuelCost: 1950 })));
-  it('can submit a fuel receipt with the app\'s "UNKNOWN_SHIFT" placeholder', async () =>
-    assertSucceeds(addDoc(collection(as(DRIVER_A), 'fuel_logs'), {
+  it('cannot submit a fuel receipt with the old "UNKNOWN_SHIFT" placeholder (REQ-4.3-3)', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), {
       driverId: DRIVER_A, shiftId: 'UNKNOWN_SHIFT', verificationStatus: 'Pending', submittedAt: serverTimestamp(),
       litersRefueled: 30.5, fuelCost: 1950 })));
   it('[GAP D-03] cannot submit a fuel receipt with a negative cost', async () =>
@@ -339,4 +340,184 @@ describe('Alerts', () => {
   });
   it('nobody can create a system alert from a client', async () =>
     assertFails(setDoc(doc(as(MANAGER), 'system_alerts', 'fake'), { type: 'SOS', isRead: false })));
+});
+
+describe('Fuel logs linked to a shift (REQ-4.3-3, REQ-5.5-6)', () => {
+  const fuel = (shiftId) => ({
+    driverId: DRIVER_A, shiftId, verificationStatus: 'Pending', submittedAt: serverTimestamp(), litersRefueled: 30, fuelCost: 1950,
+  });
+  async function seedShift(id, fields) {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'shifts', id),
+      { shiftId: id, driverId: DRIVER_A, taxiId: 'TX-01', ...fields }));
+  }
+
+  it('can file against a shift that ended 2 hours ago', async () => {
+    await seedShift('ended2h', { status: 'Completed', shiftStart: hoursAgo(14), shiftEnd: hoursAgo(2) });
+    await assertSucceeds(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('ended2h')));
+  });
+  it('cannot file against a shift that ended 13 hours ago', async () => {
+    await seedShift('ended13h', { status: 'Completed', shiftStart: hoursAgo(25), shiftEnd: hoursAgo(13) });
+    await assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('ended13h')));
+  });
+  it('can file against a recent Auto-Closed shift (no shiftEnd)', async () => {
+    await seedShift('auto', { status: 'Auto-Closed', shiftStart: hoursAgo(25) });
+    await assertSucceeds(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('auto')));
+  });
+  it('cannot file against an old Auto-Closed shift', async () => {
+    await seedShift('autoOld', { status: 'Auto-Closed', shiftStart: hoursAgo(40) });
+    await assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('autoOld')));
+  });
+  it('cannot file against a shift that does not exist', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('noSuchShift'))));
+  it('cannot file with no shift at all', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel(''))));
+  it("cannot file against B's recently ended shift", async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'shifts', 'bEnded'),
+      { driverId: DRIVER_B, status: 'Completed', shiftStart: hoursAgo(10), shiftEnd: hoursAgo(1) }));
+    await assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('bEnded')));
+  });
+});
+
+describe('Fuel OR number claims (Proposal 4.2.4.5)', () => {
+  const fuelFields = (extra) => ({
+    driverId: DRIVER_A, shiftId: 'shiftA', verificationStatus: 'Pending', submittedAt: serverTimestamp(),
+    litersRefueled: 30, fuelCost: 1950, orNumber: 'OR-555', ...extra,
+  });
+  async function submitWithClaim(db, orKey, claimExtra) {
+    const batch = writeBatch(db);
+    const fuelRef = doc(collection(db, 'fuel_logs'));
+    batch.set(fuelRef, fuelFields());
+    batch.set(doc(db, 'fuel_or_numbers', orKey), { fuelLogId: fuelRef.id, createdAt: serverTimestamp(), ...claimExtra });
+    return batch.commit();
+  }
+
+  it('driver can claim an OR number together with their own new fuel log', async () =>
+    assertSucceeds(submitWithClaim(as(DRIVER_A), 'OR555')));
+  it('driver cannot claim an OR number on its own (no fuel log in the same write)', async () =>
+    assertFails(setDoc(doc(as(DRIVER_A), 'fuel_or_numbers', 'OR556'), { fuelLogId: 'fuelB', createdAt: serverTimestamp() })));
+  it("driver cannot claim an OR number for B's existing fuel log", async () =>
+    assertFails(setDoc(doc(as(DRIVER_A), 'fuel_or_numbers', 'OR557'), { fuelLogId: 'fuelB', createdAt: serverTimestamp() })));
+  it('driver cannot put other fields on a claim', async () =>
+    assertFails(submitWithClaim(as(DRIVER_A), 'OR558', { driverId: DRIVER_A })));
+  it('an OR number already claimed cannot be claimed again (or overwritten)', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'fuel_or_numbers', 'OR559'), { fuelLogId: 'fuelB' }));
+    await assertFails(submitWithClaim(as(DRIVER_A), 'OR559'));
+  });
+  it('the duplicate is still saved as an auto-flagged fuel log, without a claim', async () =>
+    assertSucceeds(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuelFields({
+      verificationStatus: 'Flagged', autoFlagged: true, flaggedAt: serverTimestamp(), fuelLogDetails: 'OR number already submitted' }))));
+  it('driver can read a single claim but not list them', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'fuel_or_numbers', 'OR560'), { fuelLogId: 'fuelB' }));
+    await assertSucceeds(getDoc(doc(as(DRIVER_A), 'fuel_or_numbers', 'OR560')));
+    await assertFails(getDocs(collection(as(DRIVER_A), 'fuel_or_numbers')));
+  });
+  it('nobody can update or delete a claim from a client', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'fuel_or_numbers', 'OR561'), { fuelLogId: 'fuelB' }));
+    await assertFails(updateDoc(doc(as(MANAGER), 'fuel_or_numbers', 'OR561'), { fuelLogId: 'x' }));
+    await assertFails(deleteDoc(doc(as(MANAGER), 'fuel_or_numbers', 'OR561')));
+    await assertFails(deleteDoc(doc(as(DRIVER_B), 'fuel_or_numbers', 'OR561')));
+  });
+  it('unauthenticated users cannot read claims', async () =>
+    assertFails(getDoc(doc(anon(), 'fuel_or_numbers', 'OR555'))));
+});
+
+describe('Assistant Manager in the mobile app', () => {
+  it('can read and send chat messages with a driver', async () => {
+    await assertSucceeds(setDoc(doc(as(ASSISTANT), 'chats', DRIVER_A), { lastMessage: 'hi', updatedAt: serverTimestamp() }, { merge: true }));
+    await assertSucceeds(addDoc(collection(as(ASSISTANT), 'chats', DRIVER_A, 'messages'), {
+      text: 'On my way', isDriver: false, timestamp: serverTimestamp(),
+      senderId: ASSISTANT, senderName: 'Ana Assistant', senderRole: 'Assistant Manager' }));
+    await assertSucceeds(getDocs(collection(as(ASSISTANT), 'chats', DRIVER_A, 'messages')));
+  });
+  it("a driver still cannot read another driver's chat", async () =>
+    assertFails(getDocs(collection(as(DRIVER_B), 'chats', DRIVER_A, 'messages'))));
+  it('cannot approve or deny a clock-in request', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'clockin_requests', 'req1'), { driverId: DRIVER_A, status: 'Pending' }));
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'Approved' }));
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'Denied' }));
+    await assertSucceeds(updateDoc(doc(as(MANAGER), 'clockin_requests', 'req1'), { status: 'Approved' }));
+  });
+  it('cannot resolve a fuel flag', async () => {
+    await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'fuel_logs', 'fuelB'), { verificationStatus: 'Flagged' }));
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'fuel_logs', 'fuelB'), { verificationStatus: 'Verified', fuelLogDetails: 'Resolved: ok' }));
+  });
+  it('cannot send a unit to the Garage', async () =>
+    assertFails(updateDoc(doc(as(ASSISTANT), 'taxis', 'TX-01'), { status: 'Under Maintenance' })));
+  it('can record the automatic credit that comes with a Quick Ledger payment', async () =>
+    assertSucceeds(addDoc(collection(as(ASSISTANT), 'debt_adjustments'), {
+      driverId: DRIVER_A, amount: -150, reason: 'Automatic credit from a debt payment.', timestamp: serverTimestamp(), transactionId: 'tx1' })));
+  it('cannot add a manual (positive) debt adjustment even with a transactionId', async () =>
+    assertFails(addDoc(collection(as(ASSISTANT), 'debt_adjustments'), { driverId: DRIVER_A, amount: 500, transactionId: 'tx1' })));
+  it('can write their own audit entry (payments, messages)', async () =>
+    assertSucceeds(addDoc(collection(as(ASSISTANT), 'audit_logs'), { userId: ASSISTANT, actionType: 'PaymentRecorded', timestamp: serverTimestamp() })));
+  it("cannot write an audit entry in someone else's name", async () =>
+    assertFails(addDoc(collection(as(ASSISTANT), 'audit_logs'), { userId: MANAGER, actionType: 'PaymentRecorded', timestamp: serverTimestamp() })));
+  it('can save their own FCM token (SOS pushes)', async () =>
+    assertSucceeds(updateDoc(doc(as(ASSISTANT), 'users', ASSISTANT), { fcmToken: 'tok', tokenUpdatedAt: serverTimestamp() })));
+  it('cannot change system_configs (the SOS allowlist is kept by ManagerWeb)', async () =>
+    assertFails(updateDoc(doc(as(ASSISTANT), 'system_configs', 'global'), { managerPhoneNumbers: ['+639170000000'] })));
+});
+
+describe('mustChangePassword (forced password change)', () => {
+  async function flag(uid, value) {
+    await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'users', uid), { mustChangePassword: value }));
+  }
+
+  it('a driver can clear their own flag after changing the password', async () => {
+    await flag(DRIVER_A, true);
+    await assertSucceeds(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { mustChangePassword: false }));
+  });
+  it('an assistant manager can clear their own flag too', async () => {
+    await flag(ASSISTANT, true);
+    await assertSucceeds(updateDoc(doc(as(ASSISTANT), 'users', ASSISTANT), { mustChangePassword: false }));
+  });
+  it('a regular password change may write false even when the flag was never set', async () =>
+    assertSucceeds(updateDoc(doc(as(ASSISTANT), 'users', ASSISTANT), { mustChangePassword: false })));
+  it('a user cannot set temporaryPasswordSetAt (the web stamps it)', async () =>
+    assertFails(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { mustChangePassword: false, temporaryPasswordSetAt: serverTimestamp() })));
+  it('a user cannot set their own flag to true', async () => {
+    await flag(DRIVER_A, false);
+    await assertFails(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { mustChangePassword: true }));
+  });
+  it("a driver cannot clear another driver's flag", async () => {
+    await flag(DRIVER_B, true);
+    await assertFails(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_B), { mustChangePassword: false }));
+  });
+  it('the FCM token can still be saved while the flag is set', async () => {
+    await flag(DRIVER_A, true);
+    await assertSucceeds(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { fcmToken: 'tok', tokenUpdatedAt: serverTimestamp() }));
+  });
+  it('clearing the flag cannot smuggle in other fields (role)', async () => {
+    await flag(DRIVER_A, true);
+    await assertFails(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { mustChangePassword: false, role: 'Manager' }));
+  });
+  it('a manager can still set it (temporary password)', async () =>
+    assertSucceeds(updateDoc(doc(as(MANAGER), 'users', DRIVER_A), { mustChangePassword: true })));
+});
+
+describe('Shared driver chat: staff messages say who sent them', () => {
+  const msgs = (uid) => collection(as(uid), 'chats', DRIVER_A, 'messages');
+  const staffMsg = (extra) => ({ text: 'Noted', isDriver: false, timestamp: serverTimestamp(), ...extra });
+
+  it('a manager message with their own ID, name and role is accepted', async () =>
+    assertSucceeds(addDoc(msgs(MANAGER), staffMsg({ senderId: MANAGER, senderName: 'Mara Manager', senderRole: 'Manager' }))));
+  it('the role is compared like logins do (case and spaces)', async () =>
+    assertSucceeds(addDoc(msgs(ASSISTANT), staffMsg({ senderId: ASSISTANT, senderName: 'Ana Assistant', senderRole: ' assistant manager ' }))));
+  it('a staff message without a sender is refused', async () =>
+    assertFails(addDoc(msgs(MANAGER), staffMsg())));
+  it("an assistant manager cannot write as the manager", async () => {
+    await assertFails(addDoc(msgs(ASSISTANT), staffMsg({ senderId: MANAGER, senderName: 'Mara Manager', senderRole: 'Manager' })));
+    await assertFails(addDoc(msgs(ASSISTANT), staffMsg({ senderId: ASSISTANT, senderName: 'Mara Manager', senderRole: 'Assistant Manager' })));
+    await assertFails(addDoc(msgs(ASSISTANT), staffMsg({ senderId: ASSISTANT, senderName: 'Ana Assistant', senderRole: 'Manager' })));
+  });
+  it('a driver message cannot carry staff sender fields', async () =>
+    assertFails(addDoc(msgs(DRIVER_A), { text: 'hi', isDriver: true, timestamp: serverTimestamp(),
+      senderId: MANAGER, senderName: 'Mara Manager', senderRole: 'Manager' })));
+  it('a plain driver message still works', async () =>
+    assertSucceeds(addDoc(msgs(DRIVER_A), { text: 'hi', isDriver: true, timestamp: serverTimestamp() })));
+  it("nobody can change an existing message's sender", async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'chats', DRIVER_A, 'messages', 'm1'),
+      { text: 'x', isDriver: false, senderId: MANAGER, senderName: 'Mara Manager', senderRole: 'Manager' }));
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'chats', DRIVER_A, 'messages', 'm1'), { senderName: 'Ana Assistant' }));
+  });
 });

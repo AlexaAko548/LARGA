@@ -26,17 +26,23 @@
                     <Border StrokeThickness="0" StrokeShape="RoundRectangle 15" Padding="20" Margin="0,0,0,15" MaximumWidthRequest="250">
                         <Border.Style>
                             <Style TargetType="Border">
+                                <!-- The driver's own messages on the right; every staff message on the left. -->
                                 <Setter Property="HorizontalOptions" Value="Start" />
                                 <Setter Property="BackgroundColor" Value="Gray" />
                                 <Style.Triggers>
-                                    <DataTrigger TargetType="Border" Binding="{Binding IsDriver}" Value="True">
+                                    <DataTrigger TargetType="Border" Binding="{Binding IsMine}" Value="True">
                                         <Setter Property="HorizontalOptions" Value="End" />
                                         <Setter Property="BackgroundColor" Value="{DynamicResource LargaPrimaryBlue}" />
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </Border.Style>
-                        <Label Text="{Binding Text}" TextColor="{DynamicResource LargaWhite}" FontSize="14" />
+                        <VerticalStackLayout Spacing="4">
+                            <!-- Shared conversation: who on the staff side wrote it -->
+                            <Label Text="{Binding SenderLabel}" IsVisible="{Binding ShowSender}" TextColor="{DynamicResource LargaWhite}"
+                                   FontSize="11" FontAttributes="Bold" Opacity="0.85" />
+                            <Label Text="{Binding Text}" TextColor="{DynamicResource LargaWhite}" FontSize="14" />
+                        </VerticalStackLayout>
                     </Border>
                 </DataTemplate>
             </CollectionView.ItemTemplate>

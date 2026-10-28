@@ -13,7 +13,7 @@ namespace LARGA.ManagerWeb.Services;
 /// The Content-Security-Policy is sent as Report-Only first: the browser reports what it would block
 /// (DevTools console) but blocks nothing. Once a week of normal use shows no reports, rename the header
 /// to "Content-Security-Policy" to enforce it. Its sources are what the dashboard loads today:
-/// Firebase JS (www.gstatic.com) and its Google APIs, tesseract.js / face-api.js (cdn.jsdelivr.net, plus
+/// Firebase JS (www.gstatic.com) and its Google APIs, tesseract.js / face-api.js / Leaflet (cdn.jsdelivr.net, plus
 /// the tesseract language data), MapTiler, and Firebase Storage photos.
 /// </summary>
 public static class SecurityHeaders
@@ -23,8 +23,8 @@ public static class SecurityHeaders
         // Inline scripts in App.razor (theme, Blazor hooks); OCR libraries compile WebAssembly.
         "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://www.gstatic.com https://cdn.jsdelivr.net; " +
         "worker-src 'self' blob: https://cdn.jsdelivr.net; " +
-        // MudBlazor and the components set inline styles.
-        "style-src 'self' 'unsafe-inline'; " +
+        // MudBlazor and the components set inline styles; Leaflet's stylesheet for the shift route map.
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
         "img-src 'self' data: blob: https://firebasestorage.googleapis.com https://api.maptiler.com; " +
         "font-src 'self' data:; " +
         "connect-src 'self' wss: https://*.googleapis.com https://www.gstatic.com https://cdn.jsdelivr.net " +

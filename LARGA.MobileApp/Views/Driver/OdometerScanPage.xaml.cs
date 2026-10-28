@@ -1,6 +1,7 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
 using Microsoft.Maui.ApplicationModel;
+using Microsoft.Maui.Storage;
 using LARGA.MobileApp.Services;
 using LARGA.MobileApp.ViewModels.Driver;
 using LARGA.SharedCore.Services;
@@ -294,6 +295,8 @@ public partial class OdometerScanPage : ContentPage
 
     private async void OnReadDigitsClicked(object sender, EventArgs e)
     {
+        ReadDigitsButton.IsEnabled = false;
+        string? cropPath = null;
         try
         {
             // Combine the box's initial layout bounds with the pan/pinch transforms applied
@@ -310,30 +313,23 @@ public partial class OdometerScanPage : ContentPage
             double layoutHeight = CropOverlayLayout.Height;
             if (layoutWidth <= 0 || layoutHeight <= 0) return;
 
-            using var stream = File.OpenRead(_localFilePath);
-            using var bitmap = SKBitmap.Decode(stream);
-            if (bitmap == null) return;
+            string localFilePath = _localFilePath;
+            using var crop = await Task.Run(() => CropFrame(localFilePath, centerX, centerY, effectiveWidth, effectiveHeight, layoutWidth, layoutHeight));
+            if (crop == null) return;
 
-            double scaleX = bitmap.Width / layoutWidth;
-            double scaleY = bitmap.Height / layoutHeight;
-
-            int px = (int)((centerX - effectiveWidth / 2) * scaleX);
-            int py = (int)((centerY - effectiveHeight / 2) * scaleY);
-            int pw = (int)(effectiveWidth * scaleX);
-            int ph = (int)(effectiveHeight * scaleY);
-
-            px = Math.Clamp(px, 0, bitmap.Width - 1);
-            py = Math.Clamp(py, 0, bitmap.Height - 1);
-            pw = Math.Clamp(pw, 1, bitmap.Width - px);
-            ph = Math.Clamp(ph, 1, bitmap.Height - py);
-
-            using var crop = new SKBitmap(pw, ph);
-            using (var canvas = new SKCanvas(crop))
+            // Most odometers (mechanical drums, white/amber backlit displays, digital clusters)
+            // show ordinary printed digits, which ML Kit reads well once it only sees the framed
+            // readout instead of the whole dashboard. The seven-segment decoder is the fallback
+            // for the green segmented LCDs ML Kit can't read.
+            cropPath = await Task.Run(() => SaveFramedCrop(crop));
+            string? ocrReading = cropPath == null ? null : await ReadFramedDigitsWithOcrAsync(cropPath);
+            if (ocrReading != null)
             {
-                canvas.DrawBitmap(bitmap, new SKRectI(px, py, px + pw, py + ph), new SKRect(0, 0, pw, ph));
+                await ConfirmReadingAsync(ocrReading, allConfident: true);
+                return;
             }
 
-            var result = SevenSegmentDecoder.Decode(crop, expectedDigitCount: 6);
+            var result = await Task.Run(() => SevenSegmentDecoder.Decode(crop, expectedDigitCount: 6));
 
             if (result.Digits.Count == 0)
             {
@@ -341,25 +337,143 @@ public partial class OdometerScanPage : ContentPage
                 return;
             }
 
-            await ConfirmDecodedResultAsync(result);
+            await ConfirmReadingAsync(result.Text, result.AllConfident);
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"LCD Decode Error: {ex.Message}");
             await DisplayAlert("Error", "Something went wrong reading that region. Please try again or enter the number manually.", "OK");
         }
+        finally
+        {
+            ReadDigitsButton.IsEnabled = true;
+            if (cropPath != null)
+            {
+                try { File.Delete(cropPath); } catch { /* cache file */ }
+            }
+        }
     }
 
-    // Shows the decoded digits for confirmation before using them - low-confidence digits
-    // (see SevenSegmentDecoder.DigitResult.IsConfident) are called out explicitly rather than
-    // silently trusted, since this is a deterministic-but-imperfect classical decode, not a
-    // guaranteed-correct read. Seven-segment LCD decoding won't catch every photo (some
-    // readings just won't come through cleanly) - manual entry is always one tap away rather
-    // than trying to force a perfect automatic read.
-    private async Task ConfirmDecodedResultAsync(SevenSegmentDecoder.DecodeResult result)
+    private static SKBitmap? CropFrame(string photoPath, double centerX, double centerY, double effectiveWidth, double effectiveHeight, double layoutWidth, double layoutHeight)
     {
-        string text = result.Text;
-        string message = result.AllConfident
+        using var stream = File.OpenRead(photoPath);
+        using var bitmap = SKBitmap.Decode(stream);
+        if (bitmap == null) return null;
+
+        double scaleX = bitmap.Width / layoutWidth;
+        double scaleY = bitmap.Height / layoutHeight;
+
+        int px = (int)((centerX - effectiveWidth / 2) * scaleX);
+        int py = (int)((centerY - effectiveHeight / 2) * scaleY);
+        int pw = (int)(effectiveWidth * scaleX);
+        int ph = (int)(effectiveHeight * scaleY);
+
+        px = Math.Clamp(px, 0, bitmap.Width - 1);
+        py = Math.Clamp(py, 0, bitmap.Height - 1);
+        pw = Math.Clamp(pw, 1, bitmap.Width - px);
+        ph = Math.Clamp(ph, 1, bitmap.Height - py);
+
+        var crop = new SKBitmap(pw, ph);
+        using (var canvas = new SKCanvas(crop))
+        {
+            canvas.DrawBitmap(bitmap, new SKRectI(px, py, px + pw, py + ph), new SKRect(0, 0, pw, ph));
+        }
+        return crop;
+    }
+
+    /// <summary>The framed region as a cache JPEG for ML Kit, with a margin in the region's own
+    /// average color - text recognition misses glyphs that touch the image edge, and a driver
+    /// frames the digits tightly.</summary>
+    private static string? SaveFramedCrop(SKBitmap crop)
+    {
+        try
+        {
+            long r = 0, g = 0, b = 0, n = 0;
+            int step = Math.Max(1, Math.Min(crop.Width, crop.Height) / 50);
+            for (int y = 0; y < crop.Height; y += step)
+            {
+                for (int x = 0; x < crop.Width; x += step)
+                {
+                    SKColor c = crop.GetPixel(x, y);
+                    r += c.Red; g += c.Green; b += c.Blue; n++;
+                }
+            }
+            var fill = n == 0 ? SKColors.Black : new SKColor((byte)(r / n), (byte)(g / n), (byte)(b / n));
+
+            int margin = Math.Max(8, crop.Height / 4);
+            using var padded = new SKBitmap(crop.Width + margin * 2, crop.Height + margin * 2);
+            using (var canvas = new SKCanvas(padded))
+            {
+                canvas.Clear(fill);
+                canvas.DrawBitmap(crop, margin, margin);
+            }
+
+            string target = Path.Combine(FileSystem.CacheDirectory, $"odometer_frame_{Guid.NewGuid():N}.jpg");
+            using var image = SKImage.FromBitmap(padded);
+            using var data = image.Encode(SKEncodedImageFormat.Jpeg, 95);
+            using (var output = File.OpenWrite(target))
+            {
+                data.SaveTo(output);
+            }
+            return target;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Save framed crop failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>The reading ML Kit finds in the framed crop - the enhanced (upscaled, high
+    /// contrast) copy first since a framed readout is small - or null when it finds none.</summary>
+    private async Task<string?> ReadFramedDigitsWithOcrAsync(string cropPath)
+    {
+        string? enhanced = await Task.Run(() => OcrImageEnhancer.CreateEnhancedCopy(cropPath));
+        try
+        {
+            foreach (string? path in new[] { enhanced, cropPath })
+            {
+                if (path == null) continue;
+                string? reading = FramedReading(await _ocrService.ExtractTextBlocksAsync(path));
+                if (reading != null) return reading;
+            }
+            return null;
+        }
+        finally
+        {
+            if (enhanced != null)
+            {
+                try { File.Delete(enhanced); } catch { /* cache file */ }
+            }
+        }
+    }
+
+    private static string? FramedReading(List<OcrTextBlock>? blocks)
+    {
+        if (blocks == null || blocks.Count == 0) return null;
+
+        var lines = ReadingRegions(blocks).Select(r => r.Text).ToList();
+        string? best = OdometerReadingParser.Candidates(lines).FirstOrDefault();
+        if (best != null) return best;
+
+        // The driver framed just the readout, so a shorter number (a low-mileage unit, or a
+        // drum partly hidden behind the needle) is still what they pointed at; the confirm
+        // dialog lets them correct it.
+        string digits = lines
+            .Select(l => new string((l ?? string.Empty).Where(char.IsDigit).ToArray()))
+            .OrderByDescending(d => d.Length)
+            .FirstOrDefault() ?? string.Empty;
+        return digits.Length is >= 3 and <= 7 ? digits : null;
+    }
+
+    // Shows the read digits for confirmation before using them - low-confidence digits
+    // (see SevenSegmentDecoder.DigitResult.IsConfident) are called out explicitly rather than
+    // silently trusted, since neither ML Kit nor the classical decode is a guaranteed-correct
+    // read. Some readings just won't come through cleanly - manual entry is always one tap
+    // away rather than trying to force a perfect automatic read.
+    private async Task ConfirmReadingAsync(string text, bool allConfident)
+    {
+        string message = allConfident
             ? $"Read: {text}"
             : $"Read: {text}\n\nNote: some digits were uncertain (marked with a low-confidence read) - double check against the photo before confirming.";
 

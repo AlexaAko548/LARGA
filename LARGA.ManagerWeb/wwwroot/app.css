@@ -2386,6 +2386,54 @@ color: var(--muted);
 margin-top: 0.15rem;
 }
 
+/* Shift Logs > View route (route-map.js). */
+.route-stats {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+gap: var(--space-3);
+margin-bottom: var(--space-3);
+}
+
+.route-stats div {
+display: flex;
+flex-direction: column;
+gap: 0.15rem;
+padding: var(--space-2) var(--space-3);
+border: 1px solid var(--accent-border);
+border-radius: var(--radius-md);
+}
+
+.route-stats span {
+font-size: 0.75rem;
+color: var(--muted);
+}
+
+.route-map {
+height: min(60vh, 460px);
+border-radius: var(--radius-lg);
+overflow: hidden;
+border: 1px solid var(--accent-border);
+}
+
+.route-legend {
+display: flex;
+align-items: center;
+gap: var(--space-2);
+margin-top: var(--space-2);
+font-size: 0.75rem;
+color: var(--muted);
+}
+
+.route-dot {
+display: inline-block;
+width: 10px;
+height: 10px;
+border-radius: var(--radius-pill);
+}
+
+.route-dot.start { background: #16a34a; }
+.route-dot.end { background: #dc2626; margin-left: var(--space-2); }
+
 .checklist-tabs {
 display: flex;
 gap: 1.2rem;
@@ -3799,6 +3847,17 @@ grid-template-columns: repeat(3, 1fr);
 .status-bullet.bullet-normal { background-color: #1b8b52; }
 .status-bullet.bullet-low { background-color: #b87400; }
 .status-bullet.bullet-critical { background-color: #b53d4a; }
+.status-bullet.bullet-archived { background-color: var(--muted); }
+
+/* Inventory: "Show archived" (SRS REQ-4.5-1). */
+.archived-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    cursor: pointer;
+}
 
 .col-actions {
     white-space: nowrap;
@@ -5269,6 +5328,20 @@ color: #ffffff;
 border-bottom-right-radius: 4px;
 }
 
+/* Another Manager / Assistant Manager's message: on the left with the driver's, in a light accent. */
+.chat-bubble.from-driver.from-staff {
+background: rgba(var(--accent-rgb),0.14);
+border-color: rgba(var(--accent-rgb),0.35);
+}
+
+/* Shared driver conversation: which Manager / Assistant Manager wrote a staff message. */
+.chat-bubble-sender {
+    font-size: 0.7rem;
+    font-weight: 600;
+    opacity: 0.85;
+    margin-bottom: 0.15rem;
+}
+
 .chat-bubble-time {
 font-size: 0.66rem;
 opacity: 0.7;
@@ -5934,7 +6007,8 @@ font-weight: 500;
 }
 
 /* Manager Settings: authorized payout accounts (target account verification). */
-.payout-accounts .manager-menu-hint {
+.payout-accounts .manager-menu-hint,
+.duress-pin .manager-menu-hint {
 display: block;
 margin-bottom: 0.4rem;
 }

@@ -140,6 +140,7 @@ builder.Services.AddSingleton<DriverManagementService>();
 builder.Services.AddSingleton<FinancialLedgerService>();
 // Authorized GCash / bank accounts for boundary payments (Manager Settings).
 builder.Services.AddSingleton<PayoutAccountService>();
+builder.Services.AddSingleton<DuressPinService>();
 builder.Services.AddSingleton<GarageService>();
 builder.Services.AddSingleton<AlertService>();
 builder.Services.AddSingleton<InventoryAuditService>();
@@ -158,14 +159,23 @@ builder.Services.AddScoped<LARGA.ManagerWeb.Services.ChatDrawerState>();
 builder.Services.AddScoped<LARGA.ManagerWeb.Services.SosBannerState>();
 builder.Services.AddHostedService<IdleAlertMonitorService>();
 builder.Services.AddHostedService<PaymentDriverIdBackfillService>();
-// LAR-86/87: mirror managers' numbers into the driver app's SOS auto-answer allowlist.
+// Clears mustChangePassword for users who already replaced their temporary password.
+builder.Services.AddHostedService<MustChangePasswordCleanupService>();
+// LAR-86/87: mirror Manager and Assistant Manager numbers into the driver app's SOS auto-answer allowlist (live).
 builder.Services.AddHostedService<ManagerPhoneAllowlistSyncService>();
 // Pushes each new SOS to every Manager/Assistant Manager phone (FCM), app open or not.
 builder.Services.AddHostedService<SosPushService>();
 builder.Services.AddSingleton<FuelVerificationService>();
+builder.Services.AddSingleton<ShiftRouteService>();
 // FUEL-017 / FUEL-004: auto-flags fuel submissions outside the system_configs tolerances, and
 // raises a bell alert for every automatic flag.
 builder.Services.AddHostedService<FuelAutoCheckService>();
+// Proposal §4.2.4.5: one-time claim of the OR numbers on fuel logs saved before the duplicate check.
+builder.Services.AddHostedService<FuelOrNumberBackfillService>();
+// REQ-4.3-7 / REQ-4.4-8: a bell alert for every defect report (plus a staff push) and fuel submission.
+builder.Services.AddHostedService<SubmissionAlertService>();
+// REQ-4.1-9: 5:30 AM pre-shift reminder push to each driver working today.
+builder.Services.AddHostedService<PreShiftReminderService>();
 // MNT-014/015/016: recurring routine checks + due/overdue bell alerts, on startup and hourly.
 builder.Services.AddHostedService<MaintenanceSchedulerService>();
 builder.Services.AddScoped<IManagerAuthService, ManagerAuthService>();

@@ -45,7 +45,7 @@ else
 
             <div class="header-actions">
                 <NotificationBell />
-                @if (_canManage) { <MessagesButton /> }
+                <MessagesButton />
                 <ManagerProfileMenu />
             </div>
         </header>
@@ -125,7 +125,7 @@ else
                         {
                             <span class="sos-no-phone">No phone number on file - add one in Driver &amp; Shifts to call.</span>
                         }
-                        @if (_canManage && !string.IsNullOrEmpty(alert.DriverId))
+                        @if (!string.IsNullOrEmpty(alert.DriverId))
                         {
                             <button class="solid-btn sos-message" type="button" @onclick="() => OpenChat(alert)">
                                 <Icon Name="message-circle" /> Message@(_unreadDriverIds.Contains(alert.DriverId) ? " · new" : "")

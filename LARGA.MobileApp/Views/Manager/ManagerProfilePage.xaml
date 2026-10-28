@@ -61,7 +61,7 @@
                             <TapGestureRecognizer Command="{Binding ChangePasswordCommand}" />
                         </Label.GestureRecognizers>
                     </Label>
-                    <Label Text="›  Update Contact Number" FontSize="14" TextColor="{DynamicResource LargaDarkText}">
+                    <Label Text="›  Update Contact Number" FontSize="14" TextColor="{DynamicResource LargaDarkText}" IsVisible="{Binding CanUpdateContactNumber}">
                         <Label.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding UpdateContactNumberCommand}" />
                         </Label.GestureRecognizers>

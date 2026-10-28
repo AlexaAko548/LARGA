@@ -26,7 +26,8 @@ public static class SignOutService
     private static readonly TimeSpan PendingWritesWait = TimeSpan.FromSeconds(5);
 
     private static readonly string[] ShiftKeys =
-        { "IsShiftActive", "CurrentShiftId", "ShiftStartTime", ClockInPendingViewModel.PendingRequestKey };
+        { "IsShiftActive", "CurrentShiftId", "ShiftStartTime", ClockInPendingViewModel.PendingRequestKey,
+          LastShiftStore.LastShiftIdKey, LastShiftStore.LastShiftEndedAtKey };
 
     private static readonly string[] PhotoExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".heic" };
 
@@ -38,6 +39,7 @@ public static class SignOutService
         bool writesFlushed = await FlushPendingWritesAsync(firestore);
 
         await CrossFirebaseAuth.Current.SignOutAsync();
+        StaffSession.Role = null;
 
         // Clearing the cache would drop writes that never reached the server. When the phone is
         // offline and something is still queued, keep the cache (the write goes out on the next

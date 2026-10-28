@@ -1,6 +1,7 @@
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore; // Included to access PhilippineTime
 using LARGA.SharedCore.Models.Chats;
+using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
 using System;
 using System.Collections.Generic;
@@ -19,7 +20,9 @@ public interface IChatService
     IDisposable ListenForMessages(string driverId, Action<IList<ChatMessage>> onMessagesUpdated);
     /// <summary>The driver's users.phoneNumber, or null when none is on file or it can't be read.</summary>
     Task<string?> GetDriverPhoneNumberAsync(string driverId);
-    IDisposable ListenForChatSessions(Action<IEnumerable<ChatSession>> onSessionsUpdated);
+    /// <summary>Live chats/* list. <paramref name="onError"/> is called if the listener is refused or fails
+    /// (it then stops - start a new one to retry).</summary>
+    IDisposable ListenForChatSessions(Action<IEnumerable<ChatSession>> onSessionsUpdated, Action<Exception>? onError = null);
     Task MarkMessagesAsReadAsync(string driverId);
 }
 
@@ -50,15 +53,46 @@ public class ChatService : IChatService
             var messageRef = db.GetCollection($"chats/{driverId}/messages").CreateDocument();
             var chatRef = db.GetCollection("chats").GetDocument(driverId);
 
-            var batch = db.CreateBatch();
-            batch.SetData(messageRef, new ChatMessageProxy
+            // Deleted by the Firestore TTL policy after the retention period (RetentionRules, audit H-01).
+            var expireAt = RetentionRules.ExpireAt(now, RetentionRules.ChatMessage);
+
+            // One conversation per driver is shared by every Manager / Assistant Manager, so a staff
+            // message says who sent it (firestore.rules check it's the signed-in user's own name and role).
+            // A driver's message must carry no sender keys at all - the plugin writes null properties as
+            // explicit nulls, which the rules reject - so it uses a proxy without them.
+            object proxy;
+            if (message.IsDriver)
             {
-                Text = message.Text,
-                IsDriver = message.IsDriver,
-                Timestamp = now,
-                // Deleted by the Firestore TTL policy after the retention period (RetentionRules, audit H-01).
-                ExpireAt = RetentionRules.ExpireAt(now, RetentionRules.ChatMessage),
-            });
+                proxy = new DriverChatMessageProxy
+                {
+                    Text = message.Text,
+                    IsDriver = true,
+                    Timestamp = now,
+                    ExpireAt = expireAt,
+                };
+            }
+            else
+            {
+                var sender = await GetSignedInStaffAsync();
+                if (sender is null)
+                {
+                    System.Diagnostics.Debug.WriteLine("SendMessageAsync skipped: the sender's profile couldn't be read.");
+                    return false;
+                }
+                proxy = new ChatMessageProxy
+                {
+                    Text = message.Text,
+                    IsDriver = false,
+                    Timestamp = now,
+                    ExpireAt = expireAt,
+                    SenderId = sender.Value.Uid,
+                    SenderName = sender.Value.Name,
+                    SenderRole = sender.Value.Role,
+                };
+            }
+
+            var batch = db.CreateBatch();
+            batch.SetData(messageRef, proxy);
             batch.SetData(chatRef, new ChatSessionProxy
             {
                 DriverName = realDriverName,
@@ -75,6 +109,33 @@ public class ChatService : IChatService
             // Prints the exact Firebase rejection reason to the Visual Studio Output window
             System.Diagnostics.Debug.WriteLine($"CRITICAL DATABASE ERROR: {ex.Message}");
             return false;
+        }
+    }
+
+    private (string Uid, string Name, string Role)? _staffSender;
+
+    /// <summary>The signed-in staff member as stored on users/{uid} (fullName, role), cached per account.</summary>
+    private async Task<(string Uid, string Name, string Role)?> GetSignedInStaffAsync()
+    {
+        string? uid = CrossFirebaseAuth.Current.CurrentUser?.Uid;
+        if (string.IsNullOrEmpty(uid)) return null;
+        if (_staffSender is { } cached && cached.Uid == uid) return cached;
+
+        try
+        {
+            var profile = await CrossFirebaseFirestore.Current
+                .GetCollection("users")
+                .GetDocument(uid)
+                .GetDocumentSnapshotAsync<StaffProfileProxy>();
+            if (profile?.Data == null) return null;
+
+            _staffSender = (uid, profile.Data.FullName ?? string.Empty, profile.Data.Role?.Trim() ?? string.Empty);
+            return _staffSender;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Staff profile fetch error: {ex.Message}");
+            return null;
         }
     }
 
@@ -144,6 +205,9 @@ public class ChatService : IChatService
                             MessageId = doc.Reference.Id,
                             Text = doc.Data.Text ?? string.Empty,
                             IsDriver = doc.Data.IsDriver,
+                            SenderId = doc.Data.SenderId,
+                            SenderName = doc.Data.SenderName,
+                            SenderRole = doc.Data.SenderRole,
                             // FIX: Convert UTC to Philippine Time for the actual chat bubbles
                             Timestamp = doc.Data.Timestamp.ToPhilippineTime()
                         });
@@ -180,7 +244,7 @@ public class ChatService : IChatService
         return null;
     }
 
-    public IDisposable ListenForChatSessions(Action<IEnumerable<ChatSession>> onSessionsUpdated)
+    public IDisposable ListenForChatSessions(Action<IEnumerable<ChatSession>> onSessionsUpdated, Action<Exception>? onError = null)
     {
         return CrossFirebaseFirestore.Current
             .GetCollection("chats")
@@ -209,6 +273,7 @@ public class ChatService : IChatService
             error =>
             {
                 System.Diagnostics.Debug.WriteLine($"Chat Sessions Listener Error: {error.Message}");
+                onError?.Invoke(error);
             });
     }
 
@@ -247,6 +312,40 @@ public class ChatMessageProxy
 
     [Plugin.Firebase.Firestore.FirestoreProperty(RetentionRules.ExpireAtField)]
     public DateTime ExpireAt { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty("senderId")]
+    public string? SenderId { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty("senderName")]
+    public string? SenderName { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty("senderRole")]
+    public string? SenderRole { get; set; }
+}
+
+// Write-only shape of a driver's message: no sender fields (firestore.rules reject the keys even when null).
+public class DriverChatMessageProxy
+{
+    [Plugin.Firebase.Firestore.FirestoreProperty("text")]
+    public string Text { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty("isDriver")]
+    public bool IsDriver { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
+    public DateTime Timestamp { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty(RetentionRules.ExpireAtField)]
+    public DateTime ExpireAt { get; set; }
+}
+
+public class StaffProfileProxy
+{
+    [Plugin.Firebase.Firestore.FirestoreProperty("fullName")]
+    public string? FullName { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty("role")]
+    public string? Role { get; set; }
 }
 
 // Proxy class required for fetching the Manager's chat list

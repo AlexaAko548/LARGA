@@ -78,6 +78,12 @@ public class AlertCenterViewModel : BindableObject
 
     // "No alerts right now" - only once a feed has answered, so it doesn't flash while loading.
     public bool IsEmpty => _hasLoaded && !HasError && Alerts.Count == 0;
+
+    /// <summary>Resolving an SOS (SOS-007), approving/denying a clock-in and resolving a fuel flag are a
+    /// Manager's decisions - an Assistant Manager sees the cards (and can call or message the driver)
+    /// but not those buttons. firestore.rules refuse the writes too.</summary>
+    public bool CanDecide => !StaffSession.IsAssistantManager;
+    public bool IsDecisionManagerOnly => !CanDecide;
     public ICommand DismissAlertCommand { get; }
     public ICommand ApproveShiftCommand { get; }
     public ICommand DenyShiftCommand { get; }
@@ -334,8 +340,9 @@ public class AlertCenterViewModel : BindableObject
             .AddSnapshotListener<SystemAlertProxy>(snapshot =>
             {
                 FirstSnapshotArrived();
+                // Every fuel submission is a web-bell notice only (AlertFeed.ShownOnPhone).
                 var items = snapshot.Documents
-                    .Where(doc => doc.Data != null)
+                    .Where(doc => doc.Data != null && AlertFeed.ShownOnPhone(doc.Data.Type))
                     .Select(doc => BellItem(doc.Reference.Id, doc.Data!))
                     .ToList();
 
@@ -540,6 +547,7 @@ public class AlertCenterViewModel : BindableObject
             switch (alert.Type)
             {
                 case AlertType.Sos:
+                    if (!await EnsureCanDecideAsync()) return;
                     // Unlike the X on every other card, this one is a real decision (same writes
                     // as the web's SOS Dispatch Resolved toggle) - confirm first so a stray tap on
                     // the close icon can't silently close out an active emergency.
@@ -601,6 +609,7 @@ public class AlertCenterViewModel : BindableObject
     /// </summary>
     private async Task ApproveClockInAsync(AlertItem? alert)
     {
+        if (!await EnsureCanDecideAsync()) return;
         if (alert == null || alert.Type != AlertType.ShiftApproval) return;
 
         // Approving lets a unit with a flagged inspection go out - confirm, like Deny asks for a note.
@@ -658,6 +667,7 @@ public class AlertCenterViewModel : BindableObject
     /// </summary>
     private async Task DenyClockInAsync(AlertItem? alert)
     {
+        if (!await EnsureCanDecideAsync()) return;
         if (alert == null || alert.Type != AlertType.ShiftApproval) return;
 
         string? note = await Shell.Current.DisplayPromptAsync(
@@ -750,6 +760,13 @@ public class AlertCenterViewModel : BindableObject
         }
     }
 
+    private async Task<bool> EnsureCanDecideAsync()
+    {
+        if (CanDecide) return true;
+        await Shell.Current.DisplayAlert("Manager only", "Only a Manager can make this decision.", "OK");
+        return false;
+    }
+
     private static async Task<bool> IsStillPendingAsync(IDocumentReference request)
     {
         var snapshot = await request.GetDocumentSnapshotAsync<ClockInRequestAlertProxy>();
@@ -811,6 +828,7 @@ public class AlertCenterViewModel : BindableObject
     /// </summary>
     private async Task ResolveFuelFlagAsync(AlertItem? alert)
     {
+        if (!await EnsureCanDecideAsync()) return;
         if (alert == null || alert.Type != AlertType.FuelDiscrepancy) return;
 
         string? note = await Shell.Current.DisplayPromptAsync(
@@ -839,6 +857,7 @@ public class AlertCenterViewModel : BindableObject
             });
             // Same as the web's ResolveFlagAsync: the flag's bell row (fuel_{id}) is read once it's resolved.
             await MarkBellReadAsync(AlertFeed.FuelBellId(alert.Id));
+            await MarkBellReadAsync(LARGA.SharedCore.Alerts.SubmissionAlerts.FuelSubmittedAlertId(alert.Id)); // REQ-4.4-8: reviewed
             AuditLogWriter.Record("FuelFlagResolved",
                 $"Resolved the flag on shift {snapshot?.Data?.ShiftId ?? "unknown"}'s fuel submission: {note}");
             await Shell.Current.DisplayAlert("Fuel flag resolved", "The receipt is now marked Verified with your note.", "OK");

@@ -43,6 +43,12 @@ public class FuelReportViewModel : BindableObject
 
     private readonly IOcrService _ocrService;
     private readonly IFuelService _fuelService;
+    private readonly IShiftManagementService _shiftService;
+
+    // REQ-4.3-3: the shift this report is for - the active shift, or one that ended within
+    // FuelShiftRules.PostShiftWindow. Kept with the draft, so a report started during the shift
+    // still goes to it after clock-out.
+    private string? _reportShiftId;
 
     private string _cost = string.Empty;
     public string Cost
@@ -259,10 +265,11 @@ public class FuelReportViewModel : BindableObject
     public ICommand RedoReceiptCommand { get; }
     public ICommand SubmitReportCommand { get; }
 
-    public FuelReportViewModel(IOcrService ocrService, IFuelService fuelService)
+    public FuelReportViewModel(IOcrService ocrService, IFuelService fuelService, IShiftManagementService shiftService)
     {
         _ocrService = ocrService;
         _fuelService = fuelService;
+        _shiftService = shiftService;
 
         WeakReferenceMessenger.Default.Register<FuelReportViewModel, OdometerScannedData, string>(this, "OdometerScanned", (r, data) =>
         {
@@ -372,7 +379,19 @@ public class FuelReportViewModel : BindableObject
                 return;
             }
 
-            var shiftId = Preferences.Get("CurrentShiftId", "UNKNOWN_SHIFT");
+            // REQ-4.3-3 / REQ-5.5-6: never an unlinked fuel log (firestore.rules refuse one too).
+            string? shiftId = await _shiftService.GetFuelReportShiftIdAsync(_reportShiftId, LastShiftStore.LocalFuelReportShiftId());
+            if (shiftId is null)
+            {
+                await Shell.Current.DisplayAlert("No shift", FuelShiftRules.NoShiftMessage, "OK");
+                return;
+            }
+            if (shiftId != _reportShiftId)
+            {
+                _reportShiftId = shiftId;
+                SavePendingDraft();
+            }
+
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var baseStoragePath = $"fuel_logs/{currentUser.Uid}/{shiftId}/{timestamp}";
 
@@ -419,14 +438,14 @@ public class FuelReportViewModel : BindableObject
                 IsAnyFieldManuallyEdited = IsAnyFieldManuallyEdited
             };
 
-            var recordId = string.Empty;
+            FuelSubmitResult result = new(string.Empty, false);
 
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                recordId = await _fuelService.SubmitFuelReportAsync(fuelRecord);
+                result = await _fuelService.SubmitFuelReportAsync(fuelRecord);
             });
 
-            if (string.IsNullOrEmpty(recordId))
+            if (string.IsNullOrEmpty(result.Id))
             {
                 await Shell.Current.DisplayAlert("Submission failed", "Unable to submit to Firebase right now. Your report is saved on this phone - please try again.", "OK");
                 return;
@@ -435,9 +454,15 @@ public class FuelReportViewModel : BindableObject
             WeakReferenceMessenger.Default.Send(new FuelReportSubmittedMessage());
             ResetState(); // clears the draft and its photos
 
-            await Shell.Current.DisplayAlert("Success", stationAllowed
+            // FUEL-004 / Proposal §4.2.4.5: saved, but flagged for the manager.
+            string? flagReason = FuelOrNumberRules.CombineReasons(new[]
+            {
+                stationAllowed ? null : FuelStations.NotAllowedReason,
+                result.DuplicateOrNumber ? FuelOrNumberRules.DuplicateReason : null,
+            });
+            await Shell.Current.DisplayAlert("Success", flagReason is null
                 ? "Fuel report submitted for verification."
-                : $"Fuel report submitted, but flagged for the manager's review: {FuelStations.NotAllowedReason}.", "OK");
+                : $"Fuel report submitted, but flagged for the manager's review: {flagReason}.", "OK");
             await Shell.Current.GoToAsync("..");
         }
         catch (Exception ex)
@@ -497,8 +522,41 @@ public class FuelReportViewModel : BindableObject
 
         CancelScheduledDraftSave();
         ClearPendingDraft();
+        _reportShiftId = LastShiftStore.LocalFuelReportShiftId();
         _isApplyingScanResult = false;
         OnPropertyChanged(nameof(CanSubmit));
+    }
+
+    /// <summary>REQ-4.3-3: run when the Fuel Report opens. With no active shift and none that ended
+    /// within FuelShiftRules.PostShiftWindow, says so and returns false (the page closes). Offline,
+    /// the phone's own memory of the shift decides, and Submit checks again.</summary>
+    public async Task<bool> EnsureShiftAsync()
+    {
+        if (Connectivity.Current.NetworkAccess != NetworkAccess.Internet)
+        {
+            if (_reportShiftId is not null) return true;
+        }
+        else
+        {
+            try
+            {
+                string? shiftId = await _shiftService.GetFuelReportShiftIdAsync(_reportShiftId, LastShiftStore.LocalFuelReportShiftId());
+                if (shiftId is not null)
+                {
+                    _reportShiftId = shiftId;
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Can't tell right now - let the driver fill it in; Submit checks again.
+                System.Diagnostics.Debug.WriteLine($"Fuel report shift check failed: {ex.Message}");
+                return true;
+            }
+        }
+
+        await Shell.Current.DisplayAlert("No shift", FuelShiftRules.NoShiftMessage, "OK");
+        return false;
     }
 
     /// <summary>FUEL-015: the Fuel Report opens on the unsent report from this shift if there is one
@@ -682,7 +740,7 @@ public class FuelReportViewModel : BindableObject
 
             var draft = new FuelDraft
             {
-                ShiftId = Preferences.Get("CurrentShiftId", string.Empty),
+                ShiftId = _reportShiftId ?? string.Empty,
                 Cost = Cost,
                 Quantity = Quantity,
                 FuelStation = FuelStation,
@@ -778,15 +836,19 @@ public class FuelReportViewModel : BindableObject
             draft = null;
         }
 
-        // Only this shift's report, and only with its photos still there.
-        string currentShift = Preferences.Get("CurrentShiftId", string.Empty);
-        if (draft == null || draft.ShiftId != currentShift
+        // Only a report for the current shift or the one that just ended (REQ-4.3-3), and only
+        // with its photos still there.
+        // A draft with no shift yet (started offline) is kept too - Submit links it.
+        if (draft == null
+            || (!string.IsNullOrWhiteSpace(draft.ShiftId)
+                && draft.ShiftId != Preferences.Get("CurrentShiftId", string.Empty) && draft.ShiftId != LastShiftStore.RecentShiftId())
             || (draft.HasReceiptScan && (string.IsNullOrWhiteSpace(draft.ReceiptPath) || !File.Exists(draft.ReceiptPath))))
         {
             return false;
         }
 
         _isApplyingScanResult = true;
+        _reportShiftId = string.IsNullOrWhiteSpace(draft.ShiftId) ? LastShiftStore.LocalFuelReportShiftId() : draft.ShiftId;
         _hasReceiptScan = draft.HasReceiptScan;
         _originalCostValue = draft.OriginalCost;
         _originalQuantityValue = draft.OriginalQuantity;

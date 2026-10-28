@@ -29,13 +29,31 @@
                     <Grid ColumnDefinitions="*, Auto" Margin="0,5,0,15">
                         <Label Grid.Column="0" Text="{Binding ShiftStatus}" Style="{StaticResource HeaderTitleStyle}" TextColor="{DynamicResource ThemeTextBlack}" FontSize="38" VerticalOptions="Center"/>
 
-                        <!-- SOS Icon Button -->
-                        <Border Grid.Column="1" BackgroundColor="#FF2424" Stroke="#FF7373" StrokeThickness="6" StrokeShape="RoundRectangle 30" WidthRequest="60" HeightRequest="60" VerticalOptions="Center" HorizontalOptions="Center">
-                            <Border.Behaviors>
-                                <toolkit:TouchBehavior LongPressDuration="3000" LongPressCommand="{Binding SendSosCommand}" />
-                            </Border.Behaviors>
-                            <Image Source="sos_icon.png" WidthRequest="30" HeightRequest="30" HorizontalOptions="Center" VerticalOptions="Center" />
-                        </Border>
+                        <!-- SOS Icon Button. The 80x80 wrapper leaves room for the hold ring; its -10
+                             margin keeps the row laid out as if the button were still 60x60. The hold
+                             animation (code-behind) scales the wrapper, not the Border, because
+                             TouchBehavior resets the Border's own Scale on every touch change.
+                             Holding it 3 s runs SendSosCommand from the code-behind. -->
+                        <Grid x:Name="SosButtonHost" Grid.Column="1" WidthRequest="80" HeightRequest="80" Margin="-10" VerticalOptions="Center" HorizontalOptions="Center">
+                            <Ellipse x:Name="SosGlow" WidthRequest="80" HeightRequest="80" Scale="0.75" Opacity="0" InputTransparent="True" HorizontalOptions="Center" VerticalOptions="Center">
+                                <Ellipse.Fill>
+                                    <RadialGradientBrush Center="0.5,0.5" Radius="0.5">
+                                        <GradientStop Color="#FF2424" Offset="0.55" />
+                                        <GradientStop Color="#00FF2424" Offset="1" />
+                                    </RadialGradientBrush>
+                                </Ellipse.Fill>
+                            </Ellipse>
+                            <GraphicsView x:Name="SosHoldRing" InputTransparent="True" />
+                            <Border BackgroundColor="#FF2424" Stroke="#FF7373" StrokeThickness="6" StrokeShape="RoundRectangle 30" WidthRequest="60" HeightRequest="60" VerticalOptions="Center" HorizontalOptions="Center">
+                                <Border.Behaviors>
+                                    <!-- Only reports press/release. The 3-second hold is timed in the code-behind:
+                                         TouchBehavior's own LongPressCommand timer could outlive a short press
+                                         and fire early during the next one. -->
+                                    <toolkit:TouchBehavior CurrentTouchStatusChanged="OnSosTouchStatusChanged" />
+                                </Border.Behaviors>
+                                <Image Source="sos_icon.png" WidthRequest="30" HeightRequest="30" HorizontalOptions="Center" VerticalOptions="Center" />
+                            </Border>
+                        </Grid>
                     </Grid>
 
                     <!-- Top Metric Cards -->
@@ -130,6 +148,31 @@
                     <Grid ColumnDefinitions="*, *" ColumnSpacing="15">
                         <Button Grid.Column="0" Text="NO" Style="{StaticResource LargaButtonStyle}" BackgroundColor="#0099CC" TextColor="White" CornerRadius="10" HeightRequest="45" Command="{Binding CancelClockOutCommand}"/>
                         <Button Grid.Column="1" Text="YES" Style="{StaticResource LargaButtonStyle}" BackgroundColor="#0099CC" TextColor="White" CornerRadius="10" HeightRequest="45" Command="{Binding ConfirmClockOutCommand}"/>
+                    </Grid>
+                    <!-- Duress PIN entry: deliberately small and plain, like an ordinary option. -->
+                    <Label Text="Enter PIN" FontSize="13" TextDecorations="Underline" TextColor="{DynamicResource ThemeTextSecondary}" HorizontalOptions="Center" Margin="0,-12,0,0" Padding="10,4">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding ShowDuressPinCommand}" />
+                        </Label.GestureRecognizers>
+                    </Label>
+                </VerticalStackLayout>
+            </Frame>
+        </ContentView>
+
+        <!-- DURESS PIN OVERLAY: worded like any PIN prompt. The manager's PIN sends a silent Hostile
+             SOS and carries on into the normal clock-out. -->
+        <ContentView IsVisible="{Binding IsDuressPinVisible}" BackgroundColor="#90000000" InputTransparent="False" ZIndex="10">
+            <Frame BackgroundColor="{DynamicResource ThemeSurface}" CornerRadius="16" Padding="25" HorizontalOptions="Center" VerticalOptions="Center" WidthRequest="300" HasShadow="True">
+                <VerticalStackLayout Spacing="15">
+                    <Label Text="Enter PIN" Style="{StaticResource StatusDataStyle}" FontSize="18" HorizontalOptions="Center" TextColor="{DynamicResource ThemeTextBlack}"/>
+                    <Border Stroke="{DynamicResource ThemeTextSecondary}" StrokeThickness="1" StrokeShape="RoundRectangle 10" Padding="10,0">
+                        <Entry Text="{Binding DuressPinEntry}" Keyboard="Numeric" IsPassword="True" MaxLength="6" HorizontalTextAlignment="Center" FontSize="20"
+                               BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" ReturnCommand="{Binding SubmitDuressPinCommand}" />
+                    </Border>
+                    <Label Text="Incorrect PIN, try again" IsVisible="{Binding IsDuressPinWrong}" FontSize="13" TextColor="#FF2424" HorizontalOptions="Center"/>
+                    <Grid ColumnDefinitions="*, *" ColumnSpacing="15">
+                        <Button Grid.Column="0" Text="CANCEL" Style="{StaticResource LargaButtonStyle}" BackgroundColor="#0099CC" TextColor="White" CornerRadius="10" HeightRequest="45" Command="{Binding CancelDuressPinCommand}"/>
+                        <Button Grid.Column="1" Text="CONFIRM" Style="{StaticResource LargaButtonStyle}" BackgroundColor="#0099CC" TextColor="White" CornerRadius="10" HeightRequest="45" Command="{Binding SubmitDuressPinCommand}"/>
                     </Grid>
                 </VerticalStackLayout>
             </Frame>

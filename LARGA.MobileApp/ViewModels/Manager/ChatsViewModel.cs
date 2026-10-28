@@ -30,6 +30,24 @@ public class ChatsViewModel : INotifyPropertyChanged
 
     public ObservableCollection<ChatSession> ChatSessions { get; set; } = new();
 
+    // The conversations (chats/*) come from their own listener; if it's refused (e.g. firestore.rules
+    // not yet letting this role read chats) the driver list alone would look like "no conversations".
+    private IDisposable? _sessionsListener;
+    private bool _sessionsFailed;
+    private string _conversationsError = string.Empty;
+    public string ConversationsError
+    {
+        get => _conversationsError;
+        private set
+        {
+            if (_conversationsError == value) return;
+            _conversationsError = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasConversationsError));
+        }
+    }
+    public bool HasConversationsError => !string.IsNullOrEmpty(ConversationsError);
+
     // The driver roster is fetched async on appearing (LoadDriversAsync); until that first
     // fetch finishes, CollectionView's EmptyView would otherwise show "No drivers registered
     // yet." for the couple of seconds it takes to load, even when drivers do exist.
@@ -87,6 +105,10 @@ public class ChatsViewModel : INotifyPropertyChanged
         using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
         _drivers = await _chatService.GetDriversAsync();
         _hasLoadedDrivers = true;
+        if (_sessionsFailed)
+        {
+            LoadChatSessions(); // retry the conversations too
+        }
         MainThread.BeginInvokeOnMainThread(() =>
         {
             EmptyStateText = "No drivers registered yet.";
@@ -111,10 +133,22 @@ public class ChatsViewModel : INotifyPropertyChanged
 
     private void LoadChatSessions()
     {
-        _chatService.ListenForChatSessions(sessions =>
+        _sessionsFailed = false;
+        _sessionsListener?.Dispose();
+        _sessionsListener = _chatService.ListenForChatSessions(sessions =>
         {
             _sessions = sessions.ToList();
-            MainThread.BeginInvokeOnMainThread(Rebuild);
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                ConversationsError = string.Empty;
+                Rebuild();
+            });
+        }, error =>
+        {
+            _sessionsFailed = true;
+            LARGA.MobileApp.Services.FirestoreErrors.Log("Chats: conversations listener", error);
+            MainThread.BeginInvokeOnMainThread(() =>
+                ConversationsError = $"Couldn't load conversations: {LARGA.MobileApp.Services.FirestoreErrors.FriendlyMessage(error, "load the conversations")} Pull down to retry.");
         });
     }
 

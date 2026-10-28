@@ -138,9 +138,8 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
                 return;
             }
 
-            string? route = role.Trim().Equals("Driver", StringComparison.OrdinalIgnoreCase) ? "//driver-dashboard"
-                : role.Trim().Equals("Manager", StringComparison.OrdinalIgnoreCase) ? "//manager-dashboard"
-                : null;
+            // An Assistant Manager gets the manager dashboard too, with the Manager-only parts left out.
+            string? route = LARGA.SharedCore.StaffRoles.HomeRoute(role);
 
             if (route is null)
             {
@@ -155,7 +154,7 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
             // DSM-006: the account must belong to the tile it was signed in from - a Manager can't
             // get in through the Driver tile or the other way round. Signed out straight away, and
             // the tile's remembered credentials are left as they were.
-            if (!role.Trim().Equals(_expectedRole, StringComparison.OrdinalIgnoreCase))
+            if (!LARGA.SharedCore.StaffRoles.MatchesLoginTile(role, _expectedRole))
             {
                 await SignOutQuietlyAsync();
                 string otherTile = _expectedRole.Equals("Driver", StringComparison.OrdinalIgnoreCase) ? "Manager" : "Driver";
@@ -163,11 +162,20 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
                 return;
             }
 
+            LARGA.MobileApp.Services.StaffSession.Role = role.Trim();
+
             // Only persist credentials once the login fully succeeded.
             await SaveOrClearCredentialsAsync();
 
+            // A manager-set temporary password must be replaced before anything else.
+            bool mustChangePassword = await MustChangePasswordAsync(userId);
+
             // Awaited (not fire-and-forget) so navigation/page-construction failures land in the catch below.
-            await MainThread.InvokeOnMainThreadAsync(() => Shell.Current.GoToAsync(route));
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                await Shell.Current.GoToAsync(route);
+                await LARGA.MobileApp.Views.Auth.ForcedPasswordChangePage.ShowIfRequiredAsync(mustChangePassword);
+            });
         }
         catch (AuthFailedException ex)
         {
@@ -181,6 +189,21 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
         finally
         {
             IsBusy = false;
+        }
+    }
+
+    /// <summary>users/{uid}.mustChangePassword; an unreadable profile doesn't block the login (the
+    /// next sign-in checks again).</summary>
+    private async Task<bool> MustChangePasswordAsync(string userId)
+    {
+        try
+        {
+            return await _authService.MustChangePasswordAsync(userId);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"mustChangePassword lookup failed: {ex.Message}");
+            return false;
         }
     }
 

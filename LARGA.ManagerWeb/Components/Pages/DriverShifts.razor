@@ -14,6 +14,8 @@
 @inject NavigationManager Navigation
 @inject DriverManagementService DriverManagement
 @inject ClockInApprovalService ClockInApprovals
+@inject ShiftRouteService ShiftRoutes
+@inject IConfiguration Configuration
 @implements IDisposable
 
 <PageTitle>Driver & Shift Management</PageTitle>
@@ -40,7 +42,7 @@ else
 
             <div class="header-actions">
                 <NotificationBell />
-                @if (_canManage) { <MessagesButton /> }
+                <MessagesButton />
                 <ManagerProfileMenu />
             </div>
         </header>
@@ -418,16 +420,17 @@ else
                                 <th>Shift Status</th>
                                 <th>Inspection Logs</th>
                                 <th>Reports</th>
+                                <th>Route</th>
                             </tr>
                         </thead>
                         <tbody>
                             @if (_shiftLogs is null)
                             {
-                                <tr><td colspan="6" class="table-empty"><LoadingSpinner Text="Loading shift logs…" /></td></tr>
+                                <tr><td colspan="7" class="table-empty"><LoadingSpinner Text="Loading shift logs…" /></td></tr>
                             }
                             else if (!FilteredLogs.Any())
                             {
-                                <tr><td colspan="6" class="table-empty">No shifts match these filters.</td></tr>
+                                <tr><td colspan="7" class="table-empty">No shifts match these filters.</td></tr>
                             }
                             else
                             {
@@ -459,6 +462,9 @@ else
                                             {
                                                 <span>—</span>
                                             }
+                                        </td>
+                                        <td>
+                                            <button class="checklist-link" type="button" @onclick="() => OpenRouteAsync(log)">View route</button>
                                         </td>
                                     </tr>
                                 }
@@ -571,6 +577,59 @@ else
             <div class="report-actions checklist-footer">
                 <span class="checklist-footer-note">Submitted by driver via LARGA Mobile App</span>
                 <button class="download-btn" type="button" @onclick="CloseChecklistModal">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showRouteModal && _routeLog is not null)
+{
+    <div class="report-overlay" @onclick="CloseRouteModalAsync">
+        <div class="report-modal wide" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <div>
+                    <h3>Route — @_routeLog.TaxiId</h3>
+                    <div class="checklist-subtitle">@_routeLog.DriverName · @FormatLogDate(_routeLog.ShiftStart)</div>
+                </div>
+                <button type="button" class="close-modal" @onclick="CloseRouteModalAsync">×</button>
+            </div>
+
+            <div class="report-body">
+                @if (_route is null && _routeError is null)
+                {
+                    <LoadingSpinner Text="Loading GPS route…" />
+                }
+                else if (_routeError is not null)
+                {
+                    <div class="table-empty">@_routeError</div>
+                }
+                else if (!_route!.HasData)
+                {
+                    <div class="table-empty">No GPS data for this shift. Telemetry is kept for 90 days, so an older shift's route may have expired.</div>
+                }
+                else
+                {
+                    <div class="route-stats">
+                        <div><span>Total distance</span><strong>@_route.DistanceKm.ToString("N1") km</strong></div>
+                        <div><span>Start</span><strong>@_route.StartUtc!.Value.ToPhilippineTime().ToString("MMM d, h:mm tt")</strong></div>
+                        <div><span>End</span><strong>@_route.EndUtc!.Value.ToPhilippineTime().ToString("MMM d, h:mm tt")</strong></div>
+                        <div><span>GPS points</span><strong>@_route.Points.Count.ToString("N0")</strong></div>
+                    </div>
+                    @if (string.IsNullOrWhiteSpace(MapTilerKey))
+                    {
+                        <div class="table-empty">The map can't be shown: MapTiler:ApiKey isn't configured on this server.</div>
+                    }
+                    else
+                    {
+                        <div id="@RouteMapElementId" class="route-map"></div>
+                        <div class="route-legend"><span class="route-dot start"></span> Start <span class="route-dot end"></span> End</div>
+                    }
+                }
+            </div>
+
+            <div class="report-actions checklist-footer">
+                <span class="checklist-footer-note">GPS pings sent by the driver app during the shift</span>
+                <button class="download-btn" type="button" @onclick="CloseRouteModalAsync">Close</button>
             </div>
         </div>
     </div>
@@ -1163,6 +1222,12 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_routeNeedsDraw)
+        {
+            _routeNeedsDraw = false;
+            await DrawRouteAsync();
+        }
+
         if (!firstRender)
         {
             return;
@@ -1609,6 +1674,75 @@ else
     }
 
     private void CloseChecklistModal() => _showChecklistModal = false;
+
+    // SRS REQ-4.6-5 / §4.6.2: a shift's GPS route on a map (wwwroot/route-map.js).
+    private const string RouteMapElementId = "shift-route-map";
+    private IJSObjectReference? _routeModule;
+    private ShiftLogEntry? _routeLog;
+    private ShiftRoute? _route;
+    private string? _routeError;
+    private bool _showRouteModal;
+    private bool _routeNeedsDraw;
+
+    private string? MapTilerKey => Configuration["MapTiler:ApiKey"];
+
+    private async Task OpenRouteAsync(ShiftLogEntry log)
+    {
+        _routeLog = log;
+        _route = null;
+        _routeError = null;
+        _showRouteModal = true;
+        StateHasChanged();
+
+        try
+        {
+            ShiftRoute route = await ShiftRoutes.GetShiftRouteAsync(log.ShiftId);
+            if (_routeLog != log)
+            {
+                return; // closed, or another shift opened meanwhile
+            }
+
+            _route = route;
+            _routeNeedsDraw = route.HasData && !string.IsNullOrWhiteSpace(MapTilerKey);
+        }
+        catch (Exception ex)
+        {
+            _routeError = $"Couldn't load this shift's GPS data: {ex.Message}";
+        }
+    }
+
+    private async Task DrawRouteAsync()
+    {
+        if (_route is not { HasData: true } route || !_showRouteModal)
+        {
+            return;
+        }
+
+        try
+        {
+            _routeModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/route-map.js");
+            double[][] points = route.Points.Select(p => new[] { p.Latitude, p.Longitude }).ToArray();
+            await _routeModule.InvokeVoidAsync("showRoute", RouteMapElementId, MapTilerKey, points,
+                $"Start · {route.StartUtc!.Value.ToPhilippineTime():h:mm tt}",
+                $"End · {route.EndUtc!.Value.ToPhilippineTime():h:mm tt}");
+        }
+        catch (Exception ex)
+        {
+            _routeError = $"Couldn't draw the map: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task CloseRouteModalAsync()
+    {
+        _showRouteModal = false;
+        _routeLog = null;
+        _route = null;
+        if (_routeModule is not null)
+        {
+            try { await _routeModule.InvokeVoidAsync("hideRoute", RouteMapElementId); } catch (JSDisconnectedException) { }
+        }
+    }
 
     // Register New Driver checks (InputValidator - the same rules the service enforces).
     // A field's error shows once something is typed in it, or for every field after

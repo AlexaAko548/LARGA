@@ -36,8 +36,11 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isStaff();
+      // A user may clear their own mustChangePassword (after replacing a temporary password) - never set it.
       allow write: if isManager() || (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys()
-                        .hasOnly(['fcmToken', 'tokenUpdatedAt', 'phoneNumber']));
+                        .hasOnly(['fcmToken', 'tokenUpdatedAt', 'phoneNumber', 'mustChangePassword'])
+                        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['mustChangePassword'])
+                            || request.resource.data.mustChangePassword == false));
     }
 
     match /shifts/{shiftId} {
@@ -117,6 +120,13 @@ service cloud.firestore {
     match /debt_adjustments/{adjustmentId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow write: if isManager();
+      // An Assistant Manager recording a payment in Quick Ledger: only the automatic credit against
+      // manual debt that comes with it (negative, tied to the payment's transactionId). Manual
+      // adjustments stay Manager-only.
+      allow create: if isStaff()
+                    && request.resource.data.amount is number && request.resource.data.amount < 0
+                    && request.resource.data.transactionId is string && request.resource.data.transactionId.size() > 0
+                    && request.resource.data.driverId is string && request.resource.data.driverId.size() > 0;
     }
 
     match /driverPerformance/{driverId} {
@@ -125,12 +135,29 @@ service cloud.firestore {
     }
 
     match /chats/{driverId} {
-      allow read, write: if isManager() || isOwner(driverId);
+      allow read, write: if isStaff() || isOwner(driverId);
 
+      // One conversation per driver, shared by the Manager and every Assistant Manager: a staff message
+      // must say who wrote it - the signed-in user's own ID, profile name and role. A driver's message
+      // carries no sender fields, and nobody can change a message's sender afterwards.
       match /messages/{messageId} {
-        allow read, delete: if isManager() || isOwner(driverId);
-        allow create, update: if isManager() || (isOwner(driverId) && expiresAfterDays(365));
+        allow read, delete: if isStaff() || isOwner(driverId);
+        allow create: if (isStaff() && staffChatSenderOk())
+                      || (isOwner(driverId) && expiresAfterDays(365)
+                          && !request.resource.data.keys().hasAny(['senderId', 'senderName', 'senderRole']));
+        allow update: if (isStaff() || (isOwner(driverId) && expiresAfterDays(365)))
+                      && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['senderId', 'senderName', 'senderRole']);
       }
+    }
+
+    function staffChatSenderOk() {
+      let msg = request.resource.data;
+      let me = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return msg.get('isDriver', false) == false
+        && msg.get('senderId', '') == request.auth.uid
+        && msg.get('senderName', null) == me.get('fullName', '')
+        && msg.get('senderRole', '') is string
+        && msg.get('senderRole', '').trim().lower() == me.role.trim().lower();
     }
 
     match /taxis/{taxiId} {
@@ -180,9 +207,40 @@ service cloud.firestore {
                     && request.resource.data.litersRefueled > 0 && request.resource.data.litersRefueled <= 200
                     && request.resource.data.fuelCost is number
                     && request.resource.data.fuelCost > 0 && request.resource.data.fuelCost <= 20000
-                    && (request.resource.data.shiftId == 'UNKNOWN_SHIFT'
-                        || get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid);
+                    && fuelShiftOk(request.resource.data.shiftId);
       allow update: if isManager();
+    }
+
+    // REQ-4.3-3 / REQ-5.5-6 (FuelShiftRules): a fuel log is always linked to one of the driver's own
+    // shifts - the active one, or one that ended within the last 12 hours. An Auto-Closed shift has
+    // no shiftEnd (closed at 6:00 AM the day after it started), so its window is bounded from
+    // shiftStart: at most 24 h to the auto-close plus the 12 h.
+    function fuelShiftOk(shiftId) {
+      let shiftPath = /databases/$(database)/documents/shifts/$(shiftId);
+      let shift = get(shiftPath).data;
+      return shiftId is string && shiftId.size() > 0
+        && exists(shiftPath)
+        && shift.driverId == request.auth.uid
+        && (shift.status == 'Active'
+            || (shift.status == 'Completed' && shift.get('shiftEnd', null) is timestamp
+                && request.time < shift.shiftEnd + duration.value(12, 'h'))
+            || (shift.status == 'Auto-Closed' && request.time < shift.shiftStart + duration.value(36, 'h')));
+    }
+
+    // Proposal §4.2.4.5 (FuelOrNumberRules): one claim per OR number, written by the driver app in
+    // the same transaction as the fuel log it belongs to. A driver may read a single claim (that's how
+    // the app knows a number is taken - it holds only fuelLogId and createdAt) but not list them, and
+    // may only create one for their own fuel log being created in that same write. Never updated or
+    // deleted from a client.
+    match /fuel_or_numbers/{orNumber} {
+      allow get: if isLargaUser();
+      allow list: if isStaff();
+      allow create: if isDriver()
+                    && request.resource.data.keys().hasOnly(['fuelLogId', 'createdAt'])
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.fuelLogId is string && request.resource.data.fuelLogId.size() > 0
+                    && !exists(/databases/$(database)/documents/fuel_logs/$(request.resource.data.fuelLogId))
+                    && getAfter(/databases/$(database)/documents/fuel_logs/$(request.resource.data.fuelLogId)).data.driverId == request.auth.uid;
     }
 
     match /gps_telemetry/{logId} {
@@ -215,7 +273,7 @@ service cloud.firestore {
 
     match /audit_logs/{logId} {
       allow read: if isManager();
-      allow create: if isManager() && ownAuditEntry();
+      allow create: if isStaff() && ownAuditEntry();
       allow create: if isDriver() && ownAuditEntry()
          && request.resource.data.actionType in ['SosTriggered', 'VehicleDefectReported'];
     }

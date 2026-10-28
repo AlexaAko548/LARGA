@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
+using LARGA.SharedCore.Alerts;
 using LARGA.SharedCore.Models.FuelVerification;
 using LARGA.Shared.Models.Entities;
 using Microsoft.Extensions.Logging;
@@ -350,6 +351,58 @@ public class FuelVerificationService
         });
     }
 
+    /// <summary>The marker written once every existing fuel log's OR number has been claimed.</summary>
+    public const string OrClaimBackfillMarkerId = "__backfill_v1";
+
+    /// <summary>
+    /// Proposal §4.2.4.5: claims fuel_or_numbers/{normalized OR} for the fuel logs saved before the
+    /// app claimed them on submit, so a later receipt repeating one of those numbers is caught too.
+    /// The oldest submission keeps the number; logs already in Firestore are never flagged by this.
+    /// Runs once (a marker document in the same collection); returns how many numbers it claimed.
+    /// </summary>
+    public async Task<int> BackfillOrNumberClaimsAsync()
+    {
+        CollectionReference claims = Db.Collection(FuelOrNumberRules.Collection);
+        DocumentReference marker = claims.Document(OrClaimBackfillMarkerId);
+        if ((await marker.GetSnapshotAsync()).Exists)
+        {
+            return 0;
+        }
+
+        QuerySnapshot logs = await Db.Collection("fuel_logs").GetSnapshotAsync();
+        var ordered = logs.Documents
+            .Select(d => (Id: d.Id, Log: d.ConvertTo<FuelLog>()))
+            .OrderBy(x => x.Log.SubmittedAt ?? x.Log.ReceiptTimestamp ?? DateTime.MaxValue);
+
+        int claimed = 0;
+        foreach (var (id, log) in ordered)
+        {
+            string? key = FuelOrNumberRules.Normalize(log.ORNumber);
+            if (key is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                await claims.Document(key).CreateAsync(new Dictionary<string, object>
+                {
+                    ["fuelLogId"] = id,
+                    ["createdAt"] = DateTime.UtcNow,
+                    ["backfilled"] = true,
+                });
+                claimed++;
+            }
+            catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
+            {
+                // Already claimed (an earlier log, or the phone since the update) - keep that one.
+            }
+        }
+
+        await marker.SetAsync(new Dictionary<string, object> { ["completedAt"] = DateTime.UtcNow, ["claimed"] = claimed });
+        return claimed;
+    }
+
     private static SystemAlert FuelAlert(FuelReviewDetail detail, string? reason, DateTime now) => new()
     {
         Type = FuelAlertType,
@@ -397,12 +450,7 @@ public class FuelVerificationService
                 return null;
             }
 
-            double totalKm = 0;
-            for (int i = 1; i < points.Count; i++)
-            {
-                totalKm += HaversineKm(points[i - 1].Latitude, points[i - 1].Longitude, points[i].Latitude, points[i].Longitude);
-            }
-            return Math.Round(totalKm, 1);
+            return Math.Round(GeoMath.PathDistanceKm(points.Select(p => (p.Latitude, p.Longitude)).ToList()), 1);
         }
         catch (Exception ex)
         {
@@ -410,20 +458,6 @@ public class FuelVerificationService
             return null;
         }
     }
-
-    private static double HaversineKm(double lat1, double lon1, double lat2, double lon2)
-    {
-        const double earthRadiusKm = 6371.0;
-        double dLat = DegreesToRadians(lat2 - lat1);
-        double dLon = DegreesToRadians(lon2 - lon1);
-        double a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
-                   + Math.Cos(DegreesToRadians(lat1)) * Math.Cos(DegreesToRadians(lat2))
-                   * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
-        double c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
-        return earthRadiusKm * c;
-    }
-
-    private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
 
     public async Task<FuelActionResult> VerifyAsync(string fuelId, string? actorUserId = null)
     {
@@ -450,6 +484,7 @@ public class FuelVerificationService
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
+            await SubmissionAlerts.MarkReviewedAsync(Db, SubmissionAlerts.FuelSubmittedAlertId(fuelId)); // REQ-4.4-8: reviewed
             return new FuelActionResult { Ok = true };
         }
         catch (Exception ex)
@@ -489,6 +524,7 @@ public class FuelVerificationService
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
+            await SubmissionAlerts.MarkReviewedAsync(Db, SubmissionAlerts.FuelSubmittedAlertId(fuelId)); // REQ-4.4-8: reviewed
             return new FuelActionResult { Ok = true };
         }
         catch (Exception ex)
@@ -534,6 +570,7 @@ public class FuelVerificationService
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
+            await SubmissionAlerts.MarkReviewedAsync(Db, SubmissionAlerts.FuelSubmittedAlertId(fuelId)); // REQ-4.4-8: reviewed
             return new FuelActionResult { Ok = true };
         }
         catch (Exception ex)

@@ -43,13 +43,24 @@ public partial class LandingPage : ContentPage
             // 3. Auto-route them, bypassing the login screens completely
             try
             {
-                if (role?.Equals("Driver", StringComparison.OrdinalIgnoreCase) == true)
+                // Driver, Manager or Assistant Manager (manager dashboard, Manager-only parts left out).
+                string? route = LARGA.SharedCore.StaffRoles.HomeRoute(role);
+                if (route != null)
                 {
-                    await Shell.Current.GoToAsync("//driver-dashboard");
-                }
-                else if (role?.Equals("Manager", StringComparison.OrdinalIgnoreCase) == true)
-                {
-                    await Shell.Current.GoToAsync("//manager-dashboard");
+                    LARGA.MobileApp.Services.StaffSession.Role = role!.Trim();
+                    bool mustChangePassword;
+                    try
+                    {
+                        mustChangePassword = await _authService.MustChangePasswordAsync(currentUser.Uid);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"mustChangePassword lookup failed: {ex.Message}");
+                        mustChangePassword = false;
+                    }
+
+                    await Shell.Current.GoToAsync(route);
+                    await ForcedPasswordChangePage.ShowIfRequiredAsync(mustChangePassword);
                 }
             }
             catch (Exception ex)

@@ -20,6 +20,7 @@ namespace LARGA.MobileApp.Platforms.Android.Emergency;
 public sealed class AndroidEmergencyMonitor : IEmergencyMonitor
 {
     private const string FullScreenPromptShownKey = "EmergencyFullScreenPromptShown";
+    private const string VolumePromptShiftKey = "VolumeSosPromptShiftId";
 
     private string? _runningShiftId;
 
@@ -67,6 +68,49 @@ public sealed class AndroidEmergencyMonitor : IEmergencyMonitor
         }
 
         await MainThread.InvokeOnMainThreadAsync(PromptForFullScreenPopupOnceAsync);
+        await MainThread.InvokeOnMainThreadAsync(() => PromptForVolumeButtonsAsync(shiftId));
+    }
+
+    public Task<bool> TrySendDuressAlertAsync() => EmergencyDetectionService.TrySendDuressAlertAsync();
+
+    /// <summary>
+    /// The volume-button Hostile trigger needs <see cref="VolumeSosAccessibilityService"/>
+    /// switched on, which only the driver can do. Asked once per shift until it's on, since
+    /// without it the only covert trigger left is the shake.
+    /// </summary>
+    private static async Task PromptForVolumeButtonsAsync(string shiftId)
+    {
+        try
+        {
+            if (VolumeSosAccessibilityService.IsEnabled() || Preferences.Get(VolumePromptShiftKey, string.Empty) == shiftId)
+            {
+                return;
+            }
+
+            Preferences.Set(VolumePromptShiftKey, shiftId);
+
+            Page? page = Shell.Current;
+            if (page == null) return;
+
+            bool open = await page.DisplayAlert(
+                "Turn on safety buttons",
+                "Pressing volume down, up, down, up quickly sends a silent SOS to your manager, even with " +
+                "the screen off. On the next screen, open \"LARGA Safety Buttons\" and switch it on.\n\n" +
+                "If it is greyed out: open LARGA's App info, tap ⋮ > Allow restricted settings, then try again.",
+                "Open settings",
+                "Not now");
+
+            if (open)
+            {
+                var intent = new Intent(global::Android.Provider.Settings.ActionAccessibilitySettings)
+                    .AddFlags(ActivityFlags.NewTask);
+                AndroidApp.Context.StartActivity(intent);
+            }
+        }
+        catch (Exception ex)
+        {
+            EmergencyLog.Error("Safety buttons prompt failed", ex);
+        }
     }
 
     public void Stop()

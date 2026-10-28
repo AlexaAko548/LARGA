@@ -1,4 +1,5 @@
 ﻿using Plugin.Firebase.CloudMessaging;
+using LARGA.MobileApp.Services;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.ApplicationModel;
 using System.Threading.Tasks;
@@ -34,6 +35,7 @@ public partial class App : Application
 				}
 				Preferences.Remove("IsShiftActive");
 				Preferences.Remove("CurrentShiftId");
+				LastShiftStore.RememberEnded(shiftId);
 			}
 			catch (Exception ex)
 			{
@@ -51,8 +53,10 @@ public partial class App : Application
         {
             if (e.Notification?.Data != null)
             {
-                // SOS push to a manager (ManagerWeb SosPushService): open the Alert Center.
-                if (e.Notification.Data.TryGetValue("type", out var sosType) && sosType?.ToString() == "sos_alert")
+                // SOS push to a manager (ManagerWeb SosPushService), or a new defect report
+                // (SubmissionAlertService): open the Alert Center.
+                if (e.Notification.Data.TryGetValue("type", out var sosType)
+                    && (sosType?.ToString() == "sos_alert" || sosType?.ToString() == LARGA.SharedCore.Alerts.SubmissionAlerts.DefectPushType))
                 {
                     // Scroll the Alert Center to this alert (emergency type and address are on the card).
                     if (e.Notification.Data.TryGetValue("alertId", out var alertId) && !string.IsNullOrWhiteSpace(alertId?.ToString()))
@@ -92,8 +96,22 @@ public partial class App : Application
                             await Task.Delay(100);
                         }
 
-                        // Route directly to the pre-shift inspection workflow
-                        await Shell.Current.GoToAsync("//PreShiftStep1Page");
+                        // The driver dashboard: its Start Shift runs the eligibility checks (license,
+                        // unit, 6:00 AM) before opening the pre-shift inspection. ("//PreShiftStep1Page"
+                        // was never a registered route.) Not signed in as a driver yet: stay put.
+                        try
+                        {
+                            if (Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser != null
+                                && LARGA.MobileApp.Services.StaffSession.Role is string role
+                                && LARGA.SharedCore.StaffRoles.IsDriver(role))
+                            {
+                                await Shell.Current.GoToAsync("//driver-dashboard/home");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Pre-shift reminder routing failed: {ex.Message}");
+                        }
                     });
                 }
             }
@@ -132,12 +150,12 @@ public partial class App : Application
 			INavigation? navigation = Shell.Current?.Navigation;
 			if (navigation == null) return;
 
-			if (_countdown.Active != null && _countdownPage == null)
+			if (WantsCountdownPage && _countdownPage == null)
 			{
 				_countdownPage = new Views.Shared.EmergencyCountdownPage(_countdown);
 				await navigation.PushModalAsync(_countdownPage, false);
 			}
-			else if (_countdown.Active == null && _countdownPage != null)
+			else if (!WantsCountdownPage && _countdownPage != null)
 			{
 				Page page = _countdownPage;
 				_countdownPage = null;
@@ -160,9 +178,15 @@ public partial class App : Application
 
 		// A Changed that arrived while this was running may have flipped the state again.
 		bool shown = _countdownPage != null;
-		if (shown != (_countdown.Active != null))
+		if (shown != WantsCountdownPage)
 		{
 			await SyncCountdownPageAsync();
 		}
 	}
+
+	// Crash only. A Hostile countdown must not take over the screen in front of whoever is in the
+	// cab: it runs behind a disguised notification instead (EmergencyDetectionService), cancelled
+	// from that notification or by repeating the volume-button pattern.
+	private bool WantsCountdownPage =>
+		_countdown.Active is { } active && active.TriggerType != LARGA.Shared.Models.Entities.EmergencyAlert.Hostile;
 }

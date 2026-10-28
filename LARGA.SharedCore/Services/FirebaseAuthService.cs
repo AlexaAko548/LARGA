@@ -15,6 +15,9 @@ public interface IFirebaseAuthService
     /// LARGA profile at all. Throws on network/permission errors.</summary>
     Task<string?> GetUserRoleAsync(string userId);
 
+    /// <summary>users/{uid}.mustChangePassword (ForcedPasswordChangeRules). False when it's missing.</summary>
+    Task<bool> MustChangePasswordAsync(string userId);
+
     Task<bool> SendPasswordResetEmailAsync(string email);
     Task SignOutAsync();
 }
@@ -149,6 +152,17 @@ public class FirebaseAuthService : IFirebaseAuthService
         return document?.Data is null ? null : document.Data.Role ?? string.Empty;
     }
 
+    public async Task<bool> MustChangePasswordAsync(string userId)
+    {
+        var document = await CrossFirebaseFirestore.Current
+            .GetCollection("users")
+            .GetDocument(userId)
+            .GetDocumentSnapshotAsync<FirestoreRoleProxy>()
+            .WaitAsync(CallTimeout);
+
+        return document?.Data?.MustChangePassword == true;
+    }
+
     public Task SignOutAsync() => CrossFirebaseAuth.Current.SignOutAsync();
 
     public async Task<bool> SendPasswordResetEmailAsync(string email)
@@ -171,4 +185,7 @@ public class FirestoreRoleProxy : IFirestoreObject
 {
     [Plugin.Firebase.Firestore.FirestoreProperty("role")]
     public string Role { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty("mustChangePassword")]
+    public bool MustChangePassword { get; set; }
 }

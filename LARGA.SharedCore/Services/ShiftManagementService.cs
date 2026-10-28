@@ -29,6 +29,12 @@ public interface IShiftManagementService
     Task<ShiftEndCharges> ClockOutAsync(string shiftDocumentId, int endMileage, bool fuelBelowHalf, string managerNote = "");
     Task<DriverShiftSummary?> GetMyOpenShiftAsync();
 
+    /// <summary>REQ-4.3-3: the signed-in driver's shift a fuel report can be filed against
+    /// (FuelShiftRules) - the first of <paramref name="candidateShiftIds"/> that still accepts one,
+    /// else the open shift, else a shift that ended within the window. Null when there's none.
+    /// Throws when Firestore can't be reached.</summary>
+    Task<string?> GetFuelReportShiftIdAsync(params string?[] candidateShiftIds);
+
     /// <summary>The shift's starting odometer (shifts.startMileage), or null when it's missing or
     /// unreadable - clock-out then can't compare against it (DSM-041).</summary>
     Task<int?> GetShiftStartMileageAsync(string shiftDocumentId);
@@ -673,6 +679,54 @@ public class ShiftManagementService : IShiftManagementService
             .FirstOrDefault();
     }
 
+    public async Task<string?> GetFuelReportShiftIdAsync(params string?[] candidateShiftIds)
+    {
+        var user = CrossFirebaseAuth.Current.CurrentUser;
+        if (user == null) return null;
+
+        DateTime now = DateTime.UtcNow;
+        var shifts = CrossFirebaseFirestore.Current.GetCollection("shifts");
+
+        foreach (string id in candidateShiftIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct()!)
+        {
+            var snapshot = await shifts.GetDocument(id).GetDocumentSnapshotAsync<ShiftWindowProxy>();
+            if (snapshot?.Data is ShiftWindowProxy shift && shift.DriverId == user.Uid && AcceptsFuelReport(shift, now))
+            {
+                return id;
+            }
+        }
+
+        DriverShiftSummary? open = await GetMyOpenShiftAsync();
+        if (open != null) return open.DocumentId;
+
+        // A shift that ended (or was auto-closed) within the window started at most a day and a
+        // half ago (auto-close is 6:00 AM the day after it started).
+        DateTime since = now - FuelShiftRules.PostShiftWindow - TimeSpan.FromHours(24);
+        IQuerySnapshot<ShiftWindowProxy> recent;
+        try
+        {
+            recent = await shifts
+                .WhereEqualsTo("driverId", user.Uid)
+                .WhereGreaterThanOrEqualsTo("shiftStart", since)
+                .GetDocumentsAsync<ShiftWindowProxy>();
+        }
+        catch (Exception ex) when (ex.ToString().Contains("FAILED_PRECONDITION", StringComparison.OrdinalIgnoreCase))
+        {
+            // Composite index (driverId, shiftStart) not deployed yet: the driver's shifts unfiltered.
+            recent = await shifts.WhereEqualsTo("driverId", user.Uid).GetDocumentsAsync<ShiftWindowProxy>();
+        }
+
+        return recent.Documents
+            .Where(d => d.Data != null && AcceptsFuelReport(d.Data, now))
+            .OrderByDescending(d => FuelShiftRules.EffectiveEndUtc(d.Data.Status, FixPluginDate(d.Data.ShiftStart), ReadPluginDate(d.Data.ShiftEnd)))
+            .Select(d => d.Reference.Id)
+            .FirstOrDefault();
+    }
+
+    private static bool AcceptsFuelReport(ShiftWindowProxy shift, DateTime nowUtc) =>
+        shift.ShiftStart != default
+        && FuelShiftRules.AcceptsFuelReport(shift.Status, FixPluginDate(shift.ShiftStart), ReadPluginDate(shift.ShiftEnd), nowUtc);
+
     private static async Task<List<DriverShiftSummary>> GetMyShiftsAsync(string driverId)
     {
         // Only the driver's open (Active) and Auto-Closed shifts, filtered by Firestore instead of reading every
@@ -734,6 +788,21 @@ public class ShiftManagementService : IShiftManagementService
 
     private class ShiftTimesProxy
     {
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftStart")]
+        public DateTime ShiftStart { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftEnd")]
+        public DateTime ShiftEnd { get; set; }
+    }
+
+    private class ShiftWindowProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
+        public string DriverId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
+        public string Status { get; set; }
+
         [Plugin.Firebase.Firestore.FirestoreProperty("shiftStart")]
         public DateTime ShiftStart { get; set; }
 

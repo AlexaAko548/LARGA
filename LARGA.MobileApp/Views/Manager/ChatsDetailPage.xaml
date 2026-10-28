@@ -26,19 +26,48 @@
                     <Border StrokeThickness="0" StrokeShape="RoundRectangle 15" Padding="20" Margin="0,0,0,15" MaximumWidthRequest="250">
                         <Border.Style>
                             <Style TargetType="Border">
-                                <!-- Default style (Manager messages go to the right, blue) -->
-                                <Setter Property="HorizontalOptions" Value="End" />
-                                <Setter Property="BackgroundColor" Value="{DynamicResource LargaPrimaryBlue}" />
+                                <!-- Shared conversation: the viewer's own messages on the right (blue);
+                                     the driver's on the left (gray); other staff on the left (light blue). -->
+                                <Setter Property="HorizontalOptions" Value="Start" />
+                                <Setter Property="BackgroundColor" Value="Gray" />
                                 <Style.Triggers>
-                                    <!-- Driver messages go to the left, gray -->
-                                    <DataTrigger TargetType="Border" Binding="{Binding IsDriver}" Value="True">
-                                        <Setter Property="HorizontalOptions" Value="Start" />
-                                        <Setter Property="BackgroundColor" Value="Gray" />
+                                    <DataTrigger TargetType="Border" Binding="{Binding IsOtherStaff}" Value="True">
+                                        <Setter Property="BackgroundColor" Value="{DynamicResource LargaLightBlue}" />
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Border" Binding="{Binding IsMine}" Value="True">
+                                        <Setter Property="HorizontalOptions" Value="End" />
+                                        <Setter Property="BackgroundColor" Value="{DynamicResource LargaPrimaryBlue}" />
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </Border.Style>
-                        <Label Text="{Binding Text}" TextColor="{DynamicResource LargaWhite}" FontSize="14" />
+                        <VerticalStackLayout Spacing="4">
+                            <!-- Shared conversation: who on the staff side wrote it -->
+                            <Label Text="{Binding SenderLabel}" IsVisible="{Binding ShowSender}" FontSize="11" FontAttributes="Bold" Opacity="0.85">
+                                <Label.Style>
+                                    <Style TargetType="Label">
+                                        <Setter Property="TextColor" Value="{DynamicResource LargaWhite}" />
+                                        <Style.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding IsOtherStaff}" Value="True">
+                                                <Setter Property="TextColor" Value="{DynamicResource LargaDarkText}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Label.Style>
+                            </Label>
+                            <Label Text="{Binding Text}" FontSize="14">
+                                <Label.Style>
+                                    <Style TargetType="Label">
+                                        <Setter Property="TextColor" Value="{DynamicResource LargaWhite}" />
+                                        <Style.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding IsOtherStaff}" Value="True">
+                                                <Setter Property="TextColor" Value="{DynamicResource LargaDarkText}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Label.Style>
+                            </Label>
+                        </VerticalStackLayout>
                     </Border>
                 </DataTemplate>
             </CollectionView.ItemTemplate>

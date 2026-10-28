@@ -208,7 +208,10 @@ public class SosPushService : BackgroundService
 
         string label = EmergencyTypes.Label(triggerType);
         string title = $"SOS - {label}";
-        string body = $"{driverName} ({taxiUnit}) needs help."
+        // When it was sent (Philippine time), first - managers may read the push later.
+        string? sentAt = SosPushPolicy.SentAtText(alert.CreateTime?.ToDateTime(), raisedAt);
+        string body = (sentAt is null ? string.Empty : $"{sentAt}. ")
+                      + $"{driverName} ({taxiUnit}) needs help."
                       + (!string.IsNullOrWhiteSpace(address) ? $" Near {address}."
                          : hasLocation ? " Open LARGA for their location." : " Location unavailable - call the driver.")
                       + (caller.Verified ? string.Empty : " (Caller not verified - confirm with the driver.)");

@@ -12,6 +12,7 @@
 @using LARGA.Shared.Models.Entities
 @inject ManagerChatService Chat
 @inject ChatDrawerState Drawer
+@inject AuthenticationStateProvider AuthStateProvider
 
 <button class="icon-btn messages-btn" type="button" aria-label="Messages" title="Messages" @onclick="Drawer.OpenList">
     <Icon Name="message-circle" />
@@ -109,7 +110,12 @@
                 {
                     @foreach (ChatMessage message in Enumerable.Reverse(_messages))
                     {
-                        <div class="chat-bubble @(message.IsDriver ? "from-driver" : "from-manager")">
+                        message.IsMine = message.IsMineFor(_viewerUid, viewerIsDriver: false);
+                        <div class="chat-bubble @(message.IsMine ? "from-manager" : message.IsDriver ? "from-driver" : "from-driver from-staff")">
+                            @if (message.ShowSender)
+                            {
+                                <div class="chat-bubble-sender">@message.SenderLabel</div>
+                            }
                             <div class="chat-bubble-text">@message.Text</div>
                             <div class="chat-bubble-time">@message.Timestamp.ToPhilippineTime().ToString("MMM d, h:mm tt")</div>
                         </div>
@@ -161,6 +167,19 @@
 
     private string _draft = string.Empty;
     private bool _isSending;
+    private ChatSenderInfo? _sender; // the signed-in staff member, read once
+    // Shared conversation: only this user's own messages go on the right.
+    private string? _viewerUid;
+
+    private async Task<string> ViewerUidAsync()
+    {
+        if (_viewerUid is null)
+        {
+            AuthenticationState auth = await AuthStateProvider.GetAuthenticationStateAsync();
+            _viewerUid = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+        }
+        return _viewerUid;
+    }
     private string? _sendError;
 
     private int UnreadCount => _sessions?.Count(s => s.IsUnread) ?? 0;
@@ -201,6 +220,7 @@
     protected override async Task OnInitializedAsync()
     {
         Drawer.Changed += OnDrawerChanged;
+        await ViewerUidAsync(); // whose messages go on the right
 
         try
         {
@@ -320,7 +340,9 @@
         _sendError = null;
         try
         {
-            await Chat.SendAsync(driverId, Drawer.DriverName, text);
+            // The conversation is shared by every Manager / Assistant Manager - say who's writing.
+            _sender ??= await Chat.GetStaffSenderAsync(await ViewerUidAsync());
+            await Chat.SendAsync(driverId, Drawer.DriverName, text, _sender);
             _draft = string.Empty;
         }
         catch (Exception ex)
