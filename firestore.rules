@@ -200,6 +200,22 @@ service cloud.firestore {
             || (shift.status == 'Auto-Closed' && request.time < shift.shiftStart + duration.value(36, 'h')));
     }
 
+    // Proposal §4.2.4.5 (FuelOrNumberRules): one claim per OR number, written by the driver app in
+    // the same transaction as the fuel log it belongs to. A driver may read a single claim (that's how
+    // the app knows a number is taken - it holds only fuelLogId and createdAt) but not list them, and
+    // may only create one for their own fuel log being created in that same write. Never updated or
+    // deleted from a client.
+    match /fuel_or_numbers/{orNumber} {
+      allow get: if isLargaUser();
+      allow list: if isStaff();
+      allow create: if isDriver()
+                    && request.resource.data.keys().hasOnly(['fuelLogId', 'createdAt'])
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.fuelLogId is string && request.resource.data.fuelLogId.size() > 0
+                    && !exists(/databases/$(database)/documents/fuel_logs/$(request.resource.data.fuelLogId))
+                    && getAfter(/databases/$(database)/documents/fuel_logs/$(request.resource.data.fuelLogId)).data.driverId == request.auth.uid;
+    }
+
     match /gps_telemetry/{logId} {
       allow read: if isStaff();
       allow create: if isDriver()

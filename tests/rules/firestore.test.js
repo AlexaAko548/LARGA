@@ -15,7 +15,7 @@ const {
 } = require('@firebase/rules-unit-testing');
 const {
   doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, getDocs, query, where,
-  serverTimestamp, Timestamp,
+  serverTimestamp, Timestamp, writeBatch,
 } = require('firebase/firestore');
 
 const PROJECT_ID = 'demo-larga-rules';
@@ -376,4 +376,47 @@ describe('Fuel logs linked to a shift (REQ-4.3-3, REQ-5.5-6)', () => {
       { driverId: DRIVER_B, status: 'Completed', shiftStart: hoursAgo(10), shiftEnd: hoursAgo(1) }));
     await assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('bEnded')));
   });
+});
+
+describe('Fuel OR number claims (Proposal 4.2.4.5)', () => {
+  const fuelFields = (extra) => ({
+    driverId: DRIVER_A, shiftId: 'shiftA', verificationStatus: 'Pending', submittedAt: serverTimestamp(),
+    litersRefueled: 30, fuelCost: 1950, orNumber: 'OR-555', ...extra,
+  });
+  async function submitWithClaim(db, orKey, claimExtra) {
+    const batch = writeBatch(db);
+    const fuelRef = doc(collection(db, 'fuel_logs'));
+    batch.set(fuelRef, fuelFields());
+    batch.set(doc(db, 'fuel_or_numbers', orKey), { fuelLogId: fuelRef.id, createdAt: serverTimestamp(), ...claimExtra });
+    return batch.commit();
+  }
+
+  it('driver can claim an OR number together with their own new fuel log', async () =>
+    assertSucceeds(submitWithClaim(as(DRIVER_A), 'OR555')));
+  it('driver cannot claim an OR number on its own (no fuel log in the same write)', async () =>
+    assertFails(setDoc(doc(as(DRIVER_A), 'fuel_or_numbers', 'OR556'), { fuelLogId: 'fuelB', createdAt: serverTimestamp() })));
+  it("driver cannot claim an OR number for B's existing fuel log", async () =>
+    assertFails(setDoc(doc(as(DRIVER_A), 'fuel_or_numbers', 'OR557'), { fuelLogId: 'fuelB', createdAt: serverTimestamp() })));
+  it('driver cannot put other fields on a claim', async () =>
+    assertFails(submitWithClaim(as(DRIVER_A), 'OR558', { driverId: DRIVER_A })));
+  it('an OR number already claimed cannot be claimed again (or overwritten)', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'fuel_or_numbers', 'OR559'), { fuelLogId: 'fuelB' }));
+    await assertFails(submitWithClaim(as(DRIVER_A), 'OR559'));
+  });
+  it('the duplicate is still saved as an auto-flagged fuel log, without a claim', async () =>
+    assertSucceeds(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuelFields({
+      verificationStatus: 'Flagged', autoFlagged: true, flaggedAt: serverTimestamp(), fuelLogDetails: 'OR number already submitted' }))));
+  it('driver can read a single claim but not list them', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'fuel_or_numbers', 'OR560'), { fuelLogId: 'fuelB' }));
+    await assertSucceeds(getDoc(doc(as(DRIVER_A), 'fuel_or_numbers', 'OR560')));
+    await assertFails(getDocs(collection(as(DRIVER_A), 'fuel_or_numbers')));
+  });
+  it('nobody can update or delete a claim from a client', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'fuel_or_numbers', 'OR561'), { fuelLogId: 'fuelB' }));
+    await assertFails(updateDoc(doc(as(MANAGER), 'fuel_or_numbers', 'OR561'), { fuelLogId: 'x' }));
+    await assertFails(deleteDoc(doc(as(MANAGER), 'fuel_or_numbers', 'OR561')));
+    await assertFails(deleteDoc(doc(as(DRIVER_B), 'fuel_or_numbers', 'OR561')));
+  });
+  it('unauthenticated users cannot read claims', async () =>
+    assertFails(getDoc(doc(anon(), 'fuel_or_numbers', 'OR555'))));
 });

@@ -438,14 +438,14 @@ public class FuelReportViewModel : BindableObject
                 IsAnyFieldManuallyEdited = IsAnyFieldManuallyEdited
             };
 
-            var recordId = string.Empty;
+            FuelSubmitResult result = new(string.Empty, false);
 
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                recordId = await _fuelService.SubmitFuelReportAsync(fuelRecord);
+                result = await _fuelService.SubmitFuelReportAsync(fuelRecord);
             });
 
-            if (string.IsNullOrEmpty(recordId))
+            if (string.IsNullOrEmpty(result.Id))
             {
                 await Shell.Current.DisplayAlert("Submission failed", "Unable to submit to Firebase right now. Your report is saved on this phone - please try again.", "OK");
                 return;
@@ -454,9 +454,15 @@ public class FuelReportViewModel : BindableObject
             WeakReferenceMessenger.Default.Send(new FuelReportSubmittedMessage());
             ResetState(); // clears the draft and its photos
 
-            await Shell.Current.DisplayAlert("Success", stationAllowed
+            // FUEL-004 / Proposal §4.2.4.5: saved, but flagged for the manager.
+            string? flagReason = FuelOrNumberRules.CombineReasons(new[]
+            {
+                stationAllowed ? null : FuelStations.NotAllowedReason,
+                result.DuplicateOrNumber ? FuelOrNumberRules.DuplicateReason : null,
+            });
+            await Shell.Current.DisplayAlert("Success", flagReason is null
                 ? "Fuel report submitted for verification."
-                : $"Fuel report submitted, but flagged for the manager's review: {FuelStations.NotAllowedReason}.", "OK");
+                : $"Fuel report submitted, but flagged for the manager's review: {flagReason}.", "OK");
             await Shell.Current.GoToAsync("..");
         }
         catch (Exception ex)

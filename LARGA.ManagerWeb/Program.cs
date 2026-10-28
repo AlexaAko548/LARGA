@@ -167,6 +167,8 @@ builder.Services.AddSingleton<FuelVerificationService>();
 // FUEL-017 / FUEL-004: auto-flags fuel submissions outside the system_configs tolerances, and
 // raises a bell alert for every automatic flag.
 builder.Services.AddHostedService<FuelAutoCheckService>();
+// Proposal §4.2.4.5: one-time claim of the OR numbers on fuel logs saved before the duplicate check.
+builder.Services.AddHostedService<FuelOrNumberBackfillService>();
 // MNT-014/015/016: recurring routine checks + due/overdue bell alerts, on startup and hourly.
 builder.Services.AddHostedService<MaintenanceSchedulerService>();
 builder.Services.AddScoped<IManagerAuthService, ManagerAuthService>();
