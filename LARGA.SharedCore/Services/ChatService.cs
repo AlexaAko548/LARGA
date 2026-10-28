@@ -53,18 +53,25 @@ public class ChatService : IChatService
             var messageRef = db.GetCollection($"chats/{driverId}/messages").CreateDocument();
             var chatRef = db.GetCollection("chats").GetDocument(driverId);
 
-            var proxy = new ChatMessageProxy
-            {
-                Text = message.Text,
-                IsDriver = message.IsDriver,
-                Timestamp = now,
-                // Deleted by the Firestore TTL policy after the retention period (RetentionRules, audit H-01).
-                ExpireAt = RetentionRules.ExpireAt(now, RetentionRules.ChatMessage),
-            };
+            // Deleted by the Firestore TTL policy after the retention period (RetentionRules, audit H-01).
+            var expireAt = RetentionRules.ExpireAt(now, RetentionRules.ChatMessage);
 
             // One conversation per driver is shared by every Manager / Assistant Manager, so a staff
             // message says who sent it (firestore.rules check it's the signed-in user's own name and role).
-            if (!message.IsDriver)
+            // A driver's message must carry no sender keys at all - the plugin writes null properties as
+            // explicit nulls, which the rules reject - so it uses a proxy without them.
+            object proxy;
+            if (message.IsDriver)
+            {
+                proxy = new DriverChatMessageProxy
+                {
+                    Text = message.Text,
+                    IsDriver = true,
+                    Timestamp = now,
+                    ExpireAt = expireAt,
+                };
+            }
+            else
             {
                 var sender = await GetSignedInStaffAsync();
                 if (sender is null)
@@ -72,9 +79,16 @@ public class ChatService : IChatService
                     System.Diagnostics.Debug.WriteLine("SendMessageAsync skipped: the sender's profile couldn't be read.");
                     return false;
                 }
-                proxy.SenderId = sender.Value.Uid;
-                proxy.SenderName = sender.Value.Name;
-                proxy.SenderRole = sender.Value.Role;
+                proxy = new ChatMessageProxy
+                {
+                    Text = message.Text,
+                    IsDriver = false,
+                    Timestamp = now,
+                    ExpireAt = expireAt,
+                    SenderId = sender.Value.Uid,
+                    SenderName = sender.Value.Name,
+                    SenderRole = sender.Value.Role,
+                };
             }
 
             var batch = db.CreateBatch();
@@ -307,6 +321,22 @@ public class ChatMessageProxy
 
     [Plugin.Firebase.Firestore.FirestoreProperty("senderRole")]
     public string? SenderRole { get; set; }
+}
+
+// Write-only shape of a driver's message: no sender fields (firestore.rules reject the keys even when null).
+public class DriverChatMessageProxy
+{
+    [Plugin.Firebase.Firestore.FirestoreProperty("text")]
+    public string Text { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty("isDriver")]
+    public bool IsDriver { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
+    public DateTime Timestamp { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty(RetentionRules.ExpireAtField)]
+    public DateTime ExpireAt { get; set; }
 }
 
 public class StaffProfileProxy
