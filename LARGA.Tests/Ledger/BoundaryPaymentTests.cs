@@ -124,19 +124,23 @@ public class BoundaryRuleTests
     }
 
     /// <summary>The manager app's RecordPaymentViewModel.ParseAmount, copied verbatim (the MAUI project can't be
-    /// referenced): strips commas and parses with AllowDecimalPoint only - no leading sign.</summary>
+    /// referenced): strips commas and parses with a leading sign and a decimal point.</summary>
     private static decimal? MobileParseAmount(string text)
     {
         text = text.Trim().Replace(",", string.Empty);
-        return decimal.TryParse(text, System.Globalization.NumberStyles.AllowDecimalPoint, System.Globalization.CultureInfo.InvariantCulture, out decimal v) ? v : null;
+        return decimal.TryParse(text, System.Globalization.NumberStyles.AllowLeadingSign | System.Globalization.NumberStyles.AllowDecimalPoint,
+            System.Globalization.CultureInfo.InvariantCulture, out decimal v) ? v : null;
     }
 
     [Fact]
-    public void Brp007_ManagerApp_NegativeAmount_GetsBlankMessage()
+    public void Brp007_ManagerApp_NegativeAndThreeDecimals_GetExactMessages()
     {
-        // "-100" doesn't parse, so it's reported as blank instead of "must be more than ₱0".
-        Assert.Null(MobileParseAmount("-100"));
-        Assert.Equal("Enter the amount received.", InputValidator.ValidateAmount(MobileParseAmount("-100"), "the amount received", 100_000m));
+        // The field keeps the minus and every decimal now (SanitizeAmountInput), so these reach the validator.
+        Assert.Equal(-100m, MobileParseAmount("-100"));
+        Assert.Equal("The amount received must be more than ₱0.", InputValidator.ValidateAmount(MobileParseAmount("-100"), "the amount received", 100_000m));
+        Assert.Equal("The amount received can have at most 2 decimal places.",
+            InputValidator.ValidateAmount(MobileParseAmount("800.555"), "the amount received", 100_000m));
+        Assert.Equal("Enter the amount received.", InputValidator.ValidateAmount(MobileParseAmount("-"), "the amount received", 100_000m));
         Assert.Equal("The amount received can't be more than ₱100,000.",
             InputValidator.ValidateAmount(MobileParseAmount("100,001"), "the amount received", 100_000m));
         Assert.Equal("The amount received can't be more than ₱100,000.",
@@ -191,6 +195,19 @@ public class BoundaryRuleTests
         var input = Ph.Input([Ph.Shift("s1", "d1", Start0630, Start0630.AddHours(14))],
             [Ph.Pay("s1_PAY", "s1", 500, txn: ""), Ph.Pay("s1_PAY_20261020220000123", "s1", 300, txn: "")]);
         Assert.Equal(0m, QuickLedgerCalculator.DriverDebt(input, "d1").TotalDebt);
+    }
+
+    // ---------- Late fee applied after the shift was marked Paid ----------
+
+    [Fact]
+    public void LateFeeAfterMarkedPaid_StillOwed_AndShownPartial()
+    {
+        // Paid 800 and marked "Paid", then the 23:00 return's ₱100 late fee applies: ₱100 is still owed.
+        DateTime end = Ph.Utc(new DateTime(2026, 10, 20, 23, 0, 0));
+        var input = Ph.Input([Ph.Shift("s1", "d1", Start0630, end)], [Ph.Pay("s1_PAY_20261020150000000", "s1", 800, status: "Paid", txn: "t1")]);
+        DriverDebtResult debt = QuickLedgerCalculator.DriverDebt(input, "d1");
+        Assert.Equal(100m, debt.TotalDebt);
+        Assert.Equal("Partial", debt.Shifts.Single().PaymentStatus);
     }
 
     // ---------- BRP-024: active shift isn't debt ----------
@@ -399,6 +416,30 @@ public class BoundaryLedgerEmulatorTests
         DriverLedgerHistory history = await ledger.GetDriverHistoryAsync("a");
         Assert.Equal(a.TotalDebt, history.CurrentOutstandingDebt);
         Assert.Equal(a.TotalDebt, history.Transactions.First().RunningDebt);
+    }
+
+    /// <summary>The tester's mismatch: a shift marked "Paid" before its late fee applied. The row, the History's newest
+    /// running balance, the debt flag and Daily Settlements all count the fee as still owed.</summary>
+    [EmulatorFact]
+    public async Task Brp010_MarkedPaidBeforeLateFee_RowHistoryAndDayAgree()
+    {
+        FirestoreDb db = await FreshAsync();
+        await Driver(db, "a");
+        DateTime start = Ph.Utc(Ph.Today.AddDays(-1).AddHours(6.5));
+        DateTime end = Ph.Utc(Ph.Today.AddDays(-1).AddHours(23)); // ₱100 late fee
+        await Shift(db, "a1", "a", start, end);
+        await Payment(db, "a1_PAY_20261025140000000", "a1", "a", 800, "Paid", txn: "t1");
+
+        FinancialLedgerService ledger = Ledger(db);
+        DebtLedgerRow row = await Row(ledger, "a");
+        Assert.Equal(100m, row.TotalDebt);
+        DriverLedgerHistory history = await ledger.GetDriverHistoryAsync("a");
+        Assert.Equal(row.TotalDebt, history.CurrentOutstandingDebt);
+        Assert.Equal(row.TotalDebt, history.Transactions.First().RunningDebt);
+
+        SettlementRow day = (await ledger.GetDailySettlementAsync(start)).Rows.Single();
+        Assert.Equal(SettlementStatus.Partial, day.Status);
+        Assert.Equal(100m, day.Balance);
     }
 
     // ---------- BRP-011: + Adjustment ----------

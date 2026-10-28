@@ -15,6 +15,11 @@
                 <Button Grid.Column="1" Text="Export" ImageSource="export_icon.png" Command="{Binding ExportCommand}" BackgroundColor="{DynamicResource LargaPrimaryBlue}" TextColor="{DynamicResource LargaWhite}" CornerRadius="10" HeightRequest="40" Padding="15,0" VerticalOptions="Center"/>
             </Grid>
 
+            <!-- Offline: the list below is the copy saved on this phone -->
+            <Border IsVisible="{Binding IsShowingCachedData}" BackgroundColor="{DynamicResource LargaWarningBg}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="12,10">
+                <Label Text="Offline - showing the copy saved on this phone. It may be out of date." FontSize="13" TextColor="{DynamicResource LargaWarning}"/>
+            </Border>
+
             <!-- Payment List Card -->
             <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                 <VerticalStackLayout Spacing="10">
