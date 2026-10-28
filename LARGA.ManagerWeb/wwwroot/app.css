@@ -5328,6 +5328,12 @@ color: #ffffff;
 border-bottom-right-radius: 4px;
 }
 
+/* Another Manager / Assistant Manager's message: on the left with the driver's, in a light accent. */
+.chat-bubble.from-driver.from-staff {
+background: rgba(var(--accent-rgb),0.14);
+border-color: rgba(var(--accent-rgb),0.35);
+}
+
 /* Shared driver conversation: which Manager / Assistant Manager wrote a staff message. */
 .chat-bubble-sender {
     font-size: 0.7rem;

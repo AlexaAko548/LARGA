@@ -104,8 +104,11 @@ public class ChatsDetailViewModel : INotifyPropertyChanged
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 Messages.Clear();
+                // Shared conversation: only the signed-in staff member's own messages go on the right.
+                string? me = Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser?.Uid;
                 foreach (var msg in messages)
                 {
+                    msg.IsMine = msg.IsMineFor(me, viewerIsDriver: false);
                     Messages.Add(msg);
                 }
 

@@ -78,6 +78,7 @@ public class MessageManagerViewModel : INotifyPropertyChanged
                 Messages.Clear();
                 foreach (var msg in messages)
                 {
+                    msg.IsMine = msg.IsMineFor(null, viewerIsDriver: true);
                     Messages.Add(msg);
                 }
 

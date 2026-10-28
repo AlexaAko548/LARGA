@@ -20,7 +20,9 @@ public interface IChatService
     IDisposable ListenForMessages(string driverId, Action<IList<ChatMessage>> onMessagesUpdated);
     /// <summary>The driver's users.phoneNumber, or null when none is on file or it can't be read.</summary>
     Task<string?> GetDriverPhoneNumberAsync(string driverId);
-    IDisposable ListenForChatSessions(Action<IEnumerable<ChatSession>> onSessionsUpdated);
+    /// <summary>Live chats/* list. <paramref name="onError"/> is called if the listener is refused or fails
+    /// (it then stops - start a new one to retry).</summary>
+    IDisposable ListenForChatSessions(Action<IEnumerable<ChatSession>> onSessionsUpdated, Action<Exception>? onError = null);
     Task MarkMessagesAsReadAsync(string driverId);
 }
 
@@ -228,7 +230,7 @@ public class ChatService : IChatService
         return null;
     }
 
-    public IDisposable ListenForChatSessions(Action<IEnumerable<ChatSession>> onSessionsUpdated)
+    public IDisposable ListenForChatSessions(Action<IEnumerable<ChatSession>> onSessionsUpdated, Action<Exception>? onError = null)
     {
         return CrossFirebaseFirestore.Current
             .GetCollection("chats")
@@ -257,6 +259,7 @@ public class ChatService : IChatService
             error =>
             {
                 System.Diagnostics.Debug.WriteLine($"Chat Sessions Listener Error: {error.Message}");
+                onError?.Invoke(error);
             });
     }
 

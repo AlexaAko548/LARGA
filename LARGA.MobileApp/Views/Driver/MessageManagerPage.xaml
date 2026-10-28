@@ -26,10 +26,11 @@
                     <Border StrokeThickness="0" StrokeShape="RoundRectangle 15" Padding="20" Margin="0,0,0,15" MaximumWidthRequest="250">
                         <Border.Style>
                             <Style TargetType="Border">
+                                <!-- The driver's own messages on the right; every staff message on the left. -->
                                 <Setter Property="HorizontalOptions" Value="Start" />
                                 <Setter Property="BackgroundColor" Value="Gray" />
                                 <Style.Triggers>
-                                    <DataTrigger TargetType="Border" Binding="{Binding IsDriver}" Value="True">
+                                    <DataTrigger TargetType="Border" Binding="{Binding IsMine}" Value="True">
                                         <Setter Property="HorizontalOptions" Value="End" />
                                         <Setter Property="BackgroundColor" Value="{DynamicResource LargaPrimaryBlue}" />
                                     </DataTrigger>

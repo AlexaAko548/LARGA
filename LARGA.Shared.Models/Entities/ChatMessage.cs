@@ -42,7 +42,21 @@ public class ChatMessage
     /// "Manager" for an older message. Empty for the driver's own messages. Not stored.</summary>
     public string SenderLabel => LabelFor(IsDriver, SenderName, SenderRole);
 
-    public bool ShowSender => !IsDriver;
+    /// <summary>Sent by whoever is looking at the chat: on the staff side, a staff message whose senderId is
+    /// the signed-in user (an older message with no sender isn't anyone's); in the driver app, the
+    /// driver's own messages. Set by the screen showing it (<see cref="IsMineFor"/>), not stored.</summary>
+    public bool IsMine { get; set; }
+
+    /// <summary>Another staff member's message, seen on the staff side - drawn on the left like the
+    /// driver's, in its own colour.</summary>
+    public bool IsOtherStaff => !IsDriver && !IsMine;
+
+    public bool ShowSender => !IsDriver && !IsMine;
+
+    /// <summary>Whether this message is the viewer's own: the driver's messages for the driver
+    /// (<paramref name="viewerIsDriver"/>), else a staff message sent by <paramref name="viewerUid"/>.</summary>
+    public bool IsMineFor(string? viewerUid, bool viewerIsDriver) =>
+        viewerIsDriver ? IsDriver : !IsDriver && !string.IsNullOrEmpty(viewerUid) && SenderId == viewerUid;
 
     public static string LabelFor(bool isDriver, string? senderName, string? senderRole)
     {
