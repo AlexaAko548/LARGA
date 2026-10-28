@@ -117,6 +117,13 @@ service cloud.firestore {
     match /debt_adjustments/{adjustmentId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow write: if isManager();
+      // An Assistant Manager recording a payment in Quick Ledger: only the automatic credit against
+      // manual debt that comes with it (negative, tied to the payment's transactionId). Manual
+      // adjustments stay Manager-only.
+      allow create: if isStaff()
+                    && request.resource.data.amount is number && request.resource.data.amount < 0
+                    && request.resource.data.transactionId is string && request.resource.data.transactionId.size() > 0
+                    && request.resource.data.driverId is string && request.resource.data.driverId.size() > 0;
     }
 
     match /driverPerformance/{driverId} {
@@ -125,11 +132,11 @@ service cloud.firestore {
     }
 
     match /chats/{driverId} {
-      allow read, write: if isManager() || isOwner(driverId);
+      allow read, write: if isStaff() || isOwner(driverId);
 
       match /messages/{messageId} {
-        allow read, delete: if isManager() || isOwner(driverId);
-        allow create, update: if isManager() || (isOwner(driverId) && expiresAfterDays(365));
+        allow read, delete: if isStaff() || isOwner(driverId);
+        allow create, update: if isStaff() || (isOwner(driverId) && expiresAfterDays(365));
       }
     }
 
@@ -246,7 +253,7 @@ service cloud.firestore {
 
     match /audit_logs/{logId} {
       allow read: if isManager();
-      allow create: if isManager() && ownAuditEntry();
+      allow create: if isStaff() && ownAuditEntry();
       allow create: if isDriver() && ownAuditEntry()
          && request.resource.data.actionType in ['SosTriggered', 'VehicleDefectReported'];
     }

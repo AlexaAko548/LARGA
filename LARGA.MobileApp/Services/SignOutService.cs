@@ -39,6 +39,7 @@ public static class SignOutService
         bool writesFlushed = await FlushPendingWritesAsync(firestore);
 
         await CrossFirebaseAuth.Current.SignOutAsync();
+        StaffSession.Role = null;
 
         // Clearing the cache would drop writes that never reached the server. When the phone is
         // offline and something is still queued, keep the cache (the write goes out on the next

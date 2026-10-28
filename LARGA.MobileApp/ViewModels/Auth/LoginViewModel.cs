@@ -124,9 +124,8 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
                 return;
             }
 
-            string? route = role.Equals("Driver", StringComparison.OrdinalIgnoreCase) ? "//driver-dashboard"
-                : role.Equals("Manager", StringComparison.OrdinalIgnoreCase) ? "//manager-dashboard"
-                : null;
+            // An Assistant Manager gets the manager dashboard too, with the Manager-only parts left out.
+            string? route = LARGA.SharedCore.StaffRoles.HomeRoute(role);
 
             if (route is null)
             {
@@ -141,13 +140,15 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
             // DSM-006: the account must belong to the tile it was signed in from - a Manager can't
             // get in through the Driver tile or the other way round. Signed out straight away, and
             // the tile's remembered credentials are left as they were.
-            if (!role.Trim().Equals(_expectedRole, StringComparison.OrdinalIgnoreCase))
+            if (!LARGA.SharedCore.StaffRoles.MatchesLoginTile(role, _expectedRole))
             {
                 await SignOutQuietlyAsync();
                 string otherTile = _expectedRole.Equals("Driver", StringComparison.OrdinalIgnoreCase) ? "Manager" : "Driver";
                 ShowError($"This account is not registered as a {_expectedRole}. Please use the {otherTile} login.");
                 return;
             }
+
+            LARGA.MobileApp.Services.StaffSession.Role = role.Trim();
 
             // Only persist credentials once the login fully succeeded.
             await SaveOrClearCredentialsAsync();

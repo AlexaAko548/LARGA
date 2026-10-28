@@ -5,6 +5,7 @@ using System.Windows.Input;
 using Microsoft.Maui.Controls;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
+using LARGA.MobileApp.Services;
 
 namespace LARGA.MobileApp.ViewModels.Manager;
 
@@ -17,7 +18,11 @@ public class ManagerProfileViewModel : BindableObject
         set { _fullName = value; OnPropertyChanged(); }
     }
 
-    private string _roleDisplay = "Fleet Manager";
+    private string _roleDisplay = StaffSession.IsAssistantManager ? "Assistant Manager" : "Fleet Manager";
+
+    /// <summary>The contact number feeds the SOS auto-answer allowlist (system_configs), which only a
+    /// Manager may change from the app - an Assistant Manager's number is kept in step by ManagerWeb.</summary>
+    public bool CanUpdateContactNumber => !StaffSession.IsAssistantManager;
     public string RoleDisplay
     {
         get => _roleDisplay;

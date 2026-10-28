@@ -106,6 +106,10 @@ public class ManagerDriverProfileViewModel : BindableObject
         set { _expiryDateDisplay = value; OnPropertyChanged(); }
     }
 
+    /// <summary>Editing a driver's account (the license scan) is Manager-only; an Assistant Manager
+    /// sees the profile read-only (firestore.rules / storage.rules allow only a Manager to write it).</summary>
+    public bool CanEditDriver => !StaffSession.IsAssistantManager;
+
     public ICommand GoBackCommand { get; }
     public ICommand UploadLicensePhotoCommand { get; }
     public ICommand ReloadCommand { get; }
@@ -146,6 +150,8 @@ public class ManagerDriverProfileViewModel : BindableObject
 
     private async Task UploadLicensePhotoAsync()
     {
+        if (!CanEditDriver) return;
+
         // A second tap while the camera is opening would open it twice.
         if (_isOpeningCamera) return;
         _isOpeningCamera = true;

@@ -11,16 +11,21 @@ using Microsoft.Extensions.Logging;
 namespace LARGA.ManagerWeb.Services;
 
 /// <summary>
-/// Rebuilds system_configs/global.managerPhoneNumbers from every Manager's users.phoneNumber
-/// once each time ManagerWeb starts. That list is what a driver's phone auto-answers after an
-/// automated SOS (LAR-86/87); drivers can't read managers' users documents under firestore.rules,
-/// so it's mirrored there. Runs in the background - a failure is logged and never stops the site
-/// from starting; the next start simply tries again.
+/// Keeps system_configs/global.managerPhoneNumbers equal to every Manager's and Assistant
+/// Manager's users.phoneNumber (ManagerPhoneAllowlist). That list is what a driver's phone
+/// auto-answers after an automated SOS (LAR-86/87); drivers can't read staff users documents under
+/// firestore.rules, so it's mirrored there. A live listener on users (same pattern as
+/// FuelAutoCheckService): its first snapshot rebuilds the list on startup, and a new staff account,
+/// a changed number or a role change updates it straight away. Written only when the list actually
+/// changes. Never throws out of the host - failures are logged and the listener is restarted.
 /// </summary>
 public class ManagerPhoneAllowlistSyncService : BackgroundService
 {
+    private static readonly TimeSpan RestartDelay = TimeSpan.FromSeconds(15);
+
     private readonly Lazy<FirestoreDb> _firestoreDb;
     private readonly ILogger<ManagerPhoneAllowlistSyncService> _logger;
+    private List<string>? _lastWritten;
 
     public ManagerPhoneAllowlistSyncService(Lazy<FirestoreDb> firestoreDb, ILogger<ManagerPhoneAllowlistSyncService> logger)
     {
@@ -30,32 +35,66 @@ public class ManagerPhoneAllowlistSyncService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            FirestoreChangeListener? listener = null;
+            try
+            {
+                listener = _firestoreDb.Value.Collection("users").Listen(OnSnapshotAsync, stoppingToken);
+                await listener.ListenerTask;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Manager phone allowlist listener stopped; restarting in {Delay}.", RestartDelay);
+            }
+            finally
+            {
+                if (listener is not null)
+                {
+                    try { await listener.StopAsync(); } catch { /* already stopped */ }
+                }
+            }
+
+            try
+            {
+                await Task.Delay(RestartDelay, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }
+
+    private async Task OnSnapshotAsync(QuerySnapshot users, CancellationToken token)
+    {
         try
         {
-            FirestoreDb db = _firestoreDb.Value;
-            // The role is matched case-insensitively, the same way the apps' logins treat it.
-            QuerySnapshot users = await db.Collection("users").GetSnapshotAsync(stoppingToken);
+            List<string> numbers = ManagerPhoneAllowlist.Build(users.Documents.Select(doc => (
+                doc.TryGetValue("role", out object? role) ? role?.ToString() : null,
+                doc.TryGetValue("phoneNumber", out object? phone) ? phone?.ToString() : null)));
 
-            List<string> numbers = users.Documents
-                .Where(doc => doc.TryGetValue("role", out object? role)
-                              && string.Equals(role?.ToString(), "Manager", StringComparison.OrdinalIgnoreCase))
-                .Select(doc => doc.TryGetValue("phoneNumber", out object? phone) ? phone?.ToString() : null)
-                .Select(InputValidator.NormalizePhilippineMobile)
-                .OfType<string>()
-                .Distinct()
-                .ToList();
+            if (_lastWritten is not null && _lastWritten.SequenceEqual(numbers))
+            {
+                return;
+            }
 
             // Only this field is written, so the rest of the config document is left untouched.
-            await db.Collection("system_configs").Document("global").SetAsync(
+            await _firestoreDb.Value.Collection("system_configs").Document("global").SetAsync(
                 new Dictionary<string, object> { ["managerPhoneNumbers"] = numbers },
                 SetOptions.MergeFields("managerPhoneNumbers"),
-                stoppingToken);
+                token);
+            _lastWritten = numbers;
 
-            _logger.LogInformation("SOS auto-answer allowlist set to {Count} manager number(s).", numbers.Count);
+            _logger.LogInformation("SOS auto-answer allowlist set to {Count} Manager/Assistant Manager number(s).", numbers.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Manager phone allowlist sync failed; it will be retried on the next start.");
+            _logger.LogWarning(ex, "Manager phone allowlist sync failed; the next users change retries it.");
         }
     }
 }

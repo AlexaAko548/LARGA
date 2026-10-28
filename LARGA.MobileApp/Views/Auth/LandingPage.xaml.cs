@@ -43,13 +43,12 @@ public partial class LandingPage : ContentPage
             // 3. Auto-route them, bypassing the login screens completely
             try
             {
-                if (role?.Equals("Driver", StringComparison.OrdinalIgnoreCase) == true)
+                // Driver, Manager or Assistant Manager (manager dashboard, Manager-only parts left out).
+                string? route = LARGA.SharedCore.StaffRoles.HomeRoute(role);
+                if (route != null)
                 {
-                    await Shell.Current.GoToAsync("//driver-dashboard");
-                }
-                else if (role?.Equals("Manager", StringComparison.OrdinalIgnoreCase) == true)
-                {
-                    await Shell.Current.GoToAsync("//manager-dashboard");
+                    LARGA.MobileApp.Services.StaffSession.Role = role!.Trim();
+                    await Shell.Current.GoToAsync(route);
                 }
             }
             catch (Exception ex)

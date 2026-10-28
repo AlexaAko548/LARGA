@@ -59,7 +59,8 @@
                 </VerticalStackLayout>
             </Border>
 
-            <Border BackgroundColor="Transparent" StrokeThickness="1" Stroke="{DynamicResource LargaPrimaryBlue}" StrokeShape="RoundRectangle 20" Padding="0" HeightRequest="46">
+            <Border BackgroundColor="Transparent" StrokeThickness="1" Stroke="{DynamicResource LargaPrimaryBlue}" StrokeShape="RoundRectangle 20" Padding="0" HeightRequest="46"
+                    IsVisible="{Binding CanEditDriver}">
                 <Button Text="📷 SCAN &amp; UPDATE LICENSE" Command="{Binding UploadLicensePhotoCommand}"
                         BackgroundColor="Transparent" TextColor="{DynamicResource LargaPrimaryBlue}" FontSize="13" FontAttributes="Bold" />
             </Border>

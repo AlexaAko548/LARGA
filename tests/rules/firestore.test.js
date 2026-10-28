@@ -420,3 +420,38 @@ describe('Fuel OR number claims (Proposal 4.2.4.5)', () => {
   it('unauthenticated users cannot read claims', async () =>
     assertFails(getDoc(doc(anon(), 'fuel_or_numbers', 'OR555'))));
 });
+
+describe('Assistant Manager in the mobile app', () => {
+  it('can read and send chat messages with a driver', async () => {
+    await assertSucceeds(setDoc(doc(as(ASSISTANT), 'chats', DRIVER_A), { lastMessage: 'hi', updatedAt: serverTimestamp() }, { merge: true }));
+    await assertSucceeds(addDoc(collection(as(ASSISTANT), 'chats', DRIVER_A, 'messages'), { text: 'On my way', isDriver: false, timestamp: serverTimestamp() }));
+    await assertSucceeds(getDocs(collection(as(ASSISTANT), 'chats', DRIVER_A, 'messages')));
+  });
+  it("a driver still cannot read another driver's chat", async () =>
+    assertFails(getDocs(collection(as(DRIVER_B), 'chats', DRIVER_A, 'messages'))));
+  it('cannot approve or deny a clock-in request', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'clockin_requests', 'req1'), { driverId: DRIVER_A, status: 'Pending' }));
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'Approved' }));
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'Denied' }));
+    await assertSucceeds(updateDoc(doc(as(MANAGER), 'clockin_requests', 'req1'), { status: 'Approved' }));
+  });
+  it('cannot resolve a fuel flag', async () => {
+    await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'fuel_logs', 'fuelB'), { verificationStatus: 'Flagged' }));
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'fuel_logs', 'fuelB'), { verificationStatus: 'Verified', fuelLogDetails: 'Resolved: ok' }));
+  });
+  it('cannot send a unit to the Garage', async () =>
+    assertFails(updateDoc(doc(as(ASSISTANT), 'taxis', 'TX-01'), { status: 'Under Maintenance' })));
+  it('can record the automatic credit that comes with a Quick Ledger payment', async () =>
+    assertSucceeds(addDoc(collection(as(ASSISTANT), 'debt_adjustments'), {
+      driverId: DRIVER_A, amount: -150, reason: 'Automatic credit from a debt payment.', timestamp: serverTimestamp(), transactionId: 'tx1' })));
+  it('cannot add a manual (positive) debt adjustment even with a transactionId', async () =>
+    assertFails(addDoc(collection(as(ASSISTANT), 'debt_adjustments'), { driverId: DRIVER_A, amount: 500, transactionId: 'tx1' })));
+  it('can write their own audit entry (payments, messages)', async () =>
+    assertSucceeds(addDoc(collection(as(ASSISTANT), 'audit_logs'), { userId: ASSISTANT, actionType: 'PaymentRecorded', timestamp: serverTimestamp() })));
+  it("cannot write an audit entry in someone else's name", async () =>
+    assertFails(addDoc(collection(as(ASSISTANT), 'audit_logs'), { userId: MANAGER, actionType: 'PaymentRecorded', timestamp: serverTimestamp() })));
+  it('can save their own FCM token (SOS pushes)', async () =>
+    assertSucceeds(updateDoc(doc(as(ASSISTANT), 'users', ASSISTANT), { fcmToken: 'tok', tokenUpdatedAt: serverTimestamp() })));
+  it('cannot change system_configs (the SOS allowlist is kept by ManagerWeb)', async () =>
+    assertFails(updateDoc(doc(as(ASSISTANT), 'system_configs', 'global'), { managerPhoneNumbers: ['+639170000000'] })));
+});
