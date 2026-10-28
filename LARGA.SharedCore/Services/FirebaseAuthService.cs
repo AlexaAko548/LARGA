@@ -11,8 +11,9 @@ public interface IFirebaseAuthService
     /// <summary>Signs in and returns the Firebase UID. Throws <see cref="AuthFailedException"/> on failure.</summary>
     Task<string> LoginAsync(string email, string password);
 
-    /// <summary>Returns users/{uid}.role, or empty if the profile/field is missing. Throws on network/permission errors.</summary>
-    Task<string> GetUserRoleAsync(string userId);
+    /// <summary>Returns users/{uid}.role: empty when the profile has no role, null when there is no
+    /// LARGA profile at all. Throws on network/permission errors.</summary>
+    Task<string?> GetUserRoleAsync(string userId);
 
     /// <summary>users/{uid}.mustChangePassword (ForcedPasswordChangeRules). False when it's missing.</summary>
     Task<bool> MustChangePasswordAsync(string userId);
@@ -35,6 +36,17 @@ public class FirebaseAuthService : IFirebaseAuthService
 
     private const string NoConnectionMessage =
         "Can't reach the sign-in server. Check that this phone is online (Wi-Fi or mobile data), then try again.";
+
+    /// <summary>
+    /// Wrong password, unknown email, or a sign-in with no LARGA profile behind it (DSM-004/005/007).
+    /// One message for all of them on purpose: saying which part was wrong would tell a stranger
+    /// which emails have accounts - and Firebase itself no longer says which (email enumeration
+    /// protection), so the app couldn't tell "no account" from "wrong password" anyway.
+    /// </summary>
+    public const string IncorrectCredentialsMessage =
+        "Incorrect email or password. Check your details, or contact your manager if you don't have an account yet.";
+
+    public const string DisabledAccountMessage = "This account has been disabled. Please contact your manager.";
 
     public async Task<string> LoginAsync(string email, string password)
     {
@@ -59,13 +71,19 @@ public class FirebaseAuthService : IFirebaseAuthService
         catch (FirebaseAuthException ex)
         {
             System.Diagnostics.Debug.WriteLine($"Firebase Auth Error ({ex.Reason}): {ex}");
+            // DSM-016: on Android, Plugin.Firebase reports every FirebaseAuthInvalidUserException as
+            // UserNotFound - a disabled account included - so the original error is checked too.
+            if (ex.Reason == FIRAuthError.UserDisabled || IsDisabledAccount(ex))
+            {
+                throw new AuthFailedException(DisabledAccountMessage, ex);
+            }
+
             throw new AuthFailedException(ex.Reason switch
             {
-                FIRAuthError.InvalidEmail => "That email address is not valid.",
+                FIRAuthError.InvalidEmail => "Enter a valid email address, e.g. juan.delacruz@gmail.com.",
                 FIRAuthError.WrongPassword or FIRAuthError.InvalidCredential or FIRAuthError.UserNotFound
-                    => "Incorrect email or password.",
-                FIRAuthError.UserDisabled => "This account has been disabled. Please contact your manager.",
-                _ => $"Sign-in failed: {ex.Message}"
+                    => IncorrectCredentialsMessage,
+                _ => "Sign-in failed. Please try again, or contact your manager if it keeps happening."
             }, ex);
         }
         catch (TimeoutException ex)
@@ -77,8 +95,28 @@ public class FirebaseAuthService : IFirebaseAuthService
         {
             // Covers FirebaseApp not initialized, missing google-services.json, network errors, etc.
             System.Diagnostics.Debug.WriteLine($"Firebase Auth Error: {ex}");
-            throw new AuthFailedException($"Sign-in failed: {ex.Message}", ex);
+            if (IsDisabledAccount(ex))
+            {
+                throw new AuthFailedException(DisabledAccountMessage, ex);
+            }
+            throw new AuthFailedException("Sign-in failed. Please try again, or contact your manager if it keeps happening.", ex);
         }
+    }
+
+    /// <summary>Firebase's "ERROR_USER_DISABLED" / "The user account has been disabled by an
+    /// administrator.", wherever it sits in the exception chain.</summary>
+    private static bool IsDisabledAccount(Exception ex)
+    {
+        for (Exception? e = ex; e is not null; e = e.InnerException)
+        {
+            if (e.Message.Contains("USER_DISABLED", StringComparison.OrdinalIgnoreCase)
+                || e.Message.Contains("has been disabled", StringComparison.OrdinalIgnoreCase)
+                || e.GetType().GetProperty("ErrorCode")?.GetValue(e) is string code && code.Contains("USER_DISABLED", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -100,7 +138,7 @@ public class FirebaseAuthService : IFirebaseAuthService
         return false;
     }
 
-    public async Task<string> GetUserRoleAsync(string userId)
+    public async Task<string?> GetUserRoleAsync(string userId)
     {
         // Deserialize using the mobile-specific proxy class. Errors (permission-denied, offline,
         // timeout) propagate so callers can surface them instead of reporting a bogus "no role".
@@ -110,7 +148,8 @@ public class FirebaseAuthService : IFirebaseAuthService
             .GetDocumentSnapshotAsync<FirestoreRoleProxy>()
             .WaitAsync(CallTimeout);
 
-        return document?.Data?.Role ?? string.Empty;
+        // No document = no LARGA profile at all (null); a profile without a role = "".
+        return document?.Data is null ? null : document.Data.Role ?? string.Empty;
     }
 
     public async Task<bool> MustChangePasswordAsync(string userId)

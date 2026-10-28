@@ -186,7 +186,7 @@ builder.Services
     {
         options.LoginPath = "/login";
         options.AccessDeniedPath = "/login";
-        // Re-checks the manager's access every ManagerSignInService.RecheckInterval (10 min).
+        // Re-checks the manager's access on page requests every ManagerSignInService.RecheckInterval (15 s).
         options.Events.OnValidatePrincipal = ManagerSessionValidator.ValidateAsync;
     });
 // [Authorize] requires the Manager role claim, which only ManagerSignInService issues after

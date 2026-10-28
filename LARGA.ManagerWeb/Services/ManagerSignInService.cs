@@ -17,11 +17,12 @@ namespace LARGA.ManagerWeb.Services;
 ///   2. On success a random, single-use ticket valid for 60 seconds is issued.
 ///   3. /auth/signin redeems the ticket (once) and issues the cookie.
 ///
-/// After sign-in, access is re-checked server-side every <see cref="RecheckInterval"/> (account
-/// still enabled in Firebase, users/{uid}.role still the role the session was issued with): on page requests by the cookie's
-/// OnValidatePrincipal (ManagerSessionValidator) and on open Blazor circuits by
-/// ManagerRevalidatingAuthStateProvider. So a manager whose access is removed is signed out
-/// within that interval instead of keeping it until the 8-hour cookie expires.
+/// After sign-in, access is re-checked server-side (account still enabled in Firebase,
+/// users/{uid}.role still the role the session was issued with): on page requests by the cookie's
+/// OnValidatePrincipal (ManagerSessionValidator) every <see cref="RecheckInterval"/>, and on open
+/// Blazor circuits by ManagerRevalidatingAuthStateProvider every <see cref="CircuitRecheckInterval"/>.
+/// So a manager whose access is removed is signed out on their next page load, or within a minute
+/// on a page left open, instead of keeping it until the 8-hour cookie expires.
 /// </summary>
 public class ManagerSignInService
 {
@@ -36,8 +37,15 @@ public class ManagerSignInService
 
     private static readonly TimeSpan TicketLifetime = TimeSpan.FromSeconds(60);
 
-    /// <summary>How often a signed-in manager's access is checked again.</summary>
-    public static readonly TimeSpan RecheckInterval = TimeSpan.FromMinutes(10);
+    /// <summary>How often a page request re-checks a signed-in manager's access (DSM-022: a
+    /// reload or a newly opened page right after the account is disabled or its role changed
+    /// signs it out). Short, but not every request - one page load makes several requests
+    /// (the page, then Blazor's connection), and each check is a Firebase Auth + Firestore read.</summary>
+    public static readonly TimeSpan RecheckInterval = TimeSpan.FromSeconds(15);
+
+    /// <summary>How often a page that stays open (no new HTTP request - moving between pages
+    /// happens inside the same live connection) re-checks access.</summary>
+    public static readonly TimeSpan CircuitRecheckInterval = TimeSpan.FromMinutes(1);
 
     /// <summary>Cookie claim: when access was last confirmed (Unix seconds, UTC).</summary>
     public const string ValidatedAtClaim = "larga:validated_at";

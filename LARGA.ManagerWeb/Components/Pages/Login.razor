@@ -123,27 +123,56 @@
 
             if (result.TryGetProperty("code", out var codeProp) && codeProp.ValueKind == JsonValueKind.String && codeProp.GetString() == "manager-only")
             {
-                _errorMessage = "This account is not authorized to access the manager portal.";
+                // A Firebase account with no LARGA profile isn't a LARGA account (DSM-012): answered
+                // like an unknown email. A real LARGA account without manager access (a driver) is
+                // told so, since the portal isn't for them.
+                string? reason = result.TryGetProperty("message", out var reasonProp) && reasonProp.ValueKind == JsonValueKind.String ? reasonProp.GetString() : null;
+                _errorMessage = reason?.Contains("No user profile", StringComparison.OrdinalIgnoreCase) == true
+                    ? IncorrectCredentialsMessage
+                    : "This account is not authorized to access the manager portal.";
                 return;
             }
 
-            if (result.TryGetProperty("message", out var msgProp) && msgProp.ValueKind == JsonValueKind.String)
-            {
-                _errorMessage = msgProp.GetString();
-            }
-            else
-            {
-                _errorMessage = "Unable to log in with Firebase. Please check your Firebase configuration.";
-            }
+            _errorMessage = FriendlySignInError(result.TryGetProperty("message", out var msgProp) && msgProp.ValueKind == JsonValueKind.String
+                ? msgProp.GetString()
+                : null);
         }
         catch (Exception ex)
         {
-            _errorMessage = ex.Message;
+            _errorMessage = FriendlySignInError(ex.Message);
         }
         finally
         {
             _isSubmitting = false;
         }
+    }
+
+    /// <summary>
+    /// Firebase's own text ("Firebase: Error (auth/invalid-credential).") turned into a message a
+    /// manager can act on (DSM-012). firebase-auth.js is kept per machine, so the error code is
+    /// read from the message here rather than relying on that file to send it separately.
+    /// Wrong password and unknown email get the same message on purpose: saying which one was
+    /// wrong would tell a stranger which emails have accounts.
+    /// </summary>
+    // Same wording as the mobile app (FirebaseAuthService.IncorrectCredentialsMessage).
+    private const string IncorrectCredentialsMessage =
+        "Incorrect email or password. Check your details, or contact your manager if you don't have an account yet.";
+
+    private static string FriendlySignInError(string? raw)
+    {
+        string code = raw is null ? string.Empty
+            : System.Text.RegularExpressions.Regex.Match(raw, @"auth/[a-z-]+").Value;
+        return code switch
+        {
+            "auth/invalid-credential" or "auth/wrong-password" or "auth/user-not-found" or "auth/invalid-login-credentials"
+                => IncorrectCredentialsMessage,
+            "auth/invalid-email" => "Enter a valid email address, e.g. juan.delacruz@gmail.com.",
+            "auth/user-disabled" => "This account has been disabled. Please contact your manager.",
+            "auth/too-many-requests" => "Too many sign-in attempts. Wait a few minutes, then try again (or reset your password).",
+            "auth/network-request-failed" => "Can't reach the sign-in server. Check your internet connection, then try again.",
+            "" when !string.IsNullOrWhiteSpace(raw) && !raw.Contains("Firebase", StringComparison.OrdinalIgnoreCase) => raw,
+            _ => "Sign-in failed. Please try again, or contact the system administrator if it keeps happening.",
+        };
     }
 
     private class LoginFormModel
