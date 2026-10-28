@@ -6,7 +6,7 @@ namespace LARGA.ManagerWeb.Services;
 
 /// <summary>
 /// Re-checks the signed-in manager's access on open Blazor circuits every
-/// ManagerSignInService.RecheckInterval. A page left open never makes a new HTTP request, so the
+/// ManagerSignInService.CircuitRecheckInterval. A page left open never makes a new HTTP request, so the
 /// cookie check alone wouldn't catch it. When access is gone the circuit becomes signed-out, the
 /// router shows RedirectToLogin, and that page load's cookie check ends the cookie too (the uid is
 /// remembered as revoked, so it doesn't wait for the cookie's own interval).
@@ -21,7 +21,7 @@ public class ManagerRevalidatingAuthStateProvider : RevalidatingServerAuthentica
         _signIn = signIn;
     }
 
-    protected override TimeSpan RevalidationInterval => ManagerSignInService.RecheckInterval;
+    protected override TimeSpan RevalidationInterval => ManagerSignInService.CircuitRecheckInterval;
 
     protected override async Task<bool> ValidateAuthenticationStateAsync(AuthenticationState authenticationState, CancellationToken cancellationToken)
     {

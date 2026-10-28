@@ -43,6 +43,18 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 if (-not (Test-Path "$out\wwwroot\firebase-auth.js")) {
     throw "wwwroot\firebase-auth.js is missing - copy firebase-auth.example.js to firebase-auth.js and fill in the web config first."
 }
+# SOS street addresses need the MapTiler key; it lives in the untracked appsettings.Local.json,
+# which isn't uploaded, so it's passed to Cloud Run as a setting instead.
+$envVars = "Firestore__ProjectId=$Project"
+$localSettings = "$root\LARGA.ManagerWeb\appsettings.Local.json"
+if (Test-Path $localSettings) {
+    $mapTilerKey = (Get-Content $localSettings -Raw | ConvertFrom-Json).MapTiler.ApiKey
+    if ($mapTilerKey) { $envVars += ",MapTiler__ApiKey=$mapTilerKey" }
+}
+if ($envVars -notlike "*MapTiler__ApiKey*") {
+    Write-Warning "No MapTiler:ApiKey in appsettings.Local.json - SOS Dispatch will show coordinates only."
+}
+
 # Never ship local settings (they point at the service account key on this PC).
 Remove-Item "$out\appsettings.Local.json", "$out\appsettings.Development.json" -ErrorAction SilentlyContinue
 Copy-Item "$PSScriptRoot\Dockerfile" $out
@@ -60,7 +72,7 @@ gcloud run deploy $Service `
     --no-cpu-throttling `
     --max-instances 1 `
     --memory 512Mi `
-    --set-env-vars "Firestore__ProjectId=$Project"
+    --set-env-vars $envVars
 if ($LASTEXITCODE -ne 0) { throw "gcloud run deploy failed" }
 
 $url = gcloud run services describe $Service --project $Project --region $Region --format "value(status.url)"

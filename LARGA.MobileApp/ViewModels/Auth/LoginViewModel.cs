@@ -92,9 +92,14 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
     {
         if (IsBusy) return; // ignore repeat taps while a sign-in is in flight
 
-        if (string.IsNullOrWhiteSpace(Email) || string.IsNullOrWhiteSpace(Password))
+        // DSM-004: a blank field is named, so it isn't mistaken for a wrong password. Wrong or
+        // unknown credentials get FirebaseAuthService.IncorrectCredentialsMessage instead.
+        bool noEmail = string.IsNullOrWhiteSpace(Email), noPassword = string.IsNullOrEmpty(Password);
+        if (noEmail || noPassword)
         {
-            ShowError("Please enter both email and password.");
+            ShowError(noEmail && noPassword ? "Enter your email address and password."
+                : noEmail ? "Enter your email address."
+                : "Enter your password.");
             return;
         }
 
@@ -111,7 +116,7 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
             // Throws AuthFailedException with a user-facing message on any failure.
             var userId = await _authService.LoginAsync(Email.Trim(), Password);
 
-            string role;
+            string? role;
             try
             {
                 role = await _authService.GetUserRoleAsync(userId);
@@ -120,12 +125,21 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
             {
                 System.Diagnostics.Debug.WriteLine($"Role lookup failed: {ex}");
                 await SignOutQuietlyAsync();
-                ShowError($"Signed in, but could not load your profile: {ex.Message}");
+                ShowError(LARGA.MobileApp.Services.FirestoreErrors.FriendlyMessage(ex, "load your profile"));
                 return;
             }
 
-            string? route = role.Equals("Driver", StringComparison.OrdinalIgnoreCase) ? "//driver-dashboard"
-                : role.Equals("Manager", StringComparison.OrdinalIgnoreCase) ? "//manager-dashboard"
+            // DSM-005/007: a Firebase account with no LARGA profile isn't a LARGA account - answered
+            // like any unknown email, so nothing hints that the email exists.
+            if (role is null)
+            {
+                await SignOutQuietlyAsync();
+                ShowError(FirebaseAuthService.IncorrectCredentialsMessage);
+                return;
+            }
+
+            string? route = role.Trim().Equals("Driver", StringComparison.OrdinalIgnoreCase) ? "//driver-dashboard"
+                : role.Trim().Equals("Manager", StringComparison.OrdinalIgnoreCase) ? "//manager-dashboard"
                 : null;
 
             if (route is null)
@@ -133,7 +147,7 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
                 // Don't leave a half-signed-in session behind; LandingPage would silently ignore it.
                 await SignOutQuietlyAsync();
                 ShowError(string.IsNullOrEmpty(role)
-                    ? "Your account has no role assigned (users/{uid}.role). Please contact your manager."
+                    ? "Your account has no role assigned yet. Please contact your manager."
                     : $"Unrecognized user role \"{role}\".");
                 return;
             }
@@ -162,7 +176,7 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Login flow error: {ex}");
-            ShowError($"Login failed ({ex.GetType().Name}): {ex.Message}");
+            ShowError("Login failed. Please try again, or contact your manager if it keeps happening.");
         }
         finally
         {
