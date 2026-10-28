@@ -2386,6 +2386,54 @@ color: var(--muted);
 margin-top: 0.15rem;
 }
 
+/* Shift Logs > View route (route-map.js). */
+.route-stats {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+gap: var(--space-3);
+margin-bottom: var(--space-3);
+}
+
+.route-stats div {
+display: flex;
+flex-direction: column;
+gap: 0.15rem;
+padding: var(--space-2) var(--space-3);
+border: 1px solid var(--accent-border);
+border-radius: var(--radius-md);
+}
+
+.route-stats span {
+font-size: 0.75rem;
+color: var(--muted);
+}
+
+.route-map {
+height: min(60vh, 460px);
+border-radius: var(--radius-lg);
+overflow: hidden;
+border: 1px solid var(--accent-border);
+}
+
+.route-legend {
+display: flex;
+align-items: center;
+gap: var(--space-2);
+margin-top: var(--space-2);
+font-size: 0.75rem;
+color: var(--muted);
+}
+
+.route-dot {
+display: inline-block;
+width: 10px;
+height: 10px;
+border-radius: var(--radius-pill);
+}
+
+.route-dot.start { background: #16a34a; }
+.route-dot.end { background: #dc2626; margin-left: var(--space-2); }
+
 .checklist-tabs {
 display: flex;
 gap: 1.2rem;

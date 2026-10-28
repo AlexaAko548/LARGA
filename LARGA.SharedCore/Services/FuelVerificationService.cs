@@ -449,12 +449,7 @@ public class FuelVerificationService
                 return null;
             }
 
-            double totalKm = 0;
-            for (int i = 1; i < points.Count; i++)
-            {
-                totalKm += HaversineKm(points[i - 1].Latitude, points[i - 1].Longitude, points[i].Latitude, points[i].Longitude);
-            }
-            return Math.Round(totalKm, 1);
+            return Math.Round(GeoMath.PathDistanceKm(points.Select(p => (p.Latitude, p.Longitude)).ToList()), 1);
         }
         catch (Exception ex)
         {
@@ -462,20 +457,6 @@ public class FuelVerificationService
             return null;
         }
     }
-
-    private static double HaversineKm(double lat1, double lon1, double lat2, double lon2)
-    {
-        const double earthRadiusKm = 6371.0;
-        double dLat = DegreesToRadians(lat2 - lat1);
-        double dLon = DegreesToRadians(lon2 - lon1);
-        double a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
-                   + Math.Cos(DegreesToRadians(lat1)) * Math.Cos(DegreesToRadians(lat2))
-                   * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
-        double c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
-        return earthRadiusKm * c;
-    }
-
-    private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
 
     public async Task<FuelActionResult> VerifyAsync(string fuelId, string? actorUserId = null)
     {
