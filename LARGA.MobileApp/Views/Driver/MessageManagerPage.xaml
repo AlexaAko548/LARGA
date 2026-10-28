@@ -36,7 +36,12 @@
                                 </Style.Triggers>
                             </Style>
                         </Border.Style>
-                        <Label Text="{Binding Text}" TextColor="{DynamicResource LargaWhite}" FontSize="14" />
+                        <VerticalStackLayout Spacing="4">
+                            <!-- Shared conversation: who on the staff side wrote it -->
+                            <Label Text="{Binding SenderLabel}" IsVisible="{Binding ShowSender}" TextColor="{DynamicResource LargaWhite}"
+                                   FontSize="11" FontAttributes="Bold" Opacity="0.85" />
+                            <Label Text="{Binding Text}" TextColor="{DynamicResource LargaWhite}" FontSize="14" />
+                        </VerticalStackLayout>
                     </Border>
                 </DataTemplate>
             </CollectionView.ItemTemplate>

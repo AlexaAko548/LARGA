@@ -424,7 +424,9 @@ describe('Fuel OR number claims (Proposal 4.2.4.5)', () => {
 describe('Assistant Manager in the mobile app', () => {
   it('can read and send chat messages with a driver', async () => {
     await assertSucceeds(setDoc(doc(as(ASSISTANT), 'chats', DRIVER_A), { lastMessage: 'hi', updatedAt: serverTimestamp() }, { merge: true }));
-    await assertSucceeds(addDoc(collection(as(ASSISTANT), 'chats', DRIVER_A, 'messages'), { text: 'On my way', isDriver: false, timestamp: serverTimestamp() }));
+    await assertSucceeds(addDoc(collection(as(ASSISTANT), 'chats', DRIVER_A, 'messages'), {
+      text: 'On my way', isDriver: false, timestamp: serverTimestamp(),
+      senderId: ASSISTANT, senderName: 'Ana Assistant', senderRole: 'Assistant Manager' }));
     await assertSucceeds(getDocs(collection(as(ASSISTANT), 'chats', DRIVER_A, 'messages')));
   });
   it("a driver still cannot read another driver's chat", async () =>
@@ -491,4 +493,31 @@ describe('mustChangePassword (forced password change)', () => {
   });
   it('a manager can still set it (temporary password)', async () =>
     assertSucceeds(updateDoc(doc(as(MANAGER), 'users', DRIVER_A), { mustChangePassword: true })));
+});
+
+describe('Shared driver chat: staff messages say who sent them', () => {
+  const msgs = (uid) => collection(as(uid), 'chats', DRIVER_A, 'messages');
+  const staffMsg = (extra) => ({ text: 'Noted', isDriver: false, timestamp: serverTimestamp(), ...extra });
+
+  it('a manager message with their own ID, name and role is accepted', async () =>
+    assertSucceeds(addDoc(msgs(MANAGER), staffMsg({ senderId: MANAGER, senderName: 'Mara Manager', senderRole: 'Manager' }))));
+  it('the role is compared like logins do (case and spaces)', async () =>
+    assertSucceeds(addDoc(msgs(ASSISTANT), staffMsg({ senderId: ASSISTANT, senderName: 'Ana Assistant', senderRole: ' assistant manager ' }))));
+  it('a staff message without a sender is refused', async () =>
+    assertFails(addDoc(msgs(MANAGER), staffMsg())));
+  it("an assistant manager cannot write as the manager", async () => {
+    await assertFails(addDoc(msgs(ASSISTANT), staffMsg({ senderId: MANAGER, senderName: 'Mara Manager', senderRole: 'Manager' })));
+    await assertFails(addDoc(msgs(ASSISTANT), staffMsg({ senderId: ASSISTANT, senderName: 'Mara Manager', senderRole: 'Assistant Manager' })));
+    await assertFails(addDoc(msgs(ASSISTANT), staffMsg({ senderId: ASSISTANT, senderName: 'Ana Assistant', senderRole: 'Manager' })));
+  });
+  it('a driver message cannot carry staff sender fields', async () =>
+    assertFails(addDoc(msgs(DRIVER_A), { text: 'hi', isDriver: true, timestamp: serverTimestamp(),
+      senderId: MANAGER, senderName: 'Mara Manager', senderRole: 'Manager' })));
+  it('a plain driver message still works', async () =>
+    assertSucceeds(addDoc(msgs(DRIVER_A), { text: 'hi', isDriver: true, timestamp: serverTimestamp() })));
+  it("nobody can change an existing message's sender", async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'chats', DRIVER_A, 'messages', 'm1'),
+      { text: 'x', isDriver: false, senderId: MANAGER, senderName: 'Mara Manager', senderRole: 'Manager' }));
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'chats', DRIVER_A, 'messages', 'm1'), { senderName: 'Ana Assistant' }));
+  });
 });

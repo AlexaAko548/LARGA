@@ -63,7 +63,7 @@ public class DriverNotifier
             foreach (DocumentSnapshot driver in drivers.Documents)
             {
                 string name = driver.TryGetValue("fullName", out string? fullName) && !string.IsNullOrWhiteSpace(fullName) ? fullName : "Driver";
-                await _chat.SendAsync(driver.Id, name, body);
+                await _chat.SendAsync(driver.Id, name, body, ChatSenderInfo.System);
 
                 if (driver.TryGetValue("fcmToken", out string? token) && !string.IsNullOrWhiteSpace(token))
                 {
@@ -105,7 +105,7 @@ public class DriverNotifier
             foreach (DocumentSnapshot driver in drivers.Documents)
             {
                 string name = driver.TryGetValue("fullName", out string? fullName) && !string.IsNullOrWhiteSpace(fullName) ? fullName : "Driver";
-                await _chat.SendAsync(driver.Id, name, body);
+                await _chat.SendAsync(driver.Id, name, body, ChatSenderInfo.System);
 
                 if (driver.TryGetValue("fcmToken", out string? token) && !string.IsNullOrWhiteSpace(token))
                 {

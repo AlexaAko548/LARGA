@@ -137,10 +137,27 @@ service cloud.firestore {
     match /chats/{driverId} {
       allow read, write: if isStaff() || isOwner(driverId);
 
+      // One conversation per driver, shared by the Manager and every Assistant Manager: a staff message
+      // must say who wrote it - the signed-in user's own ID, profile name and role. A driver's message
+      // carries no sender fields, and nobody can change a message's sender afterwards.
       match /messages/{messageId} {
         allow read, delete: if isStaff() || isOwner(driverId);
-        allow create, update: if isStaff() || (isOwner(driverId) && expiresAfterDays(365));
+        allow create: if (isStaff() && staffChatSenderOk())
+                      || (isOwner(driverId) && expiresAfterDays(365)
+                          && !request.resource.data.keys().hasAny(['senderId', 'senderName', 'senderRole']));
+        allow update: if (isStaff() || (isOwner(driverId) && expiresAfterDays(365)))
+                      && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['senderId', 'senderName', 'senderRole']);
       }
+    }
+
+    function staffChatSenderOk() {
+      let msg = request.resource.data;
+      let me = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return msg.get('isDriver', false) == false
+        && msg.get('senderId', '') == request.auth.uid
+        && msg.get('senderName', null) == me.get('fullName', '')
+        && msg.get('senderRole', '') is string
+        && msg.get('senderRole', '').trim().lower() == me.role.trim().lower();
     }
 
     match /taxis/{taxiId} {

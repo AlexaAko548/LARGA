@@ -12,6 +12,7 @@
 @using LARGA.Shared.Models.Entities
 @inject ManagerChatService Chat
 @inject ChatDrawerState Drawer
+@inject AuthenticationStateProvider AuthStateProvider
 
 <button class="icon-btn messages-btn" type="button" aria-label="Messages" title="Messages" @onclick="Drawer.OpenList">
     <Icon Name="message-circle" />
@@ -110,6 +111,10 @@
                     @foreach (ChatMessage message in Enumerable.Reverse(_messages))
                     {
                         <div class="chat-bubble @(message.IsDriver ? "from-driver" : "from-manager")">
+                            @if (message.ShowSender)
+                            {
+                                <div class="chat-bubble-sender">@message.SenderLabel</div>
+                            }
                             <div class="chat-bubble-text">@message.Text</div>
                             <div class="chat-bubble-time">@message.Timestamp.ToPhilippineTime().ToString("MMM d, h:mm tt")</div>
                         </div>
@@ -161,6 +166,7 @@
 
     private string _draft = string.Empty;
     private bool _isSending;
+    private ChatSenderInfo? _sender; // the signed-in staff member, read once
     private string? _sendError;
 
     private int UnreadCount => _sessions?.Count(s => s.IsUnread) ?? 0;
@@ -320,7 +326,11 @@
         _sendError = null;
         try
         {
-            await Chat.SendAsync(driverId, Drawer.DriverName, text);
+            // The conversation is shared by every Manager / Assistant Manager - say who's writing.
+            AuthenticationState auth = await AuthStateProvider.GetAuthenticationStateAsync();
+            string uid = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+            _sender ??= await Chat.GetStaffSenderAsync(uid);
+            await Chat.SendAsync(driverId, Drawer.DriverName, text, _sender);
             _draft = string.Empty;
         }
         catch (Exception ex)

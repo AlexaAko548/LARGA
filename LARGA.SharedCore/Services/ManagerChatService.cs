@@ -103,7 +103,19 @@ public class ManagerChatService
             .ToList();
     }
 
-    public async Task SendAsync(string driverId, string driverName, string text)
+    /// <summary>Who a message is from: the signed-in staff member (users/{uid} fullName and role), or
+    /// <see cref="ChatSenderInfo.System"/> for a notice ManagerWeb sends by itself.</summary>
+    public async Task<ChatSenderInfo> GetStaffSenderAsync(string uid)
+    {
+        DocumentSnapshot user = await Db.Collection("users").Document(uid).GetSnapshotAsync();
+        string name = user.Exists && user.TryGetValue("fullName", out string? fullName) ? fullName ?? string.Empty : string.Empty;
+        string role = user.Exists && user.TryGetValue("role", out string? r) ? r?.Trim() ?? string.Empty : string.Empty;
+        return new ChatSenderInfo(uid, name, role);
+    }
+
+    /// <summary>Sends a staff message into the driver's conversation - shared by every Manager and
+    /// Assistant Manager, so it carries who sent it (<paramref name="sender"/>).</summary>
+    public async Task SendAsync(string driverId, string driverName, string text, ChatSenderInfo sender)
     {
         DateTime now = DateTime.UtcNow;
         DocumentReference session = Db.Collection("chats").Document(driverId);
@@ -114,6 +126,9 @@ public class ManagerChatService
             ["text"] = text.Trim(),
             ["isDriver"] = false,
             ["timestamp"] = now,
+            ["senderId"] = sender.Id,
+            ["senderName"] = sender.Name,
+            ["senderRole"] = sender.Role,
             // Deleted by the Firestore TTL policy after the retention period (RetentionRules, audit H-01).
             [RetentionRules.ExpireAtField] = RetentionRules.ExpireAt(now, RetentionRules.ChatMessage),
         });
@@ -152,4 +167,11 @@ public class ManagerChatService
         }
         return unread;
     }
+}
+
+/// <summary>A staff message's sender (chats/{driverId}/messages senderId / senderName / senderRole).</summary>
+public record ChatSenderInfo(string Id, string Name, string Role)
+{
+    /// <summary>ManagerWeb itself - the Garage booking and day-off notices (DriverNotifier).</summary>
+    public static readonly ChatSenderInfo System = new(ChatMessage.SystemSenderId, ChatMessage.SystemSenderName, ChatMessage.SystemRole);
 }
