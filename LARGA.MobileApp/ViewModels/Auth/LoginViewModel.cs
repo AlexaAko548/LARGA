@@ -153,8 +153,15 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
             // Only persist credentials once the login fully succeeded.
             await SaveOrClearCredentialsAsync();
 
+            // A manager-set temporary password must be replaced before anything else.
+            bool mustChangePassword = await MustChangePasswordAsync(userId);
+
             // Awaited (not fire-and-forget) so navigation/page-construction failures land in the catch below.
-            await MainThread.InvokeOnMainThreadAsync(() => Shell.Current.GoToAsync(route));
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                await Shell.Current.GoToAsync(route);
+                await LARGA.MobileApp.Views.Auth.ForcedPasswordChangePage.ShowIfRequiredAsync(mustChangePassword);
+            });
         }
         catch (AuthFailedException ex)
         {
@@ -168,6 +175,21 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
         finally
         {
             IsBusy = false;
+        }
+    }
+
+    /// <summary>users/{uid}.mustChangePassword; an unreadable profile doesn't block the login (the
+    /// next sign-in checks again).</summary>
+    private async Task<bool> MustChangePasswordAsync(string userId)
+    {
+        try
+        {
+            return await _authService.MustChangePasswordAsync(userId);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"mustChangePassword lookup failed: {ex.Message}");
+            return false;
         }
     }
 

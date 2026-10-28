@@ -48,7 +48,19 @@ public partial class LandingPage : ContentPage
                 if (route != null)
                 {
                     LARGA.MobileApp.Services.StaffSession.Role = role!.Trim();
+                    bool mustChangePassword;
+                    try
+                    {
+                        mustChangePassword = await _authService.MustChangePasswordAsync(currentUser.Uid);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"mustChangePassword lookup failed: {ex.Message}");
+                        mustChangePassword = false;
+                    }
+
                     await Shell.Current.GoToAsync(route);
+                    await ForcedPasswordChangePage.ShowIfRequiredAsync(mustChangePassword);
                 }
             }
             catch (Exception ex)

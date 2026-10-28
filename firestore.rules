@@ -36,8 +36,11 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isStaff();
+      // A user may clear their own mustChangePassword (after replacing a temporary password) - never set it.
       allow write: if isManager() || (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys()
-                        .hasOnly(['fcmToken', 'tokenUpdatedAt', 'phoneNumber']));
+                        .hasOnly(['fcmToken', 'tokenUpdatedAt', 'phoneNumber', 'mustChangePassword'])
+                        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['mustChangePassword'])
+                            || request.resource.data.mustChangePassword == false));
     }
 
     match /shifts/{shiftId} {

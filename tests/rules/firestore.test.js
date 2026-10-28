@@ -455,3 +455,36 @@ describe('Assistant Manager in the mobile app', () => {
   it('cannot change system_configs (the SOS allowlist is kept by ManagerWeb)', async () =>
     assertFails(updateDoc(doc(as(ASSISTANT), 'system_configs', 'global'), { managerPhoneNumbers: ['+639170000000'] })));
 });
+
+describe('mustChangePassword (forced password change)', () => {
+  async function flag(uid, value) {
+    await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'users', uid), { mustChangePassword: value }));
+  }
+
+  it('a driver can clear their own flag after changing the password', async () => {
+    await flag(DRIVER_A, true);
+    await assertSucceeds(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { mustChangePassword: false }));
+  });
+  it('an assistant manager can clear their own flag too', async () => {
+    await flag(ASSISTANT, true);
+    await assertSucceeds(updateDoc(doc(as(ASSISTANT), 'users', ASSISTANT), { mustChangePassword: false }));
+  });
+  it('a user cannot set their own flag to true', async () => {
+    await flag(DRIVER_A, false);
+    await assertFails(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { mustChangePassword: true }));
+  });
+  it("a driver cannot clear another driver's flag", async () => {
+    await flag(DRIVER_B, true);
+    await assertFails(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_B), { mustChangePassword: false }));
+  });
+  it('the FCM token can still be saved while the flag is set', async () => {
+    await flag(DRIVER_A, true);
+    await assertSucceeds(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { fcmToken: 'tok', tokenUpdatedAt: serverTimestamp() }));
+  });
+  it('clearing the flag cannot smuggle in other fields (role)', async () => {
+    await flag(DRIVER_A, true);
+    await assertFails(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { mustChangePassword: false, role: 'Manager' }));
+  });
+  it('a manager can still set it (temporary password)', async () =>
+    assertSucceeds(updateDoc(doc(as(MANAGER), 'users', DRIVER_A), { mustChangePassword: true })));
+});
