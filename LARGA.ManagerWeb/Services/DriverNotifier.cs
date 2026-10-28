@@ -78,6 +78,50 @@ public class DriverNotifier
     }
 
     /// <summary>
+    /// Proposal §4.2.4.7 (MaintenanceSchedulerService): reminds the driver assigned to
+    /// <paramref name="taxiId"/> a week ahead that the unit is in the Garage on
+    /// <paramref name="shopDay"/>, or - <paramref name="dateChanged"/> - that its shop day moved.
+    /// Chat message + push, like NotifyUnitBookedForShopAsync. False when it couldn't be sent
+    /// (logged; the next hourly run tries again). Never throws.
+    /// </summary>
+    public async Task<bool> NotifyUnitDayOffAsync(string taxiId, DateTime shopDay, DateTime? expectedFinish, string issueTitle, bool dateChanged)
+    {
+        try
+        {
+            QuerySnapshot drivers = await _db.Value.Collection("users").WhereEqualTo("assignedTaxiId", taxiId).GetSnapshotAsync();
+
+            string day = shopDay.ToString("ddd, MMM d", CultureInfo.InvariantCulture);
+            string until = expectedFinish is DateTime finish && finish.Date > shopDay.Date
+                ? $" until {finish.ToString("MMM d", CultureInfo.InvariantCulture)}"
+                : string.Empty;
+            string issue = string.IsNullOrWhiteSpace(issueTitle) ? "maintenance" : $"\"{issueTitle.Trim()}\"";
+            string days = until.Length > 0 ? "those days" : "that day";
+
+            string title = dateChanged ? $"New Garage date for {taxiId}: {day}" : $"Reminder: {taxiId} is in the Garage on {day}";
+            string body = dateChanged
+                ? $"Change of schedule: your unit {taxiId} now goes into the Garage on {day}{until} for {issue}. You can't drive it on {days} - I'll assign you a temporary unit for that time."
+                : $"Reminder: your unit {taxiId} goes into the Garage in a week, on {day}{until}, for {issue}. You can't drive it on {days} - I'll assign you a temporary unit for that time.";
+
+            foreach (DocumentSnapshot driver in drivers.Documents)
+            {
+                string name = driver.TryGetValue("fullName", out string? fullName) && !string.IsNullOrWhiteSpace(fullName) ? fullName : "Driver";
+                await _chat.SendAsync(driver.Id, name, body);
+
+                if (driver.TryGetValue("fcmToken", out string? token) && !string.IsNullOrWhiteSpace(token))
+                {
+                    await SendPushAsync(token, title, body, taxiId);
+                }
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Couldn't send the Garage day-off notice for {TaxiId}", taxiId);
+            return false;
+        }
+    }
+
+    /// <summary>
     /// SRS REQ-4.1-9: the 5:30 AM pre-shift reminder (PreShiftReminderService) - a push only, on the
     /// driver app's pre_shift_channel; tapping it opens the pre-shift inspection. False when the driver
     /// has no FCM token or the push failed (logged). Never throws.

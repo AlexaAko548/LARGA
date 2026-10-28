@@ -152,4 +152,16 @@ public class MaintenanceRecord
     /// so the next check is generated from this job's completion date.</summary>
     [FirestoreProperty("routineType")]
     public string? RoutineType { get; set; }
+
+    // Proposal §4.2.4.7 (DayOffReminderRules): when the work order was booked for its shop day, the
+    // shop day the unit's driver was last told about, and the shop day the week-ahead reminder went
+    // out for. Null on work orders booked before these existed.
+    [FirestoreProperty("bookedAt")]
+    public DateTime? BookedAt { get; set; }
+
+    [FirestoreProperty("driverNotifiedShopDay")]
+    public DateTime? DriverNotifiedShopDay { get; set; }
+
+    [FirestoreProperty("dayOffReminderSentFor")]
+    public DateTime? DayOffReminderSentFor { get; set; }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -21,12 +22,33 @@ public class MaintenanceSchedulerService : BackgroundService
     private static readonly TimeSpan RunInterval = TimeSpan.FromHours(1);
 
     private readonly GarageService _garage;
+    private readonly DriverNotifier _notifier;
     private readonly ILogger<MaintenanceSchedulerService> _logger;
 
-    public MaintenanceSchedulerService(GarageService garage, ILogger<MaintenanceSchedulerService> logger)
+    public MaintenanceSchedulerService(GarageService garage, DriverNotifier notifier, ILogger<MaintenanceSchedulerService> logger)
     {
         _garage = garage;
+        _notifier = notifier;
         _logger = logger;
+    }
+
+    /// <summary>Proposal §4.2.4.7: tells each Scheduled work order's driver a week before the shop day
+    /// (and at once if the day moved) - DayOffReminderRules. Each notice is recorded on the work order
+    /// once sent, so the hourly runs and restarts don't repeat it.</summary>
+    private async Task<int> SendDayOffNoticesAsync()
+    {
+        int sent = 0;
+        foreach (GarageService.DayOffNoticeDue due in await _garage.GetDayOffNoticesDueAsync())
+        {
+            bool ok = await _notifier.NotifyUnitDayOffAsync(due.TaxiId, due.ShopDay, due.EstimatedCompletionDate,
+                due.IssueTitle, dateChanged: due.Notice == DayOffNotice.DateChanged);
+            if (ok)
+            {
+                await _garage.MarkDayOffNoticeSentAsync(due.MaintenanceId, due.ShopDay);
+                sent++;
+            }
+        }
+        return sent;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -57,6 +79,19 @@ public class MaintenanceSchedulerService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Routine check due alerts failed");
+            }
+
+            try
+            {
+                int notices = await SendDayOffNoticesAsync();
+                if (notices > 0)
+                {
+                    _logger.LogInformation("Maintenance scheduler: sent {Count} Garage day-off notice(s).", notices);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Garage day-off reminders failed");
             }
 
             try

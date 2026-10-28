@@ -249,6 +249,9 @@ public class GarageService
                 ["scheduledDate"] = DateTime.SpecifyKind(shopDate.Date, DateTimeKind.Utc),
                 ["priorityLevel"] = new PriorityLevelConverter().ToFirestore(priority),
                 ["mechanicInstructions"] = mechanicInstructions,
+                // Proposal §4.2.4.7: the booking message (DriverNotifier) tells the driver this day.
+                ["bookedAt"] = DateTime.UtcNow,
+                ["driverNotifiedShopDay"] = DateTime.SpecifyKind(shopDate.Date, DateTimeKind.Utc),
             };
             if (estimatedCompletionDate.HasValue)
             {
@@ -489,6 +492,8 @@ public class GarageService
                 PriorityLevel = PriorityLevel.Low,
                 ScheduledDate = DateTime.SpecifyKind(scheduledDate.Date, DateTimeKind.Utc),
                 EstimatedCompletionDate = scheduledDate,
+                BookedAt = DateTime.UtcNow,
+                DriverNotifiedShopDay = DateTime.SpecifyKind(scheduledDate.Date, DateTimeKind.Utc),
             };
 
             WriteBatch batch = Db.StartBatch();
@@ -655,6 +660,52 @@ public class GarageService
     /// a mileage-based check). One alert per check per status (deterministic ID): an alert that
     /// already exists is left alone, so it's never raised twice. Returns how many were raised.
     /// </summary>
+    /// <summary>A Scheduled work order whose driver needs a day-off notice today (DayOffReminderRules).</summary>
+    public record DayOffNoticeDue(string MaintenanceId, string TaxiId, string IssueTitle, DateTime ShopDay,
+        DateTime? EstimatedCompletionDate, DayOffNotice Notice);
+
+    /// <summary>Proposal §4.2.4.7: the Scheduled work orders whose unit's driver should be told about the
+    /// shop day today - a week-ahead reminder, or a changed date.</summary>
+    public async Task<List<DayOffNoticeDue>> GetDayOffNoticesDueAsync()
+    {
+        DateTime todayPh = PhilippineTime.Now.Date;
+        QuerySnapshot scheduled = await Db.Collection("maintenance_logs")
+            .WhereEqualTo("status", WorkOrderRules.Scheduled)
+            .GetSnapshotAsync();
+
+        var due = new List<DayOffNoticeDue>();
+        foreach (DocumentSnapshot doc in scheduled.Documents)
+        {
+            MaintenanceRecord record = doc.ConvertTo<MaintenanceRecord>();
+            if (record.ScheduledDate is not DateTime shopDay || string.IsNullOrWhiteSpace(record.TaxiId))
+            {
+                continue;
+            }
+
+            DayOffNotice notice = DayOffReminderRules.Decide(shopDay, todayPh, record.BookedAt?.ToPhilippineTime(),
+                record.DriverNotifiedShopDay, record.DayOffReminderSentFor);
+            if (notice != DayOffNotice.None)
+            {
+                due.Add(new DayOffNoticeDue(doc.Id, record.TaxiId, record.IssueTitle, shopDay.Date,
+                    record.EstimatedCompletionDate, notice));
+            }
+        }
+        return due;
+    }
+
+    /// <summary>Records that the driver was told about <paramref name="shopDay"/> (and, within the
+    /// week, that this counts as the reminder), so the notice isn't repeated.</summary>
+    public async Task MarkDayOffNoticeSentAsync(string maintenanceId, DateTime shopDay)
+    {
+        DateTime day = DateTime.SpecifyKind(shopDay.Date, DateTimeKind.Utc);
+        var updates = new Dictionary<string, object> { ["driverNotifiedShopDay"] = day };
+        if ((shopDay.Date - PhilippineTime.Now.Date).TotalDays <= DayOffReminderRules.DaysAhead)
+        {
+            updates["dayOffReminderSentFor"] = day;
+        }
+        await Db.Collection("maintenance_logs").Document(maintenanceId).UpdateAsync(updates);
+    }
+
     public async Task<int> RaiseRoutineCheckAlertsAsync()
     {
         MaintenanceIntervals intervals = await GetMaintenanceIntervalsAsync();
