@@ -56,6 +56,8 @@ public partial class ManagerDashboardPage : ContentPage
     private readonly FleetMapViewModel _viewModel;
     private MapControl? _mapControl;
     private MemoryLayer? _pinsLayer;
+    // The garage geofence (ShiftRules / system_configs/global garage*), under the pins.
+    private MemoryLayer? _garageLayer;
     private TileLayer? _tileLayer;
     private bool _mapIsDark;
     private bool _hasCenteredMap;
@@ -102,6 +104,10 @@ public partial class ManagerDashboardPage : ContentPage
 
             ApplyMapTheme();
 
+            _garageLayer = new MemoryLayer("GarageGeofence") { Features = [] };
+            _mapControl.Map.Layers.Add(_garageLayer);
+            _ = LoadGarageGeofenceAsync();
+
             _pinsLayer = new MemoryLayer("FleetPins") { Features = [] };
             _mapControl.Map.Layers.Add(_pinsLayer);
 
@@ -124,6 +130,7 @@ public partial class ManagerDashboardPage : ContentPage
             System.Diagnostics.Debug.WriteLine($"Live Fleet Map unavailable on this platform/build: {ex.Message}");
             _mapControl = null;
             _pinsLayer = null;
+            _garageLayer = null;
             MapHost.Content = new Label
             {
                 Text = "Live map unavailable in this build.\n(Known SkiaSharp/Windows-unpackaged limitation - works on Android.)",
@@ -341,6 +348,53 @@ public partial class ManagerDashboardPage : ContentPage
             return (pin, x, y);
         });
         ApplyPinFeatures(frame);
+    }
+
+    /// <summary>Draws the garage geofence - where units must be returned for clock-out - as a circle:
+    /// system_configs/global garageLatitude/garageLongitude/garageRadiusMeters, else the ShiftRules
+    /// defaults (IShiftManagementService.GetGarageGeofenceAsync). Never throws.</summary>
+    private async Task LoadGarageGeofenceAsync()
+    {
+        try
+        {
+            var shifts = IPlatformApplication.Current?.Services.GetService<LARGA.SharedCore.Services.IShiftManagementService>();
+            if (shifts is null) return;
+
+            LARGA.SharedCore.Services.GarageGeofence garage = await shifts.GetGarageGeofenceAsync();
+            var ring = LARGA.SharedCore.GeoMath.CirclePoints(garage.Latitude, garage.Longitude, garage.RadiusMeters)
+                .Select(p =>
+                {
+                    var (x, y) = SphericalMercator.FromLonLat(p.Longitude, p.Latitude);
+                    return new NetTopologySuite.Geometries.Coordinate(x, y);
+                })
+                .ToList();
+            ring.Add(ring[0]);
+
+            var polygon = new NetTopologySuite.Geometries.GeometryFactory().CreatePolygon(ring.ToArray());
+            var accent = new MColor(1, 155, 207); // LargaPrimaryBlue
+            var feature = new GeometryFeature(polygon)
+            {
+                Styles = new List<IStyle>
+                {
+                    new VectorStyle
+                    {
+                        Fill = new MBrush(new MColor(accent.R, accent.G, accent.B, 40)),
+                        Outline = new Pen(accent, 2) { PenStyle = PenStyle.Dash },
+                    },
+                },
+            };
+
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                if (_mapControl is null || _garageLayer is null) return;
+                _garageLayer.Features = new List<IFeature> { feature };
+                _mapControl.RefreshGraphics();
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Garage geofence not drawn: {ex.Message}");
+        }
     }
 
     private void ApplyPinFeatures(IEnumerable<(FleetPin Pin, double X, double Y)> items)

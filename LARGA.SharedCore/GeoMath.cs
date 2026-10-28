@@ -31,5 +31,28 @@ public static class GeoMath
         return totalKm;
     }
 
+    /// <summary>
+    /// <paramref name="segments"/> points (latitude, longitude) on the circle of
+    /// <paramref name="radiusMeters"/> around a center - the outline of a geofence such as the garage
+    /// (ShiftRules.GarageRadiusMeters), drawn on the manager map. The first point is due north and the
+    /// ring isn't closed (the map closes it).
+    /// </summary>
+    public static List<(double Latitude, double Longitude)> CirclePoints(double latitude, double longitude, double radiusMeters, int segments = 64)
+    {
+        double angular = radiusMeters / 1000.0 / EarthRadiusKm;
+        double lat1 = DegreesToRadians(latitude);
+        double lon1 = DegreesToRadians(longitude);
+        var points = new List<(double, double)>(segments);
+        for (int i = 0; i < segments; i++)
+        {
+            double bearing = 2 * Math.PI * i / segments;
+            double lat2 = Math.Asin(Math.Sin(lat1) * Math.Cos(angular) + Math.Cos(lat1) * Math.Sin(angular) * Math.Cos(bearing));
+            double lon2 = lon1 + Math.Atan2(Math.Sin(bearing) * Math.Sin(angular) * Math.Cos(lat1),
+                                            Math.Cos(angular) - Math.Sin(lat1) * Math.Sin(lat2));
+            points.Add((lat2 * 180.0 / Math.PI, lon2 * 180.0 / Math.PI));
+        }
+        return points;
+    }
+
     private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
 }
