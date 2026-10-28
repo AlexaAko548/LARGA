@@ -3,6 +3,7 @@ using FirebaseAdmin;
 using FirebaseAdmin.Auth;
 using FirebaseAdmin.Messaging;
 using Google.Cloud.Firestore;
+using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
 
 namespace LARGA.ManagerWeb.Services;
@@ -73,6 +74,44 @@ public class DriverNotifier
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Couldn't notify the driver of {TaxiId} about its Garage booking", taxiId);
+        }
+    }
+
+    /// <summary>
+    /// SRS REQ-4.1-9: the 5:30 AM pre-shift reminder (PreShiftReminderService) - a push only, on the
+    /// driver app's pre_shift_channel; tapping it opens the pre-shift inspection. False when the driver
+    /// has no FCM token or the push failed (logged). Never throws.
+    /// </summary>
+    public async Task<bool> SendPreShiftReminderAsync(string driverId, string taxiId)
+    {
+        try
+        {
+            DocumentSnapshot driver = await _db.Value.Collection("users").Document(driverId).GetSnapshotAsync();
+            if (!driver.Exists || !driver.TryGetValue("fcmToken", out string? token) || string.IsNullOrWhiteSpace(token))
+            {
+                return false;
+            }
+
+            _ = _auth.Value; // creates the shared FirebaseApp on first use
+            FirebaseMessaging messaging = FirebaseMessaging.GetMessaging(FirebaseApp.GetInstance(FirebaseAppName));
+            await messaging.SendAsync(new Message
+            {
+#pragma warning disable CS0618 // a registration token - see SendPushAsync
+                Token = token,
+#pragma warning restore CS0618
+                Notification = new Notification { Title = PreShiftReminderRules.Title, Body = PreShiftReminderRules.Body(taxiId) },
+                Data = new Dictionary<string, string> { ["type"] = PreShiftReminderRules.PushType, ["taxiId"] = taxiId },
+                Android = new AndroidConfig
+                {
+                    Notification = new AndroidNotification { ChannelId = PreShiftReminderRules.AndroidChannelId },
+                },
+            });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Pre-shift reminder to driver {DriverId} failed", driverId);
+            return false;
         }
     }
 

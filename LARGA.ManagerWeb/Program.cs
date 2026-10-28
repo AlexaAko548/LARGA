@@ -172,6 +172,8 @@ builder.Services.AddHostedService<FuelAutoCheckService>();
 builder.Services.AddHostedService<FuelOrNumberBackfillService>();
 // REQ-4.3-7 / REQ-4.4-8: a bell alert for every defect report (plus a staff push) and fuel submission.
 builder.Services.AddHostedService<SubmissionAlertService>();
+// REQ-4.1-9: 5:30 AM pre-shift reminder push to each driver working today.
+builder.Services.AddHostedService<PreShiftReminderService>();
 // MNT-014/015/016: recurring routine checks + due/overdue bell alerts, on startup and hourly.
 builder.Services.AddHostedService<MaintenanceSchedulerService>();
 builder.Services.AddScoped<IManagerAuthService, ManagerAuthService>();

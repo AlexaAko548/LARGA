@@ -96,8 +96,22 @@ public partial class App : Application
                             await Task.Delay(100);
                         }
 
-                        // Route directly to the pre-shift inspection workflow
-                        await Shell.Current.GoToAsync("//PreShiftStep1Page");
+                        // The driver dashboard: its Start Shift runs the eligibility checks (license,
+                        // unit, 6:00 AM) before opening the pre-shift inspection. ("//PreShiftStep1Page"
+                        // was never a registered route.) Not signed in as a driver yet: stay put.
+                        try
+                        {
+                            if (Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser != null
+                                && LARGA.MobileApp.Services.StaffSession.Role is string role
+                                && LARGA.SharedCore.StaffRoles.IsDriver(role))
+                            {
+                                await Shell.Current.GoToAsync("//driver-dashboard/home");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Pre-shift reminder routing failed: {ex.Message}");
+                        }
                     });
                 }
             }
