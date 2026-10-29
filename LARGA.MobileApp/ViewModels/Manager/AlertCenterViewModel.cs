@@ -859,7 +859,8 @@ public class AlertCenterViewModel : BindableObject
             await MarkBellReadAsync(AlertFeed.FuelBellId(alert.Id));
             await MarkBellReadAsync(LARGA.SharedCore.Alerts.SubmissionAlerts.FuelSubmittedAlertId(alert.Id)); // REQ-4.4-8: reviewed
             AuditLogWriter.Record("FuelFlagResolved",
-                $"Resolved the flag on shift {snapshot?.Data?.ShiftId ?? "unknown"}'s fuel submission: {note}");
+                $"Resolved the flag on {(string.IsNullOrWhiteSpace(alert.DriverName) ? "a" : alert.DriverName + "'s")} fuel report" +
+                (string.IsNullOrWhiteSpace(alert.TaxiId) ? string.Empty : $" ({alert.TaxiId})") + $": {note}");
             await Shell.Current.DisplayAlert("Fuel flag resolved", "The receipt is now marked Verified with your note.", "OK");
         }
         catch (Exception ex)

@@ -114,6 +114,10 @@ else
                                 </div>
                                 <div class="report-card-title">"@s.IssueTitle"</div>
                                 <div class="report-card-sub">Reported by @s.ReportedByName · @s.DateLogged.ToPhilippineTime().ToString("MMM d")</div>
+                                @if (!string.IsNullOrWhiteSpace(s.MechanicInstructions))
+                                {
+                                    <div class="work-order-note"><Icon Name="notebook-text" /> <span><strong>Manager note:</strong> @s.MechanicInstructions</span></div>
+                                }
                                 <button class="link-btn" type="button" @onclick="() => OpenEvidenceModal(s.IssueTitle, s.ReportedByName, s.IssueDescription, s.SupportingPhotoUrl)"><Icon Name="eye" /> View Evidence</button>
                             </div>
                             <div class="report-card-status">
@@ -148,6 +152,10 @@ else
                                 </div>
                                 <div class="report-card-title">"@w.IssueTitle"</div>
                                 <div class="report-card-sub">Reported by @w.ReportedByName · @w.DateLogged.ToPhilippineTime().ToString("MMM d")</div>
+                                @if (!string.IsNullOrWhiteSpace(w.MechanicInstructions))
+                                {
+                                    <div class="work-order-note"><Icon Name="notebook-text" /> <span><strong>Manager note:</strong> @w.MechanicInstructions</span></div>
+                                }
                                 <button class="link-btn" type="button" @onclick="() => OpenEvidenceModal(w.IssueTitle, w.ReportedByName, w.IssueDescription, w.SupportingPhotoUrl)"><Icon Name="eye" /> View Evidence</button>
                             </div>
                             <div class="report-card-status">
@@ -160,7 +168,7 @@ else
                             </div>
                             <div class="report-card-actions">
                                 @if (_canManage) { <button class="outline-btn" type="button" disabled="@_isBusy" @onclick="() => OpenPartsModalAsync(w)">+ Log Parts</button> }
-                                @if (_canManage) { <button class="solid-btn" type="button" disabled="@_isBusy" @onclick='() => RequestConfirm("Mark This Work Order Resolved?", "This closes the work order and moves the unit out of Active Work Orders.", "Mark Resolved", () => MarkResolvedAsync(w.MaintenanceId), isDangerous: false)'>Mark as Resolved</button> }
+                                @if (_canManage) { <button class="solid-btn" type="button" disabled="@_isBusy" @onclick='() => RequestConfirm("Mark This Work Order Resolved?", "This closes the work order and moves the unit out of Active Work Orders." + (string.IsNullOrWhiteSpace(w.MechanicInstructions) ? "" : " Check the manager note was done:"), "Mark Resolved", () => MarkResolvedAsync(w.MaintenanceId), isDangerous: false, listItems: string.IsNullOrWhiteSpace(w.MechanicInstructions) ? null : new List<string> { w.MechanicInstructions })'>Mark as Resolved</button> }
                             </div>
                         </article>
                     }
@@ -417,7 +425,7 @@ else
             <div class="report-header">
                 <div class="history-title-wrap">
                     <h3>Maintenance History</h3>
-                    <div class="history-subtitle">@(_history is null ? "Loading…" : $"{_history.Count} {(_history.Count == 1 ? "record" : "records")}")</div>
+                    <div class="history-subtitle">@(_history is null ? "Loading…" : HistorySubtitle)</div>
                 </div>
                 <button type="button" class="close-modal" @onclick="CloseHistoryModal" aria-label="Close">×</button>
             </div>
@@ -428,11 +436,53 @@ else
                 }
                 else
                 {
+                    @* BETA-092: narrow to one unit / kind of work, so "when was this unit last repaired?" is one pick. *@
+                    <div class="history-toolbar garage-history-filters">
+                        <label>Unit
+                            <select class="text-input" @bind="_historyUnitFilter">
+                                <option value="">All units</option>
+                                @* Labelled like the table's Unit column ("Unit 02"), filtered by the taxi ID behind it. *@
+                                @foreach (HistoryEntry unit in HistoryUnits)
+                                {
+                                    <option value="@unit.TaxiId">@unit.UnitLabel</option>
+                                }
+                            </select>
+                        </label>
+                        <label>Category
+                            <select class="text-input" @bind="_historyTypeFilter">
+                                <option value="">All categories</option>
+                                @foreach (MaintenanceType type in Enum.GetValues<MaintenanceType>())
+                                {
+                                    <option value="@type">@MaintenanceTypeLabel(type)</option>
+                                }
+                            </select>
+                        </label>
+                        <label>Status
+                            <select class="text-input" @bind="_historyStatusFilter">
+                                <option value="">All</option>
+                                <option value="Resolved">Resolved</option>
+                                <option value="Dismissed">Dismissed</option>
+                            </select>
+                        </label>
+                        @if (HistoryFiltered)
+                        {
+                            <button class="link-btn" type="button" @onclick="ClearHistoryFilters">Clear filters</button>
+                        }
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(_historyUnitFilter) && FilteredHistory.FirstOrDefault(h => h.Status == "Resolved") is HistoryEntry last)
+                    {
+                        <div class="info-banner">
+                            <Icon Name="wrench" /> @last.UnitLabel was last repaired on <strong>@((last.DateResolved ?? last.DateLogged).ToPhilippineTime().ToString("MMM d, yyyy"))</strong> - "@last.IssueTitle" (@MaintenanceTypeLabel(last.MaintenanceType)).
+                        </div>
+                    }
+
                     <div class="data-table-wrap">
                         <table class="data-table history-table">
                             <thead>
                                 <tr>
                                     <th>Unit</th>
+                                    <th>Category</th>
                                     <th>Issue</th>
                                     <th>Reported By</th>
                                     <th>Date Logged</th>
@@ -443,15 +493,26 @@ else
                             <tbody>
                                 @if (_history.Count == 0)
                                 {
-                                    <tr><td colspan="6" class="table-empty">No history yet.</td></tr>
+                                    <tr><td colspan="7" class="table-empty">No history yet.</td></tr>
+                                }
+                                else if (!FilteredHistory.Any())
+                                {
+                                    <tr><td colspan="7" class="table-empty">No records match these filters.</td></tr>
                                 }
                                 else
                                 {
-                                    @foreach (HistoryEntry h in _history)
+                                    @foreach (HistoryEntry h in FilteredHistory)
                                     {
                                         <tr>
                                             <td class="history-unit"><span class="history-unit-chip">@h.UnitLabel</span></td>
-                                            <td class="history-issue">@h.IssueTitle</td>
+                                            <td class="history-category">@MaintenanceTypeLabel(h.MaintenanceType)</td>
+                                            <td class="history-issue">
+                                                @h.IssueTitle
+                                                @if (!string.IsNullOrWhiteSpace(h.MechanicInstructions))
+                                                {
+                                                    <div class="history-note" title="@h.MechanicInstructions">Manager note: @h.MechanicInstructions</div>
+                                                }
+                                            </td>
                                             <td class="history-reporter">@h.ReportedByName</td>
                                             <td class="history-date">@h.DateLogged.ToPhilippineTime().ToString("MMM d, yyyy")</td>
                                             <td class="history-date">@(h.DateResolved.HasValue ? h.DateResolved.Value.ToPhilippineTime().ToString("MMM d, yyyy") : "–")</td>
@@ -597,6 +658,50 @@ else
 
     private bool _showHistoryModal;
     private List<HistoryEntry>? _history;
+    private string _historyUnitFilter = string.Empty;
+    private string _historyTypeFilter = string.Empty;
+    private string _historyStatusFilter = string.Empty;
+
+    private bool HistoryFiltered =>
+        _historyUnitFilter.Length > 0 || _historyTypeFilter.Length > 0 || _historyStatusFilter.Length > 0;
+
+    // Newest first, like GetHistoryAsync returns them.
+    private IEnumerable<HistoryEntry> FilteredHistory => (_history ?? new List<HistoryEntry>())
+        .Where(h => _historyUnitFilter.Length == 0 || string.Equals(h.TaxiId, _historyUnitFilter, StringComparison.OrdinalIgnoreCase))
+        .Where(h => _historyTypeFilter.Length == 0 || h.MaintenanceType.ToString() == _historyTypeFilter)
+        .Where(h => _historyStatusFilter.Length == 0 || h.Status == _historyStatusFilter);
+
+    // One entry per unit in the history, for the Unit filter's options.
+    private IEnumerable<HistoryEntry> HistoryUnits => (_history ?? new List<HistoryEntry>())
+        .Where(h => !string.IsNullOrWhiteSpace(h.TaxiId))
+        .DistinctBy(h => h.TaxiId)
+        .OrderBy(h => h.UnitLabel, StringComparer.OrdinalIgnoreCase);
+
+    private string HistorySubtitle
+    {
+        get
+        {
+            int total = _history?.Count ?? 0;
+            int shown = FilteredHistory.Count();
+            string records = total == 1 ? "record" : "records";
+            return HistoryFiltered ? $"{shown} of {total} {records}" : $"{total} {records}";
+        }
+    }
+
+    private void ClearHistoryFilters()
+    {
+        _historyUnitFilter = string.Empty;
+        _historyTypeFilter = string.Empty;
+        _historyStatusFilter = string.Empty;
+    }
+
+    private static string MaintenanceTypeLabel(MaintenanceType type) => type switch
+    {
+        MaintenanceType.RoutineCheckup => "Routine check",
+        MaintenanceType.BreakdownRepair => "Breakdown repair",
+        MaintenanceType.AccidentCorrection => "Accident correction",
+        _ => type.ToString(),
+    };
 
     private string _managerUserId = string.Empty;
     private bool _showPartsModal;

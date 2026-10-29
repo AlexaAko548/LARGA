@@ -178,8 +178,11 @@ public class GarageService
             .Select(r => new HistoryEntry
             {
                 MaintenanceId = r.MaintenanceId,
+                TaxiId = r.TaxiId,
                 UnitLabel = FormatUnitLabel(r.TaxiId),
                 IssueTitle = r.IssueTitle,
+                MaintenanceType = r.MaintenanceType,
+                MechanicInstructions = r.MechanicInstructions,
                 ReportedByName = !string.IsNullOrEmpty(r.ReportedByDriverId) && driverNames.TryGetValue(r.ReportedByDriverId, out string? name) ? name : "—",
                 DateLogged = r.DateLogged,
                 DateResolved = r.DateResolved,

@@ -577,7 +577,9 @@ public class RecordPaymentViewModel : BindableObject
     {
         string status = plan.PaymentUpdates.FirstOrDefault(w => w.ShiftId == row.ShiftKey)?.PaymentStatus ?? "Partial";
         string split = DescribeAllocation(plan, isOtherMode: false);
-        return $"Recorded {Money(amount)} {method} payment against {row.DriverName}'s boundary for shift {row.ShiftKey}. " +
+        // Named by unit, not the shift's document ID - the audit log is read by people.
+        string unit = string.IsNullOrWhiteSpace(row.TaxiPlate) ? row.TaxiId : row.TaxiPlate;
+        return $"Recorded {Money(amount)} {method} payment against {row.DriverName}'s boundary ({unit}). " +
                $"Shift status: {status}." +
                (split.Length > 0 ? " " + split : string.Empty) + EvidenceSuffix(evidence);
     }
