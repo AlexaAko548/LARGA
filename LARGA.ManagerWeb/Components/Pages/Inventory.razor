@@ -630,20 +630,8 @@ else
         _ => ""
     };
 
-    private string GetStatus(SparePart item)
-    {
-        if (item.StockQuantity <= 0 || item.StockQuantity <= item.ReorderLevel / 2)
-        {
-            return "Critical";
-        }
-
-        if (item.StockQuantity <= item.ReorderLevel)
-        {
-            return "Low Stock";
-        }
-
-        return "Normal";
-    }
+    // INV-010: the same rule as the LowStock alert.
+    private static string GetStatus(SparePart item) => SparePartStockRules.StatusOf(item);
 
     private static string ToDisplayPartId(int rowNumber) => rowNumber.ToString("D2");
 

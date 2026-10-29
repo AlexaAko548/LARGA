@@ -8,7 +8,7 @@ namespace LARGA.SharedCore;
 /// signing in, the mobile app keeps the user on the change-password screen until they choose a new
 /// password. Any password change made in the app clears the flag (firestore.rules let a user set only
 /// their own flag, and only to false). A change made elsewhere - the forgot-password email - is
-/// picked up by ManagerWeb on startup (<see cref="ChangedSinceTemporary"/>).
+/// picked up by ManagerWeb on startup and then hourly (<see cref="ChangedSinceTemporary"/>).
 /// </summary>
 public static class ForcedPasswordChangeRules
 {
@@ -27,7 +27,7 @@ public static class ForcedPasswordChangeRules
         passwordChangedUtc is DateTime changed && temporarySetUtc is DateTime set && changed > set + ChangeMargin;
 
     /// <summary>The first problem with the form, or null when it can be saved. The new password follows
-    /// the usual rule (InputValidator.ValidatePassword) and can't be the temporary one.</summary>
+    /// the usual rule (InputValidator.ValidatePassword) and can't be the current one.</summary>
     public static string? Validate(string? currentPassword, string? newPassword, string? confirmPassword)
     {
         if (string.IsNullOrWhiteSpace(currentPassword) || string.IsNullOrWhiteSpace(newPassword) || string.IsNullOrWhiteSpace(confirmPassword))
@@ -42,7 +42,7 @@ public static class ForcedPasswordChangeRules
 
         if (newPassword == currentPassword)
         {
-            return "Choose a new password - it can't be the temporary one your manager gave you.";
+            return "Choose a new password - it can't be the same as your current one.";
         }
 
         return InputValidator.ValidatePassword(newPassword);

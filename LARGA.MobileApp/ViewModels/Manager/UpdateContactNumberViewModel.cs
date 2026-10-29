@@ -145,8 +145,8 @@ public class UpdateContactNumberViewModel : BindableObject
                 .GetDocument(user.Uid)
                 .UpdateDataAsync(updates);
 
-            // LAR-86/87: keep the driver app's SOS auto-answer allowlist on the new number.
-            await LARGA.MobileApp.Services.ManagerAllowlistSync.ReplaceAsync(actualCurrentNumber, NewNumber);
+            // LAR-86/87: the driver app's SOS auto-answer allowlist (system_configs/global.managerPhoneNumbers)
+            // follows this number through ManagerWeb's ManagerPhoneAllowlistSyncService, its only writer.
             AuditLogWriter.Record("ManagerContactNumberChanged", "Updated their own contact number.");
 
             _loadedNumber = string.Empty;

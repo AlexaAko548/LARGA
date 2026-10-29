@@ -12,7 +12,7 @@ namespace LARGA.MobileApp.Services;
 public static class MustChangePasswordFlag
 {
     /// <summary>Best effort: the password is already changed, and if this write fails ManagerWeb clears the
-    /// flag on its next start (MustChangePasswordCleanupService).</summary>
+    /// flag within the hour (MustChangePasswordCleanupService).</summary>
     public static async Task ClearAsync()
     {
         try

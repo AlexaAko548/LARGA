@@ -86,7 +86,7 @@ public class ForcedPasswordChangeViewModel : BindableObject
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Forced password change failed: {ex.Message}");
-                await Shell.Current.DisplayAlert("Error", "Incorrect temporary password, or the password couldn't be updated.", "OK");
+                await Shell.Current.DisplayAlert("Error", "Incorrect current password, or the password couldn't be updated.", "OK");
                 return;
             }
 

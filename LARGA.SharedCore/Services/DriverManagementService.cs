@@ -1064,7 +1064,7 @@ public class DriverManagementService
     /// enforced the flag, and changes made through the forgot-password email. When the profile has no
     /// temporaryPasswordSetAt (set before it existed), the temporary password dates from the later of
     /// the account's creation and the driver's last DriverPasswordReset audit entry. Each clear is
-    /// audited. Returns how many were cleared. Run by ManagerWeb on startup.
+    /// audited. Returns how many were cleared. Run by ManagerWeb on startup and then hourly.
     /// </summary>
     public async Task<int> ClearReplacedTemporaryPasswordFlagsAsync()
     {

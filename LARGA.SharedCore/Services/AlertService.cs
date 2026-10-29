@@ -141,8 +141,8 @@ public class AlertService
         }
     }
 
-    public const string LowStockStatus = "Low Stock";
-    public const string CriticalStockStatus = "Critical";
+    public const string LowStockStatus = SparePartStockRules.LowStock;
+    public const string CriticalStockStatus = SparePartStockRules.Critical;
     public const string ResolvedStatus = "Resolved";
 
     /// <summary>The one low-stock alert a part can have (INV-010).</summary>
@@ -151,23 +151,26 @@ public class AlertService
     /// <summary>Raises - or refreshes - the part's "LowStock" notification when its stock is at or
     /// below its minimum threshold. Called from InventoryAuditService (deductions from the Inventory
     /// page and garage jobs, and stock/minimum edits). One alert per part (lowstock_{partId}): while
-    /// it's open, a further drop only updates its quantity, status (Low Stock, or Critical at 0) and
-    /// time, and marks it unread again. A resolved one (restocked) is reopened the same way.</summary>
+    /// it's open, a further drop only updates its quantity, status (Low Stock or Critical - the Inventory
+    /// page's rule, SparePartStockRules) and time, and marks it unread again. A resolved one (restocked)
+    /// is reopened the same way.</summary>
     public async Task CreateLowStockAlertAsync(SparePart part)
     {
         try
         {
             string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
-            bool critical = part.StockQuantity <= 0;
+            bool critical = SparePartStockRules.StatusOf(part) == SparePartStockRules.Critical;
             await Db.Collection("system_alerts").Document(LowStockAlertId(part.PartId)).SetAsync(new Dictionary<string, object>
             {
                 ["type"] = "LowStock",
                 ["partId"] = part.PartId,
                 ["status"] = critical ? CriticalStockStatus : LowStockStatus,
                 ["stockQuantity"] = part.StockQuantity,
-                ["message"] = critical
+                ["message"] = part.StockQuantity <= 0
                     ? $"{part.DisplayName} is out of stock (minimum {part.ReorderLevel})."
-                    : $"{part.DisplayName} is low on stock: {part.StockQuantity} {unit} left (minimum {part.ReorderLevel}).",
+                    : critical
+                        ? $"{part.DisplayName} is critically low: {part.StockQuantity} {unit} left (minimum {part.ReorderLevel})."
+                        : $"{part.DisplayName} is low on stock: {part.StockQuantity} {unit} left (minimum {part.ReorderLevel}).",
                 ["timestamp"] = DateTime.UtcNow,
                 ["isRead"] = false,
             }, SetOptions.MergeAll);
