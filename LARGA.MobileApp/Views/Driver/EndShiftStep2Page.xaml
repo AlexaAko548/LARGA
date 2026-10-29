@@ -2,6 +2,7 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
+             xmlns:controls="clr-namespace:LARGA.MobileApp.Controls"
              x:Class="LARGA.MobileApp.Views.Driver.EndShiftStep2Page"
              x:DataType="vm:EndShiftStep2ViewModel"
              NavigationPage.HasNavigationBar="False"
@@ -47,7 +48,7 @@
                         <HorizontalStackLayout.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding SelectFuelCommand}" CommandParameter="HalfTank" />
                         </HorizontalStackLayout.GestureRecognizers>
-                        <RadioButton GroupName="FuelLevel" IsChecked="{Binding IsHalfTankSelected}" VerticalOptions="Center" />
+                        <RadioButton GroupName="FuelLevel" IsChecked="{Binding IsHalfTankSelected}" controls:ThemedRadio.IsEnabled="True" VerticalOptions="Center" />
                         <Label Text="Half-tank" TextColor="{DynamicResource ThemeTextBlack}" VerticalOptions="Center" />
                     </HorizontalStackLayout>
 
@@ -55,7 +56,7 @@
                         <HorizontalStackLayout.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding SelectFuelCommand}" CommandParameter="BelowHalf" />
                         </HorizontalStackLayout.GestureRecognizers>
-                        <RadioButton GroupName="FuelLevel" IsChecked="{Binding IsBelowHalfTankSelected}" VerticalOptions="Center" />
+                        <RadioButton GroupName="FuelLevel" IsChecked="{Binding IsBelowHalfTankSelected}" controls:ThemedRadio.IsEnabled="True" VerticalOptions="Center" />
                         <VerticalStackLayout VerticalOptions="Center">
                             <Label Text="Below half-tank" TextColor="{DynamicResource ThemeTextBlack}" />
                             <Label Text="(₱ 50.00 penalty added to today's boundary)" TextColor="{DynamicResource LargaDanger}" TextDecorations="Underline" FontSize="10" IsVisible="{Binding PenaltyNoteVisible}" />

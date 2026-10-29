@@ -8,9 +8,10 @@ using Microsoft.Maui.Controls;
 namespace LARGA.MobileApp.ViewModels.Shared;
 
 /// <summary>
-/// The fields shared by the manager's and the driver's Change Password screens: the three
-/// passwords with their show/hide eyes, the live password-policy checklist
-/// (InputValidator.PasswordRules), and whether CONFIRM &amp; SAVE can be pressed yet.
+/// The fields shared by the change-password screens (the manager's, the driver's and the forced
+/// "Set a New Password" one): the three passwords with their show/hide eyes, the live password-policy
+/// checklist (InputValidator.PasswordRules, plus "different from your current password"), and whether
+/// CONFIRM &amp; SAVE can be pressed yet.
 /// </summary>
 public abstract class PasswordFormViewModel : BindableObject
 {
@@ -48,18 +49,24 @@ public abstract class PasswordFormViewModel : BindableObject
     public PasswordVisibility NewPasswordField { get; } = new();
     public PasswordVisibility ConfirmPasswordField { get; } = new();
 
-    /// <summary>One line per policy rule, ticked as the new password meets it.</summary>
+    /// <summary>One line per policy rule, ticked as the new password meets it, then the line for not
+    /// reusing the current password (<see cref="InputValidator.SamePasswordMessage"/>).</summary>
     public IReadOnlyList<PasswordRuleStatus> PasswordRules =>
-        InputValidator.PasswordRules.Select(r => new PasswordRuleStatus(r.Description, r.IsMet(NewPassword))).ToList();
+        InputValidator.PasswordRules.Select(r => new PasswordRuleStatus(r.Description, r.IsMet(NewPassword)))
+            .Append(new PasswordRuleStatus("Different from your current password", IsDifferentFromCurrent))
+            .ToList();
+
+    private bool IsDifferentFromCurrent => NewPassword.Length > 0 && NewPassword != CurrentPassword;
 
     public bool ShowMismatch => ConfirmNewPassword.Length > 0 && ConfirmNewPassword != NewPassword;
 
     /// <summary>CONFIRM &amp; SAVE lights up once every field is filled, the new password meets the
-    /// policy and the confirmation matches.</summary>
+    /// policy and isn't the current one, and the confirmation matches.</summary>
     public bool CanSave =>
         !IsBusy
         && !string.IsNullOrWhiteSpace(CurrentPassword)
         && InputValidator.ValidatePassword(NewPassword) is null
+        && IsDifferentFromCurrent
         && NewPassword == ConfirmNewPassword;
 
     /// <summary>Anything typed that leaving the screen would throw away.</summary>

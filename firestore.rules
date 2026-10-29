@@ -283,7 +283,7 @@ service cloud.firestore {
       allow read: if isManager();
       allow create: if isStaff() && ownAuditEntry();
       allow create: if isDriver() && ownAuditEntry()
-         && request.resource.data.actionType in ['SosTriggered', 'VehicleDefectReported'];
+         && request.resource.data.actionType in ['SosTriggered', 'VehicleDefectReported', 'DriverPasswordChanged'];
     }
 
     function ownAuditEntry() {

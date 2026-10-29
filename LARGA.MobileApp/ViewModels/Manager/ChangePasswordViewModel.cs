@@ -44,6 +44,12 @@ public class ChangePasswordViewModel : LARGA.MobileApp.ViewModels.Shared.Passwor
             return;
         }
 
+        if (NewPassword == CurrentPassword)
+        {
+            await Shell.Current.DisplayAlert("Same Password", LARGA.SharedCore.InputValidator.SamePasswordMessage, "OK");
+            return;
+        }
+
         // Same policy as account creation and ManagerWeb (InputValidator.PasswordRules).
         if (LARGA.SharedCore.InputValidator.ValidatePassword(NewPassword) is string passwordError)
         {

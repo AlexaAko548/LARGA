@@ -157,6 +157,10 @@ public static class InputValidator
         ("No spaces", p => p.Length > 0 && !p.Any(char.IsWhiteSpace)),
     };
 
+    /// <summary>Why a password change is refused when the new password is the current one (every
+    /// change-password screen: the forced one and the regular driver/manager ones).</summary>
+    public const string SamePasswordMessage = "Choose a new password - it can't be the same as your current one.";
+
     /// <summary>One-line summary of <see cref="PasswordRules"/> for hints under a password field.</summary>
     public static string PasswordPolicySummary =>
         $"{MinPasswordLength}-{MaxPasswordLength} characters with at least one letter and one number, no spaces.";

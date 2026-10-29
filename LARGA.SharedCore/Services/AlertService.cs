@@ -158,19 +158,14 @@ public class AlertService
     {
         try
         {
-            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
-            bool critical = SparePartStockRules.StatusOf(part) == SparePartStockRules.Critical;
+            (string status, string message) = LowStockStatusAndMessage(part);
             await Db.Collection("system_alerts").Document(LowStockAlertId(part.PartId)).SetAsync(new Dictionary<string, object>
             {
                 ["type"] = "LowStock",
                 ["partId"] = part.PartId,
-                ["status"] = critical ? CriticalStockStatus : LowStockStatus,
+                ["status"] = status,
                 ["stockQuantity"] = part.StockQuantity,
-                ["message"] = part.StockQuantity <= 0
-                    ? $"{part.DisplayName} is out of stock (minimum {part.ReorderLevel})."
-                    : critical
-                        ? $"{part.DisplayName} is critically low: {part.StockQuantity} {unit} left (minimum {part.ReorderLevel})."
-                        : $"{part.DisplayName} is low on stock: {part.StockQuantity} {unit} left (minimum {part.ReorderLevel}).",
+                ["message"] = message,
                 ["timestamp"] = DateTime.UtcNow,
                 ["isRead"] = false,
             }, SetOptions.MergeAll);
@@ -179,6 +174,48 @@ public class AlertService
         {
             _logger.LogWarning(ex, "Failed to create low-stock alert for part {PartId}", part.PartId);
         }
+    }
+
+    /// <summary>Brings the part's open low-stock alert in line with the Inventory page after its stock
+    /// went up (a partial restock) or its minimum went down, while it's still at or below the minimum:
+    /// status, quantity and message only. It stays read or unread and keeps its time, so an improvement
+    /// doesn't notify anyone again. No alert, or one already resolved: nothing to do.</summary>
+    public async Task RefreshLowStockAlertAsync(SparePart part)
+    {
+        try
+        {
+            DocumentReference docRef = Db.Collection("system_alerts").Document(LowStockAlertId(part.PartId));
+            DocumentSnapshot existing = await docRef.GetSnapshotAsync();
+            if (!existing.Exists || (existing.TryGetValue("status", out string? current) && current == ResolvedStatus))
+            {
+                return;
+            }
+
+            (string status, string message) = LowStockStatusAndMessage(part);
+            await docRef.UpdateAsync(new Dictionary<string, object>
+            {
+                ["status"] = status,
+                ["stockQuantity"] = part.StockQuantity,
+                ["message"] = message,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to refresh low-stock alert for part {PartId}", part.PartId);
+        }
+    }
+
+    /// <summary>An open low-stock alert's status (SparePartStockRules) and message for the part's stock.</summary>
+    private static (string Status, string Message) LowStockStatusAndMessage(SparePart part)
+    {
+        string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+        bool critical = SparePartStockRules.StatusOf(part) == SparePartStockRules.Critical;
+        string message = part.StockQuantity <= 0
+            ? $"{part.DisplayName} is out of stock (minimum {part.ReorderLevel})."
+            : critical
+                ? $"{part.DisplayName} is critically low: {part.StockQuantity} {unit} left (minimum {part.ReorderLevel})."
+                : $"{part.DisplayName} is low on stock: {part.StockQuantity} {unit} left (minimum {part.ReorderLevel}).";
+        return (critical ? CriticalStockStatus : LowStockStatus, message);
     }
 
     /// <summary>SRS REQ-4.5-1: an archived part isn't tracked any more, so its open low-stock alert is

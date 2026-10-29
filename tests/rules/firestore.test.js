@@ -307,6 +307,10 @@ describe('Audit logs', () => {
   it('[GAP A-05] driver cannot log their SOS with a phone-clock time', async () =>
     assertFails(addDoc(collection(as(DRIVER_A), 'audit_logs'), {
       userId: DRIVER_A, actionType: 'SosTriggered', timestamp: Timestamp.fromDate(new Date('2026-01-01T00:00:00Z')) })));
+  it('driver can log their own password change', async () =>
+    assertSucceeds(addDoc(collection(as(DRIVER_A), 'audit_logs'), { userId: DRIVER_A, actionType: 'DriverPasswordChanged', timestamp: serverTimestamp() })));
+  it("driver cannot log a password change as someone else", async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'audit_logs'), { userId: DRIVER_B, actionType: 'DriverPasswordChanged', timestamp: serverTimestamp() })));
   it('driver cannot log other actions', async () =>
     assertFails(addDoc(collection(as(DRIVER_A), 'audit_logs'), { userId: DRIVER_A, actionType: 'PaymentRecorded' })));
   it('driver cannot read audit logs', async () => assertFails(getDoc(doc(as(DRIVER_A), 'audit_logs', 'log1'))));

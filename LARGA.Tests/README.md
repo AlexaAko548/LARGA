@@ -9,7 +9,7 @@ anything that only lives there is tested on the emulator instead (see "Alpha tes
 | Folder | Module | What's in it |
 |---|---|---|
 | `Fuel/` | M3 Fuel & OCR | Receipt parsing, OCR robustness, real ML Kit receipts, fuel review numbers |
-| `Maintenance/` | M4 Vehicle Maintenance | Priority and date rules, the Garage page's due/overdue text, Garage work-order lifecycle and routine-check alerts |
+| `Maintenance/` | M4 Vehicle Maintenance | Priority and date rules, the Garage page's due/overdue text, Garage work-order lifecycle and routine-check alerts, spare-part stock status and archiving, a work order's parts deducted all-or-nothing, low-stock alerts |
 | `Gps/` | M6 GPS Tracking | Idle detection, the GPS jitter filter, idle alerts |
 | `Sos/` | M7 SOS Emergency | Hostile/Crash detectors fed recorded sensor traces, SOS protocol rules |
 | `Live/` | – | Helpers that talk to the **live** project. They do nothing unless their env vars are set (see below) |
@@ -40,12 +40,14 @@ A plain run skips the emulator tests and does nothing in `Live/`, so it never ne
 
 Some tests pin a defect that hasn't been fixed yet. None of the plain-run tests do right now; any that do are listed here and fail until the fix lands.
 
-With the emulator running, some do fail: MNT-015/016 (alert timing), GPS-014 (the configured idle threshold is ignored, because
-`FleetReportingService`'s config proxies lack `[FirestoreData]`), and the `Diag_*` tests that pin those causes.
+With the emulator running, some do fail: MNT-015/016 (alert timing), BRP-014's `Brp014_Configured900_WithMalformedUnrelatedField_StillUsed`
+(a value of the wrong type in an unrelated `system_configs/global` field makes the web ledger fall back to the ₱800 default instead of
+the configured ₱900), and the `Diag_*` tests that pin those causes (`Diag_BadUnrelatedConfigField_StillHonoursConfiguredWeeklyInterval`,
+`Diag_ProxyWithoutFirestoreDataAttribute_ConvertTo`). GPS-014 itself passes now.
 
-## Emulator tests (Garage, idle detection)
+## Emulator tests (Garage, inventory, idle detection)
 
-These run `GarageService`, `FleetReportingService` and `AlertService` against a **local** Firestore emulator. They use the demo project ID
+These run `GarageService`, `InventoryAuditService`, `FleetReportingService` and `AlertService` against a **local** Firestore emulator. They use the demo project ID
 `demo-larga-tests`, which can't reach a real Firebase project. They're skipped unless `LARGA_EMULATOR=1` is set.
 
 Needs Node 18+ and Java 11+. Start the emulator first, using the copy of firebase-tools that `tests/rules` installs:

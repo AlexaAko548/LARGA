@@ -42,7 +42,7 @@ public static class ForcedPasswordChangeRules
 
         if (newPassword == currentPassword)
         {
-            return "Choose a new password - it can't be the same as your current one.";
+            return InputValidator.SamePasswordMessage;
         }
 
         return InputValidator.ValidatePassword(newPassword);

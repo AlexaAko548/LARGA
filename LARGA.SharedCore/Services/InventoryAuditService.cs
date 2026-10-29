@@ -176,6 +176,11 @@ public class InventoryAuditService
         {
             await _alerts.ResolveLowStockAlertAsync(updated);
         }
+        else if (updated is not null)
+        {
+            // Still low, but the stock went up or the minimum down: keep the open alert's status in step.
+            await _alerts.RefreshLowStockAlertAsync(updated);
+        }
 
         return updated;
     }
@@ -489,11 +494,16 @@ public class InventoryAuditService
             return part;
         });
 
-        // Back above the minimum: close the part's low-stock alert (INV-010). Outside the
-        // transaction, like the alert itself.
+        // Back above the minimum: close the part's low-stock alert (INV-010). Still at or below it (a
+        // partial restock): bring the open alert's status and quantity up to date, without notifying
+        // again. Outside the transaction, like the alert itself.
         if (restocked is not null && restocked.StockQuantity > restocked.ReorderLevel)
         {
             await _alerts.ResolveLowStockAlertAsync(restocked);
+        }
+        else if (restocked is not null)
+        {
+            await _alerts.RefreshLowStockAlertAsync(restocked);
         }
 
         return restocked;

@@ -43,6 +43,12 @@ public class DriverChangePasswordViewModel : LARGA.MobileApp.ViewModels.Shared.P
             return;
         }
 
+        if (NewPassword == CurrentPassword)
+        {
+            await Shell.Current.DisplayAlert("Same Password", LARGA.SharedCore.InputValidator.SamePasswordMessage, "OK");
+            return;
+        }
+
         // Same policy as account creation and ManagerWeb (InputValidator.PasswordRules).
         if (LARGA.SharedCore.InputValidator.ValidatePassword(NewPassword) is string passwordError)
         {
@@ -65,6 +71,7 @@ public class DriverChangePasswordViewModel : LARGA.MobileApp.ViewModels.Shared.P
             await CrossFirebaseAuth.Current.CurrentUser.UpdatePasswordAsync(NewPassword);
             // A manager's temporary password is replaced now too - no forced change at the next login.
             await LARGA.MobileApp.Services.MustChangePasswordFlag.ClearAsync();
+            LARGA.MobileApp.Services.AuditLogWriter.Record("DriverPasswordChanged", "Changed their own mobile app password.");
 
             ClearForm();
 
