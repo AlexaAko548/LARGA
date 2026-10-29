@@ -49,24 +49,27 @@ public class DriverUpdateContactViewModel : BindableObject
     public bool HasChanges => NewNumber.Length > 0 || ConfirmNewNumber.Length > 0 || CurrentNumber != _loadedNumber;
 
     public ICommand LoadCurrentNumberCommand { get; }
+    // One save at a time - a second tap while the first is still validating or saving is ignored.
+    private readonly LARGA.MobileApp.Services.BusyGate _saveGate = new();
+
     public ICommand SaveCommand { get; }
     public ICommand GoBackCommand { get; }
 
     public DriverUpdateContactViewModel()
     {
         LoadCurrentNumberCommand = new Command(async () => await LoadCurrentNumberAsync());
-        SaveCommand = new Command(async () => await SaveAsync());
+        SaveCommand = new Command(async () => await _saveGate.RunAsync(SaveAsync, showLoading: false));
         GoBackCommand = new Command(async () => await GoBackAsync());
     }
 
     /// <summary>Back (nav bar arrow or the phone's back button): asks first when something was typed.</summary>
-    public async Task GoBackAsync()
+    public Task GoBackAsync() => LARGA.MobileApp.Services.NavigationGate.RunAsync(async () =>
     {
         if (await LARGA.MobileApp.ViewModels.Shared.UnsavedChangesPrompt.ConfirmLeaveAsync(HasChanges))
         {
             await Shell.Current.GoToAsync("..");
         }
-    }
+    });
 
     private async Task LoadCurrentNumberAsync()
     {

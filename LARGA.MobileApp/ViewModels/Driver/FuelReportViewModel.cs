@@ -326,9 +326,9 @@ public class FuelReportViewModel : BindableObject
             SavePendingDraft();
         });
 
-        ScanOdometerCommand = new Command(async () => await ScanOdometerAsync());
-        ScanReceiptCommand = new Command(async () => await Application.Current.MainPage.Navigation.PushModalAsync(new Views.Driver.ScanFuelReceiptPage()));
-        RedoReceiptCommand = new Command(async () => await Application.Current.MainPage.Navigation.PushModalAsync(new Views.Driver.ScanFuelReceiptPage()));
+        ScanOdometerCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.RunAsync(ScanOdometerAsync));
+        ScanReceiptCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.PushModalAsync(() => new Views.Driver.ScanFuelReceiptPage()));
+        RedoReceiptCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.PushModalAsync(() => new Views.Driver.ScanFuelReceiptPage()));
 
         SubmitReportCommand = new Command(async () => await SubmitAsync());
     }

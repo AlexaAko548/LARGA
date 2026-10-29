@@ -70,6 +70,9 @@ public class ScanDriverLicenseViewModel : BindableObject
 
     public ICommand RetakeCommand { get; }
     public ICommand ConfirmScanCommand { get; }
+    // One save at a time - a second tap while the first is still validating or saving is ignored.
+    private readonly LARGA.MobileApp.Services.BusyGate _saveGate = new();
+
     public ICommand ConfirmAndSaveCommand { get; }
     public ICommand CancelCommand { get; }
 
@@ -84,10 +87,10 @@ public class ScanDriverLicenseViewModel : BindableObject
         // Bind natively from file
         CapturedImage = ImageSource.FromFile(_localFilePath);
 
-        RetakeCommand = new Command(async () => await RetakeAsync());
+        RetakeCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.RunAsync(RetakeAsync));
         ConfirmScanCommand = new Command(async () => await RunOcrAsync());
-        ConfirmAndSaveCommand = new Command(async () => await SaveAsync());
-        CancelCommand = new Command(async () => await ClosePageAsync());
+        ConfirmAndSaveCommand = new Command(async () => await _saveGate.RunAsync(SaveAsync, showLoading: false));
+        CancelCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.RunAsync(ClosePageAsync));
     }
 
     private async Task RetakeAsync()

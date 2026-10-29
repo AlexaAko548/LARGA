@@ -72,21 +72,21 @@ public class ReportsViewModel : BindableObject
 
         SelectVehicleDefectTabCommand = new Command(() => IsVehicleDefectTabSelected = true);
         SelectFuelTabCommand = new Command(() => IsVehicleDefectTabSelected = false);
-        AddVehicleReportCommand = new Command(async () => await Shell.Current.GoToAsync("vehicle-defect-page"));
+        AddVehicleReportCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("vehicle-defect-page"));
         LoadReportsCommand = new Command(async () => await LoadReportsAsync());
         RefreshCommand = new Command(async () => await RefreshAsync());
         LoadMoreDefectsCommand = new Command(() => ShowMore(DefectReports, _allDefects, nameof(HasMoreDefects)));
         LoadMoreFuelReportsCommand = new Command(() => ShowMore(FuelReports, _allFuelReports, nameof(HasMoreFuelReports)));
-        AddFuelReportCommand = new Command(async () => await Shell.Current.GoToAsync("fuel-report-page"));
+        AddFuelReportCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("fuel-report-page"));
         ViewReportDetailsCommand = new Command<DefectReportItem>(async (item) =>
         {
             if (item == null || string.IsNullOrEmpty(item.Id)) return;
-            await Shell.Current.GoToAsync($"defect-report-detail?id={item.Id}");
+            await LARGA.MobileApp.Services.NavigationGate.GoToAsync($"defect-report-detail?id={item.Id}");
         });
         ViewFuelReportDetailsCommand = new Command<FuelReportItem>(async (item) =>
         {
             if (item == null || string.IsNullOrWhiteSpace(item.Id)) return;
-            await Shell.Current.GoToAsync($"{nameof(FuelReportDetailPage)}?id={item.Id}");
+            await LARGA.MobileApp.Services.NavigationGate.GoToAsync($"{nameof(FuelReportDetailPage)}?id={item.Id}");
         });
     }
 

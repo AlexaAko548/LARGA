@@ -118,8 +118,8 @@ public class ProfileViewModel : BindableObject
     {
         LoadProfileCommand = new Command(async () => await LoadProfileAsync());
         RefreshCommand = new Command(async () => await RefreshAsync());
-        ChangePasswordCommand = new Command(async () => await Shell.Current.GoToAsync("driver-change-password"));
-        UpdateContactNumberCommand = new Command(async () => await Shell.Current.GoToAsync("driver-update-contact-number"));
+        ChangePasswordCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("driver-change-password"));
+        UpdateContactNumberCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("driver-update-contact-number"));
 
         LogoutCommand = new Command(async () =>
         {

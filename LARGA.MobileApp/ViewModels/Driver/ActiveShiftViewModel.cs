@@ -324,7 +324,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         ConfirmClockOutCommand = new Command(async () =>
         {
             IsClockOutAlertVisible = false;
-            await Shell.Current.GoToAsync("end-shift-step1");
+            await LARGA.MobileApp.Services.NavigationGate.GoToAsync("end-shift-step1");
         });
 
         ShowDuressPinCommand = new Command(() =>

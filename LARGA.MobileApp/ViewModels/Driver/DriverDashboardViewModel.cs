@@ -159,8 +159,8 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
 
             await Shell.Current.GoToAsync("pre-shift-step1");
         }));
-        ActiveShiftCommand = new Command(async () => await Shell.Current.GoToAsync("active-shift"));
-        MessageManagerCommand = new Command(async () => await Shell.Current.GoToAsync("message-manager"));
+        ActiveShiftCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("active-shift"));
+        MessageManagerCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("message-manager"));
         RefreshCommand = new Command(async () => await RefreshAsync());
 
         _ = InitializeDashboardDataAsync();

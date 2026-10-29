@@ -77,7 +77,7 @@ public class DefectReportDetailViewModel : BindableObject
 
     public DefectReportDetailViewModel()
     {
-        GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
+        GoBackCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync(".."));
     }
 
     private async Task LoadReportAsync()

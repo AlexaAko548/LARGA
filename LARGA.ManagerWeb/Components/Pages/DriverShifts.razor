@@ -1313,6 +1313,7 @@ else
 
     private async Task ApproveClockInAsync(ClockInApprovalItem item)
     {
+        if (_isDecidingClockIn) return; // a second click while this is still running is ignored
         _isDecidingClockIn = true;
         _clockInError = null;
         try
@@ -1343,6 +1344,7 @@ else
 
     private async Task ConfirmDenyClockInAsync()
     {
+        if (_isDecidingClockIn) return; // a second click while this is still running is ignored
         if (_denyClockIn is null)
         {
             return;
@@ -1589,6 +1591,7 @@ else
 
     private async Task RunSubstituteActionAsync(Func<Task> action)
     {
+        if (_isSavingSub) return; // a second click while this is still running is ignored
         _isSavingSub = true;
         _subError = null;
         try
@@ -1803,6 +1806,7 @@ else
 
     private async Task RegisterDriverAsync()
     {
+        if (_isCreatingDriver) return; // a second click while this is still running is ignored
         _registerAttempted = true;
         if ((NewNameError ?? NewEmailError ?? NewPhoneError ?? NewPasswordError) is not null)
         {
@@ -1883,6 +1887,7 @@ else
 
     private async Task SaveManagerNoteAsync()
     {
+        if (_isSavingNote) return; // a second click while this is still running is ignored
         if (string.IsNullOrEmpty(_managerNoteDriverId))
         {
             _noteError = "Select a driver first.";
@@ -2185,6 +2190,7 @@ else
 
     private async Task SaveProfileAsync()
     {
+        if (_isSavingProfile) return; // a second click while this is still running is ignored
         if (_selectedProfile is null)
         {
             return;
@@ -2281,6 +2287,7 @@ else
 
     private async Task ResetPasswordAsync()
     {
+        if (_isResettingPassword) return; // a second click while this is still running is ignored
         if (_selectedProfile is null)
         {
             return;

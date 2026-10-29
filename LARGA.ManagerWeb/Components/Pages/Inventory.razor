@@ -486,6 +486,7 @@ else
 
     private async Task ConfirmArchiveAsync()
     {
+        if (_isArchiving) return; // a second click while this is still running is ignored
         if (_archiveCandidate is not SparePart item)
         {
             CancelArchive();
@@ -525,6 +526,7 @@ else
 
     private async Task RestorePartAsync(SparePart item)
     {
+        if (_isArchiving) return; // a second click while this is still running is ignored
         _isArchiving = true;
         _actionError = null;
         try
@@ -869,6 +871,7 @@ else
 
     private async Task SavePartAsync()
     {
+        if (_isSavingPart) return; // a second click while this is still running is ignored
         _actionError = null;
 
         _partAttempted = true;

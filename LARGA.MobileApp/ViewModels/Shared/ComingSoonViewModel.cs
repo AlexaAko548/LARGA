@@ -22,6 +22,6 @@ public class ComingSoonViewModel : BindableObject
 
     public ComingSoonViewModel()
     {
-        GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
+        GoBackCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync(".."));
     }
 }

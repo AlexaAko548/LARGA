@@ -62,10 +62,10 @@ public class ManagerProfileViewModel : BindableObject
     {
         LoadProfileCommand = new Command(async () => await LoadProfileAsync());
         RefreshCommand = new Command(async () => await RefreshAsync());
-        ViewDriverManagementCommand = new Command(async () => await Shell.Current.GoToAsync("driver-management"));
-        ViewFleetRegistryCommand = new Command(async () => await Shell.Current.GoToAsync("fleet-registry"));
-        ChangePasswordCommand = new Command(async () => await Shell.Current.GoToAsync("change-password"));
-        UpdateContactNumberCommand = new Command(async () => await Shell.Current.GoToAsync("update-contact-number"));
+        ViewDriverManagementCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("driver-management"));
+        ViewFleetRegistryCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("fleet-registry"));
+        ChangePasswordCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("change-password"));
+        UpdateContactNumberCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("update-contact-number"));
         LogoutCommand = new Command(async () =>
         {
             if (!await LARGA.MobileApp.Controls.ConfirmationPopup.ShowAsync(Shell.Current,

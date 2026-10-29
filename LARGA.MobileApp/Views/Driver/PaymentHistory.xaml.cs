@@ -41,7 +41,7 @@ public partial class PaymentHistoryPage : ContentPage
     {
         try
         {
-            await Shell.Current.GoToAsync("..");
+            await LARGA.MobileApp.Services.NavigationGate.GoBackAsync();
         }
         catch (Exception ex)
         {

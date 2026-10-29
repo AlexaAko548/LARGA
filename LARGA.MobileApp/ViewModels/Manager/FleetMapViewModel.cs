@@ -292,11 +292,14 @@ public class FleetMapViewModel : BindableObject
             // Switch to the Chats tab first so the bottom bar reflects where the user lands,
             // then push the thread onto it - same route/parameters ChatsViewModel.OnOpenChat
             // uses to open a driver's thread.
-            await Shell.Current.GoToAsync("//manager-dashboard/chats");
-            await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+            await LARGA.MobileApp.Services.NavigationGate.RunAsync(async () =>
             {
-                { "DriverId", SelectedPin.DriverId },
-                { "DriverName", SelectedPin.DriverName }
+                await Shell.Current.GoToAsync("//manager-dashboard/chats");
+                await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+                {
+                    { "DriverId", SelectedPin.DriverId },
+                    { "DriverName", SelectedPin.DriverName }
+                });
             });
         });
 

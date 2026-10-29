@@ -86,7 +86,7 @@ public class VehicleDefectViewModel : BindableObject
         _maintenanceService = maintenanceService;
         _shiftManagementService = shiftManagementService;
 
-        AttachPhotoCommand = new Command(async () => await AttachPhotoAsync());
+        AttachPhotoCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.RunAsync(AttachPhotoAsync));
 
         // LAR-124: one submit at a time - on a slow connection drivers tap again thinking it didn't go.
         SubmitReportCommand = new Command(async () => await SubmitAsync(), () => !IsSubmitting);

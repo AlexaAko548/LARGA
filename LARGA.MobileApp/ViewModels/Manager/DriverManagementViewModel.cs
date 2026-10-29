@@ -33,9 +33,9 @@ public class DriverManagementViewModel : BindableObject
         ViewDriverCommand = new Command<DriverListItem>(async (item) =>
         {
             if (item == null || string.IsNullOrEmpty(item.Id)) return;
-            await Shell.Current.GoToAsync($"manager-driver-profile?id={item.Id}");
+            await LARGA.MobileApp.Services.NavigationGate.GoToAsync($"manager-driver-profile?id={item.Id}");
         });
-        GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
+        GoBackCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync(".."));
     }
 
     private async Task RefreshAsync()

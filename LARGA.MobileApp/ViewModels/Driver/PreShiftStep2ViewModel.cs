@@ -126,8 +126,8 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
 
         _ = LoadAssignedUnitAsync();
 
-        ScanOdometerCommand = new Command(async () => await ScanOdometerAsync());
-        AttachPhotoCommand = new Command(async () => await AttachPhotoAsync());
+        ScanOdometerCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.RunAsync(ScanOdometerAsync));
+        AttachPhotoCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.RunAsync(AttachPhotoAsync));
         ConfirmStartShiftCommand = new Command(async () => await ConfirmStartShiftAsync());
         _submitGate.Changed += (_, _) =>
         {

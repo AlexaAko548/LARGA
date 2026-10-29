@@ -14,7 +14,7 @@ public partial class EndShiftStep2Page : ContentPage
     {
         try
         {
-            await Shell.Current.GoToAsync("..");
+            await LARGA.MobileApp.Services.NavigationGate.GoBackAsync();
         }
         catch (Exception ex)
         {

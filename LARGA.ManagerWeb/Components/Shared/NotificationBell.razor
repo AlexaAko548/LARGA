@@ -114,6 +114,7 @@
 
     private async Task MarkAllReadAsync()
     {
+        if (_isMarkingAll) return; // a second click while this is still running is ignored
         _isMarkingAll = true;
         try
         {

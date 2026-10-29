@@ -85,7 +85,7 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
 
     private async Task OnForgotPasswordAsync()
     {
-        await Shell.Current.GoToAsync("forgot-password-email");
+        await LARGA.MobileApp.Services.NavigationGate.GoToAsync("forgot-password-email");
     }
 
     private async Task OnLoginAsync()
