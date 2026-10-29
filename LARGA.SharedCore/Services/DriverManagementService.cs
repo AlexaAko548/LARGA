@@ -1270,13 +1270,22 @@ public class DriverManagementService
     private static string GenerateTemporaryPassword()
     {
         const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-        var bytes = RandomNumberGenerator.GetBytes(12);
-        var sb = new StringBuilder(12);
-        foreach (byte b in bytes)
+        // Redrawn until it meets the password policy (at least one letter and one number).
+        while (true)
         {
-            sb.Append(chars[b % chars.Length]);
+            var bytes = RandomNumberGenerator.GetBytes(12);
+            var sb = new StringBuilder(12);
+            foreach (byte b in bytes)
+            {
+                sb.Append(chars[b % chars.Length]);
+            }
+
+            string password = sb.ToString();
+            if (InputValidator.ValidatePassword(password) is null)
+            {
+                return password;
+            }
         }
-        return sb.ToString();
     }
 
     // ---------------------------------------------------------------------

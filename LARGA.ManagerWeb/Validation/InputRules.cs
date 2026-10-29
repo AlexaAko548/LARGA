@@ -33,11 +33,22 @@ public sealed class FullNameAttribute : ValidationAttribute
             : ValidationResult.Success;
 }
 
-/// <summary>6-64 characters, no spaces (same rule as account creation and the mobile app).</summary>
+/// <summary>The shared password policy (InputValidator.PasswordRules): 6-64 characters, at least one
+/// letter and one number, no spaces - same rule as account creation and the mobile app.</summary>
 public sealed class PasswordAttribute : ValidationAttribute
 {
     protected override ValidationResult? IsValid(object? value, ValidationContext context) =>
         InputValidator.ValidatePassword(value as string) is string error
+            ? new ValidationResult(error, new[] { context.MemberName! })
+            : ValidationResult.Success;
+}
+
+/// <summary>A sign-in password: length only (InputValidator.ValidateLoginPassword), so an older password
+/// that predates the letter/number rule still signs in.</summary>
+public sealed class LoginPasswordAttribute : ValidationAttribute
+{
+    protected override ValidationResult? IsValid(object? value, ValidationContext context) =>
+        InputValidator.ValidateLoginPassword(value as string) is string error
             ? new ValidationResult(error, new[] { context.MemberName! })
             : ValidationResult.Success;
 }

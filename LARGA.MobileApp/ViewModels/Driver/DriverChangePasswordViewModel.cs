@@ -6,38 +6,8 @@ using Plugin.Firebase.Auth;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
-public class DriverChangePasswordViewModel : BindableObject
+public class DriverChangePasswordViewModel : LARGA.MobileApp.ViewModels.Shared.PasswordFormViewModel
 {
-    private string _currentPassword = string.Empty;
-    public string CurrentPassword
-    {
-        get => _currentPassword;
-        set { _currentPassword = value; OnPropertyChanged(); }
-    }
-
-    private string _newPassword = string.Empty;
-    public string NewPassword
-    {
-        get => _newPassword;
-        set { _newPassword = value; OnPropertyChanged(); }
-    }
-
-    private string _confirmNewPassword = string.Empty;
-    public string ConfirmNewPassword
-    {
-        get => _confirmNewPassword;
-        set { _confirmNewPassword = value; OnPropertyChanged(); }
-    }
-
-    private bool _isBusy;
-    public bool IsBusy
-    {
-        get => _isBusy;
-        set { _isBusy = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsNotBusy)); }
-    }
-
-    public bool IsNotBusy => !IsBusy;
-
     public ICommand SaveCommand { get; }
     public ICommand GoBackCommand { get; }
 
@@ -61,7 +31,7 @@ public class DriverChangePasswordViewModel : BindableObject
             return;
         }
 
-        // Same rule as account creation and ManagerWeb (InputValidator): 6-64 characters, no spaces.
+        // Same policy as account creation and ManagerWeb (InputValidator.PasswordRules).
         if (LARGA.SharedCore.InputValidator.ValidatePassword(NewPassword) is string passwordError)
         {
             await Shell.Current.DisplayAlert("Invalid Password", passwordError, "OK");
@@ -84,9 +54,7 @@ public class DriverChangePasswordViewModel : BindableObject
             // A manager's temporary password is replaced now too - no forced change at the next login.
             await LARGA.MobileApp.Services.MustChangePasswordFlag.ClearAsync();
 
-            CurrentPassword = string.Empty;
-            NewPassword = string.Empty;
-            ConfirmNewPassword = string.Empty;
+            ClearForm();
 
             await Shell.Current.DisplayAlert("Success", "Your password has been updated.", "OK");
             await Shell.Current.GoToAsync("..");

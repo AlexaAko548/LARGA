@@ -109,6 +109,12 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
             return;
         }
 
+        if (LARGA.SharedCore.InputValidator.ValidateLoginPassword(Password) is string passwordError)
+        {
+            ShowError(passwordError);
+            return;
+        }
+
         IsBusy = true;
         ShowError(string.Empty);
         try

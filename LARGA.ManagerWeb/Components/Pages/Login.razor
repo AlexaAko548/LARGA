@@ -189,6 +189,7 @@
         public string Email { get; set; } = string.Empty;
 
         [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your password.")]
+        [LARGA.ManagerWeb.Validation.LoginPassword]
         public string Password { get; set; } = string.Empty;
     }
 

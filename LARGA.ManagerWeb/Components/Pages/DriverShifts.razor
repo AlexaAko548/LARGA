@@ -171,6 +171,11 @@ else
             </div>
         </section>
 
+        @if (_noteSavedMessage is not null)
+        {
+            <div class="info-banner success">@_noteSavedMessage</div>
+        }
+
         @if (_activeTab == "roster")
         {
             <div class="data-table-wrap">
@@ -792,7 +797,7 @@ else
             <div class="report-body">
                 <div class="report-section">
                     <label>Driver</label>
-                    <select class="text-input" @bind="_managerNoteDriverId">
+                    <select class="text-input" @bind="_managerNoteDriverId" @bind:after="LoadExistingManagerNoteAsync" disabled="@_isLoadingNote">
                         <option value="">Select a driver…</option>
                         @if (_roster is not null)
                         {
@@ -805,10 +810,10 @@ else
                 </div>
                 <div class="report-section">
                     <label>Manager Notes</label>
-                    <textarea class="text-input textarea" maxlength="500" @bind="_managerNoteText" @bind:event="oninput" placeholder="Special instructions for the driver…"></textarea>
+                    <textarea class="text-input textarea" maxlength="500" @bind="_managerNoteText" @bind:event="oninput" disabled="@_isLoadingNote" placeholder="@(_isLoadingNote ? "Loading the current note…" : "Special instructions for the driver…")"></textarea>
                     <small class="receipt-hint">@_managerNoteText.Length / 500</small>
                 </div>
-                <div class="info-banner">This will be shown on the driver's mobile home screen.</div>
+                <div class="info-banner">This will be shown on the driver's mobile home screen. Leave it empty to clear the driver's current note.</div>
                 @if (_noteError is not null)
                 {
                     <div class="report-error">@_noteError</div>
@@ -816,7 +821,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseManagerNoteModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingNote || string.IsNullOrEmpty(_managerNoteDriverId))" @onclick="SaveManagerNoteAsync" aria-busy="@_isSavingNote">@(_isSavingNote ? "Saving…" : "Confirm")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingNote || _isLoadingNote || string.IsNullOrEmpty(_managerNoteDriverId))" @onclick="SaveManagerNoteAsync" aria-busy="@_isSavingNote">@(_isSavingNote ? "Saving…" : "Confirm")</button>
             </div>
         </div>
     </div>
@@ -1198,6 +1203,8 @@ else
     private string _managerNoteDriverId = string.Empty;
     private string _managerNoteText = string.Empty;
     private bool _isSavingNote;
+    private bool _isLoadingNote;
+    private string? _noteSavedMessage;
     private string? _noteError;
 
     private bool _showProfilePanel;
@@ -1841,7 +1848,35 @@ else
         _managerNoteDriverId = string.Empty;
         _managerNoteText = string.Empty;
         _noteError = null;
+        _noteSavedMessage = null;
         _showManagerNoteModal = true;
+    }
+
+    // Picking a driver loads the note they currently see, so the manager edits it instead of
+    // blindly overwriting it.
+    private async Task LoadExistingManagerNoteAsync()
+    {
+        _managerNoteText = string.Empty;
+        _noteError = null;
+        if (string.IsNullOrEmpty(_managerNoteDriverId))
+        {
+            return;
+        }
+
+        _isLoadingNote = true;
+        try
+        {
+            DriverProfileDetail? profile = await DriverManagement.GetDriverProfileAsync(_managerNoteDriverId);
+            _managerNoteText = profile?.ManagerNote ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _noteError = $"Couldn't load the current note: {ex.Message}";
+        }
+        finally
+        {
+            _isLoadingNote = false;
+        }
     }
 
     private void CloseManagerNoteModal() => _showManagerNoteModal = false;
@@ -1859,8 +1894,19 @@ else
 
         try
         {
-            await DriverManagement.SetManagerNoteAsync(_managerNoteDriverId, _managerNoteText.Trim(), _managerUserId);
+            string note = _managerNoteText.Trim();
+            await DriverManagement.SetManagerNoteAsync(_managerNoteDriverId, note, _managerUserId);
             _showManagerNoteModal = false;
+
+            if (_selectedProfile?.DriverId == _managerNoteDriverId)
+            {
+                _selectedProfile.ManagerNote = note;
+            }
+
+            string driverName = _roster?.Drivers.FirstOrDefault(d => d.DriverId == _managerNoteDriverId)?.FullName ?? "the driver";
+            _noteSavedMessage = note.Length == 0
+                ? $"Cleared the manager note for {driverName}."
+                : $"Note sent - {driverName} will see it on their mobile home screen.";
         }
         catch (Exception ex)
         {
