@@ -100,17 +100,21 @@ else
                         <th>Cost</th>
                         <th>Qty / Odo</th>
                         <th>Status</th>
+                        @if (ShowNotesColumn)
+                        {
+                            <th>Manager Note</th>
+                        }
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     @if (_snapshot is null)
                     {
-                        <tr><td colspan="8" class="table-empty"><LoadingSpinner Text="Loading fuel submissions…" /></td></tr>
+                        <tr><td colspan="@ColumnCount" class="table-empty"><LoadingSpinner Text="Loading fuel submissions…" /></td></tr>
                     }
                     else if (VisibleEntries.Count == 0)
                     {
-                        <tr><td colspan="8" class="table-empty">No @(_activeTab.ToString().ToLowerInvariant()) submissions.</td></tr>
+                        <tr><td colspan="@ColumnCount" class="table-empty">No @(_activeTab.ToString().ToLowerInvariant()) submissions.</td></tr>
                     }
                     else
                     {
@@ -124,6 +128,10 @@ else
                                 <td>₱@e.Cost.ToString("N2")</td>
                                 <td>@e.Liters.ToString("N0") L / @e.OdometerReading.ToString("N0") km</td>
                                 <td><span class="status-pill @StatusCss(e.Status)"><span class="dot"></span> @e.Status.ToString().ToUpperInvariant()</span></td>
+                                @if (ShowNotesColumn)
+                                {
+                                    <td class="fuel-note-cell" title="@e.FuelLogDetails">@(string.IsNullOrWhiteSpace(e.FuelLogDetails) ? "—" : e.FuelLogDetails)</td>
+                                }
                                 <td>
                                     @if (e.Status == FuelVerificationStatus.Flagged)
                                     {
@@ -244,10 +252,19 @@ else
                         @SystemValidationColumn(_reviewDetail)
                     </div>
 
+                    @if (!string.IsNullOrWhiteSpace(_reviewEntry?.FuelLogDetails))
+                    {
+                        <div class="report-section">
+                            <label>Notes on File</label>
+                            <div class="fuel-notes-on-file">@_reviewEntry.FuelLogDetails</div>
+                        </div>
+                    }
+
                     <div class="report-section">
-                        <label>Flag Reason (only needed to flag)</label>
-                        <textarea class="text-input textarea" maxlength="300" @bind="_flagReason" @bind:event="oninput" placeholder="Why is this submission being flagged?"></textarea>
+                        <label>Manager Note <span class="field-optional">(required to flag, optional when verifying)</span></label>
+                        <textarea class="text-input textarea" maxlength="300" @bind="_flagReason" @bind:event="oninput" placeholder="Why is this being flagged - or anything worth noting about this approval?"></textarea>
                         <FieldError Show="_flagReason.Length > 0" Message="@FlagReasonError" />
+                        <small class="receipt-hint">Saved with the submission and shown on its Verified / Flagged tab and in the Audit Logs.</small>
                     </div>
                 }
 
@@ -264,8 +281,8 @@ else
                     {
                         <button class="cancel-btn" type="button" disabled="@_isSavingReview" @onclick='() => RequestConfirm("Reset to Pending?", "This clears the current decision and sends the submission back to the pending queue for re-review.", "Reset to Pending", () => ResolveAsync(ResolveAction.ResetToPending))'>Reset to Pending</button>
                     }
-                    <button class="cancel-btn" type="button" disabled="@(_isSavingReview || FlagReasonError is not null)" title="@(FlagReasonError is null ? "" : "Write a flag reason first")" @onclick='() => RequestConfirm("Flag This Submission?", "This flags the fuel submission as irregular and moves it to the Flagged queue. Make sure the flag reason above is accurate.", "Flag Irregularity", () => ResolveAsync(ResolveAction.Flag))'><Icon Name="flag" /> Flag Irregularity</button>
-                    <button class="download-btn" type="button" disabled="@_isSavingReview" @onclick='() => RequestConfirm("Verify & Approve This Submission?", "This marks the fuel submission as verified and approved.", "Verify & Approve", () => ResolveAsync(ResolveAction.Verify), isDangerous: false)' aria-busy="@_isSavingReview">@if (_isSavingReview) { <text>Saving…</text> } else { <Icon Name="check" /> <text>Verify &amp; Approve</text> }</button>
+                    <button class="cancel-btn" type="button" disabled="@(_isSavingReview || FlagReasonError is not null)" title="@(FlagReasonError is null ? "" : "Write a note first - it's the flag reason")" @onclick='() => RequestConfirm("Flag This Submission?", "This flags the fuel submission as irregular and moves it to the Flagged queue. Make sure the note above is accurate.", "Flag Irregularity", () => ResolveAsync(ResolveAction.Flag))'><Icon Name="flag" /> Flag Irregularity</button>
+                    <button class="download-btn" type="button" disabled="@_isSavingReview" @onclick='() => RequestConfirm("Verify & Approve This Submission?", string.IsNullOrWhiteSpace(_flagReason) ? "This marks the fuel submission as verified and approved." : "This marks the fuel submission as verified and approved, with the note above.", "Verify & Approve", () => ResolveAsync(ResolveAction.Verify), isDangerous: false)' aria-busy="@_isSavingReview">@if (_isSavingReview) { <text>Saving…</text> } else { <Icon Name="check" /> <text>Verify &amp; Approve</text> }</button>
                 }
             </div>
         </div>
@@ -425,6 +442,9 @@ else
     private bool _showReceiptPhoto;
     private bool _isLoadingReview;
     private FuelReviewDetail? _reviewDetail;
+    // The list row the Review modal was opened from - carries the notes already on file.
+    private FuelLogEntry? _reviewEntry;
+    // Manager note in the Review modal: the flag reason when flagging, an optional note when verifying.
     private string _flagReason = string.Empty;
     private string? FlagReasonError => InputValidator.ValidateText(_flagReason, "a flag reason", 300, required: true, minLength: 5);
     private string? ResolutionNoteError => InputValidator.ValidateText(_resolutionNote, "a resolution note", 500, required: true, minLength: 5);
@@ -479,6 +499,10 @@ else
 
     private enum ResolveAction { Verify, Flag, ResetToPending }
 
+    // Verified / Flagged rows carry the manager's note (flag reason, resolution or verify note) - BETA-083.
+    private bool ShowNotesColumn => _activeTab != FuelVerificationStatus.Pending;
+    private int ColumnCount => ShowNotesColumn ? 9 : 8;
+
     private List<FuelLogEntry> VisibleEntries =>
         _snapshot?.Entries.Where(e => e.Status == _activeTab)
             .OrderByDescending(e => e.StatusTimestamp ?? DateTime.MinValue) // newest first by the time shown
@@ -526,6 +550,7 @@ else
 
     private async Task OpenReviewModal(FuelLogEntry entry)
     {
+        _reviewEntry = entry;
         _flagReason = string.Empty;
         _reviewError = null;
         _reviewDetail = null;
@@ -566,6 +591,7 @@ else
         _showReviewModal = false;
         _showReceiptPhoto = false;
         _reviewDetail = null;
+        _reviewEntry = null;
     }
 
     private async Task OpenResolveModal(FuelLogEntry entry)
@@ -653,7 +679,7 @@ else
         {
             FuelActionResult result = action switch
             {
-                ResolveAction.Verify => await FuelVerificationSvc.VerifyAsync(_reviewDetail.FuelId, _managerUserId),
+                ResolveAction.Verify => await FuelVerificationSvc.VerifyAsync(_reviewDetail.FuelId, _managerUserId, _flagReason),
                 ResolveAction.Flag => await FuelVerificationSvc.FlagAsync(_reviewDetail.FuelId, _flagReason, _managerUserId),
                 _ => await FuelVerificationSvc.ResetToPendingAsync(_reviewDetail.FuelId, _managerUserId),
             };

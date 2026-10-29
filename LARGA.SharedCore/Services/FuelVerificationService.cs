@@ -344,7 +344,7 @@ public class FuelVerificationService
             {
                 UserId = string.Empty, // System
                 ActionType = AutoFlaggedAction,
-                AuditLogDetails = $"Automatically flagged the fuel submission for shift {log.ShiftId} ({detail.DriverName}, {detail.TaxiId}): {reason}.",
+                AuditLogDetails = $"Automatically flagged {detail.DriverName}'s fuel report ({UnitLabel(detail.TaxiId)}{DateSuffix(log.SubmittedAt ?? log.ReceiptTimestamp)}): {reason}.",
                 Timestamp = now,
             });
             transaction.Set(Db.Collection("system_alerts").Document(FuelAlertId(fuelId)), FuelAlert(detail, reason, now));
@@ -414,6 +414,69 @@ public class FuelVerificationService
         IsRead = false,
     };
 
+    /// <summary>
+    /// How audit entries name a fuel submission - "Carri Medina's fuel report (Unit 02, Oct 29)" -
+    /// rather than its shift's Firestore document ID, which means nothing to whoever reads the log.
+    /// Best-effort: a lookup that fails just leaves that part out.
+    /// </summary>
+    private async Task<string> DescribeSubmissionAsync(DocumentSnapshot logSnapshot)
+    {
+        if (!logSnapshot.Exists)
+        {
+            return "a fuel report";
+        }
+
+        FuelLog log = logSnapshot.ConvertTo<FuelLog>();
+        string? driverId = string.IsNullOrEmpty(log.DriverId) ? null : log.DriverId;
+        string? taxiId = null;
+        string? driverName = null;
+
+        try
+        {
+            if (!string.IsNullOrEmpty(log.ShiftId))
+            {
+                DocumentSnapshot shiftSnapshot = await Db.Collection("shifts").Document(log.ShiftId).GetSnapshotAsync();
+                if (shiftSnapshot.Exists)
+                {
+                    ShiftLog shift = shiftSnapshot.ConvertTo<ShiftLog>();
+                    taxiId = string.IsNullOrEmpty(shift.TaxiId) ? null : shift.TaxiId;
+                    driverId = string.IsNullOrEmpty(shift.DriverId) ? driverId : shift.DriverId;
+                }
+            }
+
+            if (driverId is not null)
+            {
+                DocumentSnapshot driverSnapshot = await Db.Collection("users").Document(driverId).GetSnapshotAsync();
+                if (driverSnapshot.Exists && driverSnapshot.TryGetValue("fullName", out string? name) && !string.IsNullOrWhiteSpace(name))
+                {
+                    driverName = name;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Couldn't look up the driver/unit for fuel log {FuelId}'s audit entry", logSnapshot.Id);
+        }
+
+        string who = driverName is null ? "a fuel report" : $"{driverName}'s fuel report";
+        string unit = taxiId is null ? string.Empty : UnitLabel(taxiId);
+        string date = DateSuffix(log.SubmittedAt ?? log.ReceiptTimestamp);
+        string details = unit.Length > 0 ? unit + date : date.TrimStart(',', ' ');
+        return details.Length > 0 ? $"{who} ({details})" : who;
+    }
+
+    // Same "TAXI_004" -> "Unit 04" convention as GarageService.FormatUnitLabel.
+    private static string UnitLabel(string taxiId)
+    {
+        int lastUnderscore = taxiId.LastIndexOf('_');
+        string suffix = lastUnderscore >= 0 ? taxiId[(lastUnderscore + 1)..] : taxiId;
+        return int.TryParse(suffix, out int n) ? $"Unit {n:00}" : taxiId;
+    }
+
+    // ", Oct 29" in Philippine time, or nothing when the date isn't known.
+    private static string DateSuffix(DateTime? utc) =>
+        utc is DateTime value ? $", {value.ToPhilippineTime():MMM d}" : string.Empty;
+
     /// <summary>For the audit entry of a manager's decision on a submission the system flagged:
     /// " (auto-flagged: reason)", else empty.</summary>
     private static string AutoFlagNote(DocumentSnapshot snapshot)
@@ -459,19 +522,30 @@ public class FuelVerificationService
         }
     }
 
-    public async Task<FuelActionResult> VerifyAsync(string fuelId, string? actorUserId = null)
+    /// <summary>Marks a submission Verified. An optional manager note is kept in fuelLogDetails
+    /// under any earlier reason (an auto-flag's), like ResolveFlagAsync does, so it shows on the
+    /// Verified tab and in the audit log (BETA-083).</summary>
+    public async Task<FuelActionResult> VerifyAsync(string fuelId, string? actorUserId = null, string? note = null)
     {
         try
         {
             DocumentReference docRef = Db.Collection("fuel_logs").Document(fuelId);
             DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
-            string shiftId = snapshot.Exists && snapshot.TryGetValue("shiftId", out string? sid) ? sid : "unknown shift";
+            string submission = await DescribeSubmissionAsync(snapshot);
+            string trimmedNote = note?.Trim() ?? string.Empty;
 
             var updates = new Dictionary<string, object>
             {
                 ["verificationStatus"] = new FuelVerificationStatusConverter().ToFirestore(FuelVerificationStatus.Verified),
                 ["verifiedAt"] = DateTime.UtcNow,
             };
+            if (trimmedNote.Length > 0)
+            {
+                string existing = snapshot.Exists && snapshot.TryGetValue("fuelLogDetails", out string? details) ? details ?? string.Empty : string.Empty;
+                updates["fuelLogDetails"] = string.IsNullOrWhiteSpace(existing)
+                    ? $"Verified: {trimmedNote}"
+                    : $"{existing}\n\nVerified: {trimmedNote}";
+            }
 
             WriteBatch batch = Db.StartBatch();
             batch.Update(docRef, updates);
@@ -480,7 +554,9 @@ public class FuelVerificationService
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "FuelVerified",
-                AuditLogDetails = $"Verified the fuel submission for shift {shiftId}{AutoFlagNote(snapshot)}.",
+                AuditLogDetails = trimmedNote.Length > 0
+                    ? $"Verified {submission}{AutoFlagNote(snapshot)}: {trimmedNote}"
+                    : $"Verified {submission}{AutoFlagNote(snapshot)}.",
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
@@ -500,7 +576,7 @@ public class FuelVerificationService
         {
             DocumentReference docRef = Db.Collection("fuel_logs").Document(fuelId);
             DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
-            string shiftId = snapshot.Exists && snapshot.TryGetValue("shiftId", out string? sid) ? sid : "unknown shift";
+            string submission = await DescribeSubmissionAsync(snapshot);
 
             var updates = new Dictionary<string, object>
             {
@@ -519,8 +595,8 @@ public class FuelVerificationService
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "FuelFlagged",
                 AuditLogDetails = string.IsNullOrWhiteSpace(reason)
-                    ? $"Flagged the fuel submission for shift {shiftId}{AutoFlagNote(snapshot)}."
-                    : $"Flagged the fuel submission for shift {shiftId}{AutoFlagNote(snapshot)}: {reason}",
+                    ? $"Flagged {submission}{AutoFlagNote(snapshot)}."
+                    : $"Flagged {submission}{AutoFlagNote(snapshot)}: {reason}",
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
@@ -547,6 +623,7 @@ public class FuelVerificationService
             DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
             FuelLog record = snapshot.Exists ? snapshot.ConvertTo<FuelLog>() : new FuelLog();
             string existingReason = record.FuelLogDetails ?? string.Empty;
+            string submission = await DescribeSubmissionAsync(snapshot);
 
             string combinedNote = string.IsNullOrWhiteSpace(existingReason)
                 ? $"Resolved: {resolutionNote}"
@@ -566,7 +643,7 @@ public class FuelVerificationService
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "FuelFlagResolved",
-                AuditLogDetails = $"Resolved the flag on shift {record.ShiftId}'s fuel submission{AutoFlagNote(snapshot)}: {resolutionNote}",
+                AuditLogDetails = $"Resolved the flag on {submission}{AutoFlagNote(snapshot)}: {resolutionNote}",
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();
@@ -601,7 +678,7 @@ public class FuelVerificationService
         {
             DocumentReference docRef = Db.Collection("fuel_logs").Document(fuelId);
             DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
-            string shiftId = snapshot.Exists && snapshot.TryGetValue("shiftId", out string? sid) ? sid : "unknown shift";
+            string submission = await DescribeSubmissionAsync(snapshot);
 
             WriteBatch batch = Db.StartBatch();
             batch.Update(docRef, new Dictionary<string, object>
@@ -612,7 +689,7 @@ public class FuelVerificationService
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "FuelResetToPending",
-                AuditLogDetails = $"Reset the fuel submission for shift {shiftId} back to Pending.",
+                AuditLogDetails = $"Reset {submission} back to Pending.",
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();

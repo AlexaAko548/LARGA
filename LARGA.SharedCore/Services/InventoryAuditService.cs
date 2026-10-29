@@ -252,7 +252,8 @@ public class InventoryAuditService
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "InventoryStockDeducted",
-                AuditLogDetails = $"Deducted {used} {unit} from '{part.DisplayName}'{usedFor}. Stock: {inStock} -> {updatedQuantity}.",
+                AuditLogDetails = $"Deducted {used} {unit} from '{part.DisplayName}'{usedFor}. Stock: {inStock} -> {updatedQuantity}."
+                    + (string.IsNullOrWhiteSpace(note) ? string.Empty : $" Note: {note.Trim()}"),
                 Timestamp = DateTime.UtcNow,
             };
             transaction.Create(auditDoc, audit);
