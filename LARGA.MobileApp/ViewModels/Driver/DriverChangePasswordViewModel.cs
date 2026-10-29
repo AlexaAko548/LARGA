@@ -14,7 +14,16 @@ public class DriverChangePasswordViewModel : LARGA.MobileApp.ViewModels.Shared.P
     public DriverChangePasswordViewModel()
     {
         SaveCommand = new Command(async () => await SaveAsync());
-        GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
+        GoBackCommand = new Command(async () => await GoBackAsync());
+    }
+
+    /// <summary>Back (nav bar arrow or the phone's back button): asks first when something was typed.</summary>
+    public async Task GoBackAsync()
+    {
+        if (await LARGA.MobileApp.ViewModels.Shared.UnsavedChangesPrompt.ConfirmLeaveAsync(HasChanges))
+        {
+            await Shell.Current.GoToAsync("..");
+        }
     }
 
     private async Task SaveAsync()

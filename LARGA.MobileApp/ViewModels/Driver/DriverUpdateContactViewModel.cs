@@ -16,21 +16,21 @@ public class DriverUpdateContactViewModel : BindableObject
     public string CurrentNumber
     {
         get => _currentNumber;
-        set { _currentNumber = value; OnPropertyChanged(); }
+        set { _currentNumber = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasChanges)); }
     }
 
     private string _newNumber = string.Empty;
     public string NewNumber
     {
         get => _newNumber;
-        set { _newNumber = value; OnPropertyChanged(); }
+        set { _newNumber = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasChanges)); }
     }
 
     private string _confirmNewNumber = string.Empty;
     public string ConfirmNewNumber
     {
         get => _confirmNewNumber;
-        set { _confirmNewNumber = value; OnPropertyChanged(); }
+        set { _confirmNewNumber = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasChanges)); }
     }
 
     private bool _isBusy;
@@ -42,6 +42,12 @@ public class DriverUpdateContactViewModel : BindableObject
 
     public bool IsNotBusy => !IsBusy;
 
+    // The number on file when the screen opened, so a prefilled field doesn't count as an edit.
+    private string _loadedNumber = string.Empty;
+
+    /// <summary>Anything typed that leaving the screen would throw away.</summary>
+    public bool HasChanges => NewNumber.Length > 0 || ConfirmNewNumber.Length > 0 || CurrentNumber != _loadedNumber;
+
     public ICommand LoadCurrentNumberCommand { get; }
     public ICommand SaveCommand { get; }
     public ICommand GoBackCommand { get; }
@@ -50,7 +56,16 @@ public class DriverUpdateContactViewModel : BindableObject
     {
         LoadCurrentNumberCommand = new Command(async () => await LoadCurrentNumberAsync());
         SaveCommand = new Command(async () => await SaveAsync());
-        GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
+        GoBackCommand = new Command(async () => await GoBackAsync());
+    }
+
+    /// <summary>Back (nav bar arrow or the phone's back button): asks first when something was typed.</summary>
+    public async Task GoBackAsync()
+    {
+        if (await LARGA.MobileApp.ViewModels.Shared.UnsavedChangesPrompt.ConfirmLeaveAsync(HasChanges))
+        {
+            await Shell.Current.GoToAsync("..");
+        }
     }
 
     private async Task LoadCurrentNumberAsync()
@@ -68,7 +83,8 @@ public class DriverUpdateContactViewModel : BindableObject
 
             if (doc?.Data == null) return;
 
-            CurrentNumber = doc.Data.PhoneNumber ?? string.Empty;
+            _loadedNumber = doc.Data.PhoneNumber ?? string.Empty;
+            CurrentNumber = _loadedNumber;
         }
         catch (Exception ex)
         {
@@ -135,6 +151,7 @@ public class DriverUpdateContactViewModel : BindableObject
                 .GetService<LARGA.MobileApp.Services.IEmergencyAlertService>()?
                 .ForgetCachedDriverDetails();
 
+            _loadedNumber = string.Empty;
             CurrentNumber = string.Empty;
             NewNumber = string.Empty;
             ConfirmNewNumber = string.Empty;
