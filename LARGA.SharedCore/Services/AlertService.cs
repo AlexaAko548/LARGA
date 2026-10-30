@@ -78,13 +78,18 @@ public class AlertService
     }
 
     /// <summary>"Mark all as read" in the notification bell: every unread alert, not just the
-    /// ones in the recent list, in batches of up to 500 (Firestore's batch limit).</summary>
-    public async Task<bool> MarkAllReadAsync()
+    /// ones in the recent list, in batches of up to 500 (Firestore's batch limit). For an Assistant
+    /// Manager (<paramref name="includeManagerOnly"/> false) the Manager-only rows (AlertFeed.ManagerOnly)
+    /// stay unread.</summary>
+    public async Task<bool> MarkAllReadAsync(bool includeManagerOnly = true)
     {
         try
         {
             QuerySnapshot unread = await Db.Collection("system_alerts").WhereEqualTo("isRead", false).GetSnapshotAsync();
-            foreach (DocumentSnapshot[] chunk in unread.Documents.Chunk(500))
+            IEnumerable<DocumentSnapshot> toMark = includeManagerOnly
+                ? unread.Documents
+                : unread.Documents.Where(d => !AlertFeed.ManagerOnly(d.TryGetValue("type", out string? type) ? type : null));
+            foreach (DocumentSnapshot[] chunk in toMark.Chunk(500))
             {
                 WriteBatch batch = Db.StartBatch();
                 foreach (DocumentSnapshot doc in chunk)
@@ -141,8 +146,8 @@ public class AlertService
         }
     }
 
-    public const string LowStockStatus = "Low Stock";
-    public const string CriticalStockStatus = "Critical";
+    public const string LowStockStatus = SparePartStockRules.LowStock;
+    public const string CriticalStockStatus = SparePartStockRules.Critical;
     public const string ResolvedStatus = "Resolved";
 
     /// <summary>The one low-stock alert a part can have (INV-010).</summary>
@@ -151,23 +156,21 @@ public class AlertService
     /// <summary>Raises - or refreshes - the part's "LowStock" notification when its stock is at or
     /// below its minimum threshold. Called from InventoryAuditService (deductions from the Inventory
     /// page and garage jobs, and stock/minimum edits). One alert per part (lowstock_{partId}): while
-    /// it's open, a further drop only updates its quantity, status (Low Stock, or Critical at 0) and
-    /// time, and marks it unread again. A resolved one (restocked) is reopened the same way.</summary>
+    /// it's open, a further drop only updates its quantity, status (Low Stock or Critical - the Inventory
+    /// page's rule, SparePartStockRules) and time, and marks it unread again. A resolved one (restocked)
+    /// is reopened the same way.</summary>
     public async Task CreateLowStockAlertAsync(SparePart part)
     {
         try
         {
-            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
-            bool critical = part.StockQuantity <= 0;
+            (string status, string message) = LowStockStatusAndMessage(part);
             await Db.Collection("system_alerts").Document(LowStockAlertId(part.PartId)).SetAsync(new Dictionary<string, object>
             {
                 ["type"] = "LowStock",
                 ["partId"] = part.PartId,
-                ["status"] = critical ? CriticalStockStatus : LowStockStatus,
+                ["status"] = status,
                 ["stockQuantity"] = part.StockQuantity,
-                ["message"] = critical
-                    ? $"{part.DisplayName} is out of stock (minimum {part.ReorderLevel})."
-                    : $"{part.DisplayName} is low on stock: {part.StockQuantity} {unit} left (minimum {part.ReorderLevel}).",
+                ["message"] = message,
                 ["timestamp"] = DateTime.UtcNow,
                 ["isRead"] = false,
             }, SetOptions.MergeAll);
@@ -176,6 +179,48 @@ public class AlertService
         {
             _logger.LogWarning(ex, "Failed to create low-stock alert for part {PartId}", part.PartId);
         }
+    }
+
+    /// <summary>Brings the part's open low-stock alert in line with the Inventory page after its stock
+    /// went up (a partial restock) or its minimum went down, while it's still at or below the minimum:
+    /// status, quantity and message only. It stays read or unread and keeps its time, so an improvement
+    /// doesn't notify anyone again. No alert, or one already resolved: nothing to do.</summary>
+    public async Task RefreshLowStockAlertAsync(SparePart part)
+    {
+        try
+        {
+            DocumentReference docRef = Db.Collection("system_alerts").Document(LowStockAlertId(part.PartId));
+            DocumentSnapshot existing = await docRef.GetSnapshotAsync();
+            if (!existing.Exists || (existing.TryGetValue("status", out string? current) && current == ResolvedStatus))
+            {
+                return;
+            }
+
+            (string status, string message) = LowStockStatusAndMessage(part);
+            await docRef.UpdateAsync(new Dictionary<string, object>
+            {
+                ["status"] = status,
+                ["stockQuantity"] = part.StockQuantity,
+                ["message"] = message,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to refresh low-stock alert for part {PartId}", part.PartId);
+        }
+    }
+
+    /// <summary>An open low-stock alert's status (SparePartStockRules) and message for the part's stock.</summary>
+    private static (string Status, string Message) LowStockStatusAndMessage(SparePart part)
+    {
+        string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
+        bool critical = SparePartStockRules.StatusOf(part) == SparePartStockRules.Critical;
+        string message = part.StockQuantity <= 0
+            ? $"{part.DisplayName} is out of stock (minimum {part.ReorderLevel})."
+            : critical
+                ? $"{part.DisplayName} is critically low: {part.StockQuantity} {unit} left (minimum {part.ReorderLevel})."
+                : $"{part.DisplayName} is low on stock: {part.StockQuantity} {unit} left (minimum {part.ReorderLevel}).";
+        return (critical ? CriticalStockStatus : LowStockStatus, message);
     }
 
     /// <summary>SRS REQ-4.5-1: an archived part isn't tracked any more, so its open low-stock alert is

@@ -635,6 +635,7 @@ else
 
     private async Task ConfirmResolveAsync()
     {
+        if (_isSavingResolve) return; // a second click while this is still running is ignored
         if (_resolveEntry is null || string.IsNullOrWhiteSpace(_resolutionNote))
         {
             return;

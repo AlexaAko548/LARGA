@@ -92,7 +92,7 @@ public class ChatsDetailViewModel : INotifyPropertyChanged
         _chatService = chatService;
         SendMessageCommand = new Command(OnSendMessage);
         CallDriverCommand = new Command(OnCallDriver);
-        GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
+        GoBackCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync(".."));
     }
 
     private void StartListening()
@@ -126,7 +126,24 @@ public class ChatsDetailViewModel : INotifyPropertyChanged
         });
     }
 
+    // A send in flight: the box is already cleared, so another tap now would send a stray thumbs-up.
+    private bool _isSending;
+
     private async void OnSendMessage()
+    {
+        if (_isSending) return;
+        _isSending = true;
+        try
+        {
+            await SendMessageCoreAsync();
+        }
+        finally
+        {
+            _isSending = false;
+        }
+    }
+
+    private async Task SendMessageCoreAsync()
     {
         // An empty box sends a thumbs-up.
         string text = string.IsNullOrWhiteSpace(NewMessage) ? "👍" : NewMessage;

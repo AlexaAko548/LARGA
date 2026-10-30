@@ -1,10 +1,15 @@
 @page "/register"
 @using Microsoft.AspNetCore.Authorization
+@using System.ComponentModel.DataAnnotations
+@using LARGA.ManagerWeb.Services
+@using LARGA.ManagerWeb.Validation
 @attribute [AllowAnonymous]
+@inject AccessRequestService AccessRequests
 
-@* "Request Manager Access" (Landing, Login). Accounts are no longer created here (audit B-01): this page
-   let anyone on the internet create a Firebase account and try to make it a Manager. Manager and
-   driver accounts are created by the fleet owner from inside the dashboard (Admin SDK). *@
+@* "Request Manager Access" (Landing, Login). Files a request for Assistant Manager access that the fleet
+   owner approves or declines in Team & Access (profile menu). No account is created here (audit B-01):
+   only the owner's approval creates one. Rendered on the server with a plain form post, so it works
+   without the live connection the dashboard pages use. *@
 
 <PageTitle>Request Access - web</PageTitle>
 
@@ -20,12 +25,85 @@
             <div class="brand-subtitle">Manager Portal</div>
         </div>
 
-        <h2>Request Manager Access</h2>
-        <p>
-            Manager accounts are created by the fleet owner. Ask BLM Taxi's owner or manager to add you,
-            and you'll receive your login email and a temporary password.
-        </p>
-        <p>Drivers use the LARGA mobile app with the account their manager created for them.</p>
+        @if (_sent)
+        {
+            <h2>Request sent</h2>
+            <p>
+                BLM Taxi's owner will review your request. Once it's approved, sign in with your email and the
+                password you just chose.
+            </p>
+            <a class="primary-btn full-width" href="/login">Back to Sign In</a>
+        }
+        else
+        {
+            <h2>Request Access</h2>
+            <p>
+                For staff who help run BLM Taxi. The owner reviews every request, and approved staff get
+                Assistant Manager access to the dashboard.
+            </p>
+
+            <EditForm Model="Model" FormName="access-request" OnValidSubmit="SubmitAsync" Enhance>
+                <DataAnnotationsValidator />
+
+                @if (!string.IsNullOrWhiteSpace(_error))
+                {
+                    <div class="login-error" role="alert">@_error</div>
+                }
+
+                <div class="form-block">
+                    <label for="req-name">FULL NAME</label>
+                    <InputText id="req-name" @bind-Value="Model.FullName" maxlength="80" autocomplete="name" placeholder="e.g. Juan Dela Cruz" />
+                    <ValidationMessage For="() => Model.FullName" class="field-error" />
+                </div>
+
+                <div class="form-block">
+                    <label for="req-email">EMAIL ADDRESS</label>
+                    <InputText id="req-email" @bind-Value="Model.Email" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" />
+                    <ValidationMessage For="() => Model.Email" class="field-error" />
+                </div>
+
+                <div class="form-block">
+                    <label for="req-phone">MOBILE NUMBER</label>
+                    <InputText id="req-phone" @bind-Value="Model.PhoneNumber" type="tel" maxlength="16" autocomplete="tel" placeholder="e.g. 0917 123 4567" />
+                    <ValidationMessage For="() => Model.PhoneNumber" class="field-error" />
+                </div>
+
+                @* Plain inputs on purpose: a password is never written back into the page after a
+                   validation error. The meter is filled in by password-strength.js as you type. *@
+                <div class="form-block">
+                    <label for="req-password">PASSWORD</label>
+                    <input id="req-password" name="Model.Password" type="password" maxlength="64" autocomplete="new-password"
+                           placeholder="Choose a password" data-strength-input="req-strength" aria-describedby="req-strength" />
+                    <div id="req-strength" class="password-strength" data-strength-meter aria-live="polite">
+                        <div class="password-strength-bar"><span></span></div>
+                        <span class="password-strength-label" data-hint="@LARGA.SharedCore.InputValidator.PasswordPolicySummary">@LARGA.SharedCore.InputValidator.PasswordPolicySummary</span>
+                    </div>
+                    <ValidationMessage For="() => Model.Password" class="field-error" />
+                </div>
+
+                <div class="form-block">
+                    <label for="req-confirm">CONFIRM PASSWORD</label>
+                    <input id="req-confirm" name="Model.ConfirmPassword" type="password" maxlength="64" autocomplete="new-password"
+                           placeholder="Type it again" />
+                    <ValidationMessage For="() => Model.ConfirmPassword" class="field-error" />
+                </div>
+
+                <div class="form-block">
+                    <label for="req-note">NOTE TO THE OWNER <span class="field-optional">(optional)</span></label>
+                    <InputTextArea id="req-note" @bind-Value="Model.Message" maxlength="@AccessRequestService.MaxMessageLength" rows="3"
+                                   class="text-input textarea" placeholder="e.g. I handle the boundary collection on weekends." />
+                    <ValidationMessage For="() => Model.Message" class="field-error" />
+                </div>
+
+                @* Left empty by people; filled in by bots that complete every field. *@
+                <div class="form-honeypot" aria-hidden="true">
+                    <label for="req-website">Website</label>
+                    <InputText id="req-website" @bind-Value="Model.Website" tabindex="-1" autocomplete="off" />
+                </div>
+
+                <button class="primary-btn full-width" type="submit">SEND REQUEST</button>
+            </EditForm>
+        }
 
         <div class="auth-divider"><span>OR</span></div>
 
@@ -41,3 +119,56 @@
         <span>Drivers use the mobile app</span>
     </div>
 </div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromForm(FormName = "access-request")]
+    private AccessRequestForm Model { get; set; } = new();
+
+    private bool _sent;
+    private string? _error;
+
+    private async Task SubmitAsync()
+    {
+        // A bot filled the hidden field: show the same "sent" page, file nothing.
+        if (!string.IsNullOrEmpty(Model.Website))
+        {
+            _sent = true;
+            return;
+        }
+
+        _error = await AccessRequests.SubmitAsync(Model.FullName, Model.Email, Model.PhoneNumber, Model.Password, Model.Message,
+            HttpContext?.Connection.RemoteIpAddress?.ToString());
+        _sent = _error is null;
+    }
+
+    private sealed class AccessRequestForm
+    {
+        [Required(ErrorMessage = "Enter your full name.")]
+        [FullName]
+        public string FullName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Enter your email address.")]
+        [StrictEmail]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Enter your mobile number.")]
+        [PhilippineMobile]
+        public string PhoneNumber { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Choose a password.")]
+        [Password]
+        public string Password { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Type your password again.")]
+        [Compare(nameof(Password), ErrorMessage = "The passwords don't match.")]
+        public string ConfirmPassword { get; set; } = string.Empty;
+
+        [StringLength(AccessRequestService.MaxMessageLength, ErrorMessage = "Keep the note under 300 characters.")]
+        public string? Message { get; set; }
+
+        public string? Website { get; set; }
+    }
+}

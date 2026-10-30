@@ -97,27 +97,23 @@
                 </VerticalStackLayout>
             </Border>
 
-            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 20" StrokeThickness="0" Padding="15">
-                <VerticalStackLayout Spacing="5">
-                    <Label Text="ACCOUNT SETTINGS" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource LargaDarkText}" />
+            <!-- Account Settings (same layout as the manager's profile) -->
+            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="15">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="ACCOUNT SETTINGS" FontSize="12" TextColor="{DynamicResource LargaDarkText}" CharacterSpacing="1" />
+                    <BoxView HeightRequest="1" Color="{DynamicResource ThemeDivider}" />
 
-                    <Grid ColumnDefinitions="Auto,*,Auto" Padding="5,3">
-                        <Label Grid.Column="0" FontSize="30" VerticalOptions="Center" TextColor="{DynamicResource LargaDarkText}" />
-                        <Label Grid.Column="1" Text="›  Change password" FontSize="15" TextColor="{DynamicResource LargaDarkText}" VerticalOptions="Center" />
-                        <Grid.GestureRecognizers>
+                    <Label Text="›  Change password" FontSize="14" TextColor="{DynamicResource LargaDarkText}">
+                        <Label.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding ChangePasswordCommand}" />
-                        </Grid.GestureRecognizers>
-                    </Grid>
-
-                    <Grid ColumnDefinitions="Auto,*,Auto" Padding="5,3">
-                        <Label Grid.Column="0" FontSize="30" VerticalOptions="Center" TextColor="{DynamicResource LargaDarkText}" />
-                        <Label Grid.Column="1" Text="›  Update Contact Number" FontSize="15" TextColor="{DynamicResource LargaDarkText}" VerticalOptions="Center" />
-                        <Grid.GestureRecognizers>
+                        </Label.GestureRecognizers>
+                    </Label>
+                    <Label Text="›  Update Contact Number" FontSize="14" TextColor="{DynamicResource LargaDarkText}">
+                        <Label.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding UpdateContactNumberCommand}" />
-                        </Grid.GestureRecognizers>
-                    </Grid>
-
-                    <controls:ThemeSwitch />
+                        </Label.GestureRecognizers>
+                    </Label>
+                    <controls:ThemeSwitch Padding="0" />
                 </VerticalStackLayout>
             </Border>
 
@@ -128,8 +124,8 @@
                     CornerRadius="25"
                     HeightRequest="55"
                     FontSize="16"
-                    Style="{StaticResource HeaderStyle}"
-                    Margin="0,10,0,20" />
+                    FontAttributes="Bold"
+                    Margin="0,30,0,20" />
         </VerticalStackLayout>
     </ScrollView>
     </RefreshView>

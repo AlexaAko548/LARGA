@@ -16,21 +16,21 @@ public class UpdateContactNumberViewModel : BindableObject
     public string CurrentNumber
     {
         get => _currentNumber;
-        set { _currentNumber = value; OnPropertyChanged(); }
+        set { _currentNumber = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasChanges)); }
     }
 
     private string _newNumber = string.Empty;
     public string NewNumber
     {
         get => _newNumber;
-        set { _newNumber = value; OnPropertyChanged(); }
+        set { _newNumber = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasChanges)); }
     }
 
     private string _confirmNewNumber = string.Empty;
     public string ConfirmNewNumber
     {
         get => _confirmNewNumber;
-        set { _confirmNewNumber = value; OnPropertyChanged(); }
+        set { _confirmNewNumber = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasChanges)); }
     }
 
     private bool _isBusy;
@@ -42,13 +42,58 @@ public class UpdateContactNumberViewModel : BindableObject
 
     public bool IsNotBusy => !IsBusy;
 
+    // The number on file when the screen opened, so a prefilled field doesn't count as an edit.
+    private string _loadedNumber = string.Empty;
+
+    /// <summary>Anything typed that leaving the screen would throw away.</summary>
+    public bool HasChanges => NewNumber.Length > 0 || ConfirmNewNumber.Length > 0 || CurrentNumber != _loadedNumber;
+
+    public ICommand LoadCurrentNumberCommand { get; }
+    // One save at a time - a second tap while the first is still validating or saving is ignored.
+    private readonly LARGA.MobileApp.Services.BusyGate _saveGate = new();
+
     public ICommand SaveCommand { get; }
     public ICommand GoBackCommand { get; }
 
     public UpdateContactNumberViewModel()
     {
-        SaveCommand = new Command(async () => await SaveAsync());
-        GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
+        LoadCurrentNumberCommand = new Command(async () => await LoadCurrentNumberAsync());
+        SaveCommand = new Command(async () => await _saveGate.RunAsync(SaveAsync, showLoading: false));
+        GoBackCommand = new Command(async () => await GoBackAsync());
+    }
+
+    /// <summary>Back (nav bar arrow or the phone's back button): asks first when something was typed.</summary>
+    public Task GoBackAsync() => LARGA.MobileApp.Services.NavigationGate.RunAsync(async () =>
+    {
+        if (await LARGA.MobileApp.ViewModels.Shared.UnsavedChangesPrompt.ConfirmLeaveAsync(HasChanges))
+        {
+            await Shell.Current.GoToAsync("..");
+        }
+    });
+
+    // Shows the number on file in the Current Number field, same as the driver's screen.
+    private async Task LoadCurrentNumberAsync()
+    {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
+        try
+        {
+            var user = CrossFirebaseAuth.Current.CurrentUser;
+            if (user == null) return;
+
+            var doc = await CrossFirebaseFirestore.Current
+                .GetCollection("users")
+                .GetDocument(user.Uid)
+                .GetDocumentSnapshotAsync<ContactNumberProxy>();
+
+            if (doc?.Data == null) return;
+
+            _loadedNumber = doc.Data.PhoneNumber ?? string.Empty;
+            CurrentNumber = _loadedNumber;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Load Contact Number Error: {ex.Message}");
+        }
     }
 
     private async Task SaveAsync()
@@ -100,10 +145,11 @@ public class UpdateContactNumberViewModel : BindableObject
                 .GetDocument(user.Uid)
                 .UpdateDataAsync(updates);
 
-            // LAR-86/87: keep the driver app's SOS auto-answer allowlist on the new number.
-            await LARGA.MobileApp.Services.ManagerAllowlistSync.ReplaceAsync(actualCurrentNumber, NewNumber);
+            // LAR-86/87: the driver app's SOS auto-answer allowlist (system_configs/global.managerPhoneNumbers)
+            // follows this number through ManagerWeb's ManagerPhoneAllowlistSyncService, its only writer.
             AuditLogWriter.Record("ManagerContactNumberChanged", "Updated their own contact number.");
 
+            _loadedNumber = string.Empty;
             CurrentNumber = string.Empty;
             NewNumber = string.Empty;
             ConfirmNewNumber = string.Empty;

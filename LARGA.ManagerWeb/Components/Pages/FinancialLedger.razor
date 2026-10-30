@@ -1264,6 +1264,7 @@ else
 
     private async Task ConfirmPaymentAsync()
     {
+        if (_isSavingPayment) return; // a second click while this is still running is ignored
         if (_paymentRow is null || PaymentAmountError is not null)
         {
             return;
@@ -1325,6 +1326,7 @@ else
 
     private async Task ConfirmAdjustmentAsync()
     {
+        if (_isSavingAdjustment) return; // a second click while this is still running is ignored
         if (!IsAdjustmentValid || _adjustmentAmountInput is not decimal amount)
         {
             return;
@@ -1393,6 +1395,7 @@ else
 
     private async Task ConfirmSettleAsync()
     {
+        if (_isSavingSettle) return; // a second click while this is still running is ignored
         if (_settleRow is null || SettleAmountError is not null)
         {
             return;

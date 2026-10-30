@@ -1064,7 +1064,7 @@ public class DriverManagementService
     /// enforced the flag, and changes made through the forgot-password email. When the profile has no
     /// temporaryPasswordSetAt (set before it existed), the temporary password dates from the later of
     /// the account's creation and the driver's last DriverPasswordReset audit entry. Each clear is
-    /// audited. Returns how many were cleared. Run by ManagerWeb on startup.
+    /// audited. Returns how many were cleared. Run by ManagerWeb on startup and then hourly.
     /// </summary>
     public async Task<int> ClearReplacedTemporaryPasswordFlagsAsync()
     {
@@ -1270,13 +1270,22 @@ public class DriverManagementService
     private static string GenerateTemporaryPassword()
     {
         const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-        var bytes = RandomNumberGenerator.GetBytes(12);
-        var sb = new StringBuilder(12);
-        foreach (byte b in bytes)
+        // Redrawn until it meets the password policy (at least one letter and one number).
+        while (true)
         {
-            sb.Append(chars[b % chars.Length]);
+            var bytes = RandomNumberGenerator.GetBytes(12);
+            var sb = new StringBuilder(12);
+            foreach (byte b in bytes)
+            {
+                sb.Append(chars[b % chars.Length]);
+            }
+
+            string password = sb.ToString();
+            if (InputValidator.ValidatePassword(password) is null)
+            {
+                return password;
+            }
         }
-        return sb.ToString();
     }
 
     // ---------------------------------------------------------------------

@@ -128,13 +128,16 @@ public class AlertCenterViewModel : BindableObject
             // then push the thread onto it - same route/parameters ChatsViewModel.OnOpenChat
             // uses to open a driver's thread (dictionary parameters keep DriverName intact if
             // it has spaces).
-            await Shell.Current.GoToAsync("//manager-dashboard/chats");
-            await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+            await LARGA.MobileApp.Services.NavigationGate.RunAsync(async () =>
             {
-                { "DriverId", alert.DriverId },
-                // Plain name, not the "Name · TX-01" card label - ChatService writes it to
-                // chats/{driverId}.driverName, which the web inbox displays.
-                { "DriverName", alert.ChatDriverName }
+                await Shell.Current.GoToAsync("//manager-dashboard/chats");
+                await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+                {
+                    { "DriverId", alert.DriverId },
+                    // Plain name, not the "Name · TX-01" card label - ChatService writes it to
+                    // chats/{driverId}.driverName, which the web inbox displays.
+                    { "DriverName", alert.ChatDriverName }
+                });
             });
         });
 

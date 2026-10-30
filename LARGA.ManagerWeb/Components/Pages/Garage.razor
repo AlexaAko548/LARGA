@@ -839,6 +839,7 @@ else
 
     private async Task ConfirmCreateTicketAsync()
     {
+        if (_isSavingTicket) return; // a second click while this is still running is ignored
         if (_ticketReport is null || TicketShopDay is not DateTime shopDay
             || TicketInstructionsError is not null || TicketShopDateError is not null || TicketDateError is not null)
         {
@@ -891,6 +892,7 @@ else
 
     private async Task RunCardActionAsync(Func<Task<GarageActionResult>> action, string fallbackError)
     {
+        if (_isBusy) return; // a second click while this is still running is ignored
         _isBusy = true;
         _actionError = null;
         try
@@ -911,6 +913,7 @@ else
 
     private async Task DismissAsync(string maintenanceId)
     {
+        if (_isBusy) return; // a second click while this is still running is ignored
         _isBusy = true;
         _actionError = null;
         try
@@ -931,6 +934,7 @@ else
 
     private async Task MarkResolvedAsync(string maintenanceId)
     {
+        if (_isBusy) return; // a second click while this is still running is ignored
         _isBusy = true;
         _actionError = null;
         try
@@ -1041,6 +1045,7 @@ else
 
     private async Task DeductPartsAsync(List<(string PartId, int Quantity)> usage)
     {
+        if (_isSavingParts) return; // a second click while this is still running is ignored
         if (_partsWorkOrder is null)
         {
             return;
@@ -1111,6 +1116,7 @@ else
 
     private async Task ConfirmScheduleAsync()
     {
+        if (_isSavingSchedule) return; // a second click while this is still running is ignored
         if (_scheduleCheck is null || !_scheduleDate.HasValue)
         {
             return;

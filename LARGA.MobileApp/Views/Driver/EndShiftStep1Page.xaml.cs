@@ -14,7 +14,7 @@ public partial class EndShiftStep1Page : ContentPage
     {
         try
         {
-            await Shell.Current.GoToAsync("active-shift");
+            await LARGA.MobileApp.Services.NavigationGate.GoToAsync("active-shift");
         }
         catch (Exception ex)
         {

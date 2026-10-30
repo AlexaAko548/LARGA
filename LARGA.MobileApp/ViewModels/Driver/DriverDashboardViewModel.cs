@@ -59,7 +59,8 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     private string _maintenanceStatus = "Checking...";
     public string MaintenanceStatus { get => _maintenanceStatus; set { _maintenanceStatus = value; OnPropertyChanged(); } }
 
-    private string _managerNote = "No notes yet.";
+    private const string NoManagerNote = "No notes yet.";
+    private string _managerNote = NoManagerNote;
     public string ManagerNote { get => _managerNote; set { _managerNote = value; OnPropertyChanged(); } }
 
     // License-expiry alert: mirrors DriverManagementService.ComputeLicenseStatus's thresholds
@@ -158,8 +159,8 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
 
             await Shell.Current.GoToAsync("pre-shift-step1");
         }));
-        ActiveShiftCommand = new Command(async () => await Shell.Current.GoToAsync("active-shift"));
-        MessageManagerCommand = new Command(async () => await Shell.Current.GoToAsync("message-manager"));
+        ActiveShiftCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("active-shift"));
+        MessageManagerCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("message-manager"));
         RefreshCommand = new Command(async () => await RefreshAsync());
 
         _ = InitializeDashboardDataAsync();
@@ -245,6 +246,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
             var firstName = string.IsNullOrWhiteSpace(user.DisplayName) ? "Driver" : user.DisplayName.Split(' ')[0];
             WelcomeMessage = $"Welcome back,\n{firstName}.";
             _ = _notificationService.RegisterPushNotificationsAsync(user.Uid);
+            WatchManagerNote(user.Uid);
 
             // FIX: Restored the missing Last Login Time assignment
             LastLoginTime = DateTime.Now.ToString("HH:mm");
@@ -369,8 +371,10 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     {
         _taxiListener?.Dispose();
         _unitJobsListener?.Dispose();
+        _noteListener?.Dispose();
         _taxiListener = null;
         _unitJobsListener = null;
+        _noteListener = null;
     }
 
     /// <summary>Called when the dashboard shows again: picks the listeners back up.</summary>
@@ -380,6 +384,54 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
         {
             WatchUnitMaintenance(taxiId);
         }
+
+        if (_noteDriverId is string driverId && _noteListener is null)
+        {
+            WatchManagerNote(driverId);
+        }
+    }
+
+    // -- Manager note -------------------------------------------------------------------------
+    // The note a manager writes from the web's Driver & Shifts tab (users/{id}.managerNote). Kept
+    // live so a new or cleared note shows on the home screen without reopening the app.
+
+    private IDisposable? _noteListener;
+    private string? _noteDriverId;
+
+    private void WatchManagerNote(string driverId)
+    {
+        if (_noteDriverId == driverId && _noteListener is not null)
+        {
+            return;
+        }
+
+        _noteListener?.Dispose();
+        _noteDriverId = driverId;
+
+        try
+        {
+            _noteListener = CrossFirebaseFirestore.Current
+                .GetCollection("users")
+                .GetDocument(driverId)
+                .AddSnapshotListener<ManagerNoteProxy>(
+                    snapshot =>
+                    {
+                        string? note = snapshot?.Data?.ManagerNote;
+                        MainThread.BeginInvokeOnMainThread(() =>
+                            ManagerNote = string.IsNullOrWhiteSpace(note) ? NoManagerNote : note.Trim());
+                    },
+                    ex => System.Diagnostics.Debug.WriteLine($"Manager note listener error: {ex.Message}"));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Couldn't watch the manager note: {ex.Message}");
+        }
+    }
+
+    public class ManagerNoteProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("managerNote")]
+        public string? ManagerNote { get; set; }
     }
 
     /// <summary>

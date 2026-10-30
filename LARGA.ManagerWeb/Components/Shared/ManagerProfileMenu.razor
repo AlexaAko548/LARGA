@@ -4,6 +4,7 @@
 @using LARGA.ManagerWeb.Services
 @using Microsoft.AspNetCore.Components.Authorization
 @using Google.Cloud.Firestore
+@implements IAsyncDisposable
 @inject IManagerAuthService ManagerAuthService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject Lazy<FirestoreDb> FirestoreDb
@@ -11,21 +12,25 @@
 @inject NavigationManager Navigation
 @inject PayoutAccountService PayoutAccounts
 @inject DuressPinService DuressPins
+@inject AccessRequestService AccessRequests
 
 @* Header profile menu: the same pill the header always showed, now opening Settings
    (contact number, password) and Logout. Styled with the app's own header/modal classes. *@
 
-<div class="manager-menu">
-    <button class="manager-pill manager-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="@_isDropdownOpen" title="@_roleLabel" @onclick="ToggleDropdown">
+<div class="manager-menu" data-popup>
+    <button class="manager-pill manager-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="@_isDropdownOpen" title="@_roleLabel" data-popup-toggle @onclick="ToggleDropdown">
         <span class="manager-dot"></span>
         <span>@_displayName</span>
+        @if (_pendingAccessRequests > 0)
+        {
+            <span class="manager-menu-count" title="@_pendingAccessRequests access request(s) waiting - open Team & Access">@_pendingAccessRequests</span>
+        }
         <span class="caret"><Icon Name="chevron-down" /></span>
     </button>
 
     @if (_isDropdownOpen)
     {
-        <div class="manager-menu-backdrop" @onclick="() => _isDropdownOpen = false"></div>
-        <div class="manager-menu-dropdown" role="menu">
+        <div class="manager-menu-dropdown" role="menu" data-popup-panel>
             <div class="manager-menu-theme">
                 <span class="manager-menu-theme-label">Appearance</span>
                 <div class="theme-switch" role="group" aria-label="Appearance">
@@ -36,6 +41,17 @@
                 </div>
             </div>
             <button type="button" class="manager-menu-item" role="menuitem" @onclick="OpenSettingsModal">Settings</button>
+            @if (IsManager)
+            {
+                @* Owner only: who may use the dashboard - access requests and current Assistant Managers. *@
+                <button type="button" class="manager-menu-item" role="menuitem" @onclick="OpenTeamAccess">
+                    Team &amp; Access
+                    @if (_pendingAccessRequests > 0)
+                    {
+                        <span class="manager-menu-count">@_pendingAccessRequests</span>
+                    }
+                </button>
+            }
             <button type="button" class="manager-menu-item danger" role="menuitem" @onclick="HandleLogoutAsync">Logout</button>
         </div>
     }
@@ -184,9 +200,24 @@
     </div>
 }
 
+@if (_isTeamAccessOpen)
+{
+    <TeamAccessPanel ActorUserId="@_currentUid" OnClose="CloseTeamAccessAsync"
+                     OnPendingChanged="count => _pendingAccessRequests = count" />
+}
+
 @code {
     private bool _isDropdownOpen;
     private bool _isSettingsModalOpen;
+    private bool _isTeamAccessOpen;
+    private int _pendingAccessRequests;
+    private string _currentUid = string.Empty;
+
+    private void OpenTeamAccess()
+    {
+        _isDropdownOpen = false;
+        _isTeamAccessOpen = true;
+    }
 
     private UpdateContactModel _contactModel = new();
     private string? _contactMessage;
@@ -246,6 +277,14 @@
             string? uid = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             string? email = authState.User.FindFirst(ClaimTypes.Email)?.Value;
             _roleLabel = authState.User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
+            _currentUid = uid ?? string.Empty;
+            if (IsManager)
+            {
+                await RefreshPendingCountAsync();
+                _pendingCts = new CancellationTokenSource();
+                _pendingTimer = new PeriodicTimer(PendingRefreshInterval);
+                _ = PollPendingCountAsync(_pendingCts.Token);
+            }
 
             if (!string.IsNullOrWhiteSpace(email))
             {
@@ -267,7 +306,62 @@
         }
     }
 
-    private void ToggleDropdown() => _isDropdownOpen = !_isDropdownOpen;
+    private async Task ToggleDropdown()
+    {
+        _isDropdownOpen = !_isDropdownOpen;
+        if (_isDropdownOpen && IsManager)
+        {
+            await RefreshPendingCountAsync();
+        }
+    }
+
+    // The access-request badge: polled while the page is open (same 60s as NotificationBell), and
+    // re-read when the menu opens or Team & Access closes, so a new request shows without a reload.
+    private static readonly TimeSpan PendingRefreshInterval = TimeSpan.FromSeconds(60);
+    private PeriodicTimer? _pendingTimer;
+    private CancellationTokenSource? _pendingCts;
+
+    private async Task PollPendingCountAsync(CancellationToken token)
+    {
+        try
+        {
+            while (_pendingTimer is not null && await _pendingTimer.WaitForNextTickAsync(token))
+            {
+                await RefreshPendingCountAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the component is disposed.
+        }
+    }
+
+    private async Task RefreshPendingCountAsync()
+    {
+        try
+        {
+            _pendingAccessRequests = await AccessRequests.CountPendingAsync();
+        }
+        catch (Exception)
+        {
+            // The badge is a hint; keep the last count. The panel itself still loads the list.
+        }
+    }
+
+    private async Task CloseTeamAccessAsync()
+    {
+        _isTeamAccessOpen = false;
+        await RefreshPendingCountAsync();
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _pendingCts?.Cancel();
+        _pendingTimer?.Dispose();
+        _pendingCts?.Dispose();
+        return ValueTask.CompletedTask;
+    }
 
     private bool IsManager => string.Equals(_roleLabel, ManagerSignInService.ManagerRole, StringComparison.OrdinalIgnoreCase);
 
@@ -309,6 +403,7 @@
 
     private async Task SaveDuressPinAsync()
     {
+        if (_isSavingDuressPin) return; // a second click while this is still running is ignored
         _isSavingDuressPin = true;
         _duressPinMessage = null;
         try
@@ -351,6 +446,7 @@
 
     private async Task AddPayoutAccountAsync()
     {
+        if (_isSavingPayout) return; // a second click while this is still running is ignored
         _isSavingPayout = true;
         _payoutError = null;
         try
@@ -374,6 +470,7 @@
 
     private async Task RemovePayoutAccountAsync(string account)
     {
+        if (_isSavingPayout) return; // a second click while this is still running is ignored
         _isSavingPayout = true;
         _payoutError = null;
         try
@@ -407,6 +504,7 @@
 
     private async Task UpdateContactNumberAsync()
     {
+        if (_isSavingContact) return; // a second click while this is still running is ignored
         _isSavingContact = true;
         _contactMessage = null;
         try
@@ -429,6 +527,7 @@
     // largaFirebaseChangePassword. The email is the signed-in manager's, from the server session.
     private async Task UpdatePasswordAsync()
     {
+        if (_isSavingPassword) return; // a second click while this is still running is ignored
         _isSavingPassword = true;
         _passwordError = null;
         try

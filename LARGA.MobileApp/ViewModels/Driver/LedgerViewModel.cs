@@ -51,8 +51,8 @@ public class LedgerViewModel : INotifyPropertyChanged
 
     public LedgerViewModel()
     {
-        ViewDebtDetailsCommand = new Command(async () => await Shell.Current.GoToAsync("debt-details"));
-        ViewAllHistoryCommand = new Command(async () => await Shell.Current.GoToAsync("payment-history"));
+        ViewDebtDetailsCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("debt-details"));
+        ViewAllHistoryCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync("payment-history"));
         RefreshCommand = new Command(async () => await RefreshAsync());
     }
 

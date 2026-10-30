@@ -415,11 +415,16 @@ public class RecordPaymentViewModel : BindableObject
 
     private async Task OpenScannerAsync()
     {
-        var page = Application.Current!.Handler.MauiContext!.Services.GetRequiredService<ScanEReceiptPage>();
-        await Shell.Current.Navigation.PushModalAsync(page);
+        await LARGA.MobileApp.Services.NavigationGate.PushModalAsync(() =>
+            Application.Current!.Handler.MauiContext!.Services.GetRequiredService<ScanEReceiptPage>());
     }
 
-    private async Task ConfirmAsync()
+    // Covers the whole confirm, popups included - IsBusy is only set once the payment is being written.
+    private readonly BusyGate _confirmGate = new();
+
+    private Task ConfirmAsync() => _confirmGate.RunAsync(ConfirmCoreAsync, showLoading: false);
+
+    private async Task ConfirmCoreAsync()
     {
         if (_snapshot is null || IsBusy) return;
 

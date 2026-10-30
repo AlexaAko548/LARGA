@@ -54,12 +54,12 @@ else
 
     <!-- Date range, Search & Meta Bar (ANA-015: the whole history, a page at a time) -->
     <div class="toolbar">
-        <div class="filter-dropdown">
+        <div class="filter-dropdown" data-popup>
             <span class="toolbar-filter-label text-muted">Filter by date:</span>
-            <button class="filter-btn" type="button" @onclick="() => _showDateFilterMenu = !_showDateFilterMenu"><Icon Name="calendar" /> @_dateFilter</button>
+            <button class="filter-btn" type="button" data-popup-toggle @onclick="() => _showDateFilterMenu = !_showDateFilterMenu"><Icon Name="calendar" /> @_dateFilter</button>
             @if (_showDateFilterMenu)
             {
-                <div class="filter-menu">
+                <div class="filter-menu" data-popup-panel>
                     @foreach (string option in DateFilterOptions)
                     {
                         <button type="button" @onclick="() => SetDateFilterAsync(option)">@option</button>

@@ -42,5 +42,10 @@ public static class SparePartArchiveRules
 /// <summary>A stock or detail change on an archived part (SparePartArchiveRules). Message is safe to show.</summary>
 public sealed class PartArchivedException : InvalidOperationException
 {
-    public PartArchivedException(SparePart part) : base(SparePartArchiveRules.ArchivedChangeMessage(part)) { }
+    public PartArchivedException(SparePart part) : base(SparePartArchiveRules.ArchivedChangeMessage(part))
+    {
+        PartName = part.DisplayName;
+    }
+
+    public string PartName { get; }
 }

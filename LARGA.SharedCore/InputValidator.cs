@@ -144,7 +144,28 @@ public static class InputValidator
     // ---------------------------------------------------------------------
 
     public const int MinPasswordLength = 6;
+    public const int MaxPasswordLength = 64;
 
+    /// <summary>The password policy, one line per rule, for the checklists shown under a new-password
+    /// field. <see cref="ValidatePassword"/> enforces exactly these.</summary>
+    public static readonly IReadOnlyList<(string Description, Func<string, bool> IsMet)> PasswordRules = new (string, Func<string, bool>)[]
+    {
+        ($"At least {MinPasswordLength} characters", p => p.Length >= MinPasswordLength),
+        ($"No more than {MaxPasswordLength} characters", p => p.Length <= MaxPasswordLength),
+        ("At least one letter", p => p.Any(char.IsLetter)),
+        ("At least one number", p => p.Any(char.IsDigit)),
+        ("No spaces", p => p.Length > 0 && !p.Any(char.IsWhiteSpace)),
+    };
+
+    /// <summary>Why a password change is refused when the new password is the current one (every
+    /// change-password screen: the forced one and the regular driver/manager ones).</summary>
+    public const string SamePasswordMessage = "Choose a new password - it can't be the same as your current one.";
+
+    /// <summary>One-line summary of <see cref="PasswordRules"/> for hints under a password field.</summary>
+    public static string PasswordPolicySummary =>
+        $"{MinPasswordLength}-{MaxPasswordLength} characters with at least one letter and one number, no spaces.";
+
+    /// <summary>A new password (account creation, reset, change): the full <see cref="PasswordRules"/>.</summary>
     public static string? ValidatePassword(string? password, bool required = true)
     {
         if (string.IsNullOrEmpty(password))
@@ -157,12 +178,40 @@ public static class InputValidator
             return $"Password must be at least {MinPasswordLength} characters.";
         }
 
-        if (password.Length > 64)
+        if (password.Length > MaxPasswordLength)
         {
-            return "Password is too long (64 characters max).";
+            return $"Password is too long ({MaxPasswordLength} characters max).";
         }
 
-        return password.Any(char.IsWhiteSpace) ? "Password can't contain spaces." : null;
+        if (password.Any(char.IsWhiteSpace))
+        {
+            return "Password can't contain spaces.";
+        }
+
+        if (!password.Any(char.IsLetter))
+        {
+            return "Password must contain at least one letter.";
+        }
+
+        return password.Any(char.IsDigit) ? null : "Password must contain at least one number.";
+    }
+
+    /// <summary>A password typed at sign-in. Only the length is checked: an account made before the
+    /// letter/number rule (or reset through Firebase's own email page) may not meet the full policy and
+    /// must still be able to sign in and then change it.</summary>
+    public static string? ValidateLoginPassword(string? password)
+    {
+        if (string.IsNullOrEmpty(password))
+        {
+            return "Enter your password.";
+        }
+
+        if (password.Length < MinPasswordLength)
+        {
+            return $"Password must be at least {MinPasswordLength} characters.";
+        }
+
+        return password.Length > MaxPasswordLength ? $"Password is too long ({MaxPasswordLength} characters max)." : null;
     }
 
     // ---------------------------------------------------------------------

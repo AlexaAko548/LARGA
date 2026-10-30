@@ -32,6 +32,15 @@ let env;
 const as = (uid) => env.authenticatedContext(uid).firestore();
 const anon = () => env.unauthenticatedContext().firestore();
 const hoursAgo = (h) => Timestamp.fromDate(new Date(Date.now() - h * 3600 * 1000));
+const HOUR = 3600 * 1000;
+// The most recent 6:00 AM Philippine time (UTC+8), in ms - when ShiftDeadlineService auto-closes
+// shifts still open from the day before (ShiftRules.AutoCloseAtUtc).
+function lastPhSixAm() {
+  const ph = new Date(Date.now() + 8 * HOUR);
+  const sixAm = Date.UTC(ph.getUTCFullYear(), ph.getUTCMonth(), ph.getUTCDate(), 6) - 8 * HOUR;
+  return sixAm > Date.now() ? sixAm - 24 * HOUR : sixAm;
+}
+const atMs = (ms) => Timestamp.fromDate(new Date(ms));
 
 async function seed(extra) {
   await env.withSecurityRulesDisabled(async (ctx) => {
@@ -298,6 +307,10 @@ describe('Audit logs', () => {
   it('[GAP A-05] driver cannot log their SOS with a phone-clock time', async () =>
     assertFails(addDoc(collection(as(DRIVER_A), 'audit_logs'), {
       userId: DRIVER_A, actionType: 'SosTriggered', timestamp: Timestamp.fromDate(new Date('2026-01-01T00:00:00Z')) })));
+  it('driver can log their own password change', async () =>
+    assertSucceeds(addDoc(collection(as(DRIVER_A), 'audit_logs'), { userId: DRIVER_A, actionType: 'DriverPasswordChanged', timestamp: serverTimestamp() })));
+  it("driver cannot log a password change as someone else", async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'audit_logs'), { userId: DRIVER_B, actionType: 'DriverPasswordChanged', timestamp: serverTimestamp() })));
   it('driver cannot log other actions', async () =>
     assertFails(addDoc(collection(as(DRIVER_A), 'audit_logs'), { userId: DRIVER_A, actionType: 'PaymentRecorded' })));
   it('driver cannot read audit logs', async () => assertFails(getDoc(doc(as(DRIVER_A), 'audit_logs', 'log1'))));
@@ -311,6 +324,10 @@ describe('system_configs/global', () => {
     assertFails(updateDoc(doc(as(ASSISTANT), 'system_configs', 'global'), { defaultBoundaryRate: 1 })));
   it('driver cannot change it', async () =>
     assertFails(updateDoc(doc(as(DRIVER_A), 'system_configs', 'global'), { testClockPh: 'x' })));
+  it('manager cannot change the SOS auto-answer allowlist from the app (ManagerWeb is its only writer)', async () =>
+    assertFails(updateDoc(doc(as(MANAGER), 'system_configs', 'global'), { managerPhoneNumbers: ['+639170000000'] })));
+  it('manager cannot create a config carrying the allowlist', async () =>
+    assertFails(setDoc(doc(as(MANAGER), 'system_configs', 'other'), { managerPhoneNumbers: ['+639170000000'] })));
 });
 
 describe('Payments (staff)', () => {
@@ -318,6 +335,10 @@ describe('Payments (staff)', () => {
     assertSucceeds(setDoc(doc(as(ASSISTANT), 'boundary_payments', 'newPay'), { driverId: DRIVER_A, shiftId: 'shiftA', amountPaid: 500 })));
   it('[GAP A-06] assistant manager cannot rewrite an existing payment amount', async () =>
     assertFails(updateDoc(doc(as(ASSISTANT), 'boundary_payments', 'payB'), { amountPaid: 1 })));
+  it("a payment of 100,000 (the apps' cap) is allowed", async () =>
+    assertSucceeds(setDoc(doc(as(MANAGER), 'boundary_payments', 'capPay'), { driverId: DRIVER_A, shiftId: 'shiftA', amountPaid: 100000 })));
+  it('a payment above 100,000 is refused', async () =>
+    assertFails(setDoc(doc(as(MANAGER), 'boundary_payments', 'bigPay'), { driverId: DRIVER_A, shiftId: 'shiftA', amountPaid: 100001 })));
   it('[GAP A-06] payments cannot be negative', async () =>
     assertFails(setDoc(doc(as(MANAGER), 'boundary_payments', 'negPay'), { driverId: DRIVER_A, shiftId: 'shiftA', amountPaid: -500 })));
   it('assistant manager cannot delete a payment', async () =>
@@ -359,12 +380,17 @@ describe('Fuel logs linked to a shift (REQ-4.3-3, REQ-5.5-6)', () => {
     await seedShift('ended13h', { status: 'Completed', shiftStart: hoursAgo(25), shiftEnd: hoursAgo(13) });
     await assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('ended13h')));
   });
-  it('can file against a recent Auto-Closed shift (no shiftEnd)', async () => {
-    await seedShift('auto', { status: 'Auto-Closed', shiftStart: hoursAgo(25) });
-    await assertSucceeds(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('auto')));
+  it('Auto-Closed shift (no shiftEnd): open until 12 h after its 6:00 AM auto-close', async () => {
+    // Started 8:00 AM yesterday (PH), auto-closed at the last 6:00 AM: allowed until 6:00 PM.
+    const autoClose = lastPhSixAm();
+    await seedShift('auto', { status: 'Auto-Closed', shiftStart: atMs(autoClose - 22 * HOUR) });
+    const write = addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('auto'));
+    await (Date.now() - autoClose < 12 * HOUR ? assertSucceeds(write) : assertFails(write));
   });
-  it('cannot file against an old Auto-Closed shift', async () => {
-    await seedShift('autoOld', { status: 'Auto-Closed', shiftStart: hoursAgo(40) });
+  it('cannot file against an Auto-Closed shift more than 12 h after its auto-close', async () => {
+    // Started 11:00 PM (PH), auto-closed 7 h later, a day before the last 6:00 AM - still within the
+    // old 36 h-from-start allowance early in the day, but long past the 12 h after auto-close.
+    await seedShift('autoOld', { status: 'Auto-Closed', shiftStart: atMs(lastPhSixAm() - 31 * HOUR) });
     await assertFails(addDoc(collection(as(DRIVER_A), 'fuel_logs'), fuel('autoOld')));
   });
   it('cannot file against a shift that does not exist', async () =>

@@ -486,6 +486,7 @@ else
 
     private async Task ConfirmArchiveAsync()
     {
+        if (_isArchiving) return; // a second click while this is still running is ignored
         if (_archiveCandidate is not SparePart item)
         {
             CancelArchive();
@@ -525,6 +526,7 @@ else
 
     private async Task RestorePartAsync(SparePart item)
     {
+        if (_isArchiving) return; // a second click while this is still running is ignored
         _isArchiving = true;
         _actionError = null;
         try
@@ -628,20 +630,8 @@ else
         _ => ""
     };
 
-    private string GetStatus(SparePart item)
-    {
-        if (item.StockQuantity <= 0 || item.StockQuantity <= item.ReorderLevel / 2)
-        {
-            return "Critical";
-        }
-
-        if (item.StockQuantity <= item.ReorderLevel)
-        {
-            return "Low Stock";
-        }
-
-        return "Normal";
-    }
+    // INV-010: the same rule as the LowStock alert.
+    private static string GetStatus(SparePart item) => SparePartStockRules.StatusOf(item);
 
     private static string ToDisplayPartId(int rowNumber) => rowNumber.ToString("D2");
 
@@ -869,6 +859,7 @@ else
 
     private async Task SavePartAsync()
     {
+        if (_isSavingPart) return; // a second click while this is still running is ignored
         _actionError = null;
 
         _partAttempted = true;

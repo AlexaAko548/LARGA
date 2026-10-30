@@ -71,7 +71,7 @@ public class PreShiftStep1ViewModel : BindableObject, IQueryAttributable
             {
                 _items[item] = false;
                 UpdateProgress(item);
-                await Shell.Current.GoToAsync($"vehicle-defect-page?item={item}");
+                await LARGA.MobileApp.Services.NavigationGate.GoToAsync($"vehicle-defect-page?item={item}");
             }
         });
 
@@ -82,7 +82,7 @@ public class PreShiftStep1ViewModel : BindableObject, IQueryAttributable
                 await Shell.Current.DisplayAlert("Incomplete", "Please complete all 5 inspection items before proceeding.", "OK");
                 return;
             }
-            await Shell.Current.GoToAsync("pre-shift-step2", new Dictionary<string, object>
+            await LARGA.MobileApp.Services.NavigationGate.GoToAsync("pre-shift-step2", new Dictionary<string, object>
             {
                 { "inspection", _items.ToDictionary(kv => kv.Key, kv => kv.Value == true) },
                 { "defectReportIds", _defectReportIds.ToList() },
