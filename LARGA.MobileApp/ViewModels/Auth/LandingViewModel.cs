@@ -16,6 +16,6 @@ public class LandingViewModel
     private async Task OnSelectRoleAsync(string role)
     {
         // Pass the clicked role securely into the route dictionary
-        await Shell.Current.GoToAsync($"login?SelectedRole={role}");
+        await LARGA.MobileApp.Services.NavigationGate.GoToAsync($"login?SelectedRole={role}");
     }
 }

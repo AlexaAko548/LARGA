@@ -136,8 +136,8 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
             r.FinalOdometer = data.OdometerText;
         });
 
-        ScanOdometerCommand = new Command(async () => await ScanOdometerAsync());
-        AttachFuelPhotoCommand = new Command(async () => await AttachFuelPhotoAsync());
+        ScanOdometerCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.RunAsync(ScanOdometerAsync));
+        AttachFuelPhotoCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.RunAsync(AttachFuelPhotoAsync));
 
         ConfirmEndShiftCommand = new Command(async () =>
         {

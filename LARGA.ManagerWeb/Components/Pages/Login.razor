@@ -39,7 +39,13 @@
 
             <div class="form-block">
                 <label for="password">PASSWORD</label>
-                <InputText id="password" @bind-Value="_model.Password" class="form-control" type="password" maxlength="64" placeholder="Enter your password" />
+                <div class="password-field">
+                    <InputText id="password" @bind-Value="_model.Password" class="form-control" type="@(_showPassword ? "text" : "password")" maxlength="64" placeholder="Enter your password" />
+                    <button type="button" class="password-toggle" @onclick="() => _showPassword = !_showPassword"
+                            aria-label="@(_showPassword ? "Hide password" : "Show password")" title="@(_showPassword ? "Hide password" : "Show password")">
+                        <Icon Name="@(_showPassword ? "eye-off" : "eye")" />
+                    </button>
+                </div>
                 <ValidationMessage For="() => _model.Password" class="field-error" />
             </div>
 
@@ -69,6 +75,7 @@
 @code {
     private readonly LoginFormModel _model = new();
     private bool _isSubmitting;
+    private bool _showPassword;
     private string? _errorMessage;
     private IJSObjectReference? _firebaseModule;
 
@@ -89,6 +96,7 @@
 
     private async Task HandleLogin()
     {
+        if (_isSubmitting) return; // a second click while this is still running is ignored
         _errorMessage = string.Empty;
         _isSubmitting = true;
 
@@ -182,6 +190,7 @@
         public string Email { get; set; } = string.Empty;
 
         [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your password.")]
+        [LARGA.ManagerWeb.Validation.LoginPassword]
         public string Password { get; set; } = string.Empty;
     }
 

@@ -332,15 +332,19 @@ public partial class ScanFuelReceiptPage : ContentPage
 
     private async void OnCancelClicked(object sender, EventArgs e)
     {
-        await StopCameraSafelyAsync();
-        try
+        // Gated: a double tap would otherwise close this scanner and then the screen under it.
+        await LARGA.MobileApp.Services.NavigationGate.RunAsync(async () =>
         {
-            await Navigation.PopModalAsync();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Close receipt scan failed: {ex.Message}");
-        }
+            await StopCameraSafelyAsync();
+            try
+            {
+                await Navigation.PopModalAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Close receipt scan failed: {ex.Message}");
+            }
+        });
     }
 
     private async void OnRetakeClicked(object sender, EventArgs e)

@@ -600,6 +600,39 @@ border-color: var(--accent);
 box-shadow: 0 0 0 2px rgba(var(--accent-rgb),0.12);
 }
 
+/* Password input with a show/hide eye button inside its right edge. */
+.password-field {
+position: relative;
+}
+
+.password-field input {
+padding-right: 2.9rem;
+}
+
+.password-toggle {
+position: absolute;
+top: 50%;
+right: 0.45rem;
+transform: translateY(-50%);
+display: inline-flex;
+align-items: center;
+justify-content: center;
+width: 2.2rem;
+height: 2.2rem;
+border: none;
+border-radius: var(--radius-md);
+background: transparent;
+color: var(--muted);
+font-size: 1.15rem;
+cursor: pointer;
+}
+
+.password-toggle:hover,
+.password-toggle:focus-visible {
+color: var(--ink);
+background: rgba(var(--accent-rgb),0.12);
+}
+
 .full-width {
 width: 100%;
 margin-top: 0.3rem;
@@ -3159,6 +3192,70 @@ margin-bottom: 0.8rem;
 margin-bottom: 1.4rem;
 }
 
+/* The manager's ticket instructions on a work order card (BETA-089). */
+.work-order-note {
+display: flex;
+align-items: flex-start;
+gap: 0.4rem;
+margin: 0.35rem 0 0.2rem;
+padding: 0.45rem 0.6rem;
+border-radius: var(--radius-md);
+background: rgba(var(--accent-rgb),0.08);
+color: var(--ink);
+font-size: 0.82rem;
+white-space: pre-line;
+}
+
+.history-note {
+margin-top: 0.2rem;
+max-width: 22rem;
+color: var(--muted);
+font-size: 0.78rem;
+white-space: nowrap;
+overflow: hidden;
+text-overflow: ellipsis;
+}
+
+.history-category {
+white-space: nowrap;
+}
+
+/* History filters: label stacked over each dropdown, Clear lined up with the dropdowns. */
+.garage-history-filters {
+justify-content: flex-start;
+align-items: flex-end;
+gap: 0.75rem 1rem;
+margin: 0 0 0.75rem;
+}
+
+.garage-history-filters label {
+flex-direction: column;
+align-items: stretch;
+gap: 0.3rem;
+margin: 0;
+font-size: 0.66rem;
+font-weight: 700;
+letter-spacing: 0.08em;
+text-transform: uppercase;
+}
+
+.garage-history-filters select {
+min-width: 10.5rem;
+margin: 0;
+font-size: 0.82rem;
+letter-spacing: normal;
+text-transform: none;
+}
+
+.garage-history-filters .link-btn {
+padding-bottom: 0.6rem;
+}
+
+.history-modal .history-body > .info-banner {
+flex-shrink: 0;
+margin: 0 0 0.75rem;
+}
+
 .garage-section-title {
 font-size: 0.85rem;
 font-weight: 800;
@@ -3669,6 +3766,91 @@ grid-template-columns: repeat(3, 1fr);
     color: var(--warning, #b87400);
 }
 
+/* ---- Inventory toolbar: stock-level filter (BETA-093) + archived toggle ---- */
+.inventory-filters {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+}
+
+.stock-filter-group {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.stock-filter-label {
+    margin-right: 0.2rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.stock-filter {
+    --pill-rgb: var(--accent-rgb);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.38rem 0.75rem;
+    border-radius: var(--radius-pill);
+    border: 1px solid rgba(var(--pill-rgb),0.3);
+    background: rgba(var(--pill-rgb),0.08);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background var(--dur-base, 150ms), border-color var(--dur-base, 150ms);
+}
+
+.stock-filter.stock-normal { --pill-rgb: 27, 139, 82; }
+.stock-filter.stock-low { --pill-rgb: 184, 116, 0; }
+.stock-filter.stock-critical { --pill-rgb: 181, 61, 74; }
+
+.stock-filter:hover:not(:disabled) {
+    background: rgba(var(--pill-rgb),0.16);
+}
+
+.stock-filter.selected {
+    background: rgba(var(--pill-rgb),0.24);
+    border-color: rgb(var(--pill-rgb));
+}
+
+.stock-filter:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.stock-filter .status-bullet {
+    margin-right: 0;
+}
+
+.stock-filter-count {
+    min-width: 1.4rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: var(--radius-pill);
+    background: rgba(var(--pill-rgb),0.2);
+    font-size: 0.7rem;
+    text-align: center;
+}
+
+.inventory-filters .archived-toggle {
+    padding-left: 1.25rem;
+    border-left: 1px solid rgba(var(--accent-rgb),0.24);
+}
+
+/* Fill the screen below the toolbar instead of a short 65vh box with empty space under it. */
+.inventory-table-container {
+    max-height: calc(100vh - 220px);
+    max-height: calc(100dvh - 220px);
+}
+
 .btn-log-part {
     display: inline-flex;
     align-items: center;
@@ -3755,6 +3937,32 @@ grid-template-columns: repeat(3, 1fr);
 
 .input-search::placeholder {
     color: var(--muted);
+}
+
+/* Manager notes on fuel submissions (Verified / Flagged tabs, Review modal). */
+.fuel-note-cell {
+    max-width: 18rem;
+    font-size: 0.82rem;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.fuel-notes-on-file {
+    white-space: pre-line;
+    padding: 0.7rem 0.85rem;
+    border-radius: var(--radius-md);
+    background: rgba(var(--accent-rgb),0.08);
+    border: 1px solid rgba(var(--accent-rgb),0.22);
+    color: var(--ink);
+    font-size: 0.9rem;
+}
+
+/* Driver/unit search above the Financial Ledger tables. */
+.ledger-search-row {
+    margin: 1rem 0 0.75rem;
+    justify-content: flex-start;
 }
 
 .input-search:focus {
@@ -4223,8 +4431,8 @@ grid-template-columns: repeat(3, 1fr);
    ===================================================================== */
 
 .report-modal.history-modal {
-    width: min(94vw, 900px);
-    max-height: min(86vh, 720px);
+    width: min(94vw, 1080px);
+    max-height: min(88vh, 760px);
     display: flex;
     flex-direction: column;
 }
@@ -4263,20 +4471,26 @@ grid-template-columns: repeat(3, 1fr);
     line-height: 1;
 }
 
+/* Filters and the "last repaired" line stay put; only the table scrolls - one scrollbar, not two. */
 .history-modal .history-body {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
     padding: 1rem 1.3rem 1.3rem;
-    overflow-y: auto;
+    overflow: hidden;
     min-height: 0;
     flex: 1 1 auto;
 }
 
 .history-modal .data-table-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
     overflow: auto;
 }
 
 .history-table {
-    min-width: 680px;
+    min-width: 860px;
 }
 
 .history-table thead th {

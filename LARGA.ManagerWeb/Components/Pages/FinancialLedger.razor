@@ -125,6 +125,17 @@ else
                 <div class="settlement-progress-label">@_snapshot.PercentCollected.ToString("0")% collected</div>
             </section>
 
+            <div class="toolbar ledger-search-row">
+                <div class="search-box">
+                    <input type="search" class="input-search" maxlength="80" placeholder="Search driver or unit…" aria-label="Search driver or unit"
+                           value="@_driverSearch" @oninput="e => _driverSearch = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                @if (IsSearching)
+                {
+                    <span class="entry-counter">@VisibleSettlementRows.Count() of @_snapshot.Rows.Count shifts</span>
+                }
+            </div>
+
             <div class="data-table-wrap">
                 <table class="data-table">
                     <thead>
@@ -144,9 +155,13 @@ else
                         {
                             <tr><td colspan="8" class="table-empty">No shifts today yet.</td></tr>
                         }
+                        else if (!VisibleSettlementRows.Any())
+                        {
+                            <tr><td colspan="8" class="table-empty">No driver or unit matches "@_driverSearch.Trim()".</td></tr>
+                        }
                         else
                         {
-                            @foreach (SettlementRow row in _snapshot.Rows)
+                            @foreach (SettlementRow row in VisibleSettlementRows)
                             {
                                 <tr>
                                     <td><span class="status-pill @StatusCss(row.Status)"><span class="dot"></span> @row.Status.ToString().ToUpperInvariant()</span></td>
@@ -196,7 +211,7 @@ else
                     {
                         <tfoot>
                             <tr class="totals-row">
-                                <td colspan="4">TOTAL</td>
+                                <td colspan="4">@(IsSearching ? "TOTAL (ALL DRIVERS)" : "TOTAL")</td>
                                 <td>₱ @_snapshot.ExpectedCollection.ToString("N2")</td>
                                 <td>₱ @_snapshot.CollectedSoFar.ToString("N2")</td>
                                 <td>₱ @_snapshot.StillOutstanding.ToString("N2")</td>
@@ -240,6 +255,17 @@ else
                     </article>
                 </section>
 
+                <div class="toolbar ledger-search-row">
+                    <div class="search-box">
+                        <input type="search" class="input-search" maxlength="80" placeholder="Search driver or unit…" aria-label="Search driver or unit"
+                               value="@_driverSearch" @oninput="e => _driverSearch = e.Value?.ToString() ?? string.Empty" />
+                    </div>
+                    @if (IsSearching)
+                    {
+                        <span class="entry-counter">@VisibleLedgerRows.Count() of @_ledgerSnapshot.Rows.Count drivers</span>
+                    }
+                </div>
+
                 <div class="data-table-wrap">
                     <table class="data-table">
                         <thead>
@@ -258,9 +284,13 @@ else
                             {
                                 <tr><td colspan="7" class="table-empty">No drivers yet.</td></tr>
                             }
+                            else if (!VisibleLedgerRows.Any())
+                            {
+                                <tr><td colspan="7" class="table-empty">No driver or unit matches "@_driverSearch.Trim()".</td></tr>
+                            }
                             else
                             {
-                                @foreach (DebtLedgerRow row in _ledgerSnapshot.Rows)
+                                @foreach (DebtLedgerRow row in VisibleLedgerRows)
                                 {
                                     <tr>
                                         <td class="driver-cell">
@@ -307,7 +337,7 @@ else
                         {
                             <tfoot>
                                 <tr class="totals-row">
-                                    <td colspan="5">TOTAL</td>
+                                    <td colspan="5">@(IsSearching ? "TOTAL (ALL DRIVERS)" : "TOTAL")</td>
                                     <td>₱ @_ledgerSnapshot.TotalOutstandingDebt.ToString("N2")</td>
                                     <td></td>
                                 </tr>
@@ -703,6 +733,25 @@ else
     private IJSObjectReference? _fileDownloadModule;
 
     private string _activeTab = "daily";
+
+    // Narrows both tables to drivers whose name or unit contains this text (BETA-079); kept
+    // across tabs since it's the same drivers. Totals still cover everyone.
+    private string _driverSearch = string.Empty;
+    private bool IsSearching => !string.IsNullOrWhiteSpace(_driverSearch);
+
+    private bool MatchesDriverSearch(string? driverName, string? taxiId)
+    {
+        string query = _driverSearch.Trim();
+        return query.Length == 0
+            || (driverName?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (taxiId?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private IEnumerable<SettlementRow> VisibleSettlementRows =>
+        (_snapshot?.Rows ?? new List<SettlementRow>()).Where(r => MatchesDriverSearch(r.DriverName, r.TaxiId));
+
+    private IEnumerable<DebtLedgerRow> VisibleLedgerRows =>
+        (_ledgerSnapshot?.Rows ?? new List<DebtLedgerRow>()).Where(r => MatchesDriverSearch(r.DriverName, r.TaxiId));
 
     private DailySettlementSnapshot? _snapshot;
     private string? _settlementError;
@@ -1215,6 +1264,7 @@ else
 
     private async Task ConfirmPaymentAsync()
     {
+        if (_isSavingPayment) return; // a second click while this is still running is ignored
         if (_paymentRow is null || PaymentAmountError is not null)
         {
             return;
@@ -1276,6 +1326,7 @@ else
 
     private async Task ConfirmAdjustmentAsync()
     {
+        if (_isSavingAdjustment) return; // a second click while this is still running is ignored
         if (!IsAdjustmentValid || _adjustmentAmountInput is not decimal amount)
         {
             return;
@@ -1344,6 +1395,7 @@ else
 
     private async Task ConfirmSettleAsync()
     {
+        if (_isSavingSettle) return; // a second click while this is still running is ignored
         if (_settleRow is null || SettleAmountError is not null)
         {
             return;

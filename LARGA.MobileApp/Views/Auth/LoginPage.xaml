@@ -35,7 +35,13 @@
                     </Border>
 
                     <Border BackgroundColor="#0099CC" StrokeShape="RoundRectangle 10" StrokeThickness="0" HeightRequest="50">
-                        <Entry Placeholder="Password" Text="{Binding Password}" IsPassword="True" PlaceholderColor="#E0E0E0" TextColor="White" VerticalOptions="Center" Margin="15,0" BackgroundColor="Transparent" />
+                        <Grid ColumnDefinitions="*, Auto">
+                            <Entry x:Name="PasswordEntry" Grid.Column="0" Placeholder="Password" Text="{Binding Password}" IsPassword="True" PlaceholderColor="#E0E0E0" TextColor="White" VerticalOptions="Center" Margin="15,0,0,0" BackgroundColor="Transparent" />
+                            <!-- Show/hide password (BETA-050) -->
+                            <ImageButton x:Name="PasswordToggle" Grid.Column="1" Source="eye_icon.png" WidthRequest="44" HeightRequest="44" Padding="10" Margin="0,0,5,0"
+                                         BackgroundColor="Transparent" VerticalOptions="Center" Clicked="OnTogglePasswordClicked"
+                                         SemanticProperties.Description="Show password" />
+                        </Grid>
                     </Border>
 
                     <!-- Remember Me Checkbox (Aligned to Left) -->

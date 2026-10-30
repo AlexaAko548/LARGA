@@ -178,8 +178,11 @@ public class GarageService
             .Select(r => new HistoryEntry
             {
                 MaintenanceId = r.MaintenanceId,
+                TaxiId = r.TaxiId,
                 UnitLabel = FormatUnitLabel(r.TaxiId),
                 IssueTitle = r.IssueTitle,
+                MaintenanceType = r.MaintenanceType,
+                MechanicInstructions = r.MechanicInstructions,
                 ReportedByName = !string.IsNullOrEmpty(r.ReportedByDriverId) && driverNames.TryGetValue(r.ReportedByDriverId, out string? name) ? name : "—",
                 DateLogged = r.DateLogged,
                 DateResolved = r.DateResolved,
@@ -518,14 +521,13 @@ public class GarageService
     }
 
     /// <summary>
-    /// Records the spare parts a maintenance job consumed. For each part, stock is deducted through
-    /// InventoryAuditService.DeductPartAsync, which also writes the InventoryStockDeducted audit
-    /// entry and the maintenance_parts_used row for this ticket. If the part then sits at or below its
-    /// ReorderLevel, DeductPartAsync raises the LowStock alert (the same as a manual deduction).
-    /// All quantities are validated - including against current stock (INV-006) - before anything
-    /// is deducted. Parts are then processed in order and are not rolled back as a group: if one
-    /// fails (e.g. another manager used the stock in between), the parts before it stay deducted
-    /// and logged, and the message names the part that was short.
+    /// Records the spare parts a maintenance job consumed, through
+    /// InventoryAuditService.DeductPartsAsync: the whole list is one transaction. Every part is
+    /// checked first - it still exists, isn't archived (SRS REQ-4.5-1: e.g. archived while this
+    /// form was open) and has enough stock (INV-006) - and the parts are deducted together or not
+    /// at all, so a refused job never leaves earlier parts deducted. Each line writes its
+    /// InventoryStockDeducted audit entry and maintenance_parts_used row for this ticket; a part
+    /// left at or below its ReorderLevel raises the LowStock alert (the same as a manual deduction).
     /// </summary>
     public async Task<GarageActionResult> LogPartsUsedAsync(string maintenanceId, IReadOnlyList<(string PartId, int Quantity)> parts, string? actorUserId = null)
     {
@@ -536,45 +538,30 @@ public class GarageService
 
         try
         {
-            // Stock check up front, so a job that asks for more than is on hand changes nothing.
-            foreach (IGrouping<string, (string PartId, int Quantity)> group in parts.GroupBy(p => p.PartId))
+            IReadOnlyList<SparePart>? updated = await _inventoryAudit.DeductPartsAsync(parts, actorUserId, maintenanceId);
+            if (updated is null)
             {
-                DocumentSnapshot partDoc = await Db.Collection("spare_parts").Document(group.Key).GetSnapshotAsync();
-                if (!partDoc.Exists)
-                {
-                    return new GarageActionResult { Ok = false, ErrorMessage = "One of the selected parts no longer exists." };
-                }
-
-                SparePart part = partDoc.ConvertTo<SparePart>();
-                int requested = group.Sum(p => p.Quantity);
-                if (requested > part.StockQuantity)
-                {
-                    string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
-                    return new GarageActionResult { Ok = false, ErrorMessage = $"Only {Math.Max(0, part.StockQuantity)} {unit} of {part.DisplayName} in stock." };
-                }
-            }
-
-            foreach ((string partId, int quantity) in parts)
-            {
-                // DeductPartAsync writes the maintenance_parts_used row itself (in the same
-                // transaction as the stock change), linked to this ticket - no second row here.
-                SparePart? updated = await _inventoryAudit.DeductPartAsync(partId, quantity, actorUserId, maintenanceId: maintenanceId);
-                if (updated is null)
-                {
-                    return new GarageActionResult { Ok = false, ErrorMessage = "One of the selected parts no longer exists." };
-                }
+                return new GarageActionResult { Ok = false, ErrorMessage = "One of the selected parts no longer exists. Nothing was deducted." };
             }
 
             return new GarageActionResult { Ok = true };
         }
+        catch (PartArchivedException ex)
+        {
+            return new GarageActionResult
+            {
+                Ok = false,
+                ErrorMessage = $"'{ex.PartName}' was archived, so nothing was deducted. Remove it from the list (or restore it in Inventory) and try again.",
+            };
+        }
         catch (InventoryAuditService.InsufficientStockException ex)
         {
-            return new GarageActionResult { Ok = false, ErrorMessage = ex.Message };
+            return new GarageActionResult { Ok = false, ErrorMessage = $"{ex.Message} Nothing was deducted." };
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to log parts used for {MaintenanceId}", maintenanceId);
-            return new GarageActionResult { Ok = false, ErrorMessage = "Could not log the parts used. Please check the stock and try again." };
+            return new GarageActionResult { Ok = false, ErrorMessage = "Could not log the parts used. Nothing was deducted - please check the stock and try again." };
         }
     }
 

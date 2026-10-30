@@ -12,11 +12,18 @@ public partial class LoginPage : ContentPage
         BindingContext = viewModel;
     }
 
+    private void OnTogglePasswordClicked(object sender, EventArgs e)
+    {
+        PasswordEntry.IsPassword = !PasswordEntry.IsPassword;
+        PasswordToggle.Source = PasswordEntry.IsPassword ? "eye_icon.png" : "eye_off_icon.png";
+        SemanticProperties.SetDescription(PasswordToggle, PasswordEntry.IsPassword ? "Show password" : "Hide password");
+    }
+
     private async void OnBackButtonClicked(object sender, EventArgs e)
     {
         try
         {
-            await Shell.Current.GoToAsync("..");
+            await LARGA.MobileApp.Services.NavigationGate.GoBackAsync();
         }
         catch (Exception ex)
         {

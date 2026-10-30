@@ -74,10 +74,6 @@ public partial class ManagerDashboardPage : ContentPage
         _viewModel = new FleetMapViewModel();
         BindingContext = _viewModel;
 
-        // LAR-86/87: make sure this manager's number is one a driver's phone will auto-answer
-        // after an automated SOS. Covers fresh logins and remember-me alike.
-        _ = ManagerAllowlistSync.SyncCurrentManagerAsync();
-
         // Saves this phone's FCM token on users/{uid}.fcmToken so ManagerWeb's SosPushService
         // can reach this manager with SOS pushes even while the app is closed. Never throws.
         string? uid = Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser?.Uid;

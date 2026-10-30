@@ -210,7 +210,7 @@ public class ChatsViewModel : INotifyPropertyChanged
         try
         {
             // Dictionary parameters keep names with spaces or '&' intact (unlike a query string).
-            await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+            await LARGA.MobileApp.Services.NavigationGate.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
             {
                 { "DriverId", session.DriverId },
                 { "DriverName", session.DriverName }

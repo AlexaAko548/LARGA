@@ -2,6 +2,7 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
+             xmlns:controls="clr-namespace:LARGA.MobileApp.Controls"
              x:Class="LARGA.MobileApp.Views.Driver.VehicleDefectPage"
              x:DataType="vm:VehicleDefectViewModel"
              NavigationPage.HasNavigationBar="False"
@@ -35,9 +36,9 @@
             <Label Text="PRIORITY LEVEL" FontSize="12" TextColor="{DynamicResource LargaDarkText}" Margin="0,5,0,0" />
             <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 20" StrokeThickness="0" Padding="5">
                 <Grid ColumnDefinitions="*,*,*">
-                    <RadioButton Grid.Column="0" Content="Low" IsChecked="{Binding IsLow}" GroupName="Priority" TextColor="{DynamicResource LargaDarkText}" HorizontalOptions="Center" />
-                    <RadioButton Grid.Column="1" Content="Medium" IsChecked="{Binding IsMedium}" GroupName="Priority" TextColor="{DynamicResource LargaDarkText}" HorizontalOptions="Center" />
-                    <RadioButton Grid.Column="2" Content="High" IsChecked="{Binding IsHigh}" GroupName="Priority" TextColor="{DynamicResource LargaDarkText}" HorizontalOptions="Center" />
+                    <RadioButton Grid.Column="0" Content="Low" IsChecked="{Binding IsLow}" GroupName="Priority" controls:ThemedRadio.IsEnabled="True" TextColor="{DynamicResource LargaDarkText}" HorizontalOptions="Center" />
+                    <RadioButton Grid.Column="1" Content="Medium" IsChecked="{Binding IsMedium}" GroupName="Priority" controls:ThemedRadio.IsEnabled="True" TextColor="{DynamicResource LargaDarkText}" HorizontalOptions="Center" />
+                    <RadioButton Grid.Column="2" Content="High" IsChecked="{Binding IsHigh}" GroupName="Priority" controls:ThemedRadio.IsEnabled="True" TextColor="{DynamicResource LargaDarkText}" HorizontalOptions="Center" />
                 </Grid>
             </Border>
 

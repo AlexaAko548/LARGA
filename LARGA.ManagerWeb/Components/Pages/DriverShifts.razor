@@ -171,6 +171,11 @@ else
             </div>
         </section>
 
+        @if (_noteSavedMessage is not null)
+        {
+            <div class="info-banner success">@_noteSavedMessage</div>
+        }
+
         @if (_activeTab == "roster")
         {
             <div class="data-table-wrap">
@@ -765,7 +770,11 @@ else
             <div class="report-actions">
                 @if (_lastCreatedDriver is { Ok: true })
                 {
-                    <button class="download-btn" type="button" @onclick="CloseAddDriverModal">Done</button>
+                    <button class="cancel-btn" type="button" @onclick="CloseAddDriverModal">Done</button>
+                    @if (!string.IsNullOrEmpty(_lastCreatedDriver.DriverId))
+                    {
+                        <button class="download-btn" type="button" @onclick="ScanNewDriverLicenseAsync"><Icon Name="camera" /> Scan Their License Now</button>
+                    }
                 }
                 else
                 {
@@ -788,7 +797,7 @@ else
             <div class="report-body">
                 <div class="report-section">
                     <label>Driver</label>
-                    <select class="text-input" @bind="_managerNoteDriverId">
+                    <select class="text-input" @bind="_managerNoteDriverId" @bind:after="LoadExistingManagerNoteAsync" disabled="@_isLoadingNote">
                         <option value="">Select a driver…</option>
                         @if (_roster is not null)
                         {
@@ -801,10 +810,10 @@ else
                 </div>
                 <div class="report-section">
                     <label>Manager Notes</label>
-                    <textarea class="text-input textarea" maxlength="500" @bind="_managerNoteText" @bind:event="oninput" placeholder="Special instructions for the driver…"></textarea>
+                    <textarea class="text-input textarea" maxlength="500" @bind="_managerNoteText" @bind:event="oninput" disabled="@_isLoadingNote" placeholder="@(_isLoadingNote ? "Loading the current note…" : "Special instructions for the driver…")"></textarea>
                     <small class="receipt-hint">@_managerNoteText.Length / 500</small>
                 </div>
-                <div class="info-banner">This will be shown on the driver's mobile home screen.</div>
+                <div class="info-banner">This will be shown on the driver's mobile home screen. Leave it empty to clear the driver's current note.</div>
                 @if (_noteError is not null)
                 {
                     <div class="report-error">@_noteError</div>
@@ -812,7 +821,7 @@ else
             </div>
             <div class="report-actions">
                 <button class="cancel-btn" type="button" @onclick="CloseManagerNoteModal">Cancel</button>
-                <button class="download-btn" type="button" disabled="@(_isSavingNote || string.IsNullOrEmpty(_managerNoteDriverId))" @onclick="SaveManagerNoteAsync" aria-busy="@_isSavingNote">@(_isSavingNote ? "Saving…" : "Confirm")</button>
+                <button class="download-btn" type="button" disabled="@(_isSavingNote || _isLoadingNote || string.IsNullOrEmpty(_managerNoteDriverId))" @onclick="SaveManagerNoteAsync" aria-busy="@_isSavingNote">@(_isSavingNote ? "Saving…" : "Confirm")</button>
             </div>
         </div>
     </div>
@@ -991,7 +1000,9 @@ else
                         <label class="receipt-scan-btn @(_isReadingLicense ? "busy" : "")" for="lto-license-input">
                             <Icon Name="camera" /> @(_isReadingLicense ? "Reading license…" : _licensePreviewUrl is null ? "Upload license photo" : "Upload another")
                         </label>
-                        <InputFile id="lto-license-input" class="receipt-file-input" accept="image/*"
+                        @* onclick clears the last pick so choosing the same photo again (e.g. after a
+                           failed scan) still fires OnChange - browsers skip it for an unchanged file. *@
+                        <InputFile id="lto-license-input" class="receipt-file-input" accept="image/*" onclick="this.value = null"
                                    disabled="@_isReadingLicense" OnChange="OnLicenseSelectedAsync" @ref="_licenseInput" />
                     </div>
 
@@ -1192,6 +1203,8 @@ else
     private string _managerNoteDriverId = string.Empty;
     private string _managerNoteText = string.Empty;
     private bool _isSavingNote;
+    private bool _isLoadingNote;
+    private string? _noteSavedMessage;
     private string? _noteError;
 
     private bool _showProfilePanel;
@@ -1300,6 +1313,7 @@ else
 
     private async Task ApproveClockInAsync(ClockInApprovalItem item)
     {
+        if (_isDecidingClockIn) return; // a second click while this is still running is ignored
         _isDecidingClockIn = true;
         _clockInError = null;
         try
@@ -1330,6 +1344,7 @@ else
 
     private async Task ConfirmDenyClockInAsync()
     {
+        if (_isDecidingClockIn) return; // a second click while this is still running is ignored
         if (_denyClockIn is null)
         {
             return;
@@ -1576,6 +1591,7 @@ else
 
     private async Task RunSubstituteActionAsync(Func<Task> action)
     {
+        if (_isSavingSub) return; // a second click while this is still running is ignored
         _isSavingSub = true;
         _subError = null;
         try
@@ -1771,8 +1787,26 @@ else
 
     private void CloseAddDriverModal() => _showAddDriverModal = false;
 
+    // A new driver has no license on file and the Register form doesn't take one, so this goes
+    // straight to the license scan in their profile instead of leaving the manager to find it.
+    private async Task ScanNewDriverLicenseAsync()
+    {
+        if (_lastCreatedDriver?.DriverId is not string driverId)
+        {
+            return;
+        }
+
+        _showAddDriverModal = false;
+        await OpenProfileAsync(driverId);
+        if (_showProfilePanel)
+        {
+            StartEditProfile();
+        }
+    }
+
     private async Task RegisterDriverAsync()
     {
+        if (_isCreatingDriver) return; // a second click while this is still running is ignored
         _registerAttempted = true;
         if ((NewNameError ?? NewEmailError ?? NewPhoneError ?? NewPasswordError) is not null)
         {
@@ -1818,13 +1852,42 @@ else
         _managerNoteDriverId = string.Empty;
         _managerNoteText = string.Empty;
         _noteError = null;
+        _noteSavedMessage = null;
         _showManagerNoteModal = true;
+    }
+
+    // Picking a driver loads the note they currently see, so the manager edits it instead of
+    // blindly overwriting it.
+    private async Task LoadExistingManagerNoteAsync()
+    {
+        _managerNoteText = string.Empty;
+        _noteError = null;
+        if (string.IsNullOrEmpty(_managerNoteDriverId))
+        {
+            return;
+        }
+
+        _isLoadingNote = true;
+        try
+        {
+            DriverProfileDetail? profile = await DriverManagement.GetDriverProfileAsync(_managerNoteDriverId);
+            _managerNoteText = profile?.ManagerNote ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _noteError = $"Couldn't load the current note: {ex.Message}";
+        }
+        finally
+        {
+            _isLoadingNote = false;
+        }
     }
 
     private void CloseManagerNoteModal() => _showManagerNoteModal = false;
 
     private async Task SaveManagerNoteAsync()
     {
+        if (_isSavingNote) return; // a second click while this is still running is ignored
         if (string.IsNullOrEmpty(_managerNoteDriverId))
         {
             _noteError = "Select a driver first.";
@@ -1836,8 +1899,19 @@ else
 
         try
         {
-            await DriverManagement.SetManagerNoteAsync(_managerNoteDriverId, _managerNoteText.Trim(), _managerUserId);
+            string note = _managerNoteText.Trim();
+            await DriverManagement.SetManagerNoteAsync(_managerNoteDriverId, note, _managerUserId);
             _showManagerNoteModal = false;
+
+            if (_selectedProfile?.DriverId == _managerNoteDriverId)
+            {
+                _selectedProfile.ManagerNote = note;
+            }
+
+            string driverName = _roster?.Drivers.FirstOrDefault(d => d.DriverId == _managerNoteDriverId)?.FullName ?? "the driver";
+            _noteSavedMessage = note.Length == 0
+                ? $"Cleared the manager note for {driverName}."
+                : $"Note sent - {driverName} will see it on their mobile home screen.";
         }
         catch (Exception ex)
         {
@@ -1908,7 +1982,46 @@ else
         _isEditingProfile = false;
     }
 
-    private void CloseProfilePanel() => _showProfilePanel = false;
+    // True once Edit Details holds something not on file yet - a typed change or a scanned license.
+    private bool HasUnsavedProfileEdits =>
+        _isEditingProfile && _selectedProfile is not null
+        && (_pendingLicensePhoto is not null
+            || _licenseScan is not null
+            || !string.Equals(Norm(_editEmail), Norm(_selectedProfile.Email), StringComparison.OrdinalIgnoreCase)
+            || Norm(_editPhone) != Norm(_selectedProfile.PhoneNumber)
+            || Norm(_editAddress) != Norm(_selectedProfile.Address)
+            || Norm(_editLicenseNumber) != Norm(_selectedProfile.LicenseNumber)
+            || Norm(_editLicenseClass) != Norm(_selectedProfile.LicenseClassification)
+            || Norm(_editLicenseRestriction) != Norm(_selectedProfile.LicenseRestrictionCode)
+            || _editLicenseExpiry?.Date != _selectedProfile.LicenseExpiryDate?.Date
+            || Norm(_editAssignedTaxi) != Norm(_selectedProfile.AssignedTaxiId));
+
+    private static string Norm(string? value) => value?.Trim() ?? string.Empty;
+
+    // Closing the panel (×, or a stray click outside it) never keeps unsaved edits around for
+    // the next time it opens (BETA-075) - and asks first, so a misclick doesn't lose them silently.
+    private void CloseProfilePanel()
+    {
+        if (HasUnsavedProfileEdits)
+        {
+            RequestConfirm("Discard unsaved changes?",
+                "The details you entered for this driver haven't been saved. Close the profile and discard them?",
+                "Discard",
+                () => { DiscardProfileEditsAndClose(); return Task.CompletedTask; });
+            return;
+        }
+
+        DiscardProfileEditsAndClose();
+    }
+
+    private void DiscardProfileEditsAndClose()
+    {
+        CancelEditProfile();
+        _showPasswordForm = false;
+        _newPasswordInput = string.Empty;
+        _profileError = null;
+        _showProfilePanel = false;
+    }
 
     private void StartEditProfile()
     {
@@ -2077,6 +2190,7 @@ else
 
     private async Task SaveProfileAsync()
     {
+        if (_isSavingProfile) return; // a second click while this is still running is ignored
         if (_selectedProfile is null)
         {
             return;
@@ -2173,6 +2287,7 @@ else
 
     private async Task ResetPasswordAsync()
     {
+        if (_isResettingPassword) return; // a second click while this is still running is ignored
         if (_selectedProfile is null)
         {
             return;

@@ -128,13 +128,16 @@ public class AlertCenterViewModel : BindableObject
             // then push the thread onto it - same route/parameters ChatsViewModel.OnOpenChat
             // uses to open a driver's thread (dictionary parameters keep DriverName intact if
             // it has spaces).
-            await Shell.Current.GoToAsync("//manager-dashboard/chats");
-            await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+            await LARGA.MobileApp.Services.NavigationGate.RunAsync(async () =>
             {
-                { "DriverId", alert.DriverId },
-                // Plain name, not the "Name · TX-01" card label - ChatService writes it to
-                // chats/{driverId}.driverName, which the web inbox displays.
-                { "DriverName", alert.ChatDriverName }
+                await Shell.Current.GoToAsync("//manager-dashboard/chats");
+                await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+                {
+                    { "DriverId", alert.DriverId },
+                    // Plain name, not the "Name · TX-01" card label - ChatService writes it to
+                    // chats/{driverId}.driverName, which the web inbox displays.
+                    { "DriverName", alert.ChatDriverName }
+                });
             });
         });
 
@@ -859,7 +862,8 @@ public class AlertCenterViewModel : BindableObject
             await MarkBellReadAsync(AlertFeed.FuelBellId(alert.Id));
             await MarkBellReadAsync(LARGA.SharedCore.Alerts.SubmissionAlerts.FuelSubmittedAlertId(alert.Id)); // REQ-4.4-8: reviewed
             AuditLogWriter.Record("FuelFlagResolved",
-                $"Resolved the flag on shift {snapshot?.Data?.ShiftId ?? "unknown"}'s fuel submission: {note}");
+                $"Resolved the flag on {(string.IsNullOrWhiteSpace(alert.DriverName) ? "a" : alert.DriverName + "'s")} fuel report" +
+                (string.IsNullOrWhiteSpace(alert.TaxiId) ? string.Empty : $" ({alert.TaxiId})") + $": {note}");
             await Shell.Current.DisplayAlert("Fuel flag resolved", "The receipt is now marked Verified with your note.", "OK");
         }
         catch (Exception ex)

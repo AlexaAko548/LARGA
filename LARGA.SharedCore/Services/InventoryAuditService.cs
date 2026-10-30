@@ -176,6 +176,11 @@ public class InventoryAuditService
         {
             await _alerts.ResolveLowStockAlertAsync(updated);
         }
+        else if (updated is not null)
+        {
+            // Still low, but the stock went up or the minimum down: keep the open alert's status in step.
+            await _alerts.RefreshLowStockAlertAsync(updated);
+        }
 
         return updated;
     }
@@ -195,7 +200,27 @@ public class InventoryAuditService
             return null;
         }
 
-        int deduction = Math.Max(1, amount);
+        IReadOnlyList<SparePart>? updated = await DeductPartsAsync(new[] { (partId, Math.Max(1, amount)) }, actorUserId, maintenanceId, note);
+        return updated?[0];
+    }
+
+    /// <summary>
+    /// <see cref="DeductPartAsync"/> for several parts at once - a garage job's whole parts list -
+    /// in one transaction: every part is read and checked first (exists, not archived, enough stock
+    /// for all its lines together), and only then is anything written, so the ticket's parts are
+    /// deducted together or not at all. Each line gets its own maintenance_parts_used row and
+    /// InventoryStockDeducted audit entry. Returns the updated parts (one per distinct part, in
+    /// first-seen order), or null - with nothing changed - when a part no longer exists. Throws
+    /// <see cref="PartArchivedException"/> or <see cref="InsufficientStockException"/>, again with
+    /// nothing changed. Low-stock alerts are raised afterwards, outside the transaction.
+    /// </summary>
+    public async Task<IReadOnlyList<SparePart>?> DeductPartsAsync(IReadOnlyList<(string PartId, int Quantity)> lines,
+        string? actorUserId = null, string? maintenanceId = null, string? note = null)
+    {
+        if (lines.Count == 0 || lines.Any(l => string.IsNullOrWhiteSpace(l.PartId) || l.Quantity <= 0))
+        {
+            return null;
+        }
 
         MaintenanceRecord? ticket = null;
         if (!string.IsNullOrWhiteSpace(maintenanceId))
@@ -204,72 +229,90 @@ public class InventoryAuditService
             ticket = ticketDoc.Exists ? ticketDoc.ConvertTo<MaintenanceRecord>() : null;
         }
 
-        SparePart? updated = await Db.RunTransactionAsync(async transaction =>
+        List<string> partIds = lines.Select(l => l.PartId).Distinct().ToList();
+        List<SparePart>? updated = await Db.RunTransactionAsync(async transaction =>
         {
-            DocumentReference doc = Db.Collection("spare_parts").Document(partId);
-            DocumentReference auditDoc = Db.Collection("audit_logs").Document();
-            DocumentReference usageDoc = Db.Collection("maintenance_parts_used").Document();
-            DocumentSnapshot snapshot = await transaction.GetSnapshotAsync(doc);
-
-            if (!snapshot.Exists)
+            // All reads and checks first (Firestore wants reads before writes anyway). Anything
+            // thrown out of the callback means nothing is written.
+            var parts = new Dictionary<string, SparePart>();
+            foreach (string partId in partIds)
             {
-                return null;
+                DocumentSnapshot snapshot = await transaction.GetSnapshotAsync(Db.Collection("spare_parts").Document(partId));
+                if (!snapshot.Exists)
+                {
+                    return null;
+                }
+
+                SparePart part = snapshot.ConvertTo<SparePart>();
+                part.PartId = snapshot.Id;
+                if (part.IsArchived)
+                {
+                    throw new PartArchivedException(part);
+                }
+
+                if (string.IsNullOrWhiteSpace(part.Unit))
+                {
+                    part.Unit = "pcs";
+                }
+
+                part.StockQuantity = Math.Max(0, part.StockQuantity);
+                int requested = lines.Where(l => l.PartId == partId).Sum(l => l.Quantity);
+                if (requested > part.StockQuantity)
+                {
+                    throw new InsufficientStockException(part.DisplayName, part.StockQuantity, part.Unit);
+                }
+
+                parts[partId] = part;
             }
-
-            SparePart part = snapshot.ConvertTo<SparePart>();
-            part.PartId = snapshot.Id;
-            if (part.IsArchived)
-            {
-                throw new PartArchivedException(part);
-            }
-
-            string unit = string.IsNullOrWhiteSpace(part.Unit) ? "pcs" : part.Unit;
-            int inStock = Math.Max(0, part.StockQuantity);
-            if (deduction > inStock)
-            {
-                // Thrown out of the transaction callback, so nothing is written.
-                throw new InsufficientStockException(part.DisplayName, inStock, unit);
-            }
-
-            int used = deduction;
-            int updatedQuantity = inStock - used;
-            transaction.Update(doc, "stockQuantity", updatedQuantity);
-
-            transaction.Set(usageDoc, new MaintenancePartsUsed
-            {
-                MaintenanceId = ticket?.MaintenanceId ?? string.Empty,
-                PartId = part.PartId,
-                QuantityUsed = used,
-                UsedAt = DateTime.UtcNow,
-                UnitCost = (double)part.UnitPrice,
-                TaxiId = string.IsNullOrWhiteSpace(ticket?.TaxiId) ? null : ticket.TaxiId,
-                RecordedBy = string.IsNullOrWhiteSpace(actorUserId) ? null : actorUserId,
-                Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim(),
-            });
 
             string usedFor = ticket is null ? string.Empty : $" for {ticket.TaxiId} - {ticket.IssueTitle}";
-            var audit = new AuditLog
+            foreach ((string partId, int used) in lines)
             {
-                UserId = actorUserId ?? string.Empty,
-                ActionType = "InventoryStockDeducted",
-                AuditLogDetails = $"Deducted {used} {unit} from '{part.DisplayName}'{usedFor}. Stock: {inStock} -> {updatedQuantity}.",
-                Timestamp = DateTime.UtcNow,
-            };
-            transaction.Create(auditDoc, audit);
+                SparePart part = parts[partId];
+                int inStock = part.StockQuantity;
+                int updatedQuantity = inStock - used;
 
-            part.StockQuantity = updatedQuantity;
-            if (string.IsNullOrWhiteSpace(part.Unit))
-            {
-                part.Unit = "pcs";
+                transaction.Set(Db.Collection("maintenance_parts_used").Document(), new MaintenancePartsUsed
+                {
+                    MaintenanceId = ticket?.MaintenanceId ?? string.Empty,
+                    PartId = part.PartId,
+                    QuantityUsed = used,
+                    UsedAt = DateTime.UtcNow,
+                    UnitCost = (double)part.UnitPrice,
+                    TaxiId = string.IsNullOrWhiteSpace(ticket?.TaxiId) ? null : ticket.TaxiId,
+                    RecordedBy = string.IsNullOrWhiteSpace(actorUserId) ? null : actorUserId,
+                    Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim(),
+                });
+
+                transaction.Create(Db.Collection("audit_logs").Document(), new AuditLog
+                {
+                    UserId = actorUserId ?? string.Empty,
+                    ActionType = "InventoryStockDeducted",
+                    AuditLogDetails = $"Deducted {used} {part.Unit} from '{part.DisplayName}'{usedFor}. Stock: {inStock} -> {updatedQuantity}."
+                        + (string.IsNullOrWhiteSpace(note) ? string.Empty : $" Note: {note.Trim()}"),
+                    Timestamp = DateTime.UtcNow,
+                });
+
+                part.StockQuantity = updatedQuantity;
             }
 
-            return part;
+            foreach (SparePart part in parts.Values)
+            {
+                transaction.Update(Db.Collection("spare_parts").Document(part.PartId), "stockQuantity", part.StockQuantity);
+            }
+
+            return partIds.Select(id => parts[id]).ToList();
         });
 
-        // Outside the transaction: a failed notification must not roll back the stock change.
-        if (updated is not null && updated.StockQuantity <= updated.ReorderLevel)
+        if (updated is null)
         {
-            await _alerts.CreateLowStockAlertAsync(updated);
+            return null;
+        }
+
+        // Outside the transaction: a failed notification must not roll back the stock change.
+        foreach (SparePart part in updated.Where(p => p.StockQuantity <= p.ReorderLevel))
+        {
+            await _alerts.CreateLowStockAlertAsync(part);
         }
 
         return updated;
@@ -451,11 +494,16 @@ public class InventoryAuditService
             return part;
         });
 
-        // Back above the minimum: close the part's low-stock alert (INV-010). Outside the
-        // transaction, like the alert itself.
+        // Back above the minimum: close the part's low-stock alert (INV-010). Still at or below it (a
+        // partial restock): bring the open alert's status and quantity up to date, without notifying
+        // again. Outside the transaction, like the alert itself.
         if (restocked is not null && restocked.StockQuantity > restocked.ReorderLevel)
         {
             await _alerts.ResolveLowStockAlertAsync(restocked);
+        }
+        else if (restocked is not null)
+        {
+            await _alerts.RefreshLowStockAlertAsync(restocked);
         }
 
         return restocked;

@@ -165,9 +165,15 @@ service cloud.firestore {
       allow create, update, delete: if isManager();
     }
 
+    // managerPhoneNumbers (the SOS auto-answer allowlist, LAR-86/87) has one writer: ManagerWeb's
+    // ManagerPhoneAllowlistSyncService, which rebuilds it from every Manager's and Assistant
+    // Manager's users.phoneNumber. The app may change the rest of the config, never that field.
     match /system_configs/{configId} {
       allow read: if isLargaUser();
-      allow write: if isManager();
+      allow create: if isManager() && !request.resource.data.keys().hasAny(['managerPhoneNumbers']);
+      allow update: if isManager()
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['managerPhoneNumbers']);
+      allow delete: if isManager();
     }
 
     match /boundary_payments/{paymentId} {
@@ -175,7 +181,7 @@ service cloud.firestore {
       allow create: if isStaff()
                     && request.resource.data.amountPaid is number
                     && request.resource.data.amountPaid > 0
-                    && request.resource.data.amountPaid < 1000000
+                    && request.resource.data.amountPaid <= 100000 // the apps' cap (FinancialLedgerService, RecordPaymentViewModel)
                     && request.resource.data.driverId is string && request.resource.data.driverId.size() > 0
                     && request.resource.data.shiftId is string;
       allow delete: if isManager();
@@ -213,8 +219,9 @@ service cloud.firestore {
 
     // REQ-4.3-3 / REQ-5.5-6 (FuelShiftRules): a fuel log is always linked to one of the driver's own
     // shifts - the active one, or one that ended within the last 12 hours. An Auto-Closed shift has
-    // no shiftEnd (closed at 6:00 AM the day after it started), so its window is bounded from
-    // shiftStart: at most 24 h to the auto-close plus the 12 h.
+    // no shiftEnd; it ended at its auto-close (ShiftRules.AutoCloseAtUtc): 6:00 AM Philippine time
+    // (UTC+8) the day after it started. In UTC that's the start's Philippine date at 00:00 + 22 h,
+    // so the window closes 12 h later, at that date + 34 h.
     function fuelShiftOk(shiftId) {
       let shiftPath = /databases/$(database)/documents/shifts/$(shiftId);
       let shift = get(shiftPath).data;
@@ -224,7 +231,8 @@ service cloud.firestore {
         && (shift.status == 'Active'
             || (shift.status == 'Completed' && shift.get('shiftEnd', null) is timestamp
                 && request.time < shift.shiftEnd + duration.value(12, 'h'))
-            || (shift.status == 'Auto-Closed' && request.time < shift.shiftStart + duration.value(36, 'h')));
+            || (shift.status == 'Auto-Closed'
+                && request.time <= (shift.shiftStart + duration.value(8, 'h')).date() + duration.value(34, 'h')));
     }
 
     // Proposal §4.2.4.5 (FuelOrNumberRules): one claim per OR number, written by the driver app in
@@ -275,7 +283,7 @@ service cloud.firestore {
       allow read: if isManager();
       allow create: if isStaff() && ownAuditEntry();
       allow create: if isDriver() && ownAuditEntry()
-         && request.resource.data.actionType in ['SosTriggered', 'VehicleDefectReported'];
+         && request.resource.data.actionType in ['SosTriggered', 'VehicleDefectReported', 'DriverPasswordChanged'];
     }
 
     function ownAuditEntry() {

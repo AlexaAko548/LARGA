@@ -85,7 +85,7 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
 
     private async Task OnForgotPasswordAsync()
     {
-        await Shell.Current.GoToAsync("forgot-password-email");
+        await LARGA.MobileApp.Services.NavigationGate.GoToAsync("forgot-password-email");
     }
 
     private async Task OnLoginAsync()
@@ -106,6 +106,12 @@ public class LoginViewModel : INotifyPropertyChanged, IQueryAttributable
         if (!LARGA.SharedCore.InputValidator.IsValidEmail(Email))
         {
             ShowError("Enter a valid email address, e.g. juan.delacruz@gmail.com.");
+            return;
+        }
+
+        if (LARGA.SharedCore.InputValidator.ValidateLoginPassword(Password) is string passwordError)
+        {
+            ShowError(passwordError);
             return;
         }
 

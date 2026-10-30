@@ -127,7 +127,7 @@ public class ManagerDriverProfileViewModel : BindableObject
         _ocrService = ocrService;
         _faceCropService = faceCropService;
 
-        GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
+        GoBackCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync(".."));
         UploadLicensePhotoCommand = new Command(async () => await UploadLicensePhotoAsync());
         ReloadCommand = new Command(async () => await LoadDriverAsync());
         RefreshCommand = new Command(async () => await RefreshAsync());

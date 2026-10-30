@@ -28,7 +28,7 @@ public class FleetRegistryViewModel : BindableObject
     {
         LoadTaxisCommand = new Command(async () => await LoadTaxisAsync());
         RefreshCommand = new Command(async () => await RefreshAsync());
-        GoBackCommand = new Command(async () => await Shell.Current.GoToAsync(".."));
+        GoBackCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync(".."));
     }
 
     private async Task RefreshAsync()

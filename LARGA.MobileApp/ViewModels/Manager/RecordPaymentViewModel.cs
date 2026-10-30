@@ -415,11 +415,16 @@ public class RecordPaymentViewModel : BindableObject
 
     private async Task OpenScannerAsync()
     {
-        var page = Application.Current!.Handler.MauiContext!.Services.GetRequiredService<ScanEReceiptPage>();
-        await Shell.Current.Navigation.PushModalAsync(page);
+        await LARGA.MobileApp.Services.NavigationGate.PushModalAsync(() =>
+            Application.Current!.Handler.MauiContext!.Services.GetRequiredService<ScanEReceiptPage>());
     }
 
-    private async Task ConfirmAsync()
+    // Covers the whole confirm, popups included - IsBusy is only set once the payment is being written.
+    private readonly BusyGate _confirmGate = new();
+
+    private Task ConfirmAsync() => _confirmGate.RunAsync(ConfirmCoreAsync, showLoading: false);
+
+    private async Task ConfirmCoreAsync()
     {
         if (_snapshot is null || IsBusy) return;
 
@@ -577,7 +582,9 @@ public class RecordPaymentViewModel : BindableObject
     {
         string status = plan.PaymentUpdates.FirstOrDefault(w => w.ShiftId == row.ShiftKey)?.PaymentStatus ?? "Partial";
         string split = DescribeAllocation(plan, isOtherMode: false);
-        return $"Recorded {Money(amount)} {method} payment against {row.DriverName}'s boundary for shift {row.ShiftKey}. " +
+        // Named by unit, not the shift's document ID - the audit log is read by people.
+        string unit = string.IsNullOrWhiteSpace(row.TaxiPlate) ? row.TaxiId : row.TaxiPlate;
+        return $"Recorded {Money(amount)} {method} payment against {row.DriverName}'s boundary ({unit}). " +
                $"Shift status: {status}." +
                (split.Length > 0 ? " " + split : string.Empty) + EvidenceSuffix(evidence);
     }

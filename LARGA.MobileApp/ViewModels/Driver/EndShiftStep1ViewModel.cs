@@ -72,7 +72,7 @@ public class EndShiftStep1ViewModel : BindableObject
             {
                 _items[item] = false;
                 UpdateProgress(item);
-                await Shell.Current.GoToAsync($"vehicle-defect-page?item={item}");
+                await LARGA.MobileApp.Services.NavigationGate.GoToAsync($"vehicle-defect-page?item={item}");
             }
         });
 
@@ -83,7 +83,7 @@ public class EndShiftStep1ViewModel : BindableObject
                 await Shell.Current.DisplayAlert("Incomplete", "Please complete all 5 inspection items before proceeding.", "OK");
                 return;
             }
-            await Shell.Current.GoToAsync("end-shift-step2", new Dictionary<string, object>
+            await LARGA.MobileApp.Services.NavigationGate.GoToAsync("end-shift-step2", new Dictionary<string, object>
             {
                 { "inspection", _items.ToDictionary(kv => kv.Key, kv => kv.Value == true) },
             });

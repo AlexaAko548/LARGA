@@ -88,7 +88,24 @@ public class MessageManagerViewModel : INotifyPropertyChanged
         });
     }
 
+    // A send in flight: the box is already cleared, so another tap now would send a stray thumbs-up.
+    private bool _isSending;
+
     private async void OnSendMessage()
+    {
+        if (_isSending) return;
+        _isSending = true;
+        try
+        {
+            await SendMessageCoreAsync();
+        }
+        finally
+        {
+            _isSending = false;
+        }
+    }
+
+    private async Task SendMessageCoreAsync()
     {
         // An empty box sends a thumbs-up, like the manager's chat.
         string text = string.IsNullOrWhiteSpace(NewMessage) ? "👍" : NewMessage;

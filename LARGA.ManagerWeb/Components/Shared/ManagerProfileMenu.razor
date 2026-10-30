@@ -351,6 +351,7 @@
 
     private async Task SaveDuressPinAsync()
     {
+        if (_isSavingDuressPin) return; // a second click while this is still running is ignored
         _isSavingDuressPin = true;
         _duressPinMessage = null;
         try
@@ -393,6 +394,7 @@
 
     private async Task AddPayoutAccountAsync()
     {
+        if (_isSavingPayout) return; // a second click while this is still running is ignored
         _isSavingPayout = true;
         _payoutError = null;
         try
@@ -416,6 +418,7 @@
 
     private async Task RemovePayoutAccountAsync(string account)
     {
+        if (_isSavingPayout) return; // a second click while this is still running is ignored
         _isSavingPayout = true;
         _payoutError = null;
         try
@@ -449,6 +452,7 @@
 
     private async Task UpdateContactNumberAsync()
     {
+        if (_isSavingContact) return; // a second click while this is still running is ignored
         _isSavingContact = true;
         _contactMessage = null;
         try
@@ -471,6 +475,7 @@
     // largaFirebaseChangePassword. The email is the signed-in manager's, from the server session.
     private async Task UpdatePasswordAsync()
     {
+        if (_isSavingPassword) return; // a second click while this is still running is ignored
         _isSavingPassword = true;
         _passwordError = null;
         try

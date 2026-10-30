@@ -114,7 +114,9 @@ public class ClockInApprovalService
             {
                 UserId = actorUserId ?? string.Empty,
                 ActionType = "ClockInApproved",
-                AuditLogDetails = $"Approved clock-in for driver {driverName} on {request.TaxiId}.",
+                AuditLogDetails = string.IsNullOrWhiteSpace(note)
+                    ? $"Approved clock-in for driver {driverName} on {request.TaxiId}."
+                    : $"Approved clock-in for driver {driverName} on {request.TaxiId}: {note.Trim()}",
                 Timestamp = DateTime.UtcNow,
             });
             await batch.CommitAsync();

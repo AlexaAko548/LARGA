@@ -54,9 +54,23 @@ else
 
     <!-- Filter & Action Controls -->
     <div class="toolbar">
-        <div class="filter-pills">
-            <span class="filter-pill">@ActiveParts.Count(p => GetStatus(p) == "Normal") Normal</span>
-            <span class="filter-pill active-pill">@ActiveParts.Count(p => GetStatus(p) != "Normal") Low / Critical</span>
+        <div class="inventory-filters">
+            @* BETA-093: the stock-level pills filter the table (archived parts aren't graded). *@
+            <div class="stock-filter-group" role="group" aria-label="Filter by stock level">
+                <span class="stock-filter-label">Stock level</span>
+                @foreach ((string filter, string label) in StockFilters)
+                {
+                    <button type="button" class="stock-filter @StockFilterCss(filter) @(_stockFilter == filter ? "selected" : "")"
+                            disabled="@_showArchived" aria-pressed="@(_stockFilter == filter)" @onclick="() => _stockFilter = filter">
+                        @if (filter.Length > 0)
+                        {
+                            <span class="status-bullet @GetStatusClass(filter)"></span>
+                        }
+                        @label
+                        <span class="stock-filter-count">@(filter.Length == 0 ? ActiveParts.Count() : ActiveParts.Count(p => GetStatus(p) == filter))</span>
+                    </button>
+                }
+            </div>
             @* SRS REQ-4.5-1: archived parts are hidden unless asked for. *@
             <label class="archived-toggle">
                 <input type="checkbox" @bind="_showArchived" />
@@ -69,7 +83,7 @@ else
     </div>
 
     <!-- Inventory Table -->
-    <div class="table-container">
+    <div class="table-container inventory-table-container">
         <table class="inventory-table">
             <thead>
                 <tr>
@@ -89,12 +103,23 @@ else
                         <td colspan="7" class="table-empty">@(_showArchived ? "No archived spare parts." : "No spare parts found.")</td>
                     </tr>
                 }
+                else if (!ShownParts.Any(MatchesStockFilter))
+                {
+                    <tr>
+                        <td colspan="7" class="table-empty">No @_stockFilter.ToLowerInvariant() parts right now.</td>
+                    </tr>
+                }
                 else
                 {
                     List<SparePart> shown = ShownParts;
                     @for (int i = 0; i < shown.Count; i++)
                     {
                         SparePart item = shown[i];
+                        // Skipped rather than pre-filtered so the ID column (row number) stays the same under a filter.
+                        if (!MatchesStockFilter(item))
+                        {
+                            continue;
+                        }
                         string status = GetStatus(item);
                         bool isExpanded = _expandedPartId == item.PartId;
                         <tr class="part-row @(status == "Normal" ? "row-highlighted" : "")" title="Click to show this part's usage history"
@@ -414,6 +439,28 @@ else
 
     // SRS REQ-4.5-1: archived parts are kept (usage history points at them) but hidden by default.
     private bool _showArchived;
+
+    // "" = every part; otherwise a GetStatus value. Ignored while archived parts are shown.
+    private string _stockFilter = string.Empty;
+
+    private static readonly (string Filter, string Label)[] StockFilters =
+    {
+        ("", "All"),
+        ("Normal", "Normal"),
+        ("Low Stock", "Low Stock"),
+        ("Critical", "Critical"),
+    };
+
+    private static string StockFilterCss(string filter) => filter switch
+    {
+        "Normal" => "stock-normal",
+        "Low Stock" => "stock-low",
+        "Critical" => "stock-critical",
+        _ => "stock-all",
+    };
+
+    private bool MatchesStockFilter(SparePart item) =>
+        _showArchived || _stockFilter.Length == 0 || GetStatus(item) == _stockFilter;
     private bool _isArchiving;
     private IEnumerable<SparePart> ActiveParts => SparePartArchiveRules.Active(parts);
     private List<SparePart> ShownParts => parts.Where(p => p.IsArchived == _showArchived).ToList();
@@ -439,6 +486,7 @@ else
 
     private async Task ConfirmArchiveAsync()
     {
+        if (_isArchiving) return; // a second click while this is still running is ignored
         if (_archiveCandidate is not SparePart item)
         {
             CancelArchive();
@@ -478,6 +526,7 @@ else
 
     private async Task RestorePartAsync(SparePart item)
     {
+        if (_isArchiving) return; // a second click while this is still running is ignored
         _isArchiving = true;
         _actionError = null;
         try
@@ -581,20 +630,8 @@ else
         _ => ""
     };
 
-    private string GetStatus(SparePart item)
-    {
-        if (item.StockQuantity <= 0 || item.StockQuantity <= item.ReorderLevel / 2)
-        {
-            return "Critical";
-        }
-
-        if (item.StockQuantity <= item.ReorderLevel)
-        {
-            return "Low Stock";
-        }
-
-        return "Normal";
-    }
+    // INV-010: the same rule as the LowStock alert.
+    private static string GetStatus(SparePart item) => SparePartStockRules.StatusOf(item);
 
     private static string ToDisplayPartId(int rowNumber) => rowNumber.ToString("D2");
 
@@ -822,6 +859,7 @@ else
 
     private async Task SavePartAsync()
     {
+        if (_isSavingPart) return; // a second click while this is still running is ignored
         _actionError = null;
 
         _partAttempted = true;

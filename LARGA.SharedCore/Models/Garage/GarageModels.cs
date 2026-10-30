@@ -65,8 +65,15 @@ public class RoutineCheckEntry
 public class HistoryEntry
 {
     public string MaintenanceId { get; set; } = string.Empty;
+    public string TaxiId { get; set; } = string.Empty;
     public string UnitLabel { get; set; } = string.Empty;
     public string IssueTitle { get; set; } = string.Empty;
+
+    /// <summary>Routine check / breakdown repair / accident correction - the History filter's category.</summary>
+    public MaintenanceType MaintenanceType { get; set; }
+
+    /// <summary>The manager's instructions on the ticket, if one was made.</summary>
+    public string? MechanicInstructions { get; set; }
     public string ReportedByName { get; set; } = string.Empty;
     public DateTime DateLogged { get; set; }
     public DateTime? DateResolved { get; set; }
