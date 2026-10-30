@@ -46,7 +46,10 @@ public class FirebaseAuthService : IFirebaseAuthService
     public const string IncorrectCredentialsMessage =
         "Incorrect email or password. Check your details, or contact your manager if you don't have an account yet.";
 
-    public const string DisabledAccountMessage = "This account has been disabled. Please contact your manager.";
+    /// <summary>Also what a Request Access login (ManagerWeb's /register) gets until the owner approves it.
+    /// Same wording as ManagerWeb's Login page.</summary>
+    public const string DisabledAccountMessage =
+        "This account isn't active. If you sent an access request, it's still waiting for the owner's approval; otherwise, contact your manager.";
 
     public async Task<string> LoginAsync(string email, string password)
     {

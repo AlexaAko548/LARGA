@@ -64,7 +64,7 @@ public class AccessRequestService
         string? error = InputValidator.ValidateFullName(fullName)
             ?? InputValidator.ValidateEmail(email)
             ?? InputValidator.ValidatePhilippineMobile(phoneNumber)
-            ?? InputValidator.ValidateStrongPassword(password)
+            ?? InputValidator.ValidatePassword(password)
             ?? InputValidator.ValidateText(message, "the note", MaxMessageLength);
         if (error is not null)
         {
@@ -187,7 +187,11 @@ public class AccessRequestService
     public async Task<string?> ApproveAsync(string requestId, string actorUserId)
     {
         DocumentReference requestDoc = Db.Collection(Collection).Document(requestId);
-        DocumentSnapshot request = await requestDoc.GetSnapshotAsync();
+        DocumentSnapshot? request = await TryGetAsync(requestDoc);
+        if (request is null)
+        {
+            return CouldNotLoadMessage;
+        }
         if (!request.Exists || Field(request, "status") != PendingStatus)
         {
             return "This request was already handled. Reopen Team & Access to see the latest list.";
@@ -269,7 +273,11 @@ public class AccessRequestService
         }
 
         DocumentReference requestDoc = Db.Collection(Collection).Document(requestId);
-        DocumentSnapshot request = await requestDoc.GetSnapshotAsync();
+        DocumentSnapshot? request = await TryGetAsync(requestDoc);
+        if (request is null)
+        {
+            return CouldNotLoadMessage;
+        }
         if (!request.Exists || Field(request, "status") != PendingStatus)
         {
             return "This request was already handled. Reopen Team & Access to see the latest list.";
@@ -321,7 +329,11 @@ public class AccessRequestService
     public async Task<string?> RemoveAssistantManagerAsync(string uid, string actorUserId)
     {
         DocumentReference profileDoc = Db.Collection("users").Document(uid);
-        DocumentSnapshot profile = await profileDoc.GetSnapshotAsync();
+        DocumentSnapshot? profile = await TryGetAsync(profileDoc);
+        if (profile is null)
+        {
+            return CouldNotLoadMessage;
+        }
         if (!profile.Exists || !StaffRoles.IsAssistantManager(Field(profile, "role")))
         {
             return "This person no longer has Assistant Manager access.";
@@ -370,6 +382,23 @@ public class AccessRequestService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to delete login {Uid}", uid);
+        }
+    }
+
+    private const string CouldNotLoadMessage = "Couldn't reach the server. Check your connection, then try again.";
+
+    /// <summary>The document, or null when Firestore couldn't be reached - so a network blip shows a
+    /// message in Team &amp; Access instead of breaking the page.</summary>
+    private async Task<DocumentSnapshot?> TryGetAsync(DocumentReference doc)
+    {
+        try
+        {
+            return await doc.GetSnapshotAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read {Path}", doc.Path);
+            return null;
         }
     }
 

@@ -78,13 +78,18 @@ public class AlertService
     }
 
     /// <summary>"Mark all as read" in the notification bell: every unread alert, not just the
-    /// ones in the recent list, in batches of up to 500 (Firestore's batch limit).</summary>
-    public async Task<bool> MarkAllReadAsync()
+    /// ones in the recent list, in batches of up to 500 (Firestore's batch limit). For an Assistant
+    /// Manager (<paramref name="includeManagerOnly"/> false) the Manager-only rows (AlertFeed.ManagerOnly)
+    /// stay unread.</summary>
+    public async Task<bool> MarkAllReadAsync(bool includeManagerOnly = true)
     {
         try
         {
             QuerySnapshot unread = await Db.Collection("system_alerts").WhereEqualTo("isRead", false).GetSnapshotAsync();
-            foreach (DocumentSnapshot[] chunk in unread.Documents.Chunk(500))
+            IEnumerable<DocumentSnapshot> toMark = includeManagerOnly
+                ? unread.Documents
+                : unread.Documents.Where(d => !AlertFeed.ManagerOnly(d.TryGetValue("type", out string? type) ? type : null));
+            foreach (DocumentSnapshot[] chunk in toMark.Chunk(500))
             {
                 WriteBatch batch = Db.StartBatch();
                 foreach (DocumentSnapshot doc in chunk)

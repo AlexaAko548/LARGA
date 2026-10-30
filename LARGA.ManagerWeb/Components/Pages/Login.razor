@@ -175,7 +175,10 @@
             "auth/invalid-credential" or "auth/wrong-password" or "auth/user-not-found" or "auth/invalid-login-credentials"
                 => IncorrectCredentialsMessage,
             "auth/invalid-email" => "Enter a valid email address, e.g. juan.delacruz@gmail.com.",
-            "auth/user-disabled" => "This account has been disabled. Please contact your manager.",
+            // Also what a Request Access login gets until the owner approves it (AccessRequestService) -
+            // the same words for both, so the page doesn't reveal which one it is. Same wording as the
+            // mobile app (FirebaseAuthService.DisabledAccountMessage).
+            "auth/user-disabled" => "This account isn't active. If you sent an access request, it's still waiting for the owner's approval; otherwise, contact your manager.",
             "auth/too-many-requests" => "Too many sign-in attempts. Wait a few minutes, then try again (or reset your password).",
             "auth/network-request-failed" => "Can't reach the sign-in server. Check your internet connection, then try again.",
             "" when !string.IsNullOrWhiteSpace(raw) && !raw.Contains("Firebase", StringComparison.OrdinalIgnoreCase) => raw,

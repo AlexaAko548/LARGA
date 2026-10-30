@@ -76,7 +76,7 @@
                            placeholder="Choose a password" data-strength-input="req-strength" aria-describedby="req-strength" />
                     <div id="req-strength" class="password-strength" data-strength-meter aria-live="polite">
                         <div class="password-strength-bar"><span></span></div>
-                        <span class="password-strength-label">At least 8 characters, with an uppercase letter, a lowercase letter and a number.</span>
+                        <span class="password-strength-label" data-hint="@LARGA.SharedCore.InputValidator.PasswordPolicySummary">@LARGA.SharedCore.InputValidator.PasswordPolicySummary</span>
                     </div>
                     <ValidationMessage For="() => Model.Password" class="field-error" />
                 </div>
@@ -159,7 +159,7 @@
         public string PhoneNumber { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Choose a password.")]
-        [StrongPassword]
+        [Password]
         public string Password { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Type your password again.")]

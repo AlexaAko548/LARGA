@@ -1267,9 +1267,7 @@ public class DriverManagementService
         return $"{slug}.{suffix}@larga-driver.local";
     }
 
-    /// <summary>12 random letters and digits (no look-alikes such as 0/O, 1/l) - the temporary password
-    /// for a new driver or staff account (AccessRequestService).</summary>
-    public static string GenerateTemporaryPassword()
+    private static string GenerateTemporaryPassword()
     {
         const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
         // Redrawn until it meets the password policy (at least one letter and one number).

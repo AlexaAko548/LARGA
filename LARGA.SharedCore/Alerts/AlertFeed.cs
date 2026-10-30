@@ -56,6 +56,10 @@ public static class AlertFeed
     /// and so is an access request, which is handled on the web dashboard.</summary>
     public static bool ShownOnPhone(string? type) => type != SubmissionAlerts.FuelSubmittedType && type != AccessRequestType;
 
+    /// <summary>Whether only a full Manager sees this type in the web bell. An access request is decided in
+    /// Team &amp; Access, which Assistant Managers can't open - so they neither see it nor mark it read.</summary>
+    public static bool ManagerOnly(string? type) => type == AccessRequestType;
+
     public static string TitleFor(string? type) =>
         type is not null && TypeTitles.TryGetValue(type, out string? title) ? title : "Notice";
 

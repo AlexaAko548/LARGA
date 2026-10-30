@@ -4,6 +4,7 @@
 @using LARGA.ManagerWeb.Services
 @using Microsoft.AspNetCore.Components.Authorization
 @using Google.Cloud.Firestore
+@implements IAsyncDisposable
 @inject IManagerAuthService ManagerAuthService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject Lazy<FirestoreDb> FirestoreDb
@@ -201,7 +202,7 @@
 
 @if (_isTeamAccessOpen)
 {
-    <TeamAccessPanel ActorUserId="@_currentUid" OnClose="() => _isTeamAccessOpen = false"
+    <TeamAccessPanel ActorUserId="@_currentUid" OnClose="CloseTeamAccessAsync"
                      OnPendingChanged="count => _pendingAccessRequests = count" />
 }
 
@@ -279,14 +280,10 @@
             _currentUid = uid ?? string.Empty;
             if (IsManager)
             {
-                try
-                {
-                    _pendingAccessRequests = await AccessRequests.CountPendingAsync();
-                }
-                catch (Exception)
-                {
-                    // The badge is a hint; the panel itself still loads the list.
-                }
+                await RefreshPendingCountAsync();
+                _pendingCts = new CancellationTokenSource();
+                _pendingTimer = new PeriodicTimer(PendingRefreshInterval);
+                _ = PollPendingCountAsync(_pendingCts.Token);
             }
 
             if (!string.IsNullOrWhiteSpace(email))
@@ -309,7 +306,62 @@
         }
     }
 
-    private void ToggleDropdown() => _isDropdownOpen = !_isDropdownOpen;
+    private async Task ToggleDropdown()
+    {
+        _isDropdownOpen = !_isDropdownOpen;
+        if (_isDropdownOpen && IsManager)
+        {
+            await RefreshPendingCountAsync();
+        }
+    }
+
+    // The access-request badge: polled while the page is open (same 60s as NotificationBell), and
+    // re-read when the menu opens or Team & Access closes, so a new request shows without a reload.
+    private static readonly TimeSpan PendingRefreshInterval = TimeSpan.FromSeconds(60);
+    private PeriodicTimer? _pendingTimer;
+    private CancellationTokenSource? _pendingCts;
+
+    private async Task PollPendingCountAsync(CancellationToken token)
+    {
+        try
+        {
+            while (_pendingTimer is not null && await _pendingTimer.WaitForNextTickAsync(token))
+            {
+                await RefreshPendingCountAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the component is disposed.
+        }
+    }
+
+    private async Task RefreshPendingCountAsync()
+    {
+        try
+        {
+            _pendingAccessRequests = await AccessRequests.CountPendingAsync();
+        }
+        catch (Exception)
+        {
+            // The badge is a hint; keep the last count. The panel itself still loads the list.
+        }
+    }
+
+    private async Task CloseTeamAccessAsync()
+    {
+        _isTeamAccessOpen = false;
+        await RefreshPendingCountAsync();
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _pendingCts?.Cancel();
+        _pendingTimer?.Dispose();
+        _pendingCts?.Dispose();
+        return ValueTask.CompletedTask;
+    }
 
     private bool IsManager => string.Equals(_roleLabel, ManagerSignInService.ManagerRole, StringComparison.OrdinalIgnoreCase);
 

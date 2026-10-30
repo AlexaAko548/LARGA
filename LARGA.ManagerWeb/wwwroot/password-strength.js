@@ -1,6 +1,7 @@
 // Live password strength for inputs marked data-strength-input="<meter id>" (Request Access page).
-// Only a hint while typing - the server checks the same rules (InputValidator.ValidateStrongPassword)
-// when the form is sent. Listens on the document, so it also works after Blazor's enhanced navigation.
+// Only a hint while typing - the server checks the shared password policy (InputValidator.PasswordRules:
+// 6-64 characters, a letter and a number, no spaces) when the form is sent. Listens on the document, so
+// it also works after Blazor's enhanced navigation.
 (function () {
     const LEVELS = [
         { label: 'Too weak', css: 'weak' },
@@ -11,17 +12,19 @@
     ];
 
     function describe(pw) {
+        // Same checks as the server (char.IsLetter / char.IsDigit / char.IsWhiteSpace).
         const missing = [];
-        if (pw.length < 8) missing.push('8+ characters');
-        if (!/[A-Z]/.test(pw)) missing.push('an uppercase letter');
-        if (!/[a-z]/.test(pw)) missing.push('a lowercase letter');
-        if (!/[0-9]/.test(pw)) missing.push('a number');
+        if (pw.length < 6) missing.push('6+ characters');
+        if (!/\p{L}/u.test(pw)) missing.push('a letter');
+        if (!/\p{Nd}/u.test(pw)) missing.push('a number');
         if (/\s/.test(pw)) missing.push('no spaces');
+        if (missing.length) return { score: missing.length >= 2 ? 0 : 1, missing };
 
-        let score = 4 - Math.min(4, missing.length);
-        if (missing.length === 0 && (pw.length >= 12 || /[^A-Za-z0-9]/.test(pw))) score = 4;
-        else if (missing.length === 0) score = 3;
-        return { score, missing };
+        // Meets the policy: Fair, then Good / Strong for length, mixed case and symbols.
+        const extras = (pw.length >= 10 ? 1 : 0)
+            + (/[a-z]/.test(pw) && /[A-Z]/.test(pw) ? 1 : 0)
+            + (/[^\p{L}\p{Nd}]/u.test(pw) ? 1 : 0);
+        return { score: 2 + Math.min(2, extras), missing };
     }
 
     document.addEventListener('input', e => {
@@ -35,7 +38,7 @@
         meter.classList.remove('weak', 'fair', 'good', 'strong');
         if (!pw) {
             meter.style.setProperty('--strength', '0');
-            label.textContent = 'At least 8 characters, with an uppercase letter, a lowercase letter and a number.';
+            label.textContent = label.dataset.hint || '';
             return;
         }
 
@@ -43,6 +46,6 @@
         const level = LEVELS[score];
         meter.classList.add(level.css);
         meter.style.setProperty('--strength', String((score + 1) / 5));
-        label.textContent = missing.length ? `${level.label} - add ${missing.join(', ')}` : level.label;
+        label.textContent = missing.length ? `${level.label} - needs ${missing.join(', ')}` : level.label;
     });
 })();

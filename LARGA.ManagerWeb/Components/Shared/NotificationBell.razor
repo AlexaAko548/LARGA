@@ -5,6 +5,7 @@
 @using LARGA.SharedCore.Models.Alerts
 @using LARGA.SharedCore.Services
 @inject AlertService AlertService
+@inject AuthenticationStateProvider AuthStateProvider
 
 <div class="notification-bell-wrap" data-popup>
     <button class="icon-btn notification-bell-btn" type="button" aria-label="Notifications" aria-expanded="@_isOpen" data-popup-toggle @onclick="ToggleOpen">
@@ -60,8 +61,14 @@
     private int UnreadCount => LARGA.SharedCore.Alerts.AlertFeed.UnreadCount(_alerts);
     private bool _isMarkingAll;
 
+    // Assistant Managers don't see Manager-only rows (AlertFeed.ManagerOnly - access requests).
+    private bool _isManager;
+
     protected override async Task OnInitializedAsync()
     {
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _isManager = authState.User.IsInRole(ManagerSignInService.ManagerRole);
+
         await RefreshAsync();
 
         _timerCts = new CancellationTokenSource();
@@ -89,7 +96,8 @@
     {
         try
         {
-            _alerts = await AlertService.GetRecentAlertsAsync();
+            List<AlertNotice> alerts = await AlertService.GetRecentAlertsAsync();
+            _alerts = _isManager ? alerts : alerts.Where(a => !LARGA.SharedCore.Alerts.AlertFeed.ManagerOnly(a.Type)).ToList();
         }
         catch
         {
@@ -118,7 +126,7 @@
         _isMarkingAll = true;
         try
         {
-            if (await AlertService.MarkAllReadAsync())
+            if (await AlertService.MarkAllReadAsync(includeManagerOnly: _isManager))
             {
                 foreach (AlertNotice alert in _alerts)
                 {
