@@ -6,8 +6,8 @@
 @using LARGA.SharedCore.Services
 @inject AlertService AlertService
 
-<div class="notification-bell-wrap">
-    <button class="icon-btn notification-bell-btn" type="button" aria-label="Notifications" @onclick="ToggleOpen">
+<div class="notification-bell-wrap" data-popup>
+    <button class="icon-btn notification-bell-btn" type="button" aria-label="Notifications" aria-expanded="@_isOpen" data-popup-toggle @onclick="ToggleOpen">
         <Icon Name="bell" />
         @if (UnreadCount > 0)
         {
@@ -17,7 +17,7 @@
 
     @if (_isOpen)
     {
-        <div class="notification-dropdown">
+        <div class="notification-dropdown" data-popup-panel>
             <div class="notification-dropdown-header">
                 <span>Notifications</span>
                 @if (UnreadCount > 0)

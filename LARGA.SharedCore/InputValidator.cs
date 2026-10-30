@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 
@@ -163,6 +164,33 @@ public static class InputValidator
         }
 
         return password.Any(char.IsWhiteSpace) ? "Password can't contain spaces." : null;
+    }
+
+    public const int MinStrongPasswordLength = 8;
+
+    /// <summary>
+    /// A password someone chooses for themselves (Request Access): at least 8 characters with an
+    /// uppercase letter, a lowercase letter and a number, no spaces, 64 characters max.
+    /// </summary>
+    public static string? ValidateStrongPassword(string? password)
+    {
+        if (string.IsNullOrEmpty(password))
+        {
+            return "Enter a password.";
+        }
+
+        var missing = new List<string>();
+        if (password.Length < MinStrongPasswordLength) missing.Add($"at least {MinStrongPasswordLength} characters");
+        if (!password.Any(char.IsUpper)) missing.Add("an uppercase letter");
+        if (!password.Any(char.IsLower)) missing.Add("a lowercase letter");
+        if (!password.Any(char.IsDigit)) missing.Add("a number");
+
+        if (missing.Count > 0)
+        {
+            return $"Password needs {string.Join(", ", missing.Take(missing.Count - 1))}{(missing.Count > 1 ? " and " : "")}{missing[^1]}.";
+        }
+
+        return ValidatePassword(password);
     }
 
     // ---------------------------------------------------------------------

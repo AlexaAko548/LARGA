@@ -33,6 +33,15 @@ public sealed class FullNameAttribute : ValidationAttribute
             : ValidationResult.Success;
 }
 
+/// <summary>A password someone chooses for themselves: 8+ characters with upper and lower case and a number.</summary>
+public sealed class StrongPasswordAttribute : ValidationAttribute
+{
+    protected override ValidationResult? IsValid(object? value, ValidationContext context) =>
+        InputValidator.ValidateStrongPassword(value as string) is string error
+            ? new ValidationResult(error, new[] { context.MemberName! })
+            : ValidationResult.Success;
+}
+
 /// <summary>6-64 characters, no spaces (same rule as account creation and the mobile app).</summary>
 public sealed class PasswordAttribute : ValidationAttribute
 {

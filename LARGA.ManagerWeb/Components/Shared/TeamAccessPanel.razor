@@ -1,0 +1,277 @@
+@using LARGA.ManagerWeb.Services
+@using LARGA.SharedCore
+@inject AccessRequestService AccessRequests
+
+@* Team & Access (profile menu, owner only): the requests sent from the public Request Access page
+   (/register), and who already has Assistant Manager access. Approving turns on the login the person
+   created with their request (with the password they chose); the icon beside a staff member removes it. *@
+
+<div class="report-overlay" @onclick="CloseAsync">
+    <div class="report-modal" @onclick:stopPropagation="true">
+        <div class="report-header">
+            <h3>Team &amp; Access</h3>
+            <button type="button" class="close-modal" aria-label="Close" @onclick="CloseAsync">×</button>
+        </div>
+
+        <div class="report-body">
+            @if (!string.IsNullOrEmpty(_notice))
+            {
+                <div class="field-ok" role="status">@_notice</div>
+            }
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <div class="field-error" role="alert">@_error</div>
+            }
+
+            <div class="report-section">
+                <label>Access requests</label>
+                <span class="manager-menu-hint">Assistant Manager access: view dashboard + other modules and record boundary payments.</span>
+
+                @if (_pending is null)
+                {
+                    <LoadingSpinner Text="Loading requests…" />
+                }
+                else if (_pending.Count == 0)
+                {
+                    <span class="manager-menu-hint">No requests waiting.</span>
+                }
+                else
+                {
+                    <ul class="team-access-list">
+                        @foreach (AccessRequestService.AccessRequest request in _pending)
+                        {
+                            AccessRequestService.AccessRequest current = request;
+                            bool isBusy = _busyId == current.Id;
+                            <li class="team-access-item">
+                                <div class="team-access-item-head">
+                                    <span class="team-access-name">@current.FullName</span>
+                                    <span class="team-access-meta">@(current.RequestedAt == DateTime.MinValue ? "" : current.RequestedAt.ToPhilippineTime().ToString("MMM d, h:mm tt"))</span>
+                                </div>
+                                <span class="team-access-meta">@current.Email · @InputValidator.FormatPhilippineMobile(current.PhoneNumber)</span>
+                                @if (!string.IsNullOrWhiteSpace(current.Message))
+                                {
+                                    <div class="team-access-note">@current.Message</div>
+                                }
+
+                                @if (_decliningId == current.Id)
+                                {
+                                    <div class="team-access-actions">
+                                        <input class="text-input" type="text" maxlength="@AccessRequestService.MaxReasonLength"
+                                               placeholder="Reason (optional, kept in the audit log)" @bind="_declineReason" @bind:event="oninput" />
+                                        <button type="button" class="cancel-btn" disabled="@isBusy" @onclick="() => _decliningId = null">Back</button>
+                                        <button type="button" class="download-btn" disabled="@isBusy" aria-busy="@isBusy" @onclick="() => DeclineAsync(current)">Decline Request</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="team-access-actions">
+                                        <button type="button" class="cancel-btn" disabled="@(_busyId is not null)" @onclick="() => StartDecline(current)">Decline</button>
+                                        <button type="button" class="download-btn" disabled="@(_busyId is not null)" aria-busy="@isBusy" @onclick="() => RequestApprove(current)">@(isBusy ? "Approving…" : "Approve")</button>
+                                    </div>
+                                }
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+
+            <div class="report-section">
+                <label>Assistant Managers</label>
+                @if (_staff is null)
+                {
+                    <LoadingSpinner Text="Loading staff…" />
+                }
+                else if (_staff.Count == 0)
+                {
+                    <span class="manager-menu-hint">No one has Assistant Manager access yet.</span>
+                }
+                else
+                {
+                    <ul class="team-access-list">
+                        @foreach (AccessRequestService.StaffMember member in _staff)
+                        {
+                            AccessRequestService.StaffMember currentMember = member;
+                            string name = DisplayName(member);
+                            <li class="team-access-item team-access-item-row">
+                                <div class="team-access-item-text">
+                                    <div class="team-access-item-head">
+                                        <span class="team-access-name">@name</span>
+                                        <span class="team-access-meta">@(member.DateJoined is DateTime joined ? $"Since {joined.ToPhilippineTime():MMM d, yyyy}" : "")</span>
+                                    </div>
+                                    <span class="team-access-meta">@member.Email@(string.IsNullOrWhiteSpace(member.PhoneNumber) ? "" : $" · {InputValidator.FormatPhilippineMobile(member.PhoneNumber)}")</span>
+                                </div>
+                                <button type="button" class="team-access-remove" title="Remove @name's access" aria-label="Remove @name's access"
+                                        disabled="@(_busyId is not null)" @onclick="() => RequestRemove(currentMember)">
+                                    <Icon Name="user-x" />
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+
+        <div class="report-actions">
+            <button class="cancel-btn" type="button" @onclick="CloseAsync">Close</button>
+        </div>
+    </div>
+</div>
+
+<ConfirmationModal Show="_confirmRequest is not null"
+                   Title="Approve Access?"
+                   Message="@(_confirmRequest is null ? "" : $"{_confirmRequest.FullName} ({_confirmRequest.Email}) will get Assistant Manager access and can sign in with the password they chose. They'll be able to view the dashboard and record boundary payments.")"
+                   ConfirmText="Approve"
+                   IsDangerous="false"
+                   OnConfirm="ConfirmApproveAsync"
+                   OnCancel="() => _confirmRequest = null" />
+
+<ConfirmationModal Show="_confirmRemove is not null"
+                   Title="Remove Access?"
+                   Message="@(_confirmRemove is null ? "" : $"{DisplayName(_confirmRemove)} will be signed out and won't be able to sign in to LARGA again. Their past actions stay in the Audit Logs. To give access back later, they can send a new request.")"
+                   ConfirmText="Remove Access"
+                   IsDangerous="true"
+                   IsBusy="@(_busyId is not null)"
+                   OnConfirm="ConfirmRemoveAsync"
+                   OnCancel="() => _confirmRemove = null" />
+
+@code {
+    /// <summary>The signed-in owner's uid, for the audit log.</summary>
+    [Parameter, EditorRequired] public string ActorUserId { get; set; } = string.Empty;
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>Raised with the new number of waiting requests after an approval or decline.</summary>
+    [Parameter] public EventCallback<int> OnPendingChanged { get; set; }
+
+    private List<AccessRequestService.AccessRequest>? _pending;
+    private List<AccessRequestService.StaffMember>? _staff;
+    private AccessRequestService.AccessRequest? _confirmRequest;
+    private AccessRequestService.StaffMember? _confirmRemove;
+    private string? _busyId;
+    private string? _decliningId;
+    private string _declineReason = string.Empty;
+    private string? _error;
+    private string? _notice;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private static string DisplayName(AccessRequestService.StaffMember member) =>
+        string.IsNullOrWhiteSpace(member.FullName) ? member.Email : member.FullName;
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            Task<List<AccessRequestService.AccessRequest>> pending = AccessRequests.GetPendingAsync();
+            Task<List<AccessRequestService.StaffMember>> staff = AccessRequests.GetAssistantManagersAsync();
+            await Task.WhenAll(pending, staff);
+            _pending = pending.Result;
+            _staff = staff.Result;
+        }
+        catch (Exception)
+        {
+            _pending ??= new();
+            _staff ??= new();
+            _error = "Couldn't load Team & Access. Please close it and try again.";
+        }
+    }
+
+    private void ClearMessages()
+    {
+        _error = null;
+        _notice = null;
+    }
+
+    private void StartDecline(AccessRequestService.AccessRequest request)
+    {
+        ClearMessages();
+        _declineReason = string.Empty;
+        _decliningId = request.Id;
+    }
+
+    private void RequestApprove(AccessRequestService.AccessRequest request)
+    {
+        ClearMessages();
+        _confirmRequest = request;
+    }
+
+    private void RequestRemove(AccessRequestService.StaffMember member)
+    {
+        ClearMessages();
+        _confirmRemove = member;
+    }
+
+    private async Task ConfirmApproveAsync()
+    {
+        AccessRequestService.AccessRequest? request = _confirmRequest;
+        _confirmRequest = null;
+        if (request is null)
+        {
+            return;
+        }
+
+        _busyId = request.Id;
+        try
+        {
+            _error = await AccessRequests.ApproveAsync(request.Id, ActorUserId);
+            if (_error is null)
+            {
+                _notice = $"{request.FullName} now has Assistant Manager access. They can sign in with {request.Email} and the password they chose.";
+            }
+            await LoadAsync();
+            await OnPendingChanged.InvokeAsync(_pending?.Count ?? 0);
+        }
+        finally
+        {
+            _busyId = null;
+        }
+    }
+
+    private async Task DeclineAsync(AccessRequestService.AccessRequest request)
+    {
+        _busyId = request.Id;
+        try
+        {
+            _error = await AccessRequests.DeclineAsync(request.Id, _declineReason, ActorUserId);
+            if (_error is null)
+            {
+                _decliningId = null;
+                _notice = $"Declined {request.FullName}'s request.";
+            }
+            await LoadAsync();
+            await OnPendingChanged.InvokeAsync(_pending?.Count ?? 0);
+        }
+        finally
+        {
+            _busyId = null;
+        }
+    }
+
+    private async Task ConfirmRemoveAsync()
+    {
+        AccessRequestService.StaffMember? member = _confirmRemove;
+        if (member is null)
+        {
+            return;
+        }
+
+        _busyId = member.Uid;
+        try
+        {
+            _error = await AccessRequests.RemoveAssistantManagerAsync(member.Uid, ActorUserId);
+            if (_error is null)
+            {
+                _notice = $"Removed {DisplayName(member)}'s access.";
+            }
+            await LoadAsync();
+        }
+        finally
+        {
+            _busyId = null;
+            _confirmRemove = null;
+        }
+    }
+
+    private Task CloseAsync() => OnClose.InvokeAsync();
+}

@@ -29,6 +29,10 @@ public static class AlertFeed
     public const string DriverIdleType = "DriverIdle";
     public const string LowStockType = "LowStock";
 
+    /// <summary>Someone asked for Assistant Manager access (ManagerWeb's /register). Web bell only: requests
+    /// are approved from the web dashboard's Team &amp; Access panel.</summary>
+    public const string AccessRequestType = "AccessRequest";
+
     /// <summary>Every type a ManagerWeb service writes to system_alerts, with the label both apps show.</summary>
     public static readonly IReadOnlyDictionary<string, string> TypeTitles = new Dictionary<string, string>
     {
@@ -44,11 +48,13 @@ public static class AlertFeed
         [ShiftDeadlineService.MissedClockOutAlertType] = "Missed clock-out",
         [SubmissionAlerts.DefectReportedType] = "Defect report",
         [SubmissionAlerts.FuelSubmittedType] = "Fuel submission",
+        [AccessRequestType] = "Access request",
     };
 
     /// <summary>Whether the phone's Alert Center lists (and counts) this type. Every fuel submission
-    /// (FuelSubmitted) is a web-bell notice only - the phone already gets a card for each flagged one.</summary>
-    public static bool ShownOnPhone(string? type) => type != SubmissionAlerts.FuelSubmittedType;
+    /// (FuelSubmitted) is a web-bell notice only - the phone already gets a card for each flagged one -
+    /// and so is an access request, which is handled on the web dashboard.</summary>
+    public static bool ShownOnPhone(string? type) => type != SubmissionAlerts.FuelSubmittedType && type != AccessRequestType;
 
     public static string TitleFor(string? type) =>
         type is not null && TypeTitles.TryGetValue(type, out string? title) ? title : "Notice";

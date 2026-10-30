@@ -345,11 +345,11 @@ else
                 }
 
                 <div class="logs-filters">
-                    <div class="filter-dropdown">
-                        <button class="filter-btn" type="button" @onclick="() => _showDateFilterMenu = !_showDateFilterMenu"><Icon Name="calendar" /> @_logDateFilter</button>
+                    <div class="filter-dropdown" data-popup>
+                        <button class="filter-btn" type="button" data-popup-toggle @onclick="() => _showDateFilterMenu = !_showDateFilterMenu"><Icon Name="calendar" /> @_logDateFilter</button>
                         @if (_showDateFilterMenu)
                         {
-                            <div class="filter-menu">
+                            <div class="filter-menu" data-popup-panel>
                                 <button type="button" @onclick='() => SetDateFilterAsync("All Dates")'>All Dates</button>
                                 <button type="button" @onclick='() => SetDateFilterAsync("Today")'>Today</button>
                                 <button type="button" @onclick='() => SetDateFilterAsync("Custom")'>Custom</button>
@@ -357,11 +357,11 @@ else
                         }
                     </div>
 
-                    <div class="filter-dropdown">
-                        <button class="filter-btn" type="button" @onclick="() => _showDriverFilterMenu = !_showDriverFilterMenu"><Icon Name="user" /> @_logDriverFilter</button>
+                    <div class="filter-dropdown" data-popup>
+                        <button class="filter-btn" type="button" data-popup-toggle @onclick="() => _showDriverFilterMenu = !_showDriverFilterMenu"><Icon Name="user" /> @_logDriverFilter</button>
                         @if (_showDriverFilterMenu)
                         {
-                            <div class="filter-menu">
+                            <div class="filter-menu" data-popup-panel>
                                 <button type="button" @onclick='() => SetDriverFilter("All Drivers")'>All Drivers</button>
                                 @foreach (string name in DistinctDrivers)
                                 {
@@ -371,11 +371,11 @@ else
                         }
                     </div>
 
-                    <div class="filter-dropdown">
-                        <button class="filter-btn" type="button" @onclick="() => _showUnitFilterMenu = !_showUnitFilterMenu"><Icon Name="car-front" /> @_logUnitFilter</button>
+                    <div class="filter-dropdown" data-popup>
+                        <button class="filter-btn" type="button" data-popup-toggle @onclick="() => _showUnitFilterMenu = !_showUnitFilterMenu"><Icon Name="car-front" /> @_logUnitFilter</button>
                         @if (_showUnitFilterMenu)
                         {
-                            <div class="filter-menu">
+                            <div class="filter-menu" data-popup-panel>
                                 <button type="button" @onclick='() => SetUnitFilter("All Units")'>All Units</button>
                                 @foreach (string unit in DistinctUnits)
                                 {
@@ -385,11 +385,11 @@ else
                         }
                     </div>
 
-                    <div class="filter-dropdown">
-                        <button class="filter-btn" type="button" @onclick="() => _showStatusFilterMenu = !_showStatusFilterMenu"><Icon Name="circle-dot" /> @_logStatusFilter</button>
+                    <div class="filter-dropdown" data-popup>
+                        <button class="filter-btn" type="button" data-popup-toggle @onclick="() => _showStatusFilterMenu = !_showStatusFilterMenu"><Icon Name="circle-dot" /> @_logStatusFilter</button>
                         @if (_showStatusFilterMenu)
                         {
-                            <div class="filter-menu">
+                            <div class="filter-menu" data-popup-panel>
                                 <button type="button" @onclick='() => SetStatusFilter("All Statuses")'>All Statuses</button>
                                 @foreach (string status in DistinctStatuses)
                                 {
