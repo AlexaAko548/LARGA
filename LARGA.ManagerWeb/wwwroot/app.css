@@ -2411,6 +2411,33 @@ border-radius: 4px;
 margin: 0.2rem 0;
 }
 
+/* The "(i)" next to a form label (Create Ticket's Priority Level) that shows/hides an info-banner. */
+.priority-help-btn {
+display: inline-flex;
+align-items: center;
+justify-content: center;
+margin-left: 0.3rem;
+padding: 0.1rem;
+border: none;
+border-radius: var(--radius-pill);
+background: transparent;
+color: var(--accent);
+font-size: 0.95rem;
+vertical-align: middle;
+cursor: pointer;
+}
+
+.priority-help-btn:hover,
+.priority-help-btn:focus-visible {
+background: rgba(var(--accent-rgb),0.12);
+}
+
+.info-banner.priority-help {
+margin-bottom: 0.5rem;
+text-transform: none;
+letter-spacing: normal;
+}
+
 /* Checklist modal */
 
 .checklist-subtitle {

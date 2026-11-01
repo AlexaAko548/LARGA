@@ -81,6 +81,16 @@ public class VehicleDefectViewModel : BindableObject
     public ICommand AttachPhotoCommand { get; }
     public ICommand SubmitReportCommand { get; }
 
+    // The "(i)" next to PRIORITY LEVEL: tap to show what each level means, tap again to hide it.
+    private bool _isPriorityHelpVisible;
+    public bool IsPriorityHelpVisible
+    {
+        get => _isPriorityHelpVisible;
+        private set { _isPriorityHelpVisible = value; OnPropertyChanged(); }
+    }
+
+    public ICommand TogglePriorityHelpCommand { get; }
+
     public VehicleDefectViewModel(IMaintenanceService maintenanceService, IShiftManagementService shiftManagementService)
     {
         _maintenanceService = maintenanceService;
@@ -90,6 +100,7 @@ public class VehicleDefectViewModel : BindableObject
 
         // LAR-124: one submit at a time - on a slow connection drivers tap again thinking it didn't go.
         SubmitReportCommand = new Command(async () => await SubmitAsync(), () => !IsSubmitting);
+        TogglePriorityHelpCommand = new Command(() => IsPriorityHelpVisible = !IsPriorityHelpVisible);
     }
 
     private bool _isSubmitting;

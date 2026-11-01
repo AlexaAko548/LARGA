@@ -256,7 +256,21 @@ else
                 </div>
 
                 <div class="report-section">
-                    <label>Priority Level</label>
+                    <label>
+                        Priority Level
+                        <button type="button" class="priority-help-btn" aria-expanded="@_showPriorityHelp" aria-label="What the priority levels mean"
+                                title="What the priority levels mean" @onclick="() => _showPriorityHelp = !_showPriorityHelp"><Icon Name="info" /></button>
+                    </label>
+                    @if (_showPriorityHelp)
+                    {
+                        @* Same words as the driver's defect report on the phone (PriorityLevelHelp). *@
+                        <div class="info-banner priority-help">
+                            <p><strong>Low:</strong> @PriorityLevelHelp.Low</p>
+                            <p><strong>Medium:</strong> @PriorityLevelHelp.Medium</p>
+                            <p><strong>High:</strong> @PriorityLevelHelp.High</p>
+                            <p>@PriorityLevelHelp.Note</p>
+                        </div>
+                    }
                     <div class="payment-method-toggle three-way">
                         <button type="button" class="payment-method-btn @(_ticketPriority == PriorityLevel.Low ? "active" : "")" @onclick="() => _ticketPriority = PriorityLevel.Low">Low</button>
                         <button type="button" class="payment-method-btn @(_ticketPriority == PriorityLevel.Medium ? "active" : "")" @onclick="() => _ticketPriority = PriorityLevel.Medium">Medium</button>
@@ -642,6 +656,7 @@ else
     private bool _showTicketModal;
     private DriverReportEntry? _ticketReport;
     private PriorityLevel _ticketPriority = PriorityLevel.Medium;
+    private bool _showPriorityHelp;
     private string _ticketInstructions = string.Empty;
     private DateTime? _ticketEstimatedDate;
     // "Today" (straight into the shop), "Auto" (next day under capacity) or "Manual".
