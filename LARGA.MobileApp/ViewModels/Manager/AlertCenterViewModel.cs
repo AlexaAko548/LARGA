@@ -43,6 +43,7 @@ public class AlertCenterViewModel : BindableObject
     private string _errorMessage = string.Empty;
     private int _unreadCount;
     private bool _hasLoaded;
+    private bool _showUnreadOnly;
 
     public ObservableCollection<AlertItem> Alerts { get; } = new();
 
@@ -53,11 +54,32 @@ public class AlertCenterViewModel : BindableObject
     /// <summary>Raised (main thread) with the alert to scroll to after PendingFocusAlertId lands.</summary>
     public event EventHandler<AlertItem>? FocusRequested;
 
-    // Same alerts as Alerts, newest first, sectioned by date for the CollectionView.
+    // Same alerts as Alerts (only the unread ones under the Unread filter), newest first, sectioned by date
+    // for the CollectionView.
     public ObservableCollection<AlertGroup> AlertGroups { get; } = new();
 
     public ICommand LoadAlertsCommand { get; }
     public ICommand RetryCommand { get; }
+
+    /// <summary>BETA-054: the Unread / All filter at the top of the list. Only changes what this phone shows;
+    /// nothing is written. All by default.</summary>
+    public ICommand ShowAllCommand { get; }
+    public ICommand ShowUnreadCommand { get; }
+
+    public bool ShowUnreadOnly
+    {
+        get => _showUnreadOnly;
+        private set
+        {
+            if (_showUnreadOnly == value) return;
+            _showUnreadOnly = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsAllSelected));
+            RebuildGroups();
+        }
+    }
+
+    public bool IsAllSelected => !ShowUnreadOnly;
 
     /// <summary>Unread system_alerts among the newest 50 - the same number as the web bell's badge.</summary>
     public int UnreadCount
@@ -71,13 +93,16 @@ public class AlertCenterViewModel : BindableObject
     public string ErrorMessage
     {
         get => _errorMessage;
-        private set { _errorMessage = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasError)); OnPropertyChanged(nameof(IsEmpty)); }
+        private set { _errorMessage = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasError)); OnPropertyChanged(nameof(IsEmpty)); OnPropertyChanged(nameof(IsUnreadEmpty)); }
     }
 
     public bool HasError => !string.IsNullOrEmpty(_errorMessage);
 
     // "No alerts right now" - only once a feed has answered, so it doesn't flash while loading.
     public bool IsEmpty => _hasLoaded && !HasError && Alerts.Count == 0;
+
+    // "No unread alerts" - the Unread filter hides every alert there is.
+    public bool IsUnreadEmpty => _hasLoaded && !HasError && Alerts.Count > 0 && ShowUnreadOnly && !Alerts.Any(a => a.IsUnread);
 
     /// <summary>Resolving an SOS (SOS-007), approving/denying a clock-in and resolving a fuel flag are a
     /// Manager's decisions - an Assistant Manager sees the cards (and can call or message the driver)
@@ -102,6 +127,8 @@ public class AlertCenterViewModel : BindableObject
             StopListening();
             StartListening();
         });
+        ShowAllCommand = new Command(() => ShowUnreadOnly = false);
+        ShowUnreadCommand = new Command(() => ShowUnreadOnly = true);
 
         // One card action at a time: a second tap (or a tap on another card) while one is saving is ignored, so an
         // approval or a denial's garage report can't be written twice. No loading pill here - these actions wait on
@@ -462,7 +489,6 @@ public class AlertCenterViewModel : BindableObject
         // Newest first across all alert types. GroupBy keeps that order, so each date section
         // starts with its newest alert and the newest section comes first. Within a day, SOS
         // alerts lead, the most severe emergency type (Crash, Hostile, Standard) first.
-        DateTime philippineNow = PhilippineTime.Now;
         List<AlertItem> sorted = actionCards.Concat(bellRows)
             .OrderByDescending(item => item.SortTime == DateTime.MinValue ? DateTime.MinValue : item.SortTime.ToPhilippineTime().Date)
             .ThenByDescending(item => item.IsSos)
@@ -476,17 +502,24 @@ public class AlertCenterViewModel : BindableObject
             Alerts.Add(item);
         }
 
-        AlertGroups.Clear();
-        foreach (var group in sorted.GroupBy(item => AlertFeed.SectionTitle(item.SortTime, philippineNow)))
-        {
-            AlertGroups.Add(new AlertGroup(group.Key, group));
-        }
-
         _hasLoaded = true;
+        RebuildGroups();
         OnPropertyChanged(nameof(HeaderText));
         OnPropertyChanged(nameof(IsEmpty));
 
         ApplyPendingFocus();
+    }
+
+    private void RebuildGroups()
+    {
+        DateTime philippineNow = PhilippineTime.Now;
+        AlertGroups.Clear();
+        foreach (var group in Alerts.Where(item => !ShowUnreadOnly || item.IsUnread)
+                     .GroupBy(item => AlertFeed.SectionTitle(item.SortTime, philippineNow)))
+        {
+            AlertGroups.Add(new AlertGroup(group.Key, group));
+        }
+        OnPropertyChanged(nameof(IsUnreadEmpty));
     }
 
     /// <summary>Scrolls to the alert an SOS push was opened for, once it's in the list.</summary>
@@ -495,6 +528,8 @@ public class AlertCenterViewModel : BindableObject
         if (PendingFocusAlertId is string focusId && Alerts.FirstOrDefault(i => i.Id == focusId) is AlertItem focus)
         {
             PendingFocusAlertId = null;
+            // The Unread filter would hide an SOS already marked read - show everything so it can be scrolled to.
+            if (focus.IsRead) ShowUnreadOnly = false;
             FocusRequested?.Invoke(this, focus);
         }
     }

@@ -282,6 +282,39 @@
             <Label Text="Alert Center" FontSize="28" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}" />
             <Label Text="{Binding HeaderText}" FontSize="14" TextColor="{DynamicResource ThemeTextGray}" Margin="0,0,0,8" />
 
+            <!-- BETA-054: show every alert, or only the unread ones (this phone only - nothing is saved).
+                 Same tab look as the driver's Reports page. -->
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="0">
+                <Border Grid.Column="0" StrokeThickness="0" StrokeShape="RoundRectangle 12" Padding="10">
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsAllSelected}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{DynamicResource LargaLightBlue}" />
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsAllSelected}" Value="False">
+                            <Setter Property="BackgroundColor" Value="Transparent" />
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <Button Text="ALL" Command="{Binding ShowAllCommand}" FontAttributes="Bold"
+                            BackgroundColor="Transparent" TextColor="{DynamicResource LargaDarkText}" FontSize="12" />
+                </Border>
+                <Border Grid.Column="1" StrokeThickness="0" StrokeShape="RoundRectangle 12" Padding="10">
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding ShowUnreadOnly}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{DynamicResource LargaLightBlue}" />
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding ShowUnreadOnly}" Value="False">
+                            <Setter Property="BackgroundColor" Value="Transparent" />
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <Button Text="UNREAD" Command="{Binding ShowUnreadCommand}" FontAttributes="Bold"
+                            BackgroundColor="Transparent" TextColor="{DynamicResource LargaDarkText}" FontSize="12" />
+                </Border>
+            </Grid>
+
+            <!-- BETA-055: the two buttons testers mixed up. -->
+            <Label Text="Mark as read only clears the highlight. Resolve closes the issue." FontSize="13"
+                   TextColor="{DynamicResource ThemeTextSecondary}" Margin="0,0,0,4" />
+
             <Border IsVisible="{Binding HasError}" BackgroundColor="{DynamicResource LargaDangerBg}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16">
                 <VerticalStackLayout Spacing="10">
                     <Label Text="{Binding ErrorMessage}" FontSize="14" TextColor="{DynamicResource LargaDanger}" />
@@ -291,6 +324,8 @@
             </Border>
 
             <Label IsVisible="{Binding IsEmpty}" Text="No alerts right now." FontSize="15" HorizontalOptions="Center"
+                   TextColor="{DynamicResource ThemeTextTertiary}" Margin="0,40,0,0" />
+            <Label IsVisible="{Binding IsUnreadEmpty}" Text="No unread alerts." FontSize="15" HorizontalOptions="Center"
                    TextColor="{DynamicResource ThemeTextTertiary}" Margin="0,40,0,0" />
 
             <CollectionView x:Name="AlertsList" ItemsSource="{Binding AlertGroups}" IsGrouped="True" ItemTemplate="{StaticResource AlertSelector}">
