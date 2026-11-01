@@ -291,7 +291,13 @@ else
                 </div>
                 <div class="form-group">
                     <label>Unit</label>
-                    <input type="text" maxlength="10" placeholder="pcs / set / L" @bind="newPart.Unit" @bind:event="oninput" />
+                    @* BETA-095: a fixed list (plus any unit a part already uses) instead of free text. *@
+                    <select @bind="newPart.Unit">
+                        @foreach (string unit in UnitOptions)
+                        {
+                            <option value="@unit">@unit</option>
+                        }
+                    </select>
                     <FieldError Show="_partAttempted || newPart.Unit.Length > 0" Message="@PartUnitError" />
                 </div>
                 <div class="form-group">
@@ -420,6 +426,17 @@ else
         ? "Enter a quantity of at least 1 - a new part is logged with the stock you have."
         : InputValidator.ValidateWholeNumber(newPart.StockQuantity, "the quantity", 0, MaxStock);
     private string? PartUnitError => InputValidator.ValidateText(newPart.Unit, "the unit", 10, required: true);
+
+    private static readonly string[] StandardUnits = { "pcs", "set", "pair", "L", "mL", "box", "bottle", "roll", "kit" };
+
+    // The standard units, then every other unit already saved on a part (archived ones too) and the
+    // one being edited, so an existing value is never dropped from the list.
+    private IEnumerable<string> UnitOptions => StandardUnits
+        .Concat(parts.Select(p => p.Unit).Append(newPart.Unit)
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Select(u => u.Trim())
+            .Order(StringComparer.OrdinalIgnoreCase))
+        .Distinct(StringComparer.Ordinal);
     private string? PartReorderError => InputValidator.ValidateWholeNumber(newPart.ReorderLevel, "the min stock level", 0, MaxStock);
     private string? PartPriceError => InputValidator.ValidateAmount(newPart.UnitPrice, "the unit price", MaxUnitPrice, allowZero: true);
     private string? PartBrandError => InputValidator.ValidateText(newPart.Brand, "the brand", 40);

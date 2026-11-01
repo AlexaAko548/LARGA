@@ -4263,7 +4263,8 @@ grid-template-columns: repeat(3, 1fr);
     color: var(--muted);
 }
 
-.form-group input {
+.form-group input,
+.form-group select {
     width: 100%;
     border-radius: var(--radius-sm);
     border: 1px solid rgba(var(--accent-rgb),0.38);
@@ -4277,7 +4278,8 @@ grid-template-columns: repeat(3, 1fr);
     color: var(--muted);
 }
 
-.form-group input:focus {
+.form-group input:focus,
+.form-group select:focus {
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 2px rgba(var(--accent-rgb),0.12);
