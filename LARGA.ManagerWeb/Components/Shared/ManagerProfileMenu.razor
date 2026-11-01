@@ -169,15 +169,33 @@
                     <label>Update password</label>
 
                     <div class="form-block">
-                        <InputText @bind-Value="_passwordModel.CurrentPassword" type="password" maxlength="64" placeholder="Current password" />
+                        <div class="password-field">
+                            <InputText @bind-Value="_passwordModel.CurrentPassword" type="@(_showCurrentPassword ? "text" : "password")" maxlength="64" placeholder="Current password" />
+                            <button type="button" class="password-toggle" @onclick="() => _showCurrentPassword = !_showCurrentPassword"
+                                    aria-label="@(_showCurrentPassword ? "Hide password" : "Show password")" title="@(_showCurrentPassword ? "Hide password" : "Show password")">
+                                <Icon Name="@(_showCurrentPassword ? "eye-off" : "eye")" />
+                            </button>
+                        </div>
                         <ValidationMessage For="() => _passwordModel.CurrentPassword" class="field-error" />
                     </div>
                     <div class="form-block">
-                        <InputText @bind-Value="_passwordModel.NewPassword" type="password" maxlength="64" placeholder="New password" />
+                        <div class="password-field">
+                            <InputText @bind-Value="_passwordModel.NewPassword" type="@(_showNewPassword ? "text" : "password")" maxlength="64" placeholder="New password" />
+                            <button type="button" class="password-toggle" @onclick="() => _showNewPassword = !_showNewPassword"
+                                    aria-label="@(_showNewPassword ? "Hide password" : "Show password")" title="@(_showNewPassword ? "Hide password" : "Show password")">
+                                <Icon Name="@(_showNewPassword ? "eye-off" : "eye")" />
+                            </button>
+                        </div>
                         <ValidationMessage For="() => _passwordModel.NewPassword" class="field-error" />
                     </div>
                     <div class="form-block">
-                        <InputText @bind-Value="_passwordModel.ConfirmPassword" type="password" maxlength="64" placeholder="Confirm new password" />
+                        <div class="password-field">
+                            <InputText @bind-Value="_passwordModel.ConfirmPassword" type="@(_showConfirmPassword ? "text" : "password")" maxlength="64" placeholder="Confirm new password" />
+                            <button type="button" class="password-toggle" @onclick="() => _showConfirmPassword = !_showConfirmPassword"
+                                    aria-label="@(_showConfirmPassword ? "Hide password" : "Show password")" title="@(_showConfirmPassword ? "Hide password" : "Show password")">
+                                <Icon Name="@(_showConfirmPassword ? "eye-off" : "eye")" />
+                            </button>
+                        </div>
                         <ValidationMessage For="() => _passwordModel.ConfirmPassword" class="field-error" />
                     </div>
 
@@ -227,6 +245,9 @@
     private UpdatePasswordModel _passwordModel = new();
     private string? _passwordError;
     private bool _isSavingPassword;
+    private bool _showCurrentPassword;
+    private bool _showNewPassword;
+    private bool _showConfirmPassword;
 
     private IJSObjectReference? _firebaseModule;
 
@@ -493,6 +514,7 @@
         _isSettingsModalOpen = false;
         _contactModel = new();
         _passwordModel = new();
+        _showCurrentPassword = _showNewPassword = _showConfirmPassword = false;
         _contactMessage = null;
         _contactSaved = false;
         _passwordError = null;
