@@ -1,11 +1,13 @@
 @* Notification bell shown in every dashboard-style page header (replaces the old placeholder
    "Notifications" icon-btn). Loads recent system_alerts on init, polls every 60s while
-   mounted, and lets a manager open the dropdown / mark an alert read. *@
+   mounted, and lets a manager open the dropdown / mark an alert read. Clicking an alert also opens the
+   page that handles it (AlertLinks). *@
 @implements IAsyncDisposable
 @using LARGA.SharedCore.Models.Alerts
 @using LARGA.SharedCore.Services
 @inject AlertService AlertService
 @inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
 
 <div class="notification-bell-wrap" data-popup>
     <button class="icon-btn notification-bell-btn" type="button" aria-label="Notifications" aria-expanded="@_isOpen" data-popup-toggle @onclick="ToggleOpen">
@@ -117,6 +119,12 @@
         {
             alert.IsRead = true;
             await AlertService.MarkReadAsync(alert.AlertId);
+        }
+
+        if (AlertLinks.PageFor(alert.Type, _isManager) is string page)
+        {
+            _isOpen = false;
+            Navigation.NavigateTo(page);
         }
     }
 
