@@ -60,13 +60,6 @@
                             </Border>
                             <Label Grid.Column="1" Text="SOS" FontAttributes="Bold" FontSize="13"
                                    TextColor="{DynamicResource ThemeTextTertiary}" Margin="8,0,0,0" VerticalOptions="Center" />
-                            <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32" IsVisible="{Binding Source={x:Reference Root}, Path=BindingContext.CanDecide}">
-                                <Grid.GestureRecognizers>
-                                    <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
-                                                           CommandParameter="{Binding .}" />
-                                </Grid.GestureRecognizers>
-                                <Image controls:ThemedIcon.IsEnabled="True" Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
-                            </Grid>
                         </Grid>
                         <Label Text="{Binding CallerFlagText}" IsVisible="{Binding IsCallerFlagged}" FontSize="12" FontAttributes="Bold"
                                TextColor="{DynamicResource ThemeTextTertiary}" />
@@ -97,6 +90,16 @@
                                 <Image controls:ThemedIcon.IsEnabled="True" Source="send_icon.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
                             </Border>
                         </Grid>
+
+                        <!-- BETA-067: resolving was only the unlabelled X in the card's corner. Same command
+                             (it still asks to confirm) and the same Manager-only visibility, now a labelled
+                             button on the card itself. -->
+                        <Border BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="48"
+                                IsVisible="{Binding Source={x:Reference Root}, Path=BindingContext.CanDecide}">
+                            <Button Text="MARK AS RESOLVED" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontAttributes="Bold" FontSize="14"
+                                    Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
+                                    CommandParameter="{Binding .}" />
+                        </Border>
                     </VerticalStackLayout>
                 </Border>
                 </Border>

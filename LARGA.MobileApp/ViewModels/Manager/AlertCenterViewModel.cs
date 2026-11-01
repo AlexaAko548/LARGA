@@ -551,9 +551,9 @@ public class AlertCenterViewModel : BindableObject
             {
                 case AlertType.Sos:
                     if (!await EnsureCanDecideAsync()) return;
-                    // Unlike the X on every other card, this one is a real decision (same writes
-                    // as the web's SOS Dispatch Resolved toggle) - confirm first so a stray tap on
-                    // the close icon can't silently close out an active emergency.
+                    // Unlike the X on the other cards, the SOS card's Mark as Resolved is a real
+                    // decision (same writes as the web's SOS Dispatch Resolved toggle) - confirm
+                    // first so a stray tap can't silently close out an active emergency.
                     bool confirmedResolved = await ConfirmationPopup.ShowAsync(Shell.Current,
                         "Mark This SOS Resolved?",
                         $"This marks the alert from {alert.DriverName} as handled. Make sure the situation is actually resolved first.",
