@@ -24,6 +24,17 @@ public static class OdometerReadingParser
     // "KM" but not "KM/L" (fuel economy) or "KM/H" (speed).
     private static readonly Regex OdometerLabel = new(@"(?<![A-Z])(?:ODO|ODOMETER|TOTAL|KM|KMS)(?![A-Z/])", RegexOptions.CultureInvariant);
     private static readonly Regex TripLabel = new(@"(?<![A-Z])(?:TRIP|TRP|RANGE|AVG|KM/L|L/100)(?![A-Z])", RegexOptions.CultureInvariant);
+    // ML Kit reads a small "ODO" printed before the reading as "000", "O00" or "O0O" ("o00 5377"
+    // on a Vios cluster) - a label, not three more digits.
+    private static readonly Regex OdoLookalike = new(@"(?<![A-Z0-9])[0OD]{3}(?=\s+[0-9OIL|SBZG]{4,}(?![0-9A-Z]))", RegexOptions.CultureInvariant);
+
+    /// <summary>A reading offered to the driver. Not <paramref name="Confident"/> when ML Kit and
+    /// the seven-segment decoder disagreed, or only one of them read it, so the driver checks it.</summary>
+    public readonly record struct Reading(string Text, bool Confident);
+
+    // Seven-segment digits one segment apart. On an LCD readout ML Kit reads a 6 as a 5 (the
+    // lower-left segment missed); the decoder, which looks at the segments, is right about those.
+    private static readonly HashSet<string> OneSegmentApart = new() { "08", "17", "39", "56", "59", "68", "89" };
 
     /// <summary>Readings found in one OCR line or block, best first.</summary>
     public static List<string> Candidates(string? text) => Candidates(new[] { text });
@@ -49,7 +60,7 @@ public static class OdometerReadingParser
 
         foreach (string rawLine in text.Split('\n'))
         {
-            string line = rawLine.ToUpperInvariant();
+            string line = OdoLookalike.Replace(rawLine.ToUpperInvariant(), "ODO");
             bool trip = TripLabel.IsMatch(line);
             int rank = OdometerLabel.IsMatch(line) ? 2 : trip ? 0 : 1;
 
@@ -121,6 +132,14 @@ public static class OdometerReadingParser
             return;
         }
 
+        // Speedometer marks ML Kit put on one line ("120 140", "120 l40 0") aren't a reading
+        // split into groups; a lone digit next to them is a tick or a bit of the needle.
+        if (groups.Count(IsDialMark) >= 2 && groups.All(g => IsDialMark(g) || g.Length == 1))
+        {
+            groups.Clear();
+            return;
+        }
+
         // Each group on its own, and neighbours joined ("58" "700" -> "58700").
         for (int start = 0; start < groups.Count; start++)
         {
@@ -144,5 +163,136 @@ public static class OdometerReadingParser
         }
 
         groups.Clear();
+    }
+
+    private static bool IsDialMark(string group) =>
+        group.Length is 2 or 3 && int.Parse(group) is int value && value >= 10 && value <= 260 && value % 10 == 0;
+
+    /// <summary>
+    /// Whether an OCR line may hold a reading ML Kit only partly read - a number of 4+ digits after
+    /// the usual letter fixes ("o00 5377", "o0o S859" for 25377 and 58609) - so the seven-segment
+    /// decoder should look at it too.
+    /// </summary>
+    public static bool MayHoldReading(string? text) => PartialReading(text) != null;
+
+    /// <summary>The longest 4+ digit number on a line after the usual letter fixes ("5377" in
+    /// "o00 5377"), or null. Part of a reading at best - never offered on its own.</summary>
+    public static string? PartialReading(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        return text.Split('\n')
+            .SelectMany(line => Separators.Split(OdoLookalike.Replace(line.ToUpperInvariant(), "ODO")))
+            .Select(DigitsOf)
+            .Where(digits => digits?.Length >= 4)
+            .OrderByDescending(digits => digits!.Length)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// The reading in a framed readout's OCR passes (each pass's lines, best pass first). A proper
+    /// reading from any pass comes before a short number from any: the enhanced pass can split
+    /// "25377" into "2537" / "17" while the plain one reads it whole. A short number (3-7 digits)
+    /// is still what the driver framed - a low-mileage unit, or a drum partly behind the needle.
+    /// </summary>
+    public static string? FramedReading(IEnumerable<IEnumerable<string?>> passes)
+    {
+        var lines = passes.Select(p => p.ToList()).ToList();
+        foreach (var pass in lines)
+        {
+            if (Candidates(pass).FirstOrDefault() is string reading)
+            {
+                return reading;
+            }
+        }
+
+        foreach (var pass in lines)
+        {
+            string digits = pass
+                .Select(l => new string((l ?? string.Empty).Where(char.IsDigit).ToArray()))
+                .OrderByDescending(d => d.Length)
+                .FirstOrDefault() ?? string.Empty;
+            if (digits.Length is >= 3 and <= 7)
+            {
+                return digits;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// ML Kit's reading checked against the seven-segment decoder's read of the same digits.
+    /// Where they differ by one segment and the decoder is sure, its digit is taken (ML Kit's 6
+    /// read as 5); any disagreement leaves the reading not Confident. With no ML Kit reading, a
+    /// full 5-6 digit decode is offered on its own (not Confident), with the digits it wasn't sure
+    /// of taken from the part ML Kit did read (<paramref name="partial"/>: "5377" of 25377, the
+    /// first digit lost next to "ODO"). '?' cells at either end of the decode are the "ODO" label
+    /// or a bit of the frame. Null when neither read a reading.
+    /// </summary>
+    public static Reading? Reconcile(string? ocr, SevenSegmentDecoder.DecodeResult decoded, string? partial = null)
+    {
+        var digits = decoded.Digits
+            .SkipWhile(d => d.Digit == '?')
+            .Reverse()
+            .SkipWhile(d => d.Digit == '?')
+            .Reverse()
+            .ToList();
+
+        if (ocr == null)
+        {
+            char[] text = digits.Select(d => d.Digit).ToArray();
+            if (partial != null && partial.Length < text.Length)
+            {
+                // Where the part lines up best; on a tie, at the end (the digit lost is the
+                // one next to the label).
+                int offset = Enumerable.Range(0, text.Length - partial.Length + 1)
+                    .OrderByDescending(o => partial.Where((c, i) => c == text[o + i]).Count())
+                    .ThenByDescending(o => o)
+                    .First();
+                for (int i = 0; i < partial.Length; i++)
+                {
+                    if (!digits[offset + i].IsConfident)
+                    {
+                        text[offset + i] = partial[i];
+                    }
+                }
+            }
+
+            bool fullDecode = text.Length is >= MinDigits and <= MaxDigits && !text.Contains('?');
+            return fullDecode ? new Reading(new string(text), Confident: false) : null;
+        }
+
+        if (digits.Count == 0)
+        {
+            // Nothing to compare with (a drum odometer, or the decoder found no segments).
+            return new Reading(ocr, Confident: true);
+        }
+
+        if (digits.Count != ocr.Length)
+        {
+            return new Reading(ocr, Confident: false);
+        }
+
+        char[] merged = ocr.ToCharArray();
+        bool agree = true;
+        for (int i = 0; i < merged.Length; i++)
+        {
+            char d = digits[i].Digit;
+            if (d == ocr[i])
+            {
+                continue;
+            }
+
+            agree = false;
+            string pair = d < ocr[i] ? $"{d}{ocr[i]}" : $"{ocr[i]}{d}";
+            if (digits[i].IsConfident && OneSegmentApart.Contains(pair))
+            {
+                merged[i] = d;
+            }
+        }
+        return new Reading(new string(merged), agree);
     }
 }

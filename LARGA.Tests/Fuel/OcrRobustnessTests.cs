@@ -148,4 +148,90 @@ public class OcrRobustnessTests
         var candidates = OdometerReadingParser.Candidates(new[] { "AVG KM/L 123456", "058700" });
         Assert.Equal("058700", candidates[0]);
     }
+
+    [Theory]
+    [InlineData("120 140")]        // speedometer marks ML Kit put on one line (Vios cluster)
+    [InlineData("100 120 140")]
+    [InlineData("120 l40 0")]
+    public void Odometer_DialMarksAreNotAReading(string ocr) =>
+        Assert.Empty(OdometerReadingParser.Candidates(ocr));
+
+    [Theory]
+    [InlineData("O00 35805")]      // "ODO" read as O00 (Vios cluster)
+    [InlineData("o0o 35805")]
+    [InlineData("000 35805")]
+    public void Odometer_OdoReadAsZeros_IsTheLabel(string ocr)
+    {
+        // The labelled line wins over an unlabelled number elsewhere on the dashboard.
+        var candidates = OdometerReadingParser.Candidates(new[] { "15231", ocr });
+        Assert.Equal("35805", candidates[0]);
+    }
+
+    [Theory]
+    [InlineData("o00 5377", true)]   // 25377 with its first digit lost
+    [InlineData("o0o S859", true)]   // 58609
+    [InlineData("120 140", false)]
+    [InlineData("S2 3k P", false)]   // the clock and temperature
+    [InlineData("km/h", false)]
+    public void Odometer_MayHoldPartReading(string ocr, bool expected) =>
+        Assert.Equal(expected, OdometerReadingParser.MayHoldReading(ocr));
+
+    [Fact]
+    public void Odometer_Framed_ReadingFromEitherPass_BeforeAShortNumber()
+    {
+        // The enhanced pass split 25377 into "2537" / "17"; the plain pass read it whole.
+        var passes = new[] { new string?[] { "2537", "17" }, new string?[] { "25377" } };
+        Assert.Equal("25377", OdometerReadingParser.FramedReading(passes));
+        Assert.Equal("2537", OdometerReadingParser.FramedReading(new[] { new string?[] { "2537", "17" } }));
+    }
+
+    private static SevenSegmentDecoder.DecodeResult Decoded(string digits, string confident = "") => new()
+    {
+        Digits = digits.Select((d, i) => new SevenSegmentDecoder.DigitResult
+        {
+            Digit = d,
+            IsConfident = confident.Length == 0 || confident[i] == '+',
+        }).ToList(),
+    };
+
+    [Theory]
+    [InlineData("36805", "36806", "", "36806", false)]            // ML Kit's 6 read as 5, decoder sure
+    [InlineData("25377", "25371", "++++?", "25377", false)]       // decoder unsure: ML Kit's digit kept
+    [InlineData("29044", "29044", "", "29044", true)]             // both agree
+    [InlineData("58509", "58409", "", "58509", false)]            // 5 vs 4 is not one segment: kept, flagged
+    [InlineData("058700", "??058700", "", "058700", true)]        // "ODO" decoded as '?' cells
+    [InlineData(null, "??25377", "??++++?", "25377", false)]      // decoder alone: offered, never sure
+    public void Odometer_Reconcile(string? ocr, string decoded, string confident, string expected, bool sure)
+    {
+        var reading = OdometerReadingParser.Reconcile(ocr, Decoded(decoded, confident));
+        Assert.Equal(expected, reading?.Text);
+        Assert.Equal(sure, reading?.Confident);
+    }
+
+    [Theory]
+    [InlineData("??25371", "??++++?", "5377", "25377")]   // ML Kit's "o00 5377" fixes the unsure last digit
+    [InlineData("25371", "+++++", "5377", "25371")]       // a sure decoder digit stands
+    [InlineData("25377", "", "2537", "25377")]            // the part may sit at the start too
+    public void Odometer_Reconcile_DecoderFilledFromPartOfTheNumber(string decoded, string confident, string partial, string expected)
+    {
+        var reading = OdometerReadingParser.Reconcile(null, Decoded(decoded, confident), partial);
+        Assert.Equal(expected, reading?.Text);
+        Assert.False(reading?.Confident);
+        Assert.Null(OdometerReadingParser.Reconcile(null, Decoded(""), partial));   // the part alone is never offered
+    }
+
+    [Fact]
+    public void Odometer_Reconcile_NothingDecoded_KeepsMlKitAsIs()
+    {
+        // A drum odometer: the decoder finds no segments, ML Kit's reading stands.
+        Assert.Equal(new OdometerReadingParser.Reading("058700", true), OdometerReadingParser.Reconcile("058700", Decoded("")));
+        Assert.Null(OdometerReadingParser.Reconcile(null, Decoded("2?4")));
+    }
+
+    [Theory]
+    [InlineData("Phps, 763.60", "Php5,763.60")]   // Petron, Molo: 5 read as s after the peso sign
+    [InlineData("Php56.39", "Php56.39")]
+    [InlineData("Pumps 3", "Pumps 3")]
+    public void PesoSignFollowedByS_IsAFive(string input, string expected) =>
+        Assert.Equal(expected, FuelReceiptTextParser.NormalizeNumbers(input));
 }

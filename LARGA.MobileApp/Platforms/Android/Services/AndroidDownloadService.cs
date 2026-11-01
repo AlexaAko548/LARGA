@@ -20,7 +20,8 @@ public class AndroidDownloadService : IDownloadService
         if (Build.VERSION.SdkInt < BuildVersionCodes.Q)
         {
             // Pre-Android 10 has no permissionless public-Downloads API; writing there needs
-            // WRITE_EXTERNAL_STORAGE (not declared - see AndroidManifest.xml) and a runtime grant.
+            // WRITE_EXTERNAL_STORAGE (declared only for MediaPicker capture - see AndroidManifest.xml) and a
+            // runtime grant this path doesn't request.
             // Falls back to the share sheet rather than failing the export outright.
             return await new ShareDownloadService().SaveToDownloadsAsync(fileName, content, contentType);
         }

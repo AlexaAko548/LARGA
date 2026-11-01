@@ -304,18 +304,7 @@ public partial class ScanFuelReceiptPage : ContentPage
         try
         {
             var second = FuelReceiptTextParser.Parse(ToParserLines(await _ocrService.ExtractTextBlocksAsync(enhancedPath)));
-            bool takeSecondAmount = (!first.Amount.HasValue || first.AmountUncertain) && second.Amount.HasValue && !second.AmountUncertain;
-            decimal? amount = takeSecondAmount ? second.Amount : first.Amount ?? second.Amount;
-            bool amountUncertain = takeSecondAmount ? false : first.Amount.HasValue ? first.AmountUncertain : second.AmountUncertain;
-            string? vendor = first.Vendor ?? second.Vendor;
-            decimal? liters = first.Liters ?? second.Liters;
-            DateTime? date = first.Date ?? second.Date;
-            bool takeSecondOr = first.OrNumber == null || (first.OrNumberUncertain && second.OrNumber != null && !second.OrNumberUncertain);
-            return new FuelReceiptTextParser.ReceiptFields(
-                vendor, amount, amountUncertain, liters, date,
-                takeSecondOr ? second.OrNumber : first.OrNumber,
-                takeSecondOr ? second.OrNumberUncertain : first.OrNumberUncertain,
-                FuelReceiptTextParser.BuildParsingWarning(vendor, amount, liters, date, amountUncertain));
+            return FuelReceiptTextParser.Combine(first, second);
         }
         finally
         {
