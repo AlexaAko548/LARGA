@@ -20,15 +20,13 @@ namespace LARGA.SharedCore.Services;
 /// is both possible and, once the crop is roughly right, considerably more reliable than
 /// asking a general OCR model to recognize this specific font.
 ///
-/// Validated against a real, previously-unreadable-by-ML-Kit odometer photo during
-/// development: went from 0/6 digits (nothing detected at all) to 4/6 digits decoded exactly
-/// right. The two remaining misreads came from a single ambiguous segment per digit - a
-/// segment's on/off score landing in the gray zone between a confidently-off and
-/// confidently-on reading for that same digit. IsConfident below flags exactly that case per
-/// digit, rather than silently returning a wrong answer - the caller (OdometerScanPage) shows
-/// low-confidence results for manual confirmation/correction rather than trusting them
-/// outright, and a caller wiring up an AI-vision fallback should treat IsConfident == false as
-/// exactly the trigger for that fallback.
+/// Real readouts framed from a dashboard photo (LARGA.Tests/Fixtures/Odometer, Toyota Vios
+/// clusters) are small, italic and have "km" printed under them, so the frame is scaled up,
+/// ink touching the frame is dropped, only the readout's own rows are kept and the slant is
+/// taken out before the digits are split. ML Kit's typical slip on these displays is reading a
+/// 6 as a 5 (one segment apart), which is what this decoder is there to catch
+/// (OdometerReadingParser.Reconcile). IsConfident flags a digit whose segment scores landed in
+/// the gray zone, so the caller asks the driver to check rather than trusting a guess.
 /// </summary>
 public static class SevenSegmentDecoder
 {
@@ -65,79 +63,36 @@ public static class SevenSegmentDecoder
     // Below this luminance spread the frame is a flat patch with nothing to read.
     private const int MinLuminanceContrast = 40;
 
-    public static DecodeResult Decode(SKBitmap crop, int expectedDigitCount)
+    // A readout framed from an ordinary dashboard photo is often only 15-40 px tall; the segment
+    // zones need a few pixels each, so a smaller frame is scaled up first.
+    private const int MinWorkingHeight = 160;
+    // Italic LCD fonts lean right by up to ~20 degrees (a shear of ~0.35).
+    private const double MaxShear = 0.4;
+
+    /// <param name="maxDigits">The most digits the readout can have (a taxi odometer shows 5 or
+    /// 6). A frame that splits into far more cells than that holds texture, not a readout.</param>
+    public static DecodeResult Decode(SKBitmap crop, int maxDigits)
     {
-        int w = crop.Width, h = crop.Height;
-        var on = new bool[w, h];
-        var score = new int[w, h];
-        var luminance = new int[w, h];
-        int maxScore = 0, minLum = 255, maxLum = 0;
-
-        for (int y = 0; y < h; y++)
-        {
-            for (int x = 0; x < w; x++)
-            {
-                SKColor c = crop.GetPixel(x, y);
-                // LCD segments are lit in a strong, saturated color (green on this app's
-                // reference odometers) against a near-black background - green-minus-other-
-                // channels separates lit segments from background/glare far more cleanly
-                // than plain grayscale luminance would.
-                int s = Math.Max(0, c.Green * 2 - c.Red - c.Blue);
-                score[x, y] = s;
-                if (s > maxScore) maxScore = s;
-
-                int l = (299 * c.Red + 587 * c.Green + 114 * c.Blue) / 1000;
-                luminance[x, y] = l;
-                if (l < minLum) minLum = l;
-                if (l > maxLum) maxLum = l;
-            }
-        }
-
-        // Anything that isn't a lit green display is read by brightness instead. With the
-        // color score alone, white digits score ~0 everywhere, the threshold collapses onto
-        // JPEG noise, and every speck became its own narrow cell decoded as '1'.
-        bool useColor = maxScore >= MinColorScore;
-        if (!useColor && maxLum - minLum < MinLuminanceContrast)
+        using SKBitmap? upscaled = crop.Height < MinWorkingHeight ? Upscale(crop) : null;
+        bool[,]? ink = Threshold(upscaled ?? crop);
+        if (ink == null)
         {
             return new DecodeResult();
         }
 
-        int[,] signal = useColor ? score : luminance;
-        int threshold = OtsuThreshold(signal, w, h, useColor ? 510 : 255);
-        int onTotal = 0;
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++)
-            {
-                on[x, y] = signal[x, y] > threshold;
-                if (on[x, y]) onTotal++;
-            }
+        // Ink touching the frame is the bezel, glare or a label cut by the frame - never a digit
+        // the driver framed. It used to come back as an extra '1' at the end of the reading.
+        ClearBorder(ink);
 
-        // Digits are the minority of a tight frame - when "bright" is the majority, the digits
-        // are the dark ones (dark numerals on a light face).
-        if (!useColor && onTotal > w * h / 2)
-        {
-            for (int y = 0; y < h; y++)
-                for (int x = 0; x < w; x++)
-                    on[x, y] = !on[x, y];
-        }
-
-        var rowCounts = new int[h];
-        for (int y = 0; y < h; y++)
-        {
-            int count = 0;
-            for (int x = 0; x < w; x++) if (on[x, y]) count++;
-            rowCounts[y] = count;
-        }
-
-        // Rows with only a stray pixel or two are noise, not the top/bottom of a digit.
-        int minRowInk = Math.Max(1, w / 40);
-        int inkTop = -1, inkBottom = -1;
-        for (int y = 0; y < h; y++) { if (rowCounts[y] >= minRowInk) { inkTop = y; break; } }
-        for (int y = h - 1; y >= 0; y--) { if (rowCounts[y] >= minRowInk) { inkBottom = y; break; } }
-        if (inkTop < 0 || inkBottom <= inkTop)
+        if (DigitBand(ink) is not (int bandTop, int bandBottom))
         {
             return new DecodeResult();
         }
+
+        // Only the readout's own rows ("km" under it is left out), with the italic slant removed.
+        bool[,] on = Deskew(ink, bandTop, bandBottom);
+        int w = on.GetLength(0);
+        int inkTop = 0, inkBottom = on.GetLength(1) - 1;
         int inkHeight = inkBottom - inkTop + 1;
 
         var colCounts = new int[w];
@@ -170,13 +125,12 @@ public static class SevenSegmentDecoder
             return new DecodeResult();
         }
 
-        int totalSpan = runs[^1].end - runs[0].start + 1;
-        double unitWidth = (double)totalSpan / Math.Max(1, expectedDigitCount);
+        double unitWidth = DigitWidth(runs, inkHeight);
 
-        // Tier 2: a run much wider than one digit's unit width is multiple digits touching
-        // at the baseline with no fully-empty column between them (common - digit spacing on
-        // a real LCD is tight) - split it further at local minima (valleys) in the column
-        // density instead of requiring a true gap.
+        // Tier 2: a run much wider than one digit is multiple digits touching at the baseline
+        // with no fully-empty column between them (common - digit spacing on a real LCD is
+        // tight) - split it further at local minima (valleys) in the column density instead of
+        // requiring a true gap.
         var finalRuns = new List<(int start, int end)>();
         foreach (var r in runs)
         {
@@ -205,7 +159,7 @@ public static class SevenSegmentDecoder
         // Far more cells than an odometer has digits means the frame holds texture (a dial
         // face, printed text, a screen's pixel grid), not a seven-segment readout - report
         // nothing rather than a wall of guessed digits.
-        if (finalRuns.Count > expectedDigitCount + 2)
+        if (finalRuns.Count > maxDigits + 2)
         {
             return new DecodeResult();
         }
@@ -239,6 +193,189 @@ public static class SevenSegmentDecoder
         }
 
         return result;
+    }
+
+    private static SKBitmap Upscale(SKBitmap crop)
+    {
+        int factor = Math.Min(8, (int)Math.Ceiling((double)MinWorkingHeight / Math.Max(1, crop.Height)));
+        var info = new SKImageInfo(crop.Width * factor, crop.Height * factor, SKColorType.Rgba8888, SKAlphaType.Premul);
+        return crop.Resize(info, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None)) ?? crop.Copy();
+    }
+
+    /// <summary>Lit (digit) pixels, or null when the frame is a flat patch with nothing to read.</summary>
+    private static bool[,]? Threshold(SKBitmap bitmap)
+    {
+        int w = bitmap.Width, h = bitmap.Height;
+        var on = new bool[w, h];
+        var score = new int[w, h];
+        var luminance = new int[w, h];
+        int maxScore = 0, minLum = 255, maxLum = 0;
+
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
+            {
+                SKColor c = bitmap.GetPixel(x, y);
+                // LCD segments are lit in a strong, saturated color (green on this app's
+                // reference odometers) against a near-black background - green-minus-other-
+                // channels separates lit segments from background/glare far more cleanly
+                // than plain grayscale luminance would.
+                int s = Math.Max(0, c.Green * 2 - c.Red - c.Blue);
+                score[x, y] = s;
+                if (s > maxScore) maxScore = s;
+
+                int l = (299 * c.Red + 587 * c.Green + 114 * c.Blue) / 1000;
+                luminance[x, y] = l;
+                if (l < minLum) minLum = l;
+                if (l > maxLum) maxLum = l;
+            }
+        }
+
+        // Anything that isn't a lit green display is read by brightness instead. With the
+        // color score alone, white digits score ~0 everywhere, the threshold collapses onto
+        // JPEG noise, and every speck became its own narrow cell decoded as '1'.
+        bool useColor = maxScore >= MinColorScore;
+        if (!useColor && maxLum - minLum < MinLuminanceContrast)
+        {
+            return null;
+        }
+
+        int[,] signal = useColor ? score : luminance;
+        int threshold = OtsuThreshold(signal, w, h, useColor ? 510 : 255);
+        int onTotal = 0;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                on[x, y] = signal[x, y] > threshold;
+                if (on[x, y]) onTotal++;
+            }
+
+        // Digits are the minority of a tight frame - when "bright" is the majority, the digits
+        // are the dark ones (dark numerals on a light face).
+        if (!useColor && onTotal > w * h / 2)
+        {
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                    on[x, y] = !on[x, y];
+        }
+
+        return on;
+    }
+
+    /// <summary>Clears every patch of ink connected to the frame's edge.</summary>
+    private static void ClearBorder(bool[,] on)
+    {
+        int w = on.GetLength(0), h = on.GetLength(1);
+        var stack = new Stack<(int X, int Y)>();
+        for (int x = 0; x < w; x++) { stack.Push((x, 0)); stack.Push((x, h - 1)); }
+        for (int y = 0; y < h; y++) { stack.Push((0, y)); stack.Push((w - 1, y)); }
+
+        while (stack.Count > 0)
+        {
+            var (x, y) = stack.Pop();
+            if (x < 0 || y < 0 || x >= w || y >= h || !on[x, y]) continue;
+            on[x, y] = false;
+            stack.Push((x + 1, y));
+            stack.Push((x - 1, y));
+            stack.Push((x, y + 1));
+            stack.Push((x, y - 1));
+        }
+    }
+
+    /// <summary>The readout's rows: the tallest band of inked rows. A gap of a few rows (between
+    /// a digit's upper and lower segments) doesn't split a band; the "km" printed under the
+    /// readout, or a clock above it, is a band of its own.</summary>
+    private static (int Top, int Bottom)? DigitBand(bool[,] on)
+    {
+        int w = on.GetLength(0), h = on.GetLength(1);
+        var rowCounts = new int[h];
+        for (int y = 0; y < h; y++)
+        {
+            int count = 0;
+            for (int x = 0; x < w; x++) if (on[x, y]) count++;
+            rowCounts[y] = count;
+        }
+
+        int maxRow = rowCounts.Max();
+        if (maxRow == 0)
+        {
+            return null;
+        }
+
+        // Rows with only a stray pixel or two are noise, not the top/bottom of a digit.
+        int minRowInk = Math.Max(Math.Max(1, w / 60), maxRow / 8);
+        int maxGap = Math.Max(2, h / 25);
+
+        (int Top, int Bottom)? best = null;
+        int top = -1, last = -1;
+        for (int y = 0; y <= h; y++)
+        {
+            bool inked = y < h && rowCounts[y] >= minRowInk;
+            if (inked && top >= 0 && y - last - 1 <= maxGap)
+            {
+                last = y;
+                continue;
+            }
+
+            if (top >= 0 && (best is not (int bt, int bb) || last - top > bb - bt))
+            {
+                best = (top, last);
+            }
+
+            top = inked ? y : -1;
+            last = inked ? y : -1;
+        }
+
+        return best is (int t, int b) && b > t ? best : null;
+    }
+
+    /// <summary>The band's rows with the slant taken out: of the shears tried, the one whose
+    /// column profile is sharpest (largest sum of squared column counts) - upright strokes
+    /// stack into a few full columns with clean gaps between digits.</summary>
+    private static bool[,] Deskew(bool[,] on, int top, int bottom)
+    {
+        int w = on.GetLength(0);
+        int bandHeight = bottom - top + 1;
+        int pad = (int)Math.Ceiling(MaxShear * bandHeight / 2) + 1;
+        double centre = (bandHeight - 1) / 2.0;
+
+        int Shift(double shear, int y) => (int)Math.Round(shear * (y - centre)) + pad;
+
+        double bestShear = 0, bestScore = -1;
+        for (int step = -5; step <= (int)Math.Round(MaxShear / 0.02); step++)
+        {
+            double shear = step * 0.02;
+            var cols = new int[w + 2 * pad];
+            for (int y = 0; y < bandHeight; y++)
+            {
+                int shift = Shift(shear, y);
+                for (int x = 0; x < w; x++) if (on[x, top + y]) cols[x + shift]++;
+            }
+
+            double score = 0;
+            foreach (int c in cols) score += (double)c * c;
+            if (score > bestScore) { bestScore = score; bestShear = shear; }
+        }
+
+        var result = new bool[w + 2 * pad, bandHeight];
+        for (int y = 0; y < bandHeight; y++)
+        {
+            int shift = Shift(bestShear, y);
+            for (int x = 0; x < w; x++) if (on[x, top + y]) result[x + shift, y] = true;
+        }
+        return result;
+    }
+
+    /// <summary>A full digit's width (not a '1'): the median of the runs shaped like one digit,
+    /// else the usual seven-segment proportion of the readout's height.</summary>
+    private static double DigitWidth(List<(int start, int end)> runs, int inkHeight)
+    {
+        var single = runs
+            .Select(r => r.end - r.start + 1)
+            .Where(width => width >= inkHeight * 0.3 && width <= inkHeight * 0.85)
+            .OrderBy(width => width)
+            .ToList();
+        return single.Count > 0 ? single[single.Count / 2] : inkHeight * 0.55;
     }
 
     private static int RunInkHeight(bool[,] on, int start, int end, int top, int bottom)

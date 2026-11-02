@@ -66,8 +66,10 @@ public class GarageService
 
         await StartDueScheduledJobsAsync(records);
 
-        List<DriverReportEntry> pending = records
-            .Where(r => r.Status == "Reported")
+        // A pre-shift defect stays on Driver & Shifts while its clock-in waits (or once it's approved);
+        // it only joins this list when the clock-in is denied (PreShiftDefectRules).
+        IReadOnlySet<string> heldForClockIn = await GetDefectsHeldForClockInAsync();
+        List<DriverReportEntry> pending = PreShiftDefectRules.PendingGarageReports(records, heldForClockIn)
             .OrderByDescending(r => r.PriorityLevel)
             .ThenByDescending(r => r.DateLogged)
             .Select(r => new DriverReportEntry
@@ -810,6 +812,30 @@ public class GarageService
         int lastUnderscore = taxiId.LastIndexOf('_');
         string suffix = lastUnderscore >= 0 ? taxiId[(lastUnderscore + 1)..] : taxiId;
         return int.TryParse(suffix, out int n) ? $"Unit {n:00}" : $"Unit {taxiId}";
+    }
+
+    /// <summary>maintenance_logs IDs listed by clock-in requests that are pending or approved - one equality
+    /// query on status per PreShiftDefectRules.HeldStatuses (auto-indexed). If they can't be read, nothing
+    /// is held back and the Garage lists every report, as before.</summary>
+    private async Task<IReadOnlySet<string>> GetDefectsHeldForClockInAsync()
+    {
+        try
+        {
+            var requests = new List<(string? Status, object? DefectReportIds)>();
+            foreach (string status in PreShiftDefectRules.HeldStatuses)
+            {
+                QuerySnapshot snapshot = await Db.Collection("clockin_requests").WhereEqualTo("status", status).GetSnapshotAsync();
+                PerfLog.Reads("clockin_requests", snapshot.Count);
+                requests.AddRange(snapshot.Documents.Select(doc =>
+                    ((string?)status, doc.TryGetValue("defectReportIds", out object? ids) ? ids : null)));
+            }
+            return PreShiftDefectRules.HeldDefectIds(requests);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Couldn't read clock-in requests; listing every pending driver report");
+            return new HashSet<string>();
+        }
     }
 
     private async Task<List<T>> GetAllAsync<T>(string collection) where T : class

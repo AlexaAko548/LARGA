@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
              xmlns:controls="clr-namespace:LARGA.MobileApp.Controls"
+             xmlns:core="clr-namespace:LARGA.SharedCore;assembly=LARGA.SharedCore"
              x:Class="LARGA.MobileApp.Views.Driver.VehicleDefectPage"
              x:DataType="vm:VehicleDefectViewModel"
              NavigationPage.HasNavigationBar="False"
@@ -33,7 +34,49 @@
             </Border>
 
             <!-- Priority Level -->
-            <Label Text="PRIORITY LEVEL" FontSize="12" TextColor="{DynamicResource LargaDarkText}" Margin="0,5,0,0" />
+            <HorizontalStackLayout Spacing="6" Margin="0,5,0,0">
+                <Label Text="PRIORITY LEVEL" FontSize="12" TextColor="{DynamicResource LargaDarkText}" VerticalOptions="Center" />
+                <!-- Tap to show what each level means, tap again to hide it (same words as the web Garage). -->
+                <Border WidthRequest="22" HeightRequest="22" StrokeThickness="1" Stroke="{DynamicResource LargaPrimaryBlue}"
+                        StrokeShape="RoundRectangle 11" BackgroundColor="Transparent" VerticalOptions="Center"
+                        SemanticProperties.Description="What the priority levels mean">
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding TogglePriorityHelpCommand}" />
+                    </Border.GestureRecognizers>
+                    <Label Text="i" FontSize="12" FontAttributes="Bold" TextColor="{DynamicResource LargaPrimaryBlue}"
+                           HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                </Border>
+            </HorizontalStackLayout>
+            <Border IsVisible="{Binding IsPriorityHelpVisible}" BackgroundColor="{DynamicResource LargaLightBlue}"
+                    StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="12">
+                <VerticalStackLayout Spacing="6">
+                    <Label FontSize="12" TextColor="{DynamicResource LargaDarkText}">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Low: " FontAttributes="Bold" />
+                                <Span Text="{x:Static core:PriorityLevelHelp.Low}" />
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+                    <Label FontSize="12" TextColor="{DynamicResource LargaDarkText}">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Medium: " FontAttributes="Bold" />
+                                <Span Text="{x:Static core:PriorityLevelHelp.Medium}" />
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+                    <Label FontSize="12" TextColor="{DynamicResource LargaDarkText}">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="High: " FontAttributes="Bold" />
+                                <Span Text="{x:Static core:PriorityLevelHelp.High}" />
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+                    <Label Text="{x:Static core:PriorityLevelHelp.Note}" FontSize="12" TextColor="{DynamicResource ThemeTextGray}" />
+                </VerticalStackLayout>
+            </Border>
             <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 20" StrokeThickness="0" Padding="5">
                 <Grid ColumnDefinitions="*,*,*">
                     <RadioButton Grid.Column="0" Content="Low" IsChecked="{Binding IsLow}" GroupName="Priority" controls:ThemedRadio.IsEnabled="True" TextColor="{DynamicResource LargaDarkText}" HorizontalOptions="Center" />

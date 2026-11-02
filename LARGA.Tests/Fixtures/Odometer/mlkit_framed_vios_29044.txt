@@ -1,0 +1,4 @@
+LARGA-OCR block 0 img=82x47 px=[L18 T16 R66 B33] norm=[x0.2195 y0.3404 w0.5854 h0.3617] text="29044"
+LARGA-OCR line 0 norm=[x0.2195 y0.3404 w0.5854 h0.3617] slope=-0.03635 text="29044"
+LARGA-OCR block 1 img=82x47 px=[L36 T30 R42 B37] norm=[x0.439 y0.6383 w0.0732 h0.1489] text="on"
+LARGA-OCR line 1 norm=[x0.439 y0.6383 w0.0732 h0.1489] slope=-0.29078 text="on"

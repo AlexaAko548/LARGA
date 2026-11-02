@@ -43,8 +43,14 @@ public class AlertCenterViewModel : BindableObject
     private string _errorMessage = string.Empty;
     private int _unreadCount;
     private bool _hasLoaded;
+    private bool _showUnreadOnly;
+    private bool _refreshQueued;
 
-    public ObservableCollection<AlertItem> Alerts { get; } = new();
+    // Feeds that answer within this long of each other share one list rebuild (they all fire together on open).
+    private static readonly TimeSpan RefreshCoalesceDelay = TimeSpan.FromMilliseconds(100);
+
+    // Not bound - the list shows AlertGroups. Replaced whole on each rebuild.
+    public IReadOnlyList<AlertItem> Alerts { get; private set; } = new List<AlertItem>();
 
     /// <summary>Set when the manager opened the app from an SOS push (App.xaml.cs); the page
     /// scrolls to that alert once it's in the list.</summary>
@@ -53,13 +59,36 @@ public class AlertCenterViewModel : BindableObject
     /// <summary>Raised (main thread) with the alert to scroll to after PendingFocusAlertId lands.</summary>
     public event EventHandler<AlertItem>? FocusRequested;
 
-    // Same alerts as Alerts, newest first, sectioned by date for the CollectionView.
-    public ObservableCollection<AlertGroup> AlertGroups { get; } = new();
+    // Same alerts as Alerts (only the unread ones under the Unread filter), newest first, sectioned by date
+    // for the CollectionView.
+    public AlertGroupCollection AlertGroups { get; } = new();
 
     public ICommand LoadAlertsCommand { get; }
     public ICommand RetryCommand { get; }
 
-    /// <summary>Unread system_alerts among the newest 50 - the same number as the web bell's badge.</summary>
+    /// <summary>BETA-054: the Unread / All filter at the top of the list. Only changes what this phone shows;
+    /// nothing is written. All by default.</summary>
+    public ICommand ShowAllCommand { get; }
+    public ICommand ShowUnreadCommand { get; }
+
+    public bool ShowUnreadOnly
+    {
+        get => _showUnreadOnly;
+        private set
+        {
+            if (_showUnreadOnly == value) return;
+            _showUnreadOnly = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsAllSelected));
+            RebuildGroups();
+        }
+    }
+
+    public bool IsAllSelected => !ShowUnreadOnly;
+
+    /// <summary>How many cards the Unread tab shows: unread notices plus every pending SOS / fuel / clock-in card.
+    /// Can differ from the web badge, which also counts web-only rows (AlertFeed.ShownOnPhone) and reads the
+    /// action cards' rows.</summary>
     public int UnreadCount
     {
         get => _unreadCount;
@@ -71,13 +100,16 @@ public class AlertCenterViewModel : BindableObject
     public string ErrorMessage
     {
         get => _errorMessage;
-        private set { _errorMessage = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasError)); OnPropertyChanged(nameof(IsEmpty)); }
+        private set { _errorMessage = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasError)); OnPropertyChanged(nameof(IsEmpty)); OnPropertyChanged(nameof(IsUnreadEmpty)); }
     }
 
     public bool HasError => !string.IsNullOrEmpty(_errorMessage);
 
     // "No alerts right now" - only once a feed has answered, so it doesn't flash while loading.
     public bool IsEmpty => _hasLoaded && !HasError && Alerts.Count == 0;
+
+    // "No unread alerts" - the Unread filter hides every alert there is.
+    public bool IsUnreadEmpty => _hasLoaded && !HasError && Alerts.Count > 0 && ShowUnreadOnly && !Alerts.Any(a => a.IsUnread);
 
     /// <summary>Resolving an SOS (SOS-007), approving/denying a clock-in and resolving a fuel flag are a
     /// Manager's decisions - an Assistant Manager sees the cards (and can call or message the driver)
@@ -102,6 +134,8 @@ public class AlertCenterViewModel : BindableObject
             StopListening();
             StartListening();
         });
+        ShowAllCommand = new Command(() => ShowUnreadOnly = false);
+        ShowUnreadCommand = new Command(() => ShowUnreadOnly = true);
 
         // One card action at a time: a second tap (or a tap on another card) while one is saving is ignored, so an
         // approval or a denial's garage report can't be written twice. No loading pill here - these actions wait on
@@ -216,9 +250,7 @@ public class AlertCenterViewModel : BindableObject
                     });
                 }
 
-                _sosItems.Clear();
-                _sosItems.AddRange(items);
-                MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
+                MainThread.BeginInvokeOnMainThread(() => ReplaceSlice(_sosItems, items));
 
                 // Alerts ManagerWeb hasn't geocoded yet (or that came in while it was down):
                 // look the address up here and redraw once it's known.
@@ -270,9 +302,7 @@ public class AlertCenterViewModel : BindableObject
                     });
                 }
 
-                _fuelItems.Clear();
-                _fuelItems.AddRange(items);
-                MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
+                MainThread.BeginInvokeOnMainThread(() => ReplaceSlice(_fuelItems, items));
             }, ex => OnListenerError("Flagged fuel logs", ex));
 
         // LAR-99: same trigger as ManagerWeb's Driver & Shifts approvals - a clock-in request the
@@ -283,31 +313,18 @@ public class AlertCenterViewModel : BindableObject
             .WhereEqualsTo("status", "Pending")
             .AddSnapshotListener<ClockInRequestAlertProxy>(async snapshot =>
             {
-                var items = new List<AlertItem>();
-                foreach (var doc in snapshot.Documents)
-                {
-                    if (doc.Data == null) continue;
-                    var driver = await GetDriverAsync(doc.Data.DriverId ?? string.Empty);
-                    DateTime createdAt = FirestoreDateTimeFix.Apply(doc.Data.CreatedAt);
+                var docs = snapshot.Documents.Where(doc => doc.Data != null).ToList();
+                // Every request's defect reports are read at once, not one after another.
+                string?[][] defectLines = await Task.WhenAll(docs.Select(doc =>
+                    Task.WhenAll(SplitIds(doc.Data!.DefectReportIds).Select(DefectLineAsync))));
 
-                    var defects = new List<string>();
-                    foreach (string defectId in SplitIds(doc.Data.DefectReportIds))
-                    {
-                        try
-                        {
-                            var defect = await CrossFirebaseFirestore.Current
-                                .GetCollection("maintenance_logs")
-                                .GetDocument(defectId)
-                                .GetDocumentSnapshotAsync<MaintenanceLogProxy>();
-                            if (defect?.Data == null) continue;
-                            string line = $"• {defect.Data.IssueTitle} ({defect.Data.PriorityLevel})";
-                            defects.Add(string.IsNullOrWhiteSpace(defect.Data.IssueDescription) ? line : $"{line}: {defect.Data.IssueDescription}");
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Clock-in defect read error ({defectId}): {ex.Message}");
-                        }
-                    }
+                var items = new List<AlertItem>();
+                for (int i = 0; i < docs.Count; i++)
+                {
+                    var doc = docs[i];
+                    var driver = await GetDriverAsync(doc.Data!.DriverId ?? string.Empty);
+                    DateTime createdAt = FirestoreDateTimeFix.Apply(doc.Data.CreatedAt);
+                    var defects = defectLines[i].OfType<string>().ToList();
 
                     items.Add(new AlertItem
                     {
@@ -329,9 +346,7 @@ public class AlertCenterViewModel : BindableObject
                     });
                 }
 
-                _defectItems.Clear();
-                _defectItems.AddRange(items);
-                MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
+                MainThread.BeginInvokeOnMainThread(() => ReplaceSlice(_defectItems, items));
             }, ex => OnListenerError("Clock-in requests", ex));
 
         // system_alerts: the web bell's query (AlertFeed) - every type, read and unread, newest 50. orderBy on one
@@ -349,10 +364,49 @@ public class AlertCenterViewModel : BindableObject
                     .Select(doc => BellItem(doc.Reference.Id, doc.Data!))
                     .ToList();
 
-                _bellItems.Clear();
-                _bellItems.AddRange(items);
-                MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
+                MainThread.BeginInvokeOnMainThread(() => ReplaceSlice(_bellItems, items));
             }, ex => OnListenerError("Notifications (system_alerts)", ex));
+    }
+
+    // "• Title (Priority): description" for one of a clock-in request's defect reports; null if it can't be read.
+    private static async Task<string?> DefectLineAsync(string defectId)
+    {
+        try
+        {
+            var defect = await CrossFirebaseFirestore.Current
+                .GetCollection("maintenance_logs")
+                .GetDocument(defectId)
+                .GetDocumentSnapshotAsync<MaintenanceLogProxy>();
+            if (defect?.Data == null) return null;
+            string line = $"• {defect.Data.IssueTitle} ({defect.Data.PriorityLevel})";
+            return string.IsNullOrWhiteSpace(defect.Data.IssueDescription) ? line : $"{line}: {defect.Data.IssueDescription}";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Clock-in defect read error ({defectId}): {ex.Message}");
+            return null;
+        }
+    }
+
+    // Main thread only, like RefreshCombinedAlerts, so a rebuild never reads a slice mid-update.
+    private void ReplaceSlice(List<AlertItem> slice, List<AlertItem> items)
+    {
+        slice.Clear();
+        slice.AddRange(items);
+        QueueRefresh();
+    }
+
+    // One rebuild for every change that lands within RefreshCoalesceDelay - each rebuild redraws the whole list.
+    private void QueueRefresh()
+    {
+        if (_refreshQueued) return;
+        _refreshQueued = true;
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            await Task.Delay(RefreshCoalesceDelay);
+            _refreshQueued = false;
+            RefreshCombinedAlerts();
+        });
     }
 
     private static AlertItem BellItem(string id, SystemAlertProxy data)
@@ -439,54 +493,55 @@ public class AlertCenterViewModel : BindableObject
 
         item.Address = address;
         item.Subtitle = SosLocationText(true, address, item.Latitude.Value, item.Longitude.Value);
-        MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
+        MainThread.BeginInvokeOnMainThread(QueueRefresh);
     }
 
     private void RefreshCombinedAlerts()
     {
-        // An SOS / fuel / clock-in card stands for its bell row, so that row isn't shown again; the card takes the
-        // row's read state. A card with no bell row (ManagerWeb wasn't running to write one) counts as unread.
-        var bellById = _bellItems.ToDictionary(item => item.Id);
+        // An SOS / fuel / clock-in card stands for its bell row, so that row isn't shown again. The card is unread
+        // until it's handled (Resolve / Approve / Deny take it off the list), whatever the web bell says - opening
+        // the row there doesn't make the pending work go away.
         List<AlertItem> actionCards = _sosItems.Concat(_fuelItems).Concat(_defectItems).ToList();
         foreach (AlertItem card in actionCards)
         {
-            card.IsRead = card.BellId is not null && bellById.TryGetValue(card.BellId, out AlertItem? row) && row.IsRead;
+            card.IsRead = false;
         }
         var cardIds = actionCards.Select(card => card.Id).ToHashSet();
+        DateTime nowUtc = DateTime.UtcNow;
         IEnumerable<AlertItem> bellRows = _bellItems
-            .Where(row => AlertFeed.SourceIdFor(row.Id, row.BellType) is not string sourceId || !cardIds.Contains(sourceId));
+            .Where(row => AlertFeed.SourceIdFor(row.Id, row.BellType) is not string sourceId || !cardIds.Contains(sourceId))
+            .Where(row => !AlertFeed.IsHiddenRead(row.IsRead, row.SortTime, nowUtc));
 
-        // Same number as the web badge: unread rows among the newest 50 system_alerts.
-        UnreadCount = _bellItems.Count(row => !row.IsRead);
-
-        // Newest first across all alert types. GroupBy keeps that order, so each date section
-        // starts with its newest alert and the newest section comes first. Within a day, SOS
-        // alerts lead, the most severe emergency type (Crash, Hostile, Standard) first.
-        DateTime philippineNow = PhilippineTime.Now;
-        List<AlertItem> sorted = actionCards.Concat(bellRows)
+        // Newest day first across all alert types. GroupBy keeps that order, so the newest date
+        // section comes first. Within a day, unread alerts come before read ones (beta feedback:
+        // read ones were landing on top), then SOS alerts lead, the most severe emergency type
+        // (Crash, Hostile, Standard) first, then newest first.
+        Alerts = actionCards.Concat(bellRows)
             .OrderByDescending(item => item.SortTime == DateTime.MinValue ? DateTime.MinValue : item.SortTime.ToPhilippineTime().Date)
+            .ThenBy(item => item.IsRead)
             .ThenByDescending(item => item.IsSos)
             .ThenByDescending(item => item.IsSos ? EmergencyTypes.Severity(item.TriggerType) : 0)
             .ThenByDescending(item => item.SortTime)
             .ToList();
 
-        Alerts.Clear();
-        foreach (var item in sorted)
-        {
-            Alerts.Add(item);
-        }
-
-        AlertGroups.Clear();
-        foreach (var group in sorted.GroupBy(item => AlertFeed.SectionTitle(item.SortTime, philippineNow)))
-        {
-            AlertGroups.Add(new AlertGroup(group.Key, group));
-        }
+        // The cards the Unread tab shows.
+        UnreadCount = Alerts.Count(item => item.IsUnread);
 
         _hasLoaded = true;
+        RebuildGroups();
         OnPropertyChanged(nameof(HeaderText));
         OnPropertyChanged(nameof(IsEmpty));
 
         ApplyPendingFocus();
+    }
+
+    private void RebuildGroups()
+    {
+        DateTime philippineNow = PhilippineTime.Now;
+        AlertGroups.ReplaceAll(Alerts.Where(item => !ShowUnreadOnly || item.IsUnread)
+            .GroupBy(item => AlertFeed.SectionTitle(item.SortTime, philippineNow))
+            .Select(group => new AlertGroup(group.Key, group)));
+        OnPropertyChanged(nameof(IsUnreadEmpty));
     }
 
     /// <summary>Scrolls to the alert an SOS push was opened for, once it's in the list.</summary>
@@ -495,6 +550,8 @@ public class AlertCenterViewModel : BindableObject
         if (PendingFocusAlertId is string focusId && Alerts.FirstOrDefault(i => i.Id == focusId) is AlertItem focus)
         {
             PendingFocusAlertId = null;
+            // The Unread filter would hide an SOS already marked read - show everything so it can be scrolled to.
+            if (focus.IsRead) ShowUnreadOnly = false;
             FocusRequested?.Invoke(this, focus);
         }
     }
@@ -551,9 +608,9 @@ public class AlertCenterViewModel : BindableObject
             {
                 case AlertType.Sos:
                     if (!await EnsureCanDecideAsync()) return;
-                    // Unlike the X on every other card, this one is a real decision (same writes
-                    // as the web's SOS Dispatch Resolved toggle) - confirm first so a stray tap on
-                    // the close icon can't silently close out an active emergency.
+                    // Unlike a notice's Mark as Read, the SOS card's Mark as Resolved is a real
+                    // decision (same writes as the web's SOS Dispatch Resolved toggle) - confirm
+                    // first so a stray tap can't silently close out an active emergency.
                     bool confirmedResolved = await ConfirmationPopup.ShowAsync(Shell.Current,
                         "Mark This SOS Resolved?",
                         $"This marks the alert from {alert.DriverName} as handled. Make sure the situation is actually resolved first.",
@@ -576,21 +633,12 @@ public class AlertCenterViewModel : BindableObject
 
                 case AlertType.FuelDiscrepancy:
                 case AlertType.ShiftApproval:
-                    // No status write here - Resolve (fuel) and Approve/Deny (defect) are the real
-                    // decisions. X marks the card's bell row read (same as clicking it in the web
-                    // bell), so both apps stop counting it; the card stays, dimmed, until it's
-                    // handled. Confirm first and say plainly that it's still unresolved.
-                    bool isFuel = alert.Type == AlertType.FuelDiscrepancy;
-                    bool confirmedRead = await ConfirmationPopup.ShowAsync(Shell.Current,
-                        "Mark as Read?",
-                        $"This only marks the alert as read on the phone and the web - it does not resolve the {(isFuel ? "fuel discrepancy" : "clock-in request")}. It stays here until you handle it.",
-                        confirmText: "Mark as Read", isDangerous: false);
-                    if (!confirmedRead) return;
-
-                    if (alert.BellId is not null) await MarkBellReadAsync(alert.BellId);
-                    break;
+                    // Pending work: these cards have no Mark as Read - only Resolve / Approve / Deny,
+                    // which take them off the list.
+                    return;
 
                 default:
+                    // A notice's MARK AS READ (system_alerts/{id}). A failure shows "Not saved" below.
                     using (LoadingState.Begin())
                     {
                         await MarkAlertReadAsync(alert.Id);
@@ -1029,6 +1077,24 @@ public class AlertCenterViewModel : BindableObject
             .UpdateDataAsync(new Dictionary<object, object> { { "isRead", true } });
 }
 
+// The Alert Center's sections. ReplaceAll swaps every section with one Reset notification - Clear() plus an Add
+// per section made the list re-layout once per section on every rebuild.
+public class AlertGroupCollection : ObservableCollection<AlertGroup>
+{
+    public void ReplaceAll(IEnumerable<AlertGroup> groups)
+    {
+        Items.Clear();
+        foreach (AlertGroup group in groups)
+        {
+            Items.Add(group);
+        }
+        OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs(nameof(Count)));
+        OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(new System.Collections.Specialized.NotifyCollectionChangedEventArgs(
+            System.Collections.Specialized.NotifyCollectionChangedAction.Reset));
+    }
+}
+
 // One date section in the Alert Center list ("Today", "Yesterday", "October 3, 2026").
 public class AlertGroup : ObservableCollection<AlertItem>
 {
@@ -1061,7 +1127,8 @@ public class AlertItem
     public string? BellType { get; set; }
     public string TypeTitle { get; set; } = string.Empty;
 
-    // Read alerts stay in the list, dimmed - the web bell shows them the same way.
+    // Read notices stay in the list, dimmed, for AlertFeed.HideReadAfter - the web bell shows them the same way.
+    // SOS / fuel / clock-in cards are never read (RefreshCombinedAlerts).
     public bool IsRead { get; set; }
     public bool IsUnread => !IsRead;
     public double CardOpacity => IsRead ? 0.55 : 1.0;

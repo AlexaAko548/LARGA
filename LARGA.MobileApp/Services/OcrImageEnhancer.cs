@@ -77,6 +77,28 @@ public static class OcrImageEnhancer
         }
     }
 
+    /// <summary>The photo turned upright (EXIF), as ML Kit sees it - so its normalized boxes land
+    /// on the same pixels - or null if it can't be read.</summary>
+    public static SKBitmap? LoadUpright(string sourcePath)
+    {
+        try
+        {
+            using var codec = SKCodec.Create(sourcePath);
+            if (codec == null)
+            {
+                return null;
+            }
+
+            using var decoded = SKBitmap.Decode(codec);
+            return decoded == null ? null : ApplyOrientation(decoded, codec.EncodedOrigin);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Load upright photo failed: {ex.Message}");
+            return null;
+        }
+    }
+
     /// <summary>The 2nd and 98th percentile of luminance (0-1), sampled on a grid.</summary>
     private static (float Low, float High) LuminanceRange(SKBitmap bitmap)
     {

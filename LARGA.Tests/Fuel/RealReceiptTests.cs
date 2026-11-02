@@ -265,4 +265,45 @@ public class RealReceiptTests
         Assert.Null(ReceiptScan.Run(ReceiptScan.FromLogcat("mlkit_shell.txt")).OrNumber);
         Assert.Null(ReceiptScan.Run(ShellLines()).OrNumber);
     }
+
+    // ---------- more stations (tests/receipts), read as ScanFuelReceiptPage does ----------
+    // The photo first; when that leaves a warning, the enhanced copy fills the gaps (Combine).
+
+    private static ReceiptFields ScanTwice(string name)
+    {
+        ReceiptFields first = Parse(ReceiptScan.FromLogcat($"mlkit_lines_{name}.txt"));
+        return string.IsNullOrEmpty(first.Warning)
+            ? first
+            : Combine(first, Parse(ReceiptScan.FromLogcat($"mlkit_lines_{name}_enhanced.txt")));
+    }
+
+    [Theory]
+    [InlineData("petron2", FuelStations.Petron, "500.00", "9.01", null)]           // Calamba; date unreadable ("batai 8rs3/2915")
+    [InlineData("petron3", FuelStations.Petron, "2444.04", "26.28", "2026-03-24")] // Ampacasa, Imus
+    [InlineData("petron4", FuelStations.Petron, "5763.60", "47.99", "2026-04-06")] // Molo, Iloilo; "Phps, 763.60", "Date b4/06/2026"
+    [InlineData("shell2", FuelStations.Shell, "150.00", "1.870", "2026-06-15")]    // Heavenly, Bacoor; cash and change printed too
+    [InlineData("shell3", FuelStations.Shell, "1760.00", "32.362", "2024-10-01")]  // Skyewin, QC; card discount "-30.000L x 8.000P/L"
+    public void MoreStations_PrintedValues(string name, string station, string total, string liters, string? date)
+    {
+        ReceiptFields fields = ScanTwice(name);
+
+        Assert.Equal(station, fields.Vendor);
+        Assert.Equal(decimal.Parse(total, System.Globalization.CultureInfo.InvariantCulture), fields.Amount);
+        Assert.False(fields.AmountUncertain);
+        Assert.Equal(decimal.Parse(liters, System.Globalization.CultureInfo.InvariantCulture), fields.Liters);
+
+        // A receipt date is only accepted up to three years back (FUEL-012).
+        DateTime? printed = date == null ? null : DateTime.Parse(date, System.Globalization.CultureInfo.InvariantCulture);
+        Assert.Equal(printed is DateTime d && IsPlausibleReceiptDate(d) ? d : null, fields.Date);
+    }
+
+    [Fact]
+    public void Petron4_InclusiveTotalLabel_ReadThroughOcrSlips()
+    {
+        // "Total inal. VAT)" is the total's label, not a VAT line, and its "Phps, 763.60" is
+        // Php5,763.60 - the photo alone gives a sure total although its VATable amount is misread.
+        ReceiptFields first = Parse(ReceiptScan.FromLogcat("mlkit_lines_petron4.txt"));
+        Assert.Equal(5763.60m, first.Amount);
+        Assert.False(first.AmountUncertain);
+    }
 }

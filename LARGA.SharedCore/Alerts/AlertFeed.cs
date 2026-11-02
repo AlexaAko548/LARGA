@@ -71,6 +71,14 @@ public static class AlertFeed
     /// <summary>The badge number on both apps: unread rows among the newest <see cref="Limit"/>.</summary>
     public static int UnreadCount(IEnumerable<AlertNotice> recent) => recent.Count(a => !a.IsRead);
 
+    /// <summary>How long a read notification stays in both lists. Nothing is deleted - older read rows are just
+    /// not shown. Unread rows stay however old they are, and so do the phone's pending SOS / fuel / clock-in cards.</summary>
+    public static readonly TimeSpan HideReadAfter = TimeSpan.FromDays(7);
+
+    /// <summary>Whether a row has dropped off the lists: read, and older than <see cref="HideReadAfter"/>.</summary>
+    public static bool IsHiddenRead(bool isRead, DateTime timestampUtc, DateTime nowUtc) =>
+        isRead && timestampUtc < nowUtc - HideReadAfter;
+
     // Bell row IDs written alongside a source record (SosDispatchService, FuelVerificationService,
     // ClockInApprovalService).
     public static string SosBellId(string emergencyAlertId) => $"{emergencyAlertId}_SOS";

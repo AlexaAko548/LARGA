@@ -25,9 +25,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Fixtures/Fuel: ML Kit blocks captured from the emulator (LARGA-OCR logcat lines, DEBUG test hook).
-         Fixtures/Sos: SensorTrace recordings and gen_sos_traces.py output. -->
+    <!-- Fixtures/Fuel, Fixtures/Odometer: ML Kit blocks captured from the emulator (LARGA-OCR logcat lines,
+         DEBUG OcrBatchReceiver). Fixtures/Sos: SensorTrace recordings and gen_sos_traces.py output. -->
     <None Include="Fixtures\**\*.txt" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The dashboard photos those odometer captures came from (tests/odometer), for the seven-segment decoder. -->
+    <None Include="..\tests\odometer\*" Link="Fixtures\Odometer\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
