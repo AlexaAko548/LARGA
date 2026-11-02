@@ -69,11 +69,18 @@
                 </div>
 
                 @* Plain inputs on purpose: a password is never written back into the page after a
-                   validation error. The meter is filled in by password-strength.js as you type. *@
+                   validation error. The meter is filled in by password-strength.js as you type, and the
+                   show/hide eye (BETA-072, same as Login's) is password-toggle.js - this page has no live
+                   connection for an @onclick. *@
                 <div class="form-block">
                     <label for="req-password">PASSWORD</label>
-                    <input id="req-password" name="Model.Password" type="password" maxlength="64" autocomplete="new-password"
-                           placeholder="Choose a password" data-strength-input="req-strength" aria-describedby="req-strength" />
+                    <div class="password-field">
+                        <input id="req-password" name="Model.Password" type="password" maxlength="64" autocomplete="new-password"
+                               placeholder="Choose a password" data-strength-input="req-strength" aria-describedby="req-strength" />
+                        <button type="button" class="password-toggle" data-password-toggle aria-label="Show password" title="Show password">
+                            <span data-show-icon><Icon Name="eye" /></span><span data-hide-icon hidden><Icon Name="eye-off" /></span>
+                        </button>
+                    </div>
                     <div id="req-strength" class="password-strength" data-strength-meter aria-live="polite">
                         <div class="password-strength-bar"><span></span></div>
                         <span class="password-strength-label" data-hint="@LARGA.SharedCore.InputValidator.PasswordPolicySummary">@LARGA.SharedCore.InputValidator.PasswordPolicySummary</span>
@@ -83,8 +90,13 @@
 
                 <div class="form-block">
                     <label for="req-confirm">CONFIRM PASSWORD</label>
-                    <input id="req-confirm" name="Model.ConfirmPassword" type="password" maxlength="64" autocomplete="new-password"
-                           placeholder="Type it again" />
+                    <div class="password-field">
+                        <input id="req-confirm" name="Model.ConfirmPassword" type="password" maxlength="64" autocomplete="new-password"
+                               placeholder="Type it again" />
+                        <button type="button" class="password-toggle" data-password-toggle aria-label="Show password" title="Show password">
+                            <span data-show-icon><Icon Name="eye" /></span><span data-hide-icon hidden><Icon Name="eye-off" /></span>
+                        </button>
+                    </div>
                     <ValidationMessage For="() => Model.ConfirmPassword" class="field-error" />
                 </div>
 

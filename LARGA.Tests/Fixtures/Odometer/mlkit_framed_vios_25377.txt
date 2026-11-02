@@ -1,0 +1,2 @@
+LARGA-OCR block 0 img=96x50 px=[L17 T14 R81 B39] norm=[x0.1771 y0.28 w0.6667 h0.5] text="25377"
+LARGA-OCR line 0 norm=[x0.1771 y0.28 w0.6667 h0.5] slope=0.06095 text="25377"

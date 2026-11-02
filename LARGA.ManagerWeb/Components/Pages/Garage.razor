@@ -54,6 +54,11 @@ else
         {
             <div class="report-error">@_actionError</div>
         }
+        @if (_actionNotice is not null)
+        {
+            @* BETA-094: Log Parts closes its modal on success, so say what was deducted here. *@
+            <div class="info-banner success">@_actionNotice</div>
+        }
 
         <div class="garage-toolbar">
             <button class="outline-btn" type="button" @onclick="OpenHistoryModalAsync">History</button>
@@ -251,7 +256,21 @@ else
                 </div>
 
                 <div class="report-section">
-                    <label>Priority Level</label>
+                    <label>
+                        Priority Level
+                        <button type="button" class="priority-help-btn" aria-expanded="@_showPriorityHelp" aria-label="What the priority levels mean"
+                                title="What the priority levels mean" @onclick="() => _showPriorityHelp = !_showPriorityHelp"><Icon Name="info" /></button>
+                    </label>
+                    @if (_showPriorityHelp)
+                    {
+                        @* Same words as the driver's defect report on the phone (PriorityLevelHelp). *@
+                        <div class="info-banner priority-help">
+                            <p><strong>Low:</strong> @PriorityLevelHelp.Low</p>
+                            <p><strong>Medium:</strong> @PriorityLevelHelp.Medium</p>
+                            <p><strong>High:</strong> @PriorityLevelHelp.High</p>
+                            <p>@PriorityLevelHelp.Note</p>
+                        </div>
+                    }
                     <div class="payment-method-toggle three-way">
                         <button type="button" class="payment-method-btn @(_ticketPriority == PriorityLevel.Low ? "active" : "")" @onclick="() => _ticketPriority = PriorityLevel.Low">Low</button>
                         <button type="button" class="payment-method-btn @(_ticketPriority == PriorityLevel.Medium ? "active" : "")" @onclick="() => _ticketPriority = PriorityLevel.Medium">Medium</button>
@@ -583,6 +602,7 @@ else
     private GarageSnapshot? _snapshot;
     private string? _error;
     private string? _actionError;
+    private string? _actionNotice;
 
     private bool _showConfirm;
     private string _confirmTitle = "";
@@ -636,6 +656,7 @@ else
     private bool _showTicketModal;
     private DriverReportEntry? _ticketReport;
     private PriorityLevel _ticketPriority = PriorityLevel.Medium;
+    private bool _showPriorityHelp;
     private string _ticketInstructions = string.Empty;
     private DateTime? _ticketEstimatedDate;
     // "Today" (straight into the shop), "Auto" (next day under capacity) or "Manual".
@@ -895,6 +916,7 @@ else
         if (_isBusy) return; // a second click while this is still running is ignored
         _isBusy = true;
         _actionError = null;
+        _actionNotice = null;
         try
         {
             GarageActionResult result = await action();
@@ -916,6 +938,7 @@ else
         if (_isBusy) return; // a second click while this is still running is ignored
         _isBusy = true;
         _actionError = null;
+        _actionNotice = null;
         try
         {
             GarageActionResult result = await GarageService.DismissReportAsync(maintenanceId, _managerUserId);
@@ -937,6 +960,7 @@ else
         if (_isBusy) return; // a second click while this is still running is ignored
         _isBusy = true;
         _actionError = null;
+        _actionNotice = null;
         try
         {
             GarageActionResult result = await GarageService.MarkResolvedAsync(maintenanceId, _managerUserId);
@@ -956,6 +980,7 @@ else
     private async Task OpenPartsModalAsync(WorkOrderEntry workOrder)
     {
         _partsWorkOrder = workOrder;
+        _actionNotice = null;
         _partRows = new List<PartUsageRow> { new() };
         _partsError = null;
         _availableParts = null;
@@ -1023,6 +1048,7 @@ else
         // current stock and refuses an over-deduction itself (INV-006).
         var usage = new List<(string PartId, int Quantity)>();
         var summaryParts = new List<string>();
+        var loggedParts = new List<string>();
         foreach ((string partId, int quantity) in totals)
         {
             SparePart? part = _availableParts.FirstOrDefault(p => p.PartId == partId);
@@ -1038,12 +1064,13 @@ else
             }
             usage.Add((partId, quantity));
             summaryParts.Add($"{quantity} {part.Unit} of {part.DisplayName}");
+            loggedParts.Add($"{quantity} × {part.DisplayName}");
         }
 
-        RequestConfirm("Log These Parts?", "This deducts the following from inventory stock. This cannot be undone.", "Confirm & Deduct", () => DeductPartsAsync(usage), listItems: summaryParts);
+        RequestConfirm("Log These Parts?", "This deducts the following from inventory stock. This cannot be undone.", "Confirm & Deduct", () => DeductPartsAsync(usage, loggedParts), listItems: summaryParts);
     }
 
-    private async Task DeductPartsAsync(List<(string PartId, int Quantity)> usage)
+    private async Task DeductPartsAsync(List<(string PartId, int Quantity)> usage, List<string> loggedParts)
     {
         if (_isSavingParts) return; // a second click while this is still running is ignored
         if (_partsWorkOrder is null)
@@ -1061,6 +1088,8 @@ else
                 return;
             }
 
+            _actionError = null;
+            _actionNotice = $"Logged {string.Join(", ", loggedParts)} on {_partsWorkOrder.UnitLabel} · \"{_partsWorkOrder.IssueTitle}\". Stock updated.";
             CloseLogPartsModal();
         }
         finally

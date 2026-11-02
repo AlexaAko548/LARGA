@@ -20,7 +20,7 @@ public partial class OdometerScanPage : ContentPage
     private readonly IOcrService _ocrService;
     private readonly string _localFilePath;
     private readonly string _messageToken;
-    private List<OcrTextBlock>? _pendingBlocks;
+    private List<OdometerPhotoReader.Found>? _pendingReadings;
     private bool _isDrawn = false;
 
     private enum ScanMode { Ocr, Lcd }
@@ -53,8 +53,8 @@ public partial class OdometerScanPage : ContentPage
 
         try
         {
-            _pendingBlocks = await _ocrService.ExtractTextBlocksAsync(_localFilePath);
-            if (!HasReading(_pendingBlocks))
+            _pendingReadings = await FindReadingsAsync(_localFilePath);
+            if (_pendingReadings.Count == 0)
             {
                 // Nothing that looks like an odometer: read an enhanced copy (upscaled, high
                 // contrast) once more before sending the driver to manual entry.
@@ -63,10 +63,10 @@ public partial class OdometerScanPage : ContentPage
                 {
                     try
                     {
-                        var second = await _ocrService.ExtractTextBlocksAsync(enhanced);
-                        if (HasReading(second))
+                        var second = await FindReadingsAsync(enhanced);
+                        if (second.Count > 0)
                         {
-                            _pendingBlocks = second;
+                            _pendingReadings = second;
                         }
                     }
                     finally
@@ -76,7 +76,7 @@ public partial class OdometerScanPage : ContentPage
                 }
             }
 
-            if (!HasReading(_pendingBlocks))
+            if (_pendingReadings.Count == 0)
             {
                 InstructionLabel.Text = "No odometer reading found. Try Frame the Digits, or enter it manually.";
             }
@@ -107,7 +107,7 @@ public partial class OdometerScanPage : ContentPage
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            if (_isDrawn || _pendingBlocks == null) return;
+            if (_isDrawn || _pendingReadings == null) return;
 
             double layoutWidth = TextOverlayLayout.Width;
             double layoutHeight = TextOverlayLayout.Height;
@@ -118,17 +118,17 @@ public partial class OdometerScanPage : ContentPage
             TextOverlayLayout.SizeChanged -= OnLayoutSizeChanged;
             TextOverlayLayout.Children.Clear();
 
-            var seenCandidates = new HashSet<string>();
-            foreach (var (text, box) in ReadingRegions(_pendingBlocks))
+            foreach (var found in _pendingReadings)
             {
-                var candidate = OdometerReadingParser.Candidates(text).FirstOrDefault(c => !seenCandidates.Contains(c));
-                if (candidate == null) continue;
-                seenCandidates.Add(candidate);
+                var reading = found.Reading;
+                var box = found.Region;
 
+                // Orange: ML Kit and the segment decoder disagreed (or only one read it), so a
+                // tap asks the driver to confirm instead of taking it straight away.
                 var textBtn = new Button
                 {
-                    Text = candidate,
-                    BackgroundColor = Colors.Green.WithAlpha(0.4f),
+                    Text = reading.Text,
+                    BackgroundColor = (reading.Confident ? Colors.Green : Colors.Orange).WithAlpha(0.4f),
                     TextColor = Colors.White,
                     Padding = new Thickness(0),
                     FontSize = 12,
@@ -148,15 +148,17 @@ public partial class OdometerScanPage : ContentPage
 
                 textBtn.Clicked += async (s, args) =>
                 {
-                    if (s is Button btn) btn.IsEnabled = false;
+                    if (s is not Button btn) return;
+                    btn.IsEnabled = false;
 
-                    CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Send<OdometerScannedData, string>(new OdometerScannedData
+                    if (reading.Confident)
                     {
-                        OdometerText = candidate,
-                        PhotoFilePath = _localFilePath
-                    }, _messageToken);
+                        SendResultAndClose(reading.Text);
+                        return;
+                    }
 
-                    await Navigation.PopModalAsync();
+                    await ConfirmReadingAsync(reading.Text, allConfident: false);
+                    btn.IsEnabled = true;
                 };
 
                 TextOverlayLayout.Children.Add(textBtn);
@@ -317,27 +319,26 @@ public partial class OdometerScanPage : ContentPage
             using var crop = await Task.Run(() => CropFrame(localFilePath, centerX, centerY, effectiveWidth, effectiveHeight, layoutWidth, layoutHeight));
             if (crop == null) return;
 
-            // Most odometers (mechanical drums, white/amber backlit displays, digital clusters)
-            // show ordinary printed digits, which ML Kit reads well once it only sees the framed
-            // readout instead of the whole dashboard. The seven-segment decoder is the fallback
-            // for the green segmented LCDs ML Kit can't read.
+            // ML Kit reads the framed readout well once it doesn't see the whole dashboard, but
+            // on a segmented LCD it reads a 6 as a 5; the seven-segment decoder checks it digit
+            // by digit, and reads green LCDs ML Kit can't read at all.
             cropPath = await Task.Run(() => SaveFramedCrop(crop));
-            string? ocrReading = cropPath == null ? null : await ReadFramedDigitsWithOcrAsync(cropPath);
-            if (ocrReading != null)
+            var passes = cropPath == null ? new List<List<string?>>() : await ReadFramedLinesAsync(cropPath);
+            var (reading, decoded) = await Task.Run(() => OdometerPhotoReader.ReadFramed(crop, passes));
+
+            if (reading is { } read)
             {
-                await ConfirmReadingAsync(ocrReading, allConfident: true);
+                await ConfirmReadingAsync(read.Text, read.Confident);
                 return;
             }
 
-            var result = await Task.Run(() => SevenSegmentDecoder.Decode(crop, expectedDigitCount: 6));
-
-            if (result.Digits.Count == 0)
+            if (decoded.Digits.Count == 0)
             {
                 await DisplayAlert("Nothing found", "No digits were detected in that box. Try repositioning it tighter around just the readout, or use manual entry instead.", "OK");
                 return;
             }
 
-            await ConfirmReadingAsync(result.Text, result.AllConfident);
+            await ConfirmReadingAsync(decoded.Text, decoded.AllConfident);
         }
         catch (Exception ex)
         {
@@ -424,20 +425,23 @@ public partial class OdometerScanPage : ContentPage
         }
     }
 
-    /// <summary>The reading ML Kit finds in the framed crop - the enhanced (upscaled, high
-    /// contrast) copy first since a framed readout is small - or null when it finds none.</summary>
-    private async Task<string?> ReadFramedDigitsWithOcrAsync(string cropPath)
+    /// <summary>ML Kit's lines on the framed crop, one list per pass: the enhanced (upscaled, high
+    /// contrast) copy first since a framed readout is small, then the crop itself unless the
+    /// first pass already holds a reading (see OdometerReadingParser.FramedReading).</summary>
+    private async Task<List<List<string?>>> ReadFramedLinesAsync(string cropPath)
     {
+        var passes = new List<List<string?>>();
         string? enhanced = await Task.Run(() => OcrImageEnhancer.CreateEnhancedCopy(cropPath));
         try
         {
             foreach (string? path in new[] { enhanced, cropPath })
             {
                 if (path == null) continue;
-                string? reading = FramedReading(await _ocrService.ExtractTextBlocksAsync(path));
-                if (reading != null) return reading;
+                var lines = ReadingRegions(await _ocrService.ExtractTextBlocksAsync(path)).Select(r => (string?)r.Text).ToList();
+                passes.Add(lines);
+                if (OdometerReadingParser.Candidates(lines).Count > 0) break;
             }
-            return null;
+            return passes;
         }
         finally
         {
@@ -448,22 +452,19 @@ public partial class OdometerScanPage : ContentPage
         }
     }
 
-    private static string? FramedReading(List<OcrTextBlock>? blocks)
+    /// <summary>The readings ML Kit finds on <paramref name="ocrPath"/> (the photo, or its
+    /// enhanced copy - same layout), each checked by the seven-segment decoder on the photo.</summary>
+    private async Task<List<OdometerPhotoReader.Found>> FindReadingsAsync(string ocrPath)
     {
-        if (blocks == null || blocks.Count == 0) return null;
-
-        var lines = ReadingRegions(blocks).Select(r => r.Text).ToList();
-        string? best = OdometerReadingParser.Candidates(lines).FirstOrDefault();
-        if (best != null) return best;
-
-        // The driver framed just the readout, so a shorter number (a low-mileage unit, or a
-        // drum partly hidden behind the needle) is still what they pointed at; the confirm
-        // dialog lets them correct it.
-        string digits = lines
-            .Select(l => new string((l ?? string.Empty).Where(char.IsDigit).ToArray()))
-            .OrderByDescending(d => d.Length)
-            .FirstOrDefault() ?? string.Empty;
-        return digits.Length is >= 3 and <= 7 ? digits : null;
+        var blocks = await _ocrService.ExtractTextBlocksAsync(ocrPath);
+        var regions = ReadingRegions(blocks)
+            .Select(r => new OdometerPhotoReader.Region(r.Text, r.Box.X, r.Box.Y, r.Box.Width, r.Box.Height))
+            .ToList();
+        return await Task.Run(() =>
+        {
+            using var photo = OcrImageEnhancer.LoadUpright(_localFilePath);
+            return OdometerPhotoReader.Read(photo, regions);
+        });
     }
 
     // Shows the read digits for confirmation before using them - low-confidence digits
@@ -512,9 +513,6 @@ public partial class OdometerScanPage : ContentPage
 
         _ = Navigation.PopModalAsync();
     }
-
-    private static bool HasReading(List<OcrTextBlock>? blocks) =>
-        blocks != null && ReadingRegions(blocks).Any(r => OdometerReadingParser.Candidates(r.Text).Count > 0);
 
     /// <summary>Each OCR line with its own box (a block when the engine reported no lines), so a
     /// candidate button sits on the reading itself rather than over a whole block.</summary>

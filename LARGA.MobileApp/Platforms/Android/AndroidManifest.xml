@@ -31,6 +31,11 @@
 	<uses-permission android:name="android.permission.CALL_PHONE" />
 	<uses-permission android:name="android.permission.READ_PHONE_STATE" />
 	<uses-permission android:name="android.permission.CAMERA" />
+	<!-- MediaPicker.CapturePhotoAsync demands a StorageWrite grant on Android 12L and below (API <= 32)
+	     and throws if these aren't declared. Capped at 32: Android 13+ dropped the permission and
+	     MediaPicker stops asking for it there. -->
+	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+	<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 	<!-- LAR-77: live GPS telemetry during an active shift -->
 	<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 	<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />

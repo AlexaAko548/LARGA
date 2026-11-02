@@ -56,6 +56,27 @@ public static class FuelReceiptTextParser
             BuildParsingWarning(vendor, amount, liters, date, amountUncertain));
     }
 
+    /// <summary>
+    /// A first read with its gaps filled from a second one (the enhanced copy ScanFuelReceiptPage
+    /// reads when the first left a warning): a total the first only guessed gives way to one the
+    /// second is sure of, and a missing or unsure OR number to a sure one.
+    /// </summary>
+    public static ReceiptFields Combine(ReceiptFields first, ReceiptFields second)
+    {
+        bool takeSecondAmount = (!first.Amount.HasValue || first.AmountUncertain) && second.Amount.HasValue && !second.AmountUncertain;
+        decimal? amount = takeSecondAmount ? second.Amount : first.Amount ?? second.Amount;
+        bool amountUncertain = takeSecondAmount ? false : first.Amount.HasValue ? first.AmountUncertain : second.AmountUncertain;
+        string? vendor = first.Vendor ?? second.Vendor;
+        decimal? liters = first.Liters ?? second.Liters;
+        DateTime? date = first.Date ?? second.Date;
+        bool takeSecondOr = first.OrNumber == null || (first.OrNumberUncertain && second.OrNumber != null && !second.OrNumberUncertain);
+        return new ReceiptFields(
+            vendor, amount, amountUncertain, liters, date,
+            takeSecondOr ? second.OrNumber : first.OrNumber,
+            takeSecondOr ? second.OrNumberUncertain : first.OrNumberUncertain,
+            BuildParsingWarning(vendor, amount, liters, date, amountUncertain));
+    }
+
     /// <summary>FUEL-004: only Petron and Shell (FuelStations, shared with the rest of the app). Any
     /// other receipt reads as UNKNOWN and is submitted Flagged.</summary>
     public static string? TryParseVendor(string fullText) =>
@@ -89,10 +110,15 @@ public static class FuelReceiptTextParser
         @"(?<=\d[.,]?)[Oo](?=[\d.,Oo]|\b|$)|(?<=(?:^|[\s:Pp₱]))[Oo](?=[.,]\d)",
         RegexOptions.CultureInvariant);
 
+    // OCR reads a 5 right after the peso sign as S: "Phps, 763.60" for Php5,763.60.
+    private static readonly Regex LetterSAfterPeso = new(
+        @"(?<=PHP)S(?=[,.]?\s*\d)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     /// <summary>Undoes the usual OCR slips inside numbers, leaving words alone.</summary>
     public static string NormalizeNumbers(string text)
     {
-        string fixedText = SpaceInsideNumber.Replace(text, string.Empty);
+        string fixedText = SpaceInsideNumber.Replace(LetterSAfterPeso.Replace(text, "5"), string.Empty);
         string previous;
         do
         {
@@ -152,11 +178,17 @@ public static class FuelReceiptTextParser
         return 0;
     }
 
+    // Petron's "Total (incl. VAT)" as ML Kit reads it: "Total inal. VAT)", "Total tunol. VAT)",
+    // "Total (incl. VRT)" - a short word with "(" or "." between TOTAL and VAT. "TOTAL VAT" has none.
+    private static readonly Regex InclusiveTotal = new(
+        @"T[O0]TAL\s*(?:\(\s*[A-Z]{2,5}\.?|[A-Z]{2,5}\.)\s*V[A-Z]T",
+        RegexOptions.CultureInvariant);
+
     /// <summary>VAT/discount/payment/quantity lines: their amounts are never the total. "Total
     /// (incl. VAT)" is the exception.</summary>
     private static bool IsNonTotalLine(string upper)
     {
-        bool inclusiveTotal = upper.Contains("TOTAL") && upper.Contains("INCL");
+        bool inclusiveTotal = (upper.Contains("TOTAL") && upper.Contains("INCL")) || InclusiveTotal.IsMatch(upper);
         if (!inclusiveTotal && Regex.IsMatch(upper, @"VAT|V\.A\.T"))
             return true;
         return Regex.IsMatch(upper,
@@ -553,10 +585,12 @@ public static class FuelReceiptTextParser
                || DateTime.TryParse(token, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out date);
     }
 
+    // Numeric dates are bounded by non-digits rather than word boundaries: ML Kit can glue a
+    // letter to the date ("Date b4/06/2026" for 04/06/2026).
     private static readonly string[] DatePatterns =
     {
-        @"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b",
-        @"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b",
+        @"(?<!\d)\d{4}[-/]\d{1,2}[-/]\d{1,2}(?!\d)",
+        @"(?<!\d)\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?!\d)",
         @"\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|SEPT|OCT|NOV|DEC)[A-Z]*\.?\s+\d{1,2},?\s+\d{2,4}\b",
         @"\b\d{1,2}[\s-](?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*[\s-]\d{2,4}\b",
     };
