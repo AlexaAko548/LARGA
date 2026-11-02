@@ -667,17 +667,17 @@ public class FleetReportingService
         return new List<ReportTable> { BoundaryPaymentsTable(payments, driverNames) };
     }
 
-    /// <summary>Financial Summary's table. BETA-098: DriverName beside ShiftId - from the payment's own
-    /// driverId (every payment carries one; older ones are backfilled on startup).</summary>
+    /// <summary>Financial Summary's table. BETA-098: the driver's name, from the payment's own driverId (every
+    /// payment carries one; older ones are backfilled on startup), in place of the raw ShiftId.</summary>
     public static ReportTable BoundaryPaymentsTable(IEnumerable<BoundaryPayment> payments, IReadOnlyDictionary<string, string> driverNames) => new()
     {
-        Headers = new[] { "Date", "ShiftId", "DriverName", "ExpectedBoundary", "LateFees", "AmountPaid", "PaymentMethod", "PaymentStatus" },
+        Headers = new[] { "Date", "DriverName", "ExpectedBoundary", "LateFees", "AmountPaid", "PaymentMethod", "PaymentStatus" },
         Rows = payments.OrderBy(p => p.Timestamp).Select(p => new object?[]
         {
             p.Timestamp.ToPhilippineTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
-            p.ShiftId, DriverNameFor(p.DriverId, driverNames), p.ExpectedBoundary, p.LateFees, p.AmountPaid, p.PaymentMethod, p.PaymentStatus,
+            DriverNameFor(p.DriverId, driverNames), p.ExpectedBoundary, p.LateFees, p.AmountPaid, p.PaymentMethod, p.PaymentStatus,
         }).ToList(),
-        MoneyColumns = new HashSet<int> { 3, 4, 5 },
+        MoneyColumns = new HashSet<int> { 2, 3, 4 },
     };
 
     private async Task<List<ReportTable>> BuildMaintenanceHistoryAsync(DateTime fromUtc, DateTime toUtc)
@@ -719,8 +719,8 @@ public class FleetReportingService
         };
     }
 
-    /// <summary>Fuel &amp; Mileage's "Fuel Logs" table. BETA-098: DriverName beside ShiftId - from the log's
-    /// driverId, or its shift's driver (among the report's shifts) for a log saved without one.</summary>
+    /// <summary>Fuel &amp; Mileage's "Fuel Logs" table. BETA-098: the driver's name in place of the raw ShiftId -
+    /// from the log's driverId, or its shift's driver (among the report's shifts) for a log saved without one.</summary>
     public static ReportTable FuelLogsTable(IEnumerable<FuelLog> fuelLogs, IReadOnlyDictionary<string, string> driverNames, IEnumerable<ShiftLog> shifts)
     {
         var shiftDrivers = new Dictionary<string, string>();
@@ -735,15 +735,14 @@ public class FleetReportingService
         return new ReportTable
         {
             Heading = "Fuel Logs",
-            Headers = new[] { "ReceiptTimestamp", "ShiftId", "DriverName", "FuelStation", "ORNumber", "LitersRefueled", "FuelCost", "VerificationStatus", "OdometerReading" },
+            Headers = new[] { "ReceiptTimestamp", "DriverName", "FuelStation", "ORNumber", "LitersRefueled", "FuelCost", "VerificationStatus", "OdometerReading" },
             Rows = fuelLogs.OrderBy(f => f.ReceiptTimestamp).Select(f => new object?[]
             {
                 f.ReceiptTimestamp.ToPhilippineTime()?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? string.Empty,
-                f.ShiftId,
                 DriverNameFor(!string.IsNullOrEmpty(f.DriverId) ? f.DriverId : shiftDrivers.GetValueOrDefault(f.ShiftId), driverNames),
                 f.FuelStation, f.ORNumber, f.LitersRefueled, f.FuelCost, f.VerificationStatus, f.OdometerReading,
             }).ToList(),
-            MoneyColumns = new HashSet<int> { 6 },
+            MoneyColumns = new HashSet<int> { 5 },
         };
     }
 
