@@ -66,8 +66,8 @@ public class GarageService
 
         await StartDueScheduledJobsAsync(records);
 
-        // A pre-shift defect stays on Driver & Shifts while its clock-in waits (or once it's approved);
-        // it only joins this list when the clock-in is denied (PreShiftDefectRules).
+        // A pre-shift defect stays on Driver & Shifts while its clock-in waits for the manager; it joins
+        // this list once the clock-in is approved or denied (PreShiftDefectRules).
         IReadOnlySet<string> heldForClockIn = await GetDefectsHeldForClockInAsync();
         List<DriverReportEntry> pending = PreShiftDefectRules.PendingGarageReports(records, heldForClockIn)
             .OrderByDescending(r => r.PriorityLevel)
@@ -814,7 +814,7 @@ public class GarageService
         return int.TryParse(suffix, out int n) ? $"Unit {n:00}" : $"Unit {taxiId}";
     }
 
-    /// <summary>maintenance_logs IDs listed by clock-in requests that are pending or approved - one equality
+    /// <summary>maintenance_logs IDs listed by clock-in requests still waiting for the manager - one equality
     /// query on status per PreShiftDefectRules.HeldStatuses (auto-indexed). If they can't be read, nothing
     /// is held back and the Garage lists every report, as before.</summary>
     private async Task<IReadOnlySet<string>> GetDefectsHeldForClockInAsync()
