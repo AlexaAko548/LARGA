@@ -32,34 +32,37 @@ public class ChangePasswordViewModel : LARGA.MobileApp.ViewModels.Shared.Passwor
 
     private async Task SaveAsync()
     {
-        if (string.IsNullOrWhiteSpace(CurrentPassword) || string.IsNullOrWhiteSpace(NewPassword) || string.IsNullOrWhiteSpace(ConfirmNewPassword))
-        {
-            await Shell.Current.DisplayAlert("Missing Info", "Please fill in all three fields.", "OK");
-            return;
-        }
-
-        if (NewPassword != ConfirmNewPassword)
-        {
-            await Shell.Current.DisplayAlert("Passwords Don't Match", "New password and confirmation must match.", "OK");
-            return;
-        }
-
-        if (NewPassword == CurrentPassword)
-        {
-            await Shell.Current.DisplayAlert("Same Password", LARGA.SharedCore.InputValidator.SamePasswordMessage, "OK");
-            return;
-        }
-
-        // Same policy as account creation and ManagerWeb (InputValidator.PasswordRules).
-        if (LARGA.SharedCore.InputValidator.ValidatePassword(NewPassword) is string passwordError)
-        {
-            await Shell.Current.DisplayAlert("Invalid Password", passwordError, "OK");
-            return;
-        }
-
-        IsBusy = true;
+        // Everything below (including the validation alerts) is inside this try: an unhandled
+        // exception here would otherwise escape the async-void Command/BusyGate and crash the app
+        // (BETA-062).
         try
         {
+            if (string.IsNullOrWhiteSpace(CurrentPassword) || string.IsNullOrWhiteSpace(NewPassword) || string.IsNullOrWhiteSpace(ConfirmNewPassword))
+            {
+                await Shell.Current.DisplayAlert("Missing Info", "Please fill in all three fields.", "OK");
+                return;
+            }
+
+            if (NewPassword != ConfirmNewPassword)
+            {
+                await Shell.Current.DisplayAlert("Passwords Don't Match", "New password and confirmation must match.", "OK");
+                return;
+            }
+
+            if (NewPassword == CurrentPassword)
+            {
+                await Shell.Current.DisplayAlert("Same Password", LARGA.SharedCore.InputValidator.SamePasswordMessage, "OK");
+                return;
+            }
+
+            // Same policy as account creation and ManagerWeb (InputValidator.PasswordRules).
+            if (LARGA.SharedCore.InputValidator.ValidatePassword(NewPassword) is string passwordError)
+            {
+                await Shell.Current.DisplayAlert("Invalid Password", passwordError, "OK");
+                return;
+            }
+
+            IsBusy = true;
             var user = CrossFirebaseAuth.Current.CurrentUser;
             var email = user?.Email;
             if (string.IsNullOrWhiteSpace(email))
@@ -84,7 +87,7 @@ public class ChangePasswordViewModel : LARGA.MobileApp.ViewModels.Shared.Passwor
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Change Password Error: {ex.Message}");
-            await Shell.Current.DisplayAlert("Error", "Couldn't change your password. Double-check your current password and try again.", "OK");
+            await SafeAlert.ShowAsync("Error", "Couldn't change your password. Double-check your current password and try again.");
         }
         finally
         {

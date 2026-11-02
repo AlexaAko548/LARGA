@@ -2,6 +2,7 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Manager"
+             xmlns:controls="clr-namespace:LARGA.MobileApp.Controls"
              x:Class="LARGA.MobileApp.Views.Manager.UpdateContactNumberPage"
              x:DataType="vm:UpdateContactNumberViewModel"
              NavigationPage.HasNavigationBar="False"
@@ -30,6 +31,17 @@
             <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
                 <Entry Text="{Binding ConfirmNewNumber}" Placeholder="Confirm New Number" Keyboard="Telephone" BackgroundColor="Transparent"
                        TextColor="{DynamicResource LargaDarkText}" PlaceholderColor="{DynamicResource ThemeTextSecondary}" />
+            </Border>
+
+            <!-- BETA-062: confirm the change with the account password -->
+            <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15,5,5,5">
+                <Grid ColumnDefinitions="*,Auto">
+                    <Entry Text="{Binding Password}" Placeholder="Your Password" IsPassword="{Binding PasswordField.IsHidden}" BackgroundColor="Transparent"
+                           TextColor="{DynamicResource LargaDarkText}" PlaceholderColor="{DynamicResource ThemeTextSecondary}" VerticalOptions="Center" />
+                    <ImageButton Grid.Column="1" Source="{Binding PasswordField.Icon}" Command="{Binding PasswordField.ToggleCommand}"
+                                 SemanticProperties.Description="{Binding PasswordField.Description}" controls:ThemedIcon.IsEnabled="True"
+                                 WidthRequest="44" HeightRequest="44" Padding="10" BackgroundColor="Transparent" VerticalOptions="Center" />
+                </Grid>
             </Border>
 
             <Button Text="CONFIRM &amp; SAVE" Command="{Binding SaveCommand}" IsEnabled="{Binding IsNotBusy}"

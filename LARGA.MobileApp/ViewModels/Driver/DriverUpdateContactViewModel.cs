@@ -97,29 +97,32 @@ public class DriverUpdateContactViewModel : BindableObject
 
     private async Task SaveAsync()
     {
-        if (string.IsNullOrWhiteSpace(CurrentNumber) || string.IsNullOrWhiteSpace(NewNumber) || string.IsNullOrWhiteSpace(ConfirmNewNumber))
-        {
-            await Shell.Current.DisplayAlert("Missing Info", "Please fill in all fields.", "OK");
-            return;
-        }
-
-        if (!InputValidator.SamePhone(NewNumber, ConfirmNewNumber))
-        {
-            await Shell.Current.DisplayAlert("Numbers Don't Match", "New number and confirmation must match.", "OK");
-            return;
-        }
-
-        // Same rule as ManagerWeb (InputValidator): a Philippine mobile number, stored as +639XXXXXXXXX.
-        if (InputValidator.ValidatePhilippineMobile(NewNumber) is string phoneError)
-        {
-            await Shell.Current.DisplayAlert("Invalid Number", phoneError, "OK");
-            return;
-        }
-        var normalizedNew = InputValidator.NormalizePhilippineMobile(NewNumber)!;
-
-        IsBusy = true;
+        // Everything below (including the validation alerts) is inside this try: an unhandled
+        // exception here would otherwise escape the async-void Command/BusyGate and crash the app
+        // (BETA-062, same bug as the manager's screen).
         try
         {
+            if (string.IsNullOrWhiteSpace(CurrentNumber) || string.IsNullOrWhiteSpace(NewNumber) || string.IsNullOrWhiteSpace(ConfirmNewNumber))
+            {
+                await Shell.Current.DisplayAlert("Missing Info", "Please fill in all fields.", "OK");
+                return;
+            }
+
+            if (!InputValidator.SamePhone(NewNumber, ConfirmNewNumber))
+            {
+                await Shell.Current.DisplayAlert("Numbers Don't Match", "New number and confirmation must match.", "OK");
+                return;
+            }
+
+            // Same rule as ManagerWeb (InputValidator): a Philippine mobile number, stored as +639XXXXXXXXX.
+            if (InputValidator.ValidatePhilippineMobile(NewNumber) is string phoneError)
+            {
+                await Shell.Current.DisplayAlert("Invalid Number", phoneError, "OK");
+                return;
+            }
+            var normalizedNew = InputValidator.NormalizePhilippineMobile(NewNumber)!;
+
+            IsBusy = true;
             var user = CrossFirebaseAuth.Current.CurrentUser;
             if (user == null)
             {
@@ -165,7 +168,7 @@ public class DriverUpdateContactViewModel : BindableObject
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Driver Update Contact Number Error: {ex.Message}");
-            await Shell.Current.DisplayAlert("Error", "Unable to update your contact number.", "OK");
+            await LARGA.MobileApp.Services.SafeAlert.ShowAsync("Error", "Unable to update your contact number.");
         }
         finally
         {
