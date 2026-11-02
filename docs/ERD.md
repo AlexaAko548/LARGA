@@ -211,7 +211,6 @@ erDiagram
 
     SYSTEM_CONFIG {
         string ConfigID PK
-        decimal StandardLatePenalty "DECIMAL(10,2)"
         decimal DefaultBoundaryRate "DECIMAL(10,2)"
         decimal IdleThresholdMinutes "minutes of no movement before a unit is flagged Idle; default 15"
     }
@@ -249,7 +248,7 @@ The ManagerWeb dashboard's 5 fleet-status pills (Active / Maintenance / On Break
 
 - **`AUDIT_LOG`**: modeled since early on, but had no reader anywhere until the ManagerWeb "Generate Reports" CSV export (Full Audit Trail) landed on 2026-09-06 — first real consumer.
 - **`HANDOVER_CHECKLIST`**: same situation until the Driver & Shift Management page's Shift Logs checklist modal landed on 2026-09-07 - first real consumer. Note the modal doesn't show a 1:1 mapping of every mockup checklist item: `OilLevel`/`CoolantLevel` are combined into a single "under the hood" row, and "starting odometer documented" is omitted entirely since no field anywhere backs it (odometer readings live on `FUEL_LOG`, not `HANDOVER_CHECKLIST`).
-- **`SHIFT_LOG`**: nothing in the *mobile* app currently calls the code path that creates a shift document (`StartShiftLogAsync` in [ShiftManagementService.cs](../LARGA.SharedCore/Services/ShiftManagementService.cs) has no callers yet), so shifts aren't persisted from the pre-shift flow yet. ManagerWeb only ever reads this collection, never creates shifts.
+- **`SHIFT_LOG`**: created by the driver app at clock-in (`ClockInAsync` in [ShiftManagementService.cs](../LARGA.SharedCore/Services/ShiftManagementService.cs), one transaction with the `shift_locks`). ManagerWeb never creates shifts. The late fee is not a `SYSTEM_CONFIG` setting: it's ₱100 for every started hour past the 10:00 PM return time, after a 30-minute grace (`ShiftRules.LateReturnFee`), computed from the server-stamped shift times.
 - **`SHIFT_SCHEDULE`**: as of 2026-09-07, ManagerWeb's Schedule Planner reads and writes this collection interactively. Document IDs are deterministic (`{driverId}_{yyyyMMdd}`) so a manager's edit always overwrites/deletes the same document rather than creating duplicates. As of 2026-09-16 (see below), the meaning of "no document" flipped from rest day to working day - a document now only exists to record an exception (`Status = "DayOff"`, or `Status = "Planned"` for a per-day unit-swap override).
 - **Driver accounts are manager-provisioned, not self-registered**: drivers never sign up themselves anywhere (mobile has no registration flow) - a manager creates every driver's Firebase Auth account and Firestore profile via ManagerWeb's "Add New Driver" (ManagerWeb requires the `FirebaseAdmin` SDK for this, alongside the existing `Google.Cloud.Firestore` client). The login email is synthesized (`{name-slug}.{random}@larga-driver.local`) since the "Add New Driver" form only collects name/phone/temp password - the manager relays the generated email + password to the driver directly, out of band.
 - `USER` also carries `AssignedTaxiID` and `DeviceTokens` (push notification tokens) in code/Firestore, which are implementation details not modeled as columns here since they don't have their own business meaning in the ERD sense.

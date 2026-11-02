@@ -36,6 +36,10 @@ internal sealed class EmergencyCallHandler : BroadcastReceiver
     /// <summary>Raised on the main thread when an auto-answered call connects.</summary>
     public event EventHandler? CallConnected;
 
+    /// <summary>Armed, answering, or in the manager's call (<see cref="EmergencyCallAutoAnswer.IsActive"/>).
+    /// Read it on the main thread.</summary>
+    public bool IsActive => _state.IsActive;
+
     public EmergencyCallHandler(Context context, IEmergencyAlertService alertService)
     {
         _context = context;

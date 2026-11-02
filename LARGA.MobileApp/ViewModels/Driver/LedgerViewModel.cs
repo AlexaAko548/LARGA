@@ -213,9 +213,9 @@ public class LedgerViewModel : INotifyPropertyChanged
 // Proxy Class
 public class PaymentRecord
 {
-    public string DateStr { get; set; }
-    public string Amount { get; set; }
-    public string Status { get; set; }
+    public string DateStr { get; set; } = string.Empty;
+    public string Amount { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
     public DateTime RawDate { get; set; }
     public string DisplayText => $"{DateStr} - ₱ {Amount} {Status}".Trim();
 }

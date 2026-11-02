@@ -584,7 +584,7 @@ public class FuelReportViewModel : BindableObject
             string copyPath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_larga_test_odometer.jpg");
             File.Copy(testOdometer, copyPath, overwrite: true);
             MainThread.BeginInvokeOnMainThread(async () =>
-                await Application.Current.MainPage.Navigation.PushModalAsync(
+                await Shell.Current.Navigation.PushModalAsync(
                     new LARGA.MobileApp.Views.Driver.OdometerScanPage(_ocrService, copyPath)));
             return;
         }
@@ -605,7 +605,7 @@ public class FuelReportViewModel : BindableObject
 
                 MainThread.BeginInvokeOnMainThread(async () =>
                 {
-                    await Application.Current.MainPage.Navigation.PushModalAsync(
+                    await Shell.Current.Navigation.PushModalAsync(
                         new LARGA.MobileApp.Views.Driver.OdometerScanPage(_ocrService, localFilePath));
                 });
             }

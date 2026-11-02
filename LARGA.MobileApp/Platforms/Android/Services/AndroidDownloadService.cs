@@ -34,10 +34,10 @@ public class AndroidDownloadService : IDownloadService
         }
 
         using var values = new ContentValues();
-        values.Put(MediaStore.MediaColumns.DisplayName, fileName);
-        values.Put(MediaStore.MediaColumns.MimeType, contentType);
-        values.Put(MediaStore.MediaColumns.RelativePath, global::Android.OS.Environment.DirectoryDownloads);
-        values.Put(MediaStore.MediaColumns.IsPending, 1);
+        values.Put(MediaStore.IMediaColumns.DisplayName, fileName);
+        values.Put(MediaStore.IMediaColumns.MimeType, contentType);
+        values.Put(MediaStore.IMediaColumns.RelativePath, global::Android.OS.Environment.DirectoryDownloads);
+        values.Put(MediaStore.IMediaColumns.IsPending, 1);
 
         global::Android.Net.Uri? collection = MediaStore.Downloads.GetContentUri(MediaStore.VolumeExternal);
         global::Android.Net.Uri? item = collection is null ? null : resolver.Insert(collection, values);
@@ -56,7 +56,7 @@ public class AndroidDownloadService : IDownloadService
         }
 
         using var clearPending = new ContentValues();
-        clearPending.Put(MediaStore.MediaColumns.IsPending, 0);
+        clearPending.Put(MediaStore.IMediaColumns.IsPending, 0);
         resolver.Update(item, clearPending, null, null);
 
         Task OpenAsync()

@@ -38,12 +38,12 @@ A plain run skips the emulator tests and does nothing in `Live/`, so it never ne
 
 ### Tests that fail on purpose
 
-Some tests pin a defect that hasn't been fixed yet. None of the plain-run tests do right now; any that do are listed here and fail until the fix lands.
+Some tests pin a defect that hasn't been fixed yet. None do right now, with or without the emulator; any that do are listed here
+and fail until the fix lands.
 
-With the emulator running, some do fail: MNT-015/016 (alert timing), BRP-014's `Brp014_Configured900_WithMalformedUnrelatedField_StillUsed`
-(a value of the wrong type in an unrelated `system_configs/global` field makes the web ledger fall back to the ₱800 default instead of
-the configured ₱900), and the `Diag_*` tests that pin those causes (`Diag_BadUnrelatedConfigField_StillHonoursConfiguredWeeklyInterval`,
-`Diag_ProxyWithoutFirestoreDataAttribute_ConvertTo`). GPS-014 itself passes now.
+Fixed since: BRP-014 (a wrong-type value in an unrelated `system_configs/global` field put the web back on default settings, e.g.
+the ₱800 boundary rate instead of the configured ₱900) - the web now reads that document field by field (`SystemConfigReader`).
+MNT-015/016 were changed to the intended behaviour: a DueSoon alert goes out 2 days before a check is due (`maintenanceDueSoonDays`).
 
 ## Emulator tests (Garage, inventory, idle detection)
 

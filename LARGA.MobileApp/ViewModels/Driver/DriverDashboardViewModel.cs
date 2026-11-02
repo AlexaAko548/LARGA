@@ -260,15 +260,17 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
                     .GetDocument(user.Uid)
                     .GetDocumentSnapshotAsync<UserProfileProxy>(); // FIX: Use the mobile proxy
                 Task<string?> substituteTask = _shiftService.GetTodaysTaxiIdAsync(null);
+                Task<string?> activeShiftTask = _shiftService.GetActiveShiftTaxiIdAsync();
                 var userProfileDoc = await profileTask;
 
                 DateTimeOffset? licenseExpiryOffset = userProfileDoc?.Data?.LicenseExpiryDate;
                 EvaluateLicenseAlert(licenseExpiryOffset?.UtcDateTime);
 
-                // Today's unit - a substitute the manager assigned while the driver's own unit is
-                // under maintenance, otherwise their permanent one.
+                // The unit of the open shift, if there is one (today's schedule is looked up by date,
+                // which moves on at midnight). Otherwise today's unit - a substitute the manager
+                // assigned while the driver's own unit is under maintenance, else their permanent one.
                 // (GetTodaysTaxiIdAsync(null) returns the substitute, or null when there is none.)
-                var dynamicTaxiId = await substituteTask ?? userProfileDoc?.Data?.AssignedTaxiId;
+                var dynamicTaxiId = await activeShiftTask ?? await substituteTask ?? userProfileDoc?.Data?.AssignedTaxiId;
 
                 if (!string.IsNullOrWhiteSpace(dynamicTaxiId))
                 {
@@ -492,7 +494,7 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     public class UserProfileProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("assignedTaxiId")]
-        public string AssignedTaxiId { get; set; }
+        public string? AssignedTaxiId { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("licenseExpiryDate")]
         public DateTimeOffset? LicenseExpiryDate { get; set; } // Fixed

@@ -394,12 +394,27 @@ public class GarageEmulatorTests
         Assert.NotNull(await AlertFor(db, "TAXI_001", MaintenanceSchedule.BiweeklyCheckup, TodayPh, MaintenanceSchedule.DueSoonAlertType));
     }
 
+    // The early warning is intended: a DueSoon alert goes out MaintenanceSchedule.DefaultDueSoonDays
+    // (2) days before the due day - so from day 12 of a 14-day check, and not before.
     [EmulatorFact]
-    public async Task Mnt015_Biweekly_NoAlertOnDay13()
+    public async Task Mnt015_Biweekly_DueSoonAlertOnDay12()
     {
         var (db, garage) = await FreshAsync();
         await Taxi(db, "TAXI_001");
-        await ResolvedRoutineJob(db, "TAXI_001", MaintenanceSchedule.BiweeklyCheckup, 13);
+        await ResolvedRoutineJob(db, "TAXI_001", MaintenanceSchedule.BiweeklyCheckup, 12);
+
+        await garage.EnsureRecurringChecksAsync();
+        await garage.RaiseRoutineCheckAlertsAsync();
+
+        Assert.NotNull(await AlertFor(db, "TAXI_001", MaintenanceSchedule.BiweeklyCheckup, TodayPh.AddDays(2), MaintenanceSchedule.DueSoonAlertType));
+    }
+
+    [EmulatorFact]
+    public async Task Mnt015_Biweekly_NoAlertOnDay11()
+    {
+        var (db, garage) = await FreshAsync();
+        await Taxi(db, "TAXI_001");
+        await ResolvedRoutineJob(db, "TAXI_001", MaintenanceSchedule.BiweeklyCheckup, 11);
 
         await garage.EnsureRecurringChecksAsync();
         await garage.RaiseRoutineCheckAlertsAsync();
@@ -420,12 +435,26 @@ public class GarageEmulatorTests
         Assert.True(await RoutineAlertCount(db, "TAXI_001", MaintenanceSchedule.OilChange) > 0);
     }
 
+    // Same 2-day early warning: from day 73 of the 75-day oil change, and not before.
     [EmulatorFact]
-    public async Task Mnt016_OilChange_NoAlertOnDay74()
+    public async Task Mnt016_OilChange_DueSoonAlertOnDay73()
     {
         var (db, garage) = await FreshAsync();
         await Taxi(db, "TAXI_001");
-        await ResolvedRoutineJob(db, "TAXI_001", MaintenanceSchedule.OilChange, 74);
+        await ResolvedRoutineJob(db, "TAXI_001", MaintenanceSchedule.OilChange, 73);
+
+        await garage.EnsureRecurringChecksAsync();
+        await garage.RaiseRoutineCheckAlertsAsync();
+
+        Assert.NotNull(await AlertFor(db, "TAXI_001", MaintenanceSchedule.OilChange, TodayPh.AddDays(2), MaintenanceSchedule.DueSoonAlertType));
+    }
+
+    [EmulatorFact]
+    public async Task Mnt016_OilChange_NoAlertOnDay72()
+    {
+        var (db, garage) = await FreshAsync();
+        await Taxi(db, "TAXI_001");
+        await ResolvedRoutineJob(db, "TAXI_001", MaintenanceSchedule.OilChange, 72);
 
         await garage.EnsureRecurringChecksAsync();
         await garage.RaiseRoutineCheckAlertsAsync();
@@ -446,8 +475,8 @@ public class GarageEmulatorTests
         Assert.Equal(TodayPh.AddDays(75), oil.DueDate!.Value.Date);
     }
 
-    // What the same day-13 / day-74 checks give with system_configs.maintenanceDueSoonDays = 0,
-    // to separate "the DueSoon window" from "the interval" as root causes.
+    // The DueSoon window is configurable: with system_configs.maintenanceDueSoonDays = 0 there's no
+    // early warning, so day 13 of a 14-day check has no alert yet.
     [EmulatorFact]
     public async Task Diag_DueSoonZero_Day13HasNoBiweeklyAlert()
     {
@@ -462,8 +491,9 @@ public class GarageEmulatorTests
         Assert.Equal(0, await RoutineAlertCount(db, "TAXI_001", MaintenanceSchedule.BiweeklyCheckup));
     }
 
-    // GPS-014's root cause (a bad fuelExpectedKmPerLiter value) also hits GarageService, which still
-    // reads system_configs/global as a whole SystemConfig: a configured interval is then ignored.
+    // GPS-014's root cause (a bad fuelExpectedKmPerLiter value) used to hit GarageService too, which
+    // read system_configs/global as a whole SystemConfig and then ignored a configured interval.
+    // SystemConfigReader reads field by field, so the interval still applies.
     [EmulatorFact]
     public async Task Diag_BadUnrelatedConfigField_StillHonoursConfiguredWeeklyInterval()
     {

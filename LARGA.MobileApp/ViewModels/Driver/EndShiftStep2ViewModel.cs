@@ -172,7 +172,7 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                 }
 
                 var charges = new ShiftEndCharges(0m, 0m);
-                string activeShiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
+                string? activeShiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
 
                 // GPS-006: this is empty when the shift was already closed elsewhere (6:00 AM
                 // auto-close, a manager) while the driver was mid-checklist - App.xaml.cs's
@@ -395,7 +395,7 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
 
                     await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
-                        var navigation = Shell.Current?.Navigation ?? Application.Current?.MainPage?.Navigation;
+                        var navigation = Shell.Current?.Navigation;
                         if (navigation != null)
                         {
                             await navigation.PushModalAsync(

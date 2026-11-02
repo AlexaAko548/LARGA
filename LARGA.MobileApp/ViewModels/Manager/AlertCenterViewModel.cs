@@ -758,15 +758,22 @@ public class AlertCenterViewModel : BindableObject
             DateTime now = DateTime.UtcNow;
             IFirebaseFirestore firestore = CrossFirebaseFirestore.Current;
             IDocumentReference? bell = await ExistingBellAsync(AlertFeed.ClockInBellId(alert.Id));
-            IWriteBatch batch = firestore.CreateBatch();
-
+            // A listed report that no longer exists is skipped (same as ManagerWeb's DenyAsync) -
+            // updating a missing document would fail the whole batch.
+            var defects = new List<IDocumentReference>();
             foreach (string defectId in defectIds)
             {
-                batch.UpdateData(firestore.GetCollection("maintenance_logs").GetDocument(defectId),
-                    new Dictionary<object, object> { ["priorityLevel"] = "High" });
+                IDocumentReference defect = firestore.GetCollection("maintenance_logs").GetDocument(defectId);
+                if ((await defect.GetDocumentSnapshotAsync<MaintenanceLogProxy>())?.Data != null) defects.Add(defect);
+            }
+            IWriteBatch batch = firestore.CreateBatch();
+
+            foreach (IDocumentReference defect in defects)
+            {
+                batch.UpdateData(defect, new Dictionary<object, object> { ["priorityLevel"] = "High" });
             }
 
-            if (defectIds.Count == 0 && alert.HasFailedItems)
+            if (defects.Count == 0 && alert.HasFailedItems)
             {
                 // Same fields ManagerWeb's DenyAsync writes for a new Garage report.
                 batch.SetData(firestore.GetCollection("maintenance_logs").CreateDocument(), new Dictionary<object, object>

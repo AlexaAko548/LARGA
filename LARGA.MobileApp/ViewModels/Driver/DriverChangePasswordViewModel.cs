@@ -70,8 +70,9 @@ public class DriverChangePasswordViewModel : LARGA.MobileApp.ViewModels.Shared.P
                 return;
             }
 
-            await CrossFirebaseAuth.Current.SignInWithEmailAndPasswordAsync(email, CurrentPassword);
-            await CrossFirebaseAuth.Current.CurrentUser.UpdatePasswordAsync(NewPassword);
+            var signedIn = await CrossFirebaseAuth.Current.SignInWithEmailAndPasswordAsync(email, CurrentPassword)
+                ?? throw new InvalidOperationException("Sign-in returned no user.");
+            await signedIn.UpdatePasswordAsync(NewPassword);
             // A manager's temporary password is replaced now too - no forced change at the next login.
             await LARGA.MobileApp.Services.MustChangePasswordFlag.ClearAsync();
             LARGA.MobileApp.Services.AuditLogWriter.Record("DriverPasswordChanged", "Changed their own mobile app password.");

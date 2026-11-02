@@ -16,7 +16,11 @@ public class LiveRemoteClose
         if (string.IsNullOrEmpty(shiftId) || string.IsNullOrEmpty(driverId) || !File.Exists(credentials)) return;
 
         Environment.SetEnvironmentVariable("FIRESTORE_EMULATOR_HOST", null);
+        // CredentialsPath is obsolete in favor of CredentialFactory, but for an explicit,
+        // developer-supplied key path this is fine - same tradeoff as ManagerWeb and LARGA.SeedTool.
+#pragma warning disable CS0618
         FirestoreDb db = new FirestoreDbBuilder { ProjectId = "larga-blmtaxi", CredentialsPath = credentials, EmulatorDetection = Google.Api.Gax.EmulatorDetection.ProductionOnly }.Build();
+#pragma warning restore CS0618
 
         DocumentReference shift = db.Collection("shifts").Document(shiftId);
         DocumentSnapshot snap = await shift.GetSnapshotAsync();

@@ -6,7 +6,7 @@ namespace LARGA.MobileApp.Services;
 
 /// <summary>
 /// Coalesces rapid-fire calls - several Firestore listener events landing together (LAR: driver Ledger/Quick
-/// Ledger auto-refresh) - into one run of <paramref name="action"/> after a quiet period, instead of reloading
+/// Ledger auto-refresh) - into one run of the action after a quiet period, instead of reloading
 /// once per event.
 /// </summary>
 public sealed class DebouncedAction : IDisposable

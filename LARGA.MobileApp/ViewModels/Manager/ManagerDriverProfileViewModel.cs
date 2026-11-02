@@ -178,7 +178,7 @@ public class ManagerDriverProfileViewModel : BindableObject
             // needs it while the modal is open (it is responsible for cleaning it up when done).
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                if (Application.Current?.MainPage?.Navigation is { } navigation)
+                if (Shell.Current?.Navigation is { } navigation)
                 {
                     await navigation.PushModalAsync(
                         new Views.Driver.ScanDriverLicensePage(_ocrService, _faceCropService, localFilePath, DriverId));

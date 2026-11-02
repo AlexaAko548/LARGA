@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore;
 using LARGA.SharedCore.Ledger;
 
 namespace LARGA.ManagerWeb.Services;
@@ -30,7 +31,7 @@ public class PayoutAccountService
     public async Task<List<string>> GetAsync()
     {
         DocumentSnapshot snapshot = await Config.GetSnapshotAsync();
-        return snapshot.Exists ? snapshot.ConvertTo<SystemConfig>().AuthorizedPayoutAccounts ?? new List<string>() : new List<string>();
+        return SystemConfigReader.Read(snapshot).AuthorizedPayoutAccounts ?? new List<string>();
     }
 
     /// <summary>Null when added, otherwise why it wasn't.</summary>

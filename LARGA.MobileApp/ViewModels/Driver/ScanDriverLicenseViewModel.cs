@@ -370,7 +370,7 @@ public class ScanDriverLicenseViewModel : BindableObject
     {
         TryDeleteCachedFile(_localFilePath);
 
-        if (Application.Current?.MainPage?.Navigation is { } navigation)
+        if (Shell.Current?.Navigation is { } navigation)
         {
             await navigation.PopModalAsync();
         }

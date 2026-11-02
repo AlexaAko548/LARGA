@@ -102,36 +102,36 @@ public class MaintenanceService : IMaintenanceService
     private class MaintenanceRecordProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
-        public string TaxiId { get; set; }
+        public string TaxiId { get; set; } = string.Empty;
 
         [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
-        public string ShiftId { get; set; }
+        public string ShiftId { get; set; } = string.Empty;
 
         [Plugin.Firebase.Firestore.FirestoreProperty("managerId")]
-        public string ManagerId { get; set; }
+        public string ManagerId { get; set; } = string.Empty;
 
         [Plugin.Firebase.Firestore.FirestoreProperty("maintenanceType")]
-        public string MaintenanceType { get; set; }
+        public string MaintenanceType { get; set; } = string.Empty;
 
         [Plugin.Firebase.Firestore.FirestoreProperty("issueTitle")]
-        public string IssueTitle { get; set; }
+        public string IssueTitle { get; set; } = string.Empty;
 
         [Plugin.Firebase.Firestore.FirestoreProperty("issueDescription")]
-        public string IssueDescription { get; set; }
+        public string IssueDescription { get; set; } = string.Empty;
 
         [Plugin.Firebase.Firestore.FirestoreProperty("dateLogged")]
         public DateTime DateLogged { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("priorityLevel")]
-        public string PriorityLevel { get; set; }
+        public string PriorityLevel { get; set; } = string.Empty;
 
         [Plugin.Firebase.Firestore.FirestoreProperty("supportingPhotoUrl")]
-        public string SupportingPhotoUrl { get; set; }
+        public string SupportingPhotoUrl { get; set; } = string.Empty;
 
         [Plugin.Firebase.Firestore.FirestoreProperty("reportedByDriverId")]
-        public string ReportedByDriverId { get; set; }
+        public string ReportedByDriverId { get; set; } = string.Empty;
 
         [Plugin.Firebase.Firestore.FirestoreProperty("status")]
-        public string Status { get; set; }
+        public string Status { get; set; } = string.Empty;
     }
 }

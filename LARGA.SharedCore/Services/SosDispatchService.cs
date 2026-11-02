@@ -139,8 +139,8 @@ public class SosDispatchService
         }
 
         DocumentSnapshot snapshot = await Db.Collection("emergency_alerts").Document(alertId).GetSnapshotAsync();
-        string who = snapshot.Exists && snapshot.TryGetValue("driverName", out string? driverName) ? driverName : "unknown driver";
-        string unit = snapshot.Exists && snapshot.TryGetValue("taxiUnit", out string? taxiUnit) ? taxiUnit : "unknown unit";
+        string who = (snapshot.Exists && snapshot.TryGetValue("driverName", out string? driverName) ? driverName : null) ?? "unknown driver";
+        string unit = (snapshot.Exists && snapshot.TryGetValue("taxiUnit", out string? taxiUnit) ? taxiUnit : null) ?? "unknown unit";
 
         // The SOS update and its audit entry commit together, so a resolve can't land unlogged.
         DateTime now = DateTime.UtcNow;

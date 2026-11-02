@@ -478,7 +478,7 @@ public class RecordPaymentViewModel : BindableObject
             }
         }
 
-        bool confirmed = await ConfirmationPopup.ShowAsync(Shell.Current,
+        bool confirmed = await ConfirmationPopup.ShowAsync(Shell.Current!,
             "Confirm This Payment?",
             $"Recording {Money(amount)} ({(IsEWallet ? "E-Wallet / GCash" : "Cash")}) " +
             $"{(IsOtherMode ? SelectedCategory.ToLowerInvariant() + " payment " : string.Empty)}for {DriverName}.",

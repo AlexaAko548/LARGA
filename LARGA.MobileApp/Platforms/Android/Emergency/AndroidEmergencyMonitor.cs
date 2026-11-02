@@ -117,17 +117,10 @@ public sealed class AndroidEmergencyMonitor : IEmergencyMonitor
     {
         _runningShiftId = null;
 
-        try
-        {
-            // stopService works from the background too (a STOP intent via startService doesn't).
-            Context context = AndroidApp.Context;
-            context.StopService(new Intent(context, typeof(EmergencyDetectionService)));
-            EmergencyLog.Info("Monitor stop requested.");
-        }
-        catch (Exception ex)
-        {
-            EmergencyLog.Error("Monitor stop failed", ex);
-        }
+        // Stops it, or keeps just the manager's callback alive when an SOS (a duress PIN at
+        // clock-out) is still waiting for it - see EmergencyDetectionService.StopOrKeepCallback.
+        EmergencyDetectionService.StopOrKeepCallback(AndroidApp.Context);
+        EmergencyLog.Info("Monitor stop requested.");
     }
 
     private static async Task<PermissionStatus> RequestPermissionsAsync()

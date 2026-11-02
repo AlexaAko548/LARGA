@@ -20,7 +20,11 @@ public class LiveReadOnlyProbe
     private static FirestoreDb Db()
     {
         Environment.SetEnvironmentVariable("FIRESTORE_EMULATOR_HOST", null);
+        // CredentialsPath is obsolete in favor of CredentialFactory, but for an explicit,
+        // developer-supplied key path this is fine - same tradeoff as ManagerWeb and LARGA.SeedTool.
+#pragma warning disable CS0618
         return new FirestoreDbBuilder { ProjectId = ProjectId, CredentialsPath = Credentials, EmulatorDetection = Google.Api.Gax.EmulatorDetection.ProductionOnly }.Build();
+#pragma warning restore CS0618
     }
 
     private static string Describe(object? v) => v switch
@@ -89,7 +93,9 @@ public class LiveReadOnlyProbe
 
         // ---- GPS-016: TTL policies and stale points ----
         _out.WriteLine("== gps_telemetry TTL ==");
+#pragma warning disable CS0618 // GoogleCredential.FromFile: see Db() above
         var credential = GoogleCredential.FromFile(Credentials).CreateScoped("https://www.googleapis.com/auth/datastore");
+#pragma warning restore CS0618
         string token = await ((ITokenAccess)credential).GetAccessTokenForRequestAsync();
         using var http = new HttpClient();
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
@@ -119,7 +125,7 @@ public class LiveReadOnlyProbe
         foreach (DocumentSnapshot s in shifts.Documents.OrderByDescending(d => d.GetValue<Timestamp>("shiftStart").ToDateTime()))
         {
             DateTime start = s.GetValue<Timestamp>("shiftStart").ToDateTime();
-            string status = s.TryGetValue("status", out string? st) ? st : "?";
+            string status = (s.TryGetValue("status", out string? st) ? st : null) ?? "?";
             DateTime? end = s.TryGetValue("shiftEnd", out Timestamp te) ? te.ToDateTime() : null;
             List<DocumentSnapshot> points = (await gps.WhereEqualTo("shiftId", s.Id).GetSnapshotAsync()).Documents
                 .OrderBy(p => p.GetValue<Timestamp>("timestamp").ToDateTime()).ToList();

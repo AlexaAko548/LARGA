@@ -302,7 +302,7 @@ public class ChatService : IChatService
 public class ChatMessageProxy
 {
     [Plugin.Firebase.Firestore.FirestoreProperty("text")]
-    public string Text { get; set; }
+    public string? Text { get; set; }
 
     [Plugin.Firebase.Firestore.FirestoreProperty("isDriver")]
     public bool IsDriver { get; set; }
@@ -327,7 +327,7 @@ public class ChatMessageProxy
 public class DriverChatMessageProxy
 {
     [Plugin.Firebase.Firestore.FirestoreProperty("text")]
-    public string Text { get; set; }
+    public string Text { get; set; } = string.Empty;
 
     [Plugin.Firebase.Firestore.FirestoreProperty("isDriver")]
     public bool IsDriver { get; set; }
@@ -352,10 +352,10 @@ public class StaffProfileProxy
 public class ChatSessionProxy
 {
     [Plugin.Firebase.Firestore.FirestoreProperty("driverName")]
-    public string DriverName { get; set; }
+    public string? DriverName { get; set; }
 
     [Plugin.Firebase.Firestore.FirestoreProperty("lastMessage")]
-    public string LastMessage { get; set; }
+    public string? LastMessage { get; set; }
 
     [Plugin.Firebase.Firestore.FirestoreProperty("isUnread")]
     public bool IsUnread { get; set; }
@@ -367,9 +367,9 @@ public class ChatSessionProxy
 public class DriverProfileProxy
 {
     [Plugin.Firebase.Firestore.FirestoreProperty("phoneNumber")]
-    public string PhoneNumber { get; set; }
+    public string? PhoneNumber { get; set; }
 
     // Map directly to the "fullName" field in your Firestore users collection
     [Plugin.Firebase.Firestore.FirestoreProperty("fullName")]
-    public string FullName { get; set; }
+    public string? FullName { get; set; }
 }

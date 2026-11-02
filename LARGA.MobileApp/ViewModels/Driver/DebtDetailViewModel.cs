@@ -95,8 +95,8 @@ public class DebtDetailViewModel : BindableObject
 
 public class DebtRecord
 {
-    public string DateStr { get; set; }
-    public string Amount { get; set; }
+    public string DateStr { get; set; } = string.Empty;
+    public string Amount { get; set; } = string.Empty;
     public string Label { get; set; } = string.Empty;
     public DateTime RawDate { get; set; } // Used for sorting, not displayed
     public string DisplayText => string.IsNullOrEmpty(Label) ? $"{DateStr} - ₱ {Amount}" : $"{DateStr} - ₱ {Amount} ({Label})";

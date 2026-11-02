@@ -183,7 +183,7 @@ public class VehicleDefectViewModel : BindableObject
             {
                 TaxiId = taxiId,
                 ShiftId = string.IsNullOrWhiteSpace(shiftId) ? null : shiftId,
-                ManagerId = null, // Not yet assigned; manager sets this when creating a work order
+                // ManagerId stays empty: not yet assigned; the manager sets it when creating a work order.
                 MaintenanceType = MaintenanceType.BreakdownRepair,
                 IssueTitle = TitleReport,
                 IssueDescription = Description,
@@ -302,7 +302,7 @@ public class VehicleDefectViewModel : BindableObject
                 }
 
                 using var outStream = new MemoryStream();
-                finalBitmap.Compress(Android.Graphics.Bitmap.CompressFormat.Jpeg, quality, outStream);
+                finalBitmap.Compress(Android.Graphics.Bitmap.CompressFormat.Jpeg!, quality, outStream);
                 return outStream.ToArray();
             }
             finally

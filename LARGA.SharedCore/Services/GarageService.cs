@@ -199,8 +199,8 @@ public class GarageService
         {
             DocumentReference docRef = Db.Collection("maintenance_logs").Document(maintenanceId);
             DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
-            string taxiId = snapshot.Exists && snapshot.TryGetValue("taxiId", out string? id) ? id : "unknown unit";
-            string issueTitle = snapshot.Exists && snapshot.TryGetValue("issueTitle", out string? title) ? title : "report";
+            string taxiId = (snapshot.Exists && snapshot.TryGetValue("taxiId", out string? id) ? id : null) ?? "unknown unit";
+            string issueTitle = (snapshot.Exists && snapshot.TryGetValue("issueTitle", out string? title) ? title : null) ?? "report";
 
             // The status change and its audit entry commit together, so a dismiss can't land unlogged.
             WriteBatch batch = Db.StartBatch();
@@ -244,8 +244,8 @@ public class GarageService
         {
             DocumentReference docRef = Db.Collection("maintenance_logs").Document(maintenanceId);
             DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
-            string taxiId = snapshot.Exists && snapshot.TryGetValue("taxiId", out string? id) ? id : "unknown unit";
-            string issueTitle = snapshot.Exists && snapshot.TryGetValue("issueTitle", out string? title) ? title : "report";
+            string taxiId = (snapshot.Exists && snapshot.TryGetValue("taxiId", out string? id) ? id : null) ?? "unknown unit";
+            string issueTitle = (snapshot.Exists && snapshot.TryGetValue("issueTitle", out string? title) ? title : null) ?? "report";
 
             bool startsToday = shopDate.Date == todayPh;
             var updates = new Dictionary<string, object>
@@ -290,7 +290,7 @@ public class GarageService
         {
             DocumentReference docRef = Db.Collection("maintenance_logs").Document(maintenanceId);
             DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
-            string taxiId = snapshot.Exists && snapshot.TryGetValue("taxiId", out string? id) ? id : "unknown unit";
+            string taxiId = (snapshot.Exists && snapshot.TryGetValue("taxiId", out string? id) ? id : null) ?? "unknown unit";
 
             WriteBatch batch = Db.StartBatch();
             batch.Update(docRef, new Dictionary<string, object>
@@ -379,8 +379,8 @@ public class GarageService
         {
             DocumentReference docRef = Db.Collection("maintenance_logs").Document(maintenanceId);
             DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
-            string taxiId = snapshot.Exists && snapshot.TryGetValue("taxiId", out string? id) ? id : "unknown unit";
-            string issueTitle = snapshot.Exists && snapshot.TryGetValue("issueTitle", out string? title) ? title : "work order";
+            string taxiId = (snapshot.Exists && snapshot.TryGetValue("taxiId", out string? id) ? id : null) ?? "unknown unit";
+            string issueTitle = (snapshot.Exists && snapshot.TryGetValue("issueTitle", out string? title) ? title : null) ?? "work order";
 
             var updates = new Dictionary<string, object>
             {
@@ -773,7 +773,9 @@ public class GarageService
         try
         {
             DocumentSnapshot config = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
-            return MaintenanceIntervals.From(config.Exists ? config.ConvertTo<SystemConfig>() : null);
+            return MaintenanceIntervals.From(config.Exists
+                ? SystemConfigReader.Read(config, (field, ex) => _logger.LogWarning(ex, "system_configs/global.{Field} is unreadable - using its default", field))
+                : null);
         }
         catch (Exception ex)
         {

@@ -151,10 +151,10 @@ public class ReportsViewModel : BindableObject
                 tempDefects.Add(new DefectReportItem
                 {
                     Id = doc.Reference.Id,
-                    Title = doc.Data.IssueTitle,
+                    Title = doc.Data.IssueTitle ?? string.Empty,
                     DateLogged = dateLogged,
                     DateDisplay = dateLogged.ToString("MMM d, yyyy"),
-                    Status = doc.Data.Status
+                    Status = doc.Data.Status ?? string.Empty
                 });
             }
 
@@ -204,13 +204,13 @@ public class ReportsViewModel : BindableObject
     private class DefectReportProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("issueTitle")]
-        public string IssueTitle { get; set; }
+        public string? IssueTitle { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("dateLogged")]
         public System.DateTime DateLogged { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("status")]
-        public string Status { get; set; }
+        public string? Status { get; set; }
     }
 
     public class FuelReportProxy

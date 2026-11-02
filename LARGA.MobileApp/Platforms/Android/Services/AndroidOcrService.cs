@@ -25,7 +25,8 @@ public class AndroidOcrService : IOcrService
 
         var context = global::Android.App.Application.Context;
         var javaFile = new global::Java.IO.File(localFilePath);
-        var androidUri = global::Android.Net.Uri.FromFile(javaFile);
+        var androidUri = global::Android.Net.Uri.FromFile(javaFile)
+            ?? throw new System.IO.IOException($"Couldn't open the photo at {localFilePath}.");
 
         // THE FIX: The file path now safely points to a lightweight, 1024px upright JPEG
         using var image = InputImage.FromFilePath(context, androidUri);
@@ -43,7 +44,7 @@ public class AndroidOcrService : IOcrService
                 var box = block.BoundingBox;
                 var ocrBlock = new OcrTextBlock
                 {
-                    Text = block.Text,
+                    Text = block.Text ?? string.Empty,
                     BoundingBox = Normalize(box, imgWidth, imgHeight)
                 };
 

@@ -243,6 +243,45 @@ public class SosProtocolTests
         Assert.Equal("****", EmergencyCallAutoAnswer.Mask("123"));
     }
 
+    // ---- Callback kept after clock-out (duress PIN) ---------------------------
+    // IsActive decides whether the detection service winds down to just the auto-answer at
+    // clock-out instead of stopping (EmergencyDetectionService.StopOrKeepCallback).
+
+    [Fact]
+    public void Clockout_never_armed_nothing_to_keep()
+    {
+        var state = new EmergencyCallAutoAnswer(new FakeCallAudio());
+        Assert.False(state.IsActive);
+    }
+
+    [Fact]
+    public void Clockout_armed_callback_is_kept_until_the_window_runs_out()
+    {
+        var (state, _) = Armed(EmergencyCallMode.Stealth);
+        Assert.True(state.IsActive);
+
+        Assert.False(state.DisarmIfExpired(T0 + EmergencyCallAutoAnswer.ArmedFor - TimeSpan.FromSeconds(1)));
+        Assert.True(state.IsActive);
+
+        Assert.True(state.DisarmIfExpired(T0 + EmergencyCallAutoAnswer.ArmedFor + TimeSpan.FromSeconds(1)));
+        Assert.False(state.IsActive);
+    }
+
+    [Fact]
+    public void Clockout_kept_through_the_call_and_released_when_it_hangs_up()
+    {
+        var (state, audio) = Armed(EmergencyCallMode.Stealth);
+        ManagerCallConnects(state, Manager, T0 + TimeSpan.FromMinutes(5));
+
+        // Past the window, but the stealth call is still on: keep it (stopping would restore the audio mid-call).
+        Assert.False(state.DisarmIfExpired(T0 + EmergencyCallAutoAnswer.ArmedFor + TimeSpan.FromMinutes(1)));
+        Assert.True(state.IsActive);
+        Assert.True(audio.VoiceMuted);
+
+        Assert.True(state.OnIdle());
+        Assert.False(state.IsActive);
+    }
+
     // ---- Location (SOS-003) -------------------------------------------------
 
     [Fact]
