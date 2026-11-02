@@ -36,7 +36,18 @@ public partial class ScanEReceiptPage : ContentPage
         if (_scanned is null)
         {
             await StartCameraAsync();
+            await LoadAuthorizedAccountsAsync();
         }
+    }
+
+    // BETA-065: shown upfront, before a receipt is even captured, so the manager has something
+    // to read out to the driver / compare against while verifying a GCash payment in person.
+    private async Task LoadAuthorizedAccountsAsync()
+    {
+        IReadOnlyList<string>? authorized = await QuickLedgerService.ReadAuthorizedPayoutAccountsAsync();
+        LblAuthorizedAccounts.Text = authorized is { Count: > 0 }
+            ? "Approved GCash/bank account(s): " + string.Join(", ", authorized)
+            : "No approved GCash/bank accounts are set up yet.";
     }
 
     protected override async void OnDisappearing()

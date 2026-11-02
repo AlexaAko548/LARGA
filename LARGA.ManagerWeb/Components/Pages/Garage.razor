@@ -59,13 +59,25 @@ else
             <button class="outline-btn" type="button" @onclick="OpenHistoryModalAsync">History</button>
         </div>
 
+        @if (_snapshot is not null)
+        {
+            @* BETA-088 / BETA-090: four long sections stacked on one page made finding "Create
+               Ticket" or "Start Now" feel like a hunt - jump straight to the section instead. *@
+            <nav class="garage-section-nav">
+                <a href="#section-pending-reports">Pending Reports (@_snapshot.PendingReports.Count)</a>
+                <a href="#section-upcoming-work-orders">Upcoming Work Orders (@_snapshot.ScheduledWorkOrders.Count)</a>
+                <a href="#section-active-work-orders">Active Work Orders (@_snapshot.ActiveWorkOrders.Count)</a>
+                <a href="#section-routine-checks">Routine Checks (@_snapshot.UpcomingChecks.Count)</a>
+            </nav>
+        }
+
         @if (_snapshot is null)
         {
             <div class="table-empty"><LoadingSpinner Text="Loading the garage…" /></div>
         }
         else
         {
-            <section class="garage-section">
+            <section class="garage-section" id="section-pending-reports">
                 <h2 class="garage-section-title"><Icon Name="triangle-alert" /> Pending Driver Reports (@_snapshot.PendingReports.Count)</h2>
                 @if (_snapshot.PendingReports.Count == 0)
                 {
@@ -95,7 +107,7 @@ else
                 }
             </section>
 
-            <section class="garage-section">
+            <section class="garage-section" id="section-upcoming-work-orders">
                 <h2 class="garage-section-title"><Icon Name="calendar-days" /> Upcoming Work Orders (@_snapshot.ScheduledWorkOrders.Count)</h2>
                 @if (_snapshot.ScheduledWorkOrders.Count == 0)
                 {
@@ -133,7 +145,7 @@ else
                 }
             </section>
 
-            <section class="garage-section">
+            <section class="garage-section" id="section-active-work-orders">
                 <h2 class="garage-section-title"><Icon Name="settings" /> Active Work Orders (Currently In Shop)</h2>
                 @if (_snapshot.ActiveWorkOrders.Count == 0)
                 {
@@ -175,7 +187,7 @@ else
                 }
             </section>
 
-            <section class="garage-section">
+            <section class="garage-section" id="section-routine-checks">
                 <h2 class="garage-section-title"><Icon Name="calendar-clock" /> Upcoming Routine Checks</h2>
                 @if (_snapshot.UpcomingChecks.Count == 0)
                 {

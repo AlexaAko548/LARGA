@@ -6,7 +6,7 @@
              Shell.NavBarIsVisible="False"
              BackgroundColor="{DynamicResource ThemeSurface}">
 
-    <Grid RowDefinitions="Auto,*,Auto" Padding="20,15,20,20" RowSpacing="15">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="20,15,20,20" RowSpacing="15">
 
         <!-- Header -->
         <Grid Grid.Row="0" ColumnDefinitions="Auto,*" ColumnSpacing="12">
@@ -21,8 +21,13 @@
             </Border>
         </Grid>
 
+        <!-- BETA-065: the approved GCash/bank account(s), visible before a receipt is even
+             captured, so the manager has something to check against while verifying in person. -->
+        <Label x:Name="LblAuthorizedAccounts" Grid.Row="1" Text="" FontSize="12" HorizontalTextAlignment="Center"
+               TextColor="{DynamicResource ThemeTextSecondary}" />
+
         <!-- Camera / captured photo -->
-        <Border Grid.Row="1" BackgroundColor="#101010" StrokeThickness="0" StrokeShape="RoundRectangle 14" Padding="6">
+        <Border Grid.Row="2" BackgroundColor="#101010" StrokeThickness="0" StrokeShape="RoundRectangle 14" Padding="6">
             <Grid>
                 <cv:CameraView x:Name="ReceiptCamera" HorizontalOptions="FillAndExpand" VerticalOptions="FillAndExpand"
                                CamerasLoaded="Camera_CamerasLoaded" />
@@ -31,7 +36,7 @@
         </Border>
 
         <!-- Read-only receipt details, filled from the scan -->
-        <VerticalStackLayout Grid.Row="2" Spacing="12">
+        <VerticalStackLayout Grid.Row="3" Spacing="12">
             <Label x:Name="ScanStatusLabel" Text="Line up the receipt and capture it." Style="{StaticResource Ledger.Detail}"
                    HorizontalTextAlignment="Center" />
 

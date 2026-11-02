@@ -61,7 +61,7 @@ else
                 <button class="tab-btn @(_activeTab == "master" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("master")'><Icon Name="notebook-text" /> Master Debt Ledger</button>
             </div>
             <div class="tab-actions">
-                @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenAdjustmentModal">+ Adjustment</button> }
+                @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenAdjustmentModal" title="Also used to correct a wrongly recorded payment">+ Adjustment / Correction</button> }
                 @if (_canManage) { <button class="outline-btn" type="button" disabled="@_isExportingCsv" @onclick="ExportCsvAsync" aria-busy="@_isExportingCsv">@if (_isExportingCsv) { <text>Exporting…</text> } else { <Icon Name="download" /> <text>Export</text> }</button> }
             </div>
         </section>
@@ -444,7 +444,7 @@ else
     <div class="report-overlay" @onclick="CloseAdjustmentModal">
         <div class="report-modal" @onclick:stopPropagation="true">
             <div class="report-header">
-                <h3>Manual Adjustment / Penalty</h3>
+                <h3>Manual Adjustment / Correction</h3>
                 <button type="button" class="close-modal" @onclick="CloseAdjustmentModal">×</button>
             </div>
             <div class="report-body">
@@ -479,12 +479,19 @@ else
 
                 <div class="report-section">
                     <label>Note</label>
-                    <textarea class="text-input textarea" maxlength="300" @bind="_adjustmentReason" @bind:event="oninput" @bind:after="TouchAdjustmentReason" @onblur="TouchAdjustmentReason" placeholder="Reason for adjustment (required)"></textarea>
+                    <textarea class="text-input textarea" maxlength="300" @bind="_adjustmentReason" @bind:event="oninput" @bind:after="TouchAdjustmentReason" @onblur="TouchAdjustmentReason" placeholder="Reason for the adjustment or correction (required)"></textarea>
                     <FieldError Show="_adjustmentReasonTouched || _adjustmentSubmitted" Message="@AdjustmentReasonError" />
                     <small class="receipt-hint">@_adjustmentReason.Length / 300</small>
                 </div>
 
-                <div class="info-banner">Adjustments don't touch today's boundary payments - they're a separate correction that feeds the Master Debt Ledger balance.</div>
+                <div class="info-banner">
+                    This is also how to fix a wrongly recorded payment: a recorded shift's AmountPaid can't be
+                    edited directly, since it's part of the permanent audit trail, so correct the driver's overall
+                    debt balance here instead - "Add to Debt" if more was recorded as paid than the driver actually
+                    gave (so they still owe the shortfall), "Write-off" if less was recorded than they actually
+                    paid (so they're owed that credit back). Adjustments don't touch today's boundary payments;
+                    they feed the Master Debt Ledger balance.
+                </div>
 
                 @if (_adjustmentError is not null)
                 {

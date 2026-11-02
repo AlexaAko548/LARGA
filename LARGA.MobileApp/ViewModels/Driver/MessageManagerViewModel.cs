@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using LARGA.Shared.Models.Entities;
@@ -148,12 +150,24 @@ public class MessageManagerViewModel : INotifyPropertyChanged
         try
         {
             // Drivers can't read managers' users documents (firestore.rules), so the managers'
-            // numbers come from the same system_configs allowlist the SOS auto-answer uses.
-            string? managerPhoneNumber = (await _emergencyAlertService.GetManagerPhoneNumbersAsync()).FirstOrDefault();
-            if (string.IsNullOrWhiteSpace(managerPhoneNumber))
+            // numbers come from the same system_configs allowlist the SOS auto-answer uses - no
+            // names attached, just the allowed numbers (Manager and/or Assistant Manager).
+            IReadOnlyList<string> managerPhoneNumbers = await _emergencyAlertService.GetManagerPhoneNumbersAsync();
+            if (managerPhoneNumbers.Count == 0)
             {
                 await Shell.Current.DisplayAlert("Call Manager",
                     "No manager phone number is on file yet. Send a message instead, or ask your manager to add their number.", "OK");
+                return;
+            }
+
+            // BETA-021: more than one number on file - let the driver see and pick which one to
+            // call, rather than always dialing the first one blind.
+            string? managerPhoneNumber = managerPhoneNumbers.Count == 1
+                ? managerPhoneNumbers[0]
+                : await Shell.Current.DisplayActionSheet("Call Manager", "Cancel", null, managerPhoneNumbers.ToArray());
+
+            if (string.IsNullOrWhiteSpace(managerPhoneNumber) || managerPhoneNumber == "Cancel")
+            {
                 return;
             }
 
