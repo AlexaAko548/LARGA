@@ -4,6 +4,8 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using LARGA.MobileApp.Services;
 using LARGA.SharedCore;
+using LARGA.SharedCore.Services;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
@@ -144,10 +146,27 @@ public class UpdateContactNumberViewModel : BindableObject
             }
 
             // BETA-062: confirm the password before a security-sensitive contact-number change.
-            // Re-authenticating also doubles as verifying the password is actually correct.
+            // Re-authenticating also doubles as verifying the password is actually correct. Goes
+            // through IFirebaseAuthService rather than a raw SignInWithEmailAndPasswordAsync call
+            // so a network failure or Firebase lockout isn't misreported as "wrong password"
+            // (review follow-up on BETA-062).
+            IFirebaseAuthService? authService = Application.Current?.Handler?.MauiContext?.Services
+                .GetService<IFirebaseAuthService>();
             try
             {
-                await CrossFirebaseAuth.Current.SignInWithEmailAndPasswordAsync(email, Password);
+                if (authService is not null)
+                {
+                    await authService.LoginAsync(email, Password);
+                }
+                else
+                {
+                    await CrossFirebaseAuth.Current.SignInWithEmailAndPasswordAsync(email, Password);
+                }
+            }
+            catch (AuthFailedException ex)
+            {
+                await Shell.Current.DisplayAlert("Couldn't Confirm Password", ex.Message, "OK");
+                return;
             }
             catch (Exception)
             {
@@ -193,7 +212,7 @@ public class UpdateContactNumberViewModel : BindableObject
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Update Contact Number Error: {ex.Message}");
-            await Shell.Current.DisplayAlert("Error", "Couldn't update your contact number. Please try again.", "OK");
+            await SafeAlert.ShowAsync("Error", "Couldn't update your contact number. Please try again.");
         }
         finally
         {

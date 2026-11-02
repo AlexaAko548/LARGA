@@ -64,10 +64,13 @@ else
             @* BETA-088 / BETA-090: four long sections stacked on one page made finding "Create
                Ticket" or "Start Now" feel like a hunt - jump straight to the section instead. *@
             <nav class="garage-section-nav">
-                <a href="#section-pending-reports">Pending Reports (@_snapshot.PendingReports.Count)</a>
-                <a href="#section-upcoming-work-orders">Upcoming Work Orders (@_snapshot.ScheduledWorkOrders.Count)</a>
-                <a href="#section-active-work-orders">Active Work Orders (@_snapshot.ActiveWorkOrders.Count)</a>
-                <a href="#section-routine-checks">Routine Checks (@_snapshot.UpcomingChecks.Count)</a>
+                @* The link's page path has to match the current route ("garage") for Blazor's
+                   enhanced navigation to scroll in place - a bare "#..." resolves against the
+                   app's base href "/" instead and does a full navigation to the Landing page. *@
+                <a href="garage#section-pending-reports">Pending Reports (@_snapshot.PendingReports.Count)</a>
+                <a href="garage#section-upcoming-work-orders">Upcoming Work Orders (@_snapshot.ScheduledWorkOrders.Count)</a>
+                <a href="garage#section-active-work-orders">Active Work Orders (@_snapshot.ActiveWorkOrders.Count)</a>
+                <a href="garage#section-routine-checks">Routine Checks (@_snapshot.UpcomingChecks.Count)</a>
             </nav>
         }
 

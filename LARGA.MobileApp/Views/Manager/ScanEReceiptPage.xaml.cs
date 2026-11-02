@@ -44,10 +44,16 @@ public partial class ScanEReceiptPage : ContentPage
     // to read out to the driver / compare against while verifying a GCash payment in person.
     private async Task LoadAuthorizedAccountsAsync()
     {
+        // ReadAuthorizedPayoutAccountsAsync returns null specifically when the read failed
+        // (offline, etc.) - distinct from an empty list, which means it loaded fine and nothing
+        // is configured (review follow-up on BETA-065).
         IReadOnlyList<string>? authorized = await QuickLedgerService.ReadAuthorizedPayoutAccountsAsync();
-        LblAuthorizedAccounts.Text = authorized is { Count: > 0 }
-            ? "Approved GCash/bank account(s): " + string.Join(", ", authorized)
-            : "No approved GCash/bank accounts are set up yet.";
+        LblAuthorizedAccounts.Text = authorized switch
+        {
+            null => "Couldn't load the approved accounts (offline?). Check your connection and try again.",
+            { Count: > 0 } => "Approved GCash/bank account(s): " + string.Join(", ", authorized),
+            _ => "No approved GCash/bank accounts are set up yet.",
+        };
     }
 
     protected override async void OnDisappearing()

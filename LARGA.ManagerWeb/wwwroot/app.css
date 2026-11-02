@@ -3190,6 +3190,9 @@ margin-bottom: 0.8rem;
 
 .garage-section {
 margin-bottom: 1.4rem;
+/* So a jump from .garage-section-nav (sticky, position: sticky; top: 0) doesn't land with
+   the section title tucked underneath the nav bar. */
+scroll-margin-top: 3.5rem;
 }
 
 /* Quick-jump links to each section (BETA-088/090: the page is four long lists stacked

@@ -87,7 +87,7 @@ public class ChangePasswordViewModel : LARGA.MobileApp.ViewModels.Shared.Passwor
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Change Password Error: {ex.Message}");
-            await Shell.Current.DisplayAlert("Error", "Couldn't change your password. Double-check your current password and try again.", "OK");
+            await SafeAlert.ShowAsync("Error", "Couldn't change your password. Double-check your current password and try again.");
         }
         finally
         {
