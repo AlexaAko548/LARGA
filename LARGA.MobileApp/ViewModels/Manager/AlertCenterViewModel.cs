@@ -44,8 +44,13 @@ public class AlertCenterViewModel : BindableObject
     private int _unreadCount;
     private bool _hasLoaded;
     private bool _showUnreadOnly;
+    private bool _refreshQueued;
 
-    public ObservableCollection<AlertItem> Alerts { get; } = new();
+    // Feeds that answer within this long of each other share one list rebuild (they all fire together on open).
+    private static readonly TimeSpan RefreshCoalesceDelay = TimeSpan.FromMilliseconds(100);
+
+    // Not bound - the list shows AlertGroups. Replaced whole on each rebuild.
+    public IReadOnlyList<AlertItem> Alerts { get; private set; } = new List<AlertItem>();
 
     /// <summary>Set when the manager opened the app from an SOS push (App.xaml.cs); the page
     /// scrolls to that alert once it's in the list.</summary>
@@ -56,7 +61,7 @@ public class AlertCenterViewModel : BindableObject
 
     // Same alerts as Alerts (only the unread ones under the Unread filter), newest first, sectioned by date
     // for the CollectionView.
-    public ObservableCollection<AlertGroup> AlertGroups { get; } = new();
+    public AlertGroupCollection AlertGroups { get; } = new();
 
     public ICommand LoadAlertsCommand { get; }
     public ICommand RetryCommand { get; }
@@ -243,9 +248,7 @@ public class AlertCenterViewModel : BindableObject
                     });
                 }
 
-                _sosItems.Clear();
-                _sosItems.AddRange(items);
-                MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
+                MainThread.BeginInvokeOnMainThread(() => ReplaceSlice(_sosItems, items));
 
                 // Alerts ManagerWeb hasn't geocoded yet (or that came in while it was down):
                 // look the address up here and redraw once it's known.
@@ -297,9 +300,7 @@ public class AlertCenterViewModel : BindableObject
                     });
                 }
 
-                _fuelItems.Clear();
-                _fuelItems.AddRange(items);
-                MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
+                MainThread.BeginInvokeOnMainThread(() => ReplaceSlice(_fuelItems, items));
             }, ex => OnListenerError("Flagged fuel logs", ex));
 
         // LAR-99: same trigger as ManagerWeb's Driver & Shifts approvals - a clock-in request the
@@ -310,31 +311,18 @@ public class AlertCenterViewModel : BindableObject
             .WhereEqualsTo("status", "Pending")
             .AddSnapshotListener<ClockInRequestAlertProxy>(async snapshot =>
             {
-                var items = new List<AlertItem>();
-                foreach (var doc in snapshot.Documents)
-                {
-                    if (doc.Data == null) continue;
-                    var driver = await GetDriverAsync(doc.Data.DriverId ?? string.Empty);
-                    DateTime createdAt = FirestoreDateTimeFix.Apply(doc.Data.CreatedAt);
+                var docs = snapshot.Documents.Where(doc => doc.Data != null).ToList();
+                // Every request's defect reports are read at once, not one after another.
+                string?[][] defectLines = await Task.WhenAll(docs.Select(doc =>
+                    Task.WhenAll(SplitIds(doc.Data!.DefectReportIds).Select(DefectLineAsync))));
 
-                    var defects = new List<string>();
-                    foreach (string defectId in SplitIds(doc.Data.DefectReportIds))
-                    {
-                        try
-                        {
-                            var defect = await CrossFirebaseFirestore.Current
-                                .GetCollection("maintenance_logs")
-                                .GetDocument(defectId)
-                                .GetDocumentSnapshotAsync<MaintenanceLogProxy>();
-                            if (defect?.Data == null) continue;
-                            string line = $"• {defect.Data.IssueTitle} ({defect.Data.PriorityLevel})";
-                            defects.Add(string.IsNullOrWhiteSpace(defect.Data.IssueDescription) ? line : $"{line}: {defect.Data.IssueDescription}");
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Clock-in defect read error ({defectId}): {ex.Message}");
-                        }
-                    }
+                var items = new List<AlertItem>();
+                for (int i = 0; i < docs.Count; i++)
+                {
+                    var doc = docs[i];
+                    var driver = await GetDriverAsync(doc.Data!.DriverId ?? string.Empty);
+                    DateTime createdAt = FirestoreDateTimeFix.Apply(doc.Data.CreatedAt);
+                    var defects = defectLines[i].OfType<string>().ToList();
 
                     items.Add(new AlertItem
                     {
@@ -356,9 +344,7 @@ public class AlertCenterViewModel : BindableObject
                     });
                 }
 
-                _defectItems.Clear();
-                _defectItems.AddRange(items);
-                MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
+                MainThread.BeginInvokeOnMainThread(() => ReplaceSlice(_defectItems, items));
             }, ex => OnListenerError("Clock-in requests", ex));
 
         // system_alerts: the web bell's query (AlertFeed) - every type, read and unread, newest 50. orderBy on one
@@ -376,10 +362,49 @@ public class AlertCenterViewModel : BindableObject
                     .Select(doc => BellItem(doc.Reference.Id, doc.Data!))
                     .ToList();
 
-                _bellItems.Clear();
-                _bellItems.AddRange(items);
-                MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
+                MainThread.BeginInvokeOnMainThread(() => ReplaceSlice(_bellItems, items));
             }, ex => OnListenerError("Notifications (system_alerts)", ex));
+    }
+
+    // "• Title (Priority): description" for one of a clock-in request's defect reports; null if it can't be read.
+    private static async Task<string?> DefectLineAsync(string defectId)
+    {
+        try
+        {
+            var defect = await CrossFirebaseFirestore.Current
+                .GetCollection("maintenance_logs")
+                .GetDocument(defectId)
+                .GetDocumentSnapshotAsync<MaintenanceLogProxy>();
+            if (defect?.Data == null) return null;
+            string line = $"• {defect.Data.IssueTitle} ({defect.Data.PriorityLevel})";
+            return string.IsNullOrWhiteSpace(defect.Data.IssueDescription) ? line : $"{line}: {defect.Data.IssueDescription}";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Clock-in defect read error ({defectId}): {ex.Message}");
+            return null;
+        }
+    }
+
+    // Main thread only, like RefreshCombinedAlerts, so a rebuild never reads a slice mid-update.
+    private void ReplaceSlice(List<AlertItem> slice, List<AlertItem> items)
+    {
+        slice.Clear();
+        slice.AddRange(items);
+        QueueRefresh();
+    }
+
+    // One rebuild for every change that lands within RefreshCoalesceDelay - each rebuild redraws the whole list.
+    private void QueueRefresh()
+    {
+        if (_refreshQueued) return;
+        _refreshQueued = true;
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            await Task.Delay(RefreshCoalesceDelay);
+            _refreshQueued = false;
+            RefreshCombinedAlerts();
+        });
     }
 
     private static AlertItem BellItem(string id, SystemAlertProxy data)
@@ -466,7 +491,7 @@ public class AlertCenterViewModel : BindableObject
 
         item.Address = address;
         item.Subtitle = SosLocationText(true, address, item.Latitude.Value, item.Longitude.Value);
-        MainThread.BeginInvokeOnMainThread(RefreshCombinedAlerts);
+        MainThread.BeginInvokeOnMainThread(QueueRefresh);
     }
 
     private void RefreshCombinedAlerts()
@@ -486,21 +511,17 @@ public class AlertCenterViewModel : BindableObject
         // Same number as the web badge: unread rows among the newest 50 system_alerts.
         UnreadCount = _bellItems.Count(row => !row.IsRead);
 
-        // Newest first across all alert types. GroupBy keeps that order, so each date section
-        // starts with its newest alert and the newest section comes first. Within a day, SOS
-        // alerts lead, the most severe emergency type (Crash, Hostile, Standard) first.
-        List<AlertItem> sorted = actionCards.Concat(bellRows)
+        // Newest day first across all alert types. GroupBy keeps that order, so the newest date
+        // section comes first. Within a day, unread alerts come before read ones (beta feedback:
+        // read ones were landing on top), then SOS alerts lead, the most severe emergency type
+        // (Crash, Hostile, Standard) first, then newest first.
+        Alerts = actionCards.Concat(bellRows)
             .OrderByDescending(item => item.SortTime == DateTime.MinValue ? DateTime.MinValue : item.SortTime.ToPhilippineTime().Date)
+            .ThenBy(item => item.IsRead)
             .ThenByDescending(item => item.IsSos)
             .ThenByDescending(item => item.IsSos ? EmergencyTypes.Severity(item.TriggerType) : 0)
             .ThenByDescending(item => item.SortTime)
             .ToList();
-
-        Alerts.Clear();
-        foreach (var item in sorted)
-        {
-            Alerts.Add(item);
-        }
 
         _hasLoaded = true;
         RebuildGroups();
@@ -513,12 +534,9 @@ public class AlertCenterViewModel : BindableObject
     private void RebuildGroups()
     {
         DateTime philippineNow = PhilippineTime.Now;
-        AlertGroups.Clear();
-        foreach (var group in Alerts.Where(item => !ShowUnreadOnly || item.IsUnread)
-                     .GroupBy(item => AlertFeed.SectionTitle(item.SortTime, philippineNow)))
-        {
-            AlertGroups.Add(new AlertGroup(group.Key, group));
-        }
+        AlertGroups.ReplaceAll(Alerts.Where(item => !ShowUnreadOnly || item.IsUnread)
+            .GroupBy(item => AlertFeed.SectionTitle(item.SortTime, philippineNow))
+            .Select(group => new AlertGroup(group.Key, group)));
         OnPropertyChanged(nameof(IsUnreadEmpty));
     }
 
@@ -1062,6 +1080,24 @@ public class AlertCenterViewModel : BindableObject
             .GetCollection(AlertFeed.Collection)
             .GetDocument(alertId)
             .UpdateDataAsync(new Dictionary<object, object> { { "isRead", true } });
+}
+
+// The Alert Center's sections. ReplaceAll swaps every section with one Reset notification - Clear() plus an Add
+// per section made the list re-layout once per section on every rebuild.
+public class AlertGroupCollection : ObservableCollection<AlertGroup>
+{
+    public void ReplaceAll(IEnumerable<AlertGroup> groups)
+    {
+        Items.Clear();
+        foreach (AlertGroup group in groups)
+        {
+            Items.Add(group);
+        }
+        OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs(nameof(Count)));
+        OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(new System.Collections.Specialized.NotifyCollectionChangedEventArgs(
+            System.Collections.Specialized.NotifyCollectionChangedAction.Reset));
+    }
 }
 
 // One date section in the Alert Center list ("Today", "Yesterday", "October 3, 2026").

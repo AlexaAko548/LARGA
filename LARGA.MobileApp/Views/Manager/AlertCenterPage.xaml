@@ -277,8 +277,11 @@
         </ResourceDictionary>
     </ContentPage.Resources>
 
-    <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="10">
+    <!-- The title, filter and states stay above the list; the CollectionView scrolls on its own so it only builds
+         the cards on screen and recycles them. Inside a ScrollView it laid out every card at once, which made the
+         page lag. -->
+    <Grid RowDefinitions="Auto,*" Padding="20,20,20,0">
+        <VerticalStackLayout Grid.Row="0" Spacing="10" Margin="0,0,0,6">
             <Label Text="Alert Center" FontSize="28" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}" />
             <Label Text="{Binding HeaderText}" FontSize="14" TextColor="{DynamicResource ThemeTextGray}" Margin="0,0,0,8" />
 
@@ -327,14 +330,17 @@
                    TextColor="{DynamicResource ThemeTextTertiary}" Margin="0,40,0,0" />
             <Label IsVisible="{Binding IsUnreadEmpty}" Text="No unread alerts." FontSize="15" HorizontalOptions="Center"
                    TextColor="{DynamicResource ThemeTextTertiary}" Margin="0,40,0,0" />
-
-            <CollectionView x:Name="AlertsList" ItemsSource="{Binding AlertGroups}" IsGrouped="True" ItemTemplate="{StaticResource AlertSelector}">
-                <CollectionView.GroupHeaderTemplate>
-                    <DataTemplate x:DataType="vm:AlertGroup">
-                        <Label Text="{Binding Title}" FontAttributes="Bold" FontSize="14" TextColor="{DynamicResource ThemeTextSecondary}" Margin="0,8,0,4" />
-                    </DataTemplate>
-                </CollectionView.GroupHeaderTemplate>
-            </CollectionView>
         </VerticalStackLayout>
-    </ScrollView>
+
+        <CollectionView Grid.Row="1" x:Name="AlertsList" ItemsSource="{Binding AlertGroups}" IsGrouped="True" ItemTemplate="{StaticResource AlertSelector}">
+            <CollectionView.GroupHeaderTemplate>
+                <DataTemplate x:DataType="vm:AlertGroup">
+                    <Label Text="{Binding Title}" FontAttributes="Bold" FontSize="14" TextColor="{DynamicResource ThemeTextSecondary}" Margin="0,8,0,4" />
+                </DataTemplate>
+            </CollectionView.GroupHeaderTemplate>
+            <CollectionView.Footer>
+                <BoxView HeightRequest="8" Color="Transparent" />
+            </CollectionView.Footer>
+        </CollectionView>
+    </Grid>
 </ContentPage>
