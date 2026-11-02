@@ -3,8 +3,8 @@ using LARGA.SharedCore;
 
 namespace LARGA.Tests.Maintenance;
 
-/// <summary>A pre-shift defect report stays out of the Garage's Pending Driver Reports while its clock-in
-/// request is pending or approved, and joins it once the clock-in is denied.</summary>
+/// <summary>A pre-shift defect report stays out of the Garage's Pending Driver Reports only while its clock-in
+/// request is pending, and joins it once the manager decides (approved or denied).</summary>
 public class PreShiftDefectRulesTests
 {
     private static MaintenanceRecord Reported(string id) => new() { MaintenanceId = id, Status = WorkOrderRules.Reported };
@@ -21,11 +21,19 @@ public class PreShiftDefectRulesTests
         Assert.Empty(Pending(new[] { Reported("m1") }, (ClockInRequest.Pending, "m1")));
     }
 
+    // The unit went out anyway, but the defect still needs scheduling or dismissing - and Driver & Shifts no
+    // longer lists the request, so the Garage is the only place left to see it.
     [Fact]
-    public void ApprovedRequest_Hidden_AlsoOnceClockedIn()
+    public void ApprovedRequest_Shown_AlsoOnceClockedIn()
     {
-        Assert.Empty(Pending(new[] { Reported("m1") }, (ClockInRequest.Approved, "m1")));
-        Assert.Empty(Pending(new[] { Reported("m1") }, (ClockInRequest.ClockedIn, "m1")));
+        Assert.Equal(new[] { "m1" }, Pending(new[] { Reported("m1") }, (ClockInRequest.Approved, "m1")));
+        Assert.Equal(new[] { "m1" }, Pending(new[] { Reported("m1") }, (ClockInRequest.ClockedIn, "m1")));
+    }
+
+    [Fact]
+    public void OnlyPendingRequestsHoldDefects()
+    {
+        Assert.Equal(new[] { ClockInRequest.Pending }, PreShiftDefectRules.HeldStatuses);
     }
 
     [Fact]

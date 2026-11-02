@@ -9,18 +9,20 @@ namespace LARGA.SharedCore;
 /// <summary>
 /// Where a defect the driver files during the pre-shift inspection is listed. The phone saves it straight
 /// away (maintenance_logs, status "Reported") and the clock-in request lists it in defectReportIds. While
-/// that request waits for the manager it belongs on Driver &amp; Shifts only; it reaches the Garage's Pending
-/// Driver Reports only once the clock-in is denied (ClockInApprovalService.DenyAsync escalates it). An
-/// approved clock-in keeps it out of the Garage too.
+/// that request waits for the manager it belongs on Driver &amp; Shifts only, where the manager decides on it.
+/// Once the manager has decided, it's listed in the Garage's Pending Driver Reports like any other report:
+/// denied (ClockInApprovalService.DenyAsync escalates it) or approved - the unit went out anyway, so the
+/// defect still needs scheduling or dismissing later. Driver &amp; Shifts lists only pending clock-ins, so
+/// holding an approved one back here would leave its defect on no manager screen at all.
 ///
-/// Display only: nothing here changes a record or its status. Reports linked to a denied or cancelled
+/// Display only: nothing here changes a record or its status. Reports linked to a decided or cancelled
 /// request, and ones not linked to a request at all (during / after the shift), are listed as before.
 /// </summary>
 public static class PreShiftDefectRules
 {
-    /// <summary>clockin_requests statuses whose defects stay off the Garage list: waiting for the manager,
-    /// or approved ("Approved", then "ClockedIn" once the phone has started the shift).</summary>
-    public static readonly IReadOnlyList<string> HeldStatuses = new[] { ClockInRequest.Pending, ClockInRequest.Approved, ClockInRequest.ClockedIn };
+    /// <summary>clockin_requests statuses whose defects stay off the Garage list: only a request still waiting
+    /// for the manager. One equality query, and the number of pending requests stays small.</summary>
+    public static readonly IReadOnlyList<string> HeldStatuses = new[] { ClockInRequest.Pending };
 
     /// <summary>The maintenance_logs IDs in a request's defectReportIds - written comma-separated, but a
     /// list is read too, and blanks and spaces are dropped.</summary>
