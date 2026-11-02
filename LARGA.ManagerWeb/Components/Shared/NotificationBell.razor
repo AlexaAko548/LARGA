@@ -34,7 +34,7 @@
 
             @if (_alerts.Count == 0)
             {
-                <div class="notification-empty">No notifications yet.</div>
+                <div class="notification-empty">No recent notifications.</div>
             }
             else
             {
@@ -59,7 +59,7 @@
     private PeriodicTimer? _timer;
     private CancellationTokenSource? _timerCts;
 
-    // Same count as the mobile Alert Center's header (AlertFeed).
+    // Unread rows among the newest 50 (AlertFeed). The phone's header counts its Unread tab instead.
     private int UnreadCount => LARGA.SharedCore.Alerts.AlertFeed.UnreadCount(_alerts);
     private bool _isMarkingAll;
 
@@ -99,7 +99,12 @@
         try
         {
             List<AlertNotice> alerts = await AlertService.GetRecentAlertsAsync();
-            _alerts = _isManager ? alerts : alerts.Where(a => !LARGA.SharedCore.Alerts.AlertFeed.ManagerOnly(a.Type)).ToList();
+            // Read rows older than a week drop off, as in the mobile Alert Center (AlertFeed.HideReadAfter).
+            DateTime nowUtc = DateTime.UtcNow;
+            _alerts = alerts
+                .Where(a => _isManager || !LARGA.SharedCore.Alerts.AlertFeed.ManagerOnly(a.Type))
+                .Where(a => !LARGA.SharedCore.Alerts.AlertFeed.IsHiddenRead(a.IsRead, a.Timestamp, nowUtc))
+                .ToList();
         }
         catch
         {

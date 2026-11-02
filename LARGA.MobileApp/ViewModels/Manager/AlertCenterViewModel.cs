@@ -86,7 +86,9 @@ public class AlertCenterViewModel : BindableObject
 
     public bool IsAllSelected => !ShowUnreadOnly;
 
-    /// <summary>Unread system_alerts among the newest 50 - the same number as the web bell's badge.</summary>
+    /// <summary>How many cards the Unread tab shows: unread notices plus every pending SOS / fuel / clock-in card.
+    /// Can differ from the web badge, which also counts web-only rows (AlertFeed.ShownOnPhone) and reads the
+    /// action cards' rows.</summary>
     public int UnreadCount
     {
         get => _unreadCount;
@@ -496,20 +498,19 @@ public class AlertCenterViewModel : BindableObject
 
     private void RefreshCombinedAlerts()
     {
-        // An SOS / fuel / clock-in card stands for its bell row, so that row isn't shown again; the card takes the
-        // row's read state. A card with no bell row (ManagerWeb wasn't running to write one) counts as unread.
-        var bellById = _bellItems.ToDictionary(item => item.Id);
+        // An SOS / fuel / clock-in card stands for its bell row, so that row isn't shown again. The card is unread
+        // until it's handled (Resolve / Approve / Deny take it off the list), whatever the web bell says - opening
+        // the row there doesn't make the pending work go away.
         List<AlertItem> actionCards = _sosItems.Concat(_fuelItems).Concat(_defectItems).ToList();
         foreach (AlertItem card in actionCards)
         {
-            card.IsRead = card.BellId is not null && bellById.TryGetValue(card.BellId, out AlertItem? row) && row.IsRead;
+            card.IsRead = false;
         }
         var cardIds = actionCards.Select(card => card.Id).ToHashSet();
+        DateTime nowUtc = DateTime.UtcNow;
         IEnumerable<AlertItem> bellRows = _bellItems
-            .Where(row => AlertFeed.SourceIdFor(row.Id, row.BellType) is not string sourceId || !cardIds.Contains(sourceId));
-
-        // Same number as the web badge: unread rows among the newest 50 system_alerts.
-        UnreadCount = _bellItems.Count(row => !row.IsRead);
+            .Where(row => AlertFeed.SourceIdFor(row.Id, row.BellType) is not string sourceId || !cardIds.Contains(sourceId))
+            .Where(row => !AlertFeed.IsHiddenRead(row.IsRead, row.SortTime, nowUtc));
 
         // Newest day first across all alert types. GroupBy keeps that order, so the newest date
         // section comes first. Within a day, unread alerts come before read ones (beta feedback:
@@ -522,6 +523,9 @@ public class AlertCenterViewModel : BindableObject
             .ThenByDescending(item => item.IsSos ? EmergencyTypes.Severity(item.TriggerType) : 0)
             .ThenByDescending(item => item.SortTime)
             .ToList();
+
+        // The cards the Unread tab shows.
+        UnreadCount = Alerts.Count(item => item.IsUnread);
 
         _hasLoaded = true;
         RebuildGroups();
@@ -604,7 +608,7 @@ public class AlertCenterViewModel : BindableObject
             {
                 case AlertType.Sos:
                     if (!await EnsureCanDecideAsync()) return;
-                    // Unlike the X on the other cards, the SOS card's Mark as Resolved is a real
+                    // Unlike a notice's Mark as Read, the SOS card's Mark as Resolved is a real
                     // decision (same writes as the web's SOS Dispatch Resolved toggle) - confirm
                     // first so a stray tap can't silently close out an active emergency.
                     bool confirmedResolved = await ConfirmationPopup.ShowAsync(Shell.Current,
@@ -629,21 +633,12 @@ public class AlertCenterViewModel : BindableObject
 
                 case AlertType.FuelDiscrepancy:
                 case AlertType.ShiftApproval:
-                    // No status write here - Resolve (fuel) and Approve/Deny (defect) are the real
-                    // decisions. X marks the card's bell row read (same as clicking it in the web
-                    // bell), so both apps stop counting it; the card stays, dimmed, until it's
-                    // handled. Confirm first and say plainly that it's still unresolved.
-                    bool isFuel = alert.Type == AlertType.FuelDiscrepancy;
-                    bool confirmedRead = await ConfirmationPopup.ShowAsync(Shell.Current,
-                        "Mark as Read?",
-                        $"This only marks the alert as read on the phone and the web - it does not resolve the {(isFuel ? "fuel discrepancy" : "clock-in request")}. It stays here until you handle it.",
-                        confirmText: "Mark as Read", isDangerous: false);
-                    if (!confirmedRead) return;
-
-                    if (alert.BellId is not null) await MarkBellReadAsync(alert.BellId);
-                    break;
+                    // Pending work: these cards have no Mark as Read - only Resolve / Approve / Deny,
+                    // which take them off the list.
+                    return;
 
                 default:
+                    // A notice's MARK AS READ (system_alerts/{id}). A failure shows "Not saved" below.
                     using (LoadingState.Begin())
                     {
                         await MarkAlertReadAsync(alert.Id);
@@ -1132,7 +1127,8 @@ public class AlertItem
     public string? BellType { get; set; }
     public string TypeTitle { get; set; } = string.Empty;
 
-    // Read alerts stay in the list, dimmed - the web bell shows them the same way.
+    // Read notices stay in the list, dimmed, for AlertFeed.HideReadAfter - the web bell shows them the same way.
+    // SOS / fuel / clock-in cards are never read (RefreshCombinedAlerts).
     public bool IsRead { get; set; }
     public bool IsUnread => !IsRead;
     public double CardOpacity => IsRead ? 0.55 : 1.0;

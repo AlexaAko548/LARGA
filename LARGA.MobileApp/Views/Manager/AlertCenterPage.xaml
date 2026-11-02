@@ -109,22 +109,18 @@
             <DataTemplate x:Key="FuelDiscrepancyTemplate" x:DataType="vm:AlertItem">
                 <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
                     <VerticalStackLayout Spacing="8">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
+                        <Grid ColumnDefinitions="Auto,*">
                             <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="report.svg" WidthRequest="18" HeightRequest="18" />
                             <Label Grid.Column="1" Text="FUEL DISCREPANCY" FontAttributes="Bold" FontSize="13"
                                    TextColor="#E53935" Margin="8,0,0,0" VerticalOptions="Center" />
-                            <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
-                                <Grid.GestureRecognizers>
-                                    <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
-                                                           CommandParameter="{Binding .}" />
-                                </Grid.GestureRecognizers>
-                                <Image controls:ThemedIcon.IsEnabled="True" Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
-                            </Grid>
                         </Grid>
                         <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
                         <Label Text="{Binding Subtitle}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />
                         <Label Text="{Binding Timestamp}" FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" />
 
+                        <Label Text="Waiting for a Manager to resolve this." FontSize="13" Margin="0,8,0,0"
+                               TextColor="{DynamicResource ThemeTextSecondary}"
+                               IsVisible="{Binding Source={x:Reference Root}, Path=BindingContext.IsDecisionManagerOnly}" />
                         <Border BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="48" Margin="0,8,0,0"
                                 IsVisible="{Binding Source={x:Reference Root}, Path=BindingContext.CanDecide}">
                             <Button Text="RESOLVE" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontAttributes="Bold" FontSize="14"
@@ -139,17 +135,10 @@
             <DataTemplate x:Key="ShiftApprovalTemplate" x:DataType="vm:AlertItem">
                 <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
                     <VerticalStackLayout Spacing="8">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
+                        <Grid ColumnDefinitions="Auto,*">
                             <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
                             <Label Grid.Column="1" Text="SHIFT APPROVAL REQUIRED" FontAttributes="Bold" FontSize="13"
                                    TextColor="#D32F2F" Margin="8,0,0,0" VerticalOptions="Center" />
-                            <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
-                                <Grid.GestureRecognizers>
-                                    <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
-                                                           CommandParameter="{Binding .}" />
-                                </Grid.GestureRecognizers>
-                                <Image controls:ThemedIcon.IsEnabled="True" Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
-                            </Grid>
                         </Grid>
                         <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
                         <Label Text="{Binding Timestamp}" FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" />
@@ -189,17 +178,10 @@
             <DataTemplate x:Key="DriverIdleTemplate" x:DataType="vm:AlertItem">
                 <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemeWarningSoft}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
                     <VerticalStackLayout Spacing="8">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
+                        <Grid ColumnDefinitions="Auto,*">
                             <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
                             <Label Grid.Column="1" Text="DRIVER IDLE" FontAttributes="Bold" FontSize="13"
                                    TextColor="{DynamicResource ThemeWarningText}" Margin="8,0,0,0" VerticalOptions="Center" />
-                            <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
-                                <Grid.GestureRecognizers>
-                                    <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
-                               CommandParameter="{Binding .}" />
-                                </Grid.GestureRecognizers>
-                                <Image controls:ThemedIcon.IsEnabled="True" Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
-                            </Grid>
                         </Grid>
                         <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="18" TextColor="{DynamicResource ThemeTextBlack}" />
                         <Label Text="{Binding Subtitle}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />
@@ -218,17 +200,10 @@
             <DataTemplate x:Key="LowStockTemplate" x:DataType="vm:AlertItem">
                 <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemeOrangeSoft}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
                     <VerticalStackLayout Spacing="8">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
+                        <Grid ColumnDefinitions="Auto,*">
                             <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
                             <Label Grid.Column="1" Text="LOW STOCK" FontAttributes="Bold" FontSize="13"
                                    TextColor="{DynamicResource ThemeOrangeText}" Margin="8,0,0,0" VerticalOptions="Center" />
-                            <Grid Grid.Column="2" WidthRequest="32" HeightRequest="32">
-                                <Grid.GestureRecognizers>
-                                    <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
-                                                           CommandParameter="{Binding .}" />
-                                </Grid.GestureRecognizers>
-                                <Image controls:ThemedIcon.IsEnabled="True" Source="close_icon.svg" WidthRequest="24" HeightRequest="24" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
-                            </Grid>
                         </Grid>
                         <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
                         <Label Text="{Binding Subtitle}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />
@@ -314,8 +289,8 @@
                 </Border>
             </Grid>
 
-            <!-- BETA-055: the two buttons testers mixed up. -->
-            <Label Text="Mark as read only clears the highlight. Resolve closes the issue." FontSize="13"
+            <!-- BETA-055: the two buttons testers mixed up. Plus when read notices leave the list (AlertFeed.HideReadAfter). -->
+            <Label Text="Mark as read only clears the highlight. Resolve closes the issue. Read alerts leave this list after 7 days." FontSize="13"
                    TextColor="{DynamicResource ThemeTextSecondary}" Margin="0,0,0,4" />
 
             <Border IsVisible="{Binding HasError}" BackgroundColor="{DynamicResource LargaDangerBg}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16">
@@ -339,7 +314,7 @@
                 </DataTemplate>
             </CollectionView.GroupHeaderTemplate>
             <CollectionView.Footer>
-                <BoxView HeightRequest="8" Color="Transparent" />
+                <ContentView HeightRequest="8" />
             </CollectionView.Footer>
         </CollectionView>
     </Grid>
