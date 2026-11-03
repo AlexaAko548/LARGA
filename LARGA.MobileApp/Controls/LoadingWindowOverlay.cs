@@ -58,7 +58,9 @@ public sealed class LoadingWindowOverlay : WindowOverlay, IWindowOverlayElement
     // Never claims a touch - the page underneath stays fully usable.
     public bool Contains(Point point) => false;
 
-    public void Draw(ICanvas canvas, RectF dirtyRect)
+    // Hides WindowOverlay.Draw on purpose: this class re-implements IWindowOverlayElement, so the
+    // overlay draws through this method (it is its own only element).
+    public new void Draw(ICanvas canvas, RectF dirtyRect)
     {
         if (!ShouldShow)
         {

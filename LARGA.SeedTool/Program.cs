@@ -1354,10 +1354,9 @@ internal static class Program
 
         // Matches the existing document's values - written here only so the tool is a
         // complete, self-contained reset of everything it depends on (boundary amounts
-        // above assume a defaultBoundaryRate of 800 and a standardLatePenalty of 100).
+        // above assume a defaultBoundaryRate of 800; the late fee is ShiftRules.LateFeePerHour).
         await SetAsync(db, "system_configs", "global", new SystemConfig
         {
-            StandardLatePenalty = 100,
             DefaultBoundaryRate = 800,
             IdleThresholdMinutes = 15,
             // LAR-86/87: the manager's number (matches SampleManager in SeedUsersAsync) so the

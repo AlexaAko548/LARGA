@@ -85,11 +85,23 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
     // service's volume pattern, the duress PIN). Null when no shift is being monitored.
     private static EmergencyDetectionService? s_monitoring;
 
+    // The running service, monitoring or winding down (StopOrKeepCallback). Main thread only.
+    private static EmergencyDetectionService? s_service;
+    private static readonly Handler s_main = new(Looper.MainLooper!);
+
+    // While winding down, how often to check whether the manager's callback is over.
+    private const long WindDownCheckMs = 15_000;
+
     private SensorManager? _sensorManager;
     private Sensor? _accelerometer;
     private LocationManager? _locationManager;
     private PowerManager.WakeLock? _wakeLock;
     private bool _monitoring;
+    // The shift ended while an SOS callback was pending: sensors and GPS are off, only the
+    // auto-answer is kept until it's done (StopOrKeepCallback).
+    private bool _windingDown;
+    // Alerts being written and their auto-answer being armed (FireHostileAsync / FireCrashAsync).
+    private int _protocolsInFlight;
 
     private readonly GravityFilter _gravity = new();
     private readonly HostileMotionDetector _hostile = new();
@@ -117,6 +129,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
     public override void OnCreate()
     {
         base.OnCreate();
+        s_service = this;
 
         IServiceProvider? services = IPlatformApplication.Current?.Services;
         _alertService = services?.GetService<IEmergencyAlertService>();
@@ -175,7 +188,8 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
             case ActionRecord:
             case ActionRecordStop:
             case ActionAgeArmed:
-                if (!_monitoring)
+                // AGE_ARMED also works after clock-out, to test the callback kept by StopOrKeepCallback.
+                if (!_monitoring && !(_windingDown && intent!.Action == ActionAgeArmed))
                 {
                     EmergencyLog.Warn($"{intent!.Action} ignored: the monitor isn't running (clock in first).");
                     StopSelf();
@@ -202,6 +216,13 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
     private void StartMonitoring()
     {
+        if (_windingDown)
+        {
+            // A new shift started while the last one's SOS callback was still pending: back to
+            // full monitoring (the callback stays armed for its own window).
+            _windingDown = false;
+            EmergencyLog.Info("New shift while winding down - resuming full monitoring.");
+        }
         if (_monitoring) return;
 
         CreateChannels();
@@ -520,21 +541,39 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
     private async Task FireHostileAsync()
     {
-        // Silent payload - no driver-facing alert, so a hostile passenger sees nothing more.
-        string? id = await SendAlertAsync(EmergencyAlert.Hostile);
-        if (id != null && _callHandler != null)
+        // Counted until the auto-answer is armed, so a clock-out meanwhile (the duress PIN goes
+        // straight into one) keeps the service for the callback - see StopOrKeepCallback.
+        Interlocked.Increment(ref _protocolsInFlight);
+        try
         {
-            await _callHandler.ArmAsync(EmergencyCallMode.Stealth);
+            // Silent payload - no driver-facing alert, so a hostile passenger sees nothing more.
+            string? id = await SendAlertAsync(EmergencyAlert.Hostile);
+            if (id != null && _callHandler != null)
+            {
+                await _callHandler.ArmAsync(EmergencyCallMode.Stealth);
+            }
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _protocolsInFlight);
         }
     }
 
     private async Task FireCrashAsync()
     {
-        string? id = await SendAlertAsync(EmergencyAlert.Crash);
-        ShowCrashNotification(sent: id != null);
-        if (id != null && _callHandler != null)
+        Interlocked.Increment(ref _protocolsInFlight);
+        try
         {
-            await _callHandler.ArmAsync(EmergencyCallMode.Loud);
+            string? id = await SendAlertAsync(EmergencyAlert.Crash);
+            ShowCrashNotification(sent: id != null);
+            if (id != null && _callHandler != null)
+            {
+                await _callHandler.ArmAsync(EmergencyCallMode.Loud);
+            }
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _protocolsInFlight);
         }
     }
 
@@ -823,6 +862,78 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
 
     // ---- Teardown -----------------------------------------------------------
 
+    /// <summary>
+    /// The shift ended (clock-out, or closed elsewhere). Stops the service - unless an SOS sent
+    /// during the shift still has its manager callback pending: the duress PIN sends a Hostile SOS
+    /// and goes straight into the normal clock-out, and stopping here would hang up on the stealth
+    /// auto-answer. Then the service winds down to just that (no sensors, no GPS, no new triggers)
+    /// for the usual auto-answer window (EmergencyCallAutoAnswer.ArmedFor), and stops itself once
+    /// the window runs out or the call ends. Runs on the main thread, after any arming already
+    /// queued there.
+    /// </summary>
+    internal static void StopOrKeepCallback(Context context) => s_main.Post(() =>
+    {
+        EmergencyDetectionService? service = s_service;
+        if (service != null && (service._windingDown || service.HoldsCallback))
+        {
+            service.WindDown();
+            return;
+        }
+
+        try
+        {
+            // stopService works from the background too (a STOP intent via startService doesn't).
+            context.StopService(new Intent(context, typeof(EmergencyDetectionService)));
+        }
+        catch (Exception ex)
+        {
+            EmergencyLog.Error("Monitor stop failed", ex);
+        }
+    });
+
+    // Main thread only.
+    private bool HoldsCallback => Volatile.Read(ref _protocolsInFlight) > 0 || _callHandler?.IsActive == true;
+
+    private void WindDown()
+    {
+        if (_windingDown) return;
+        _windingDown = true;
+
+        CancelCountdown("shift ended");
+        try { _sensorManager?.UnregisterListener(this); } catch { /* never registered */ }
+        try { _locationManager?.RemoveUpdates(this); } catch { /* never requested */ }
+        ReleaseWakeLock();
+
+        _monitoring = false;
+        if (s_monitoring == this) s_monitoring = null;
+        EmergencyLog.Info("Shift ended with an SOS callback pending - keeping only the auto-answer until it's over.");
+        s_main.PostDelayed(StopWhenCallbackOver, WindDownCheckMs);
+    }
+
+    private void StopWhenCallbackOver()
+    {
+        if (!_windingDown) return; // a new shift resumed monitoring
+
+        if (HoldsCallback)
+        {
+            s_main.PostDelayed(StopWhenCallbackOver, WindDownCheckMs);
+            return;
+        }
+
+        _windingDown = false;
+        EmergencyLog.Info("SOS callback window over - stopping.");
+        StopSelfCleanly();
+    }
+
+    private void ReleaseWakeLock()
+    {
+        if (_wakeLock?.IsHeld == true)
+        {
+            _wakeLock.Release();
+        }
+        _wakeLock = null;
+    }
+
     private void StopSelfCleanly()
     {
         if (OperatingSystem.IsAndroidVersionAtLeast(24))
@@ -861,14 +972,12 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         StopRecording();
 #endif
 
-        if (_wakeLock?.IsHeld == true)
-        {
-            _wakeLock.Release();
-        }
-        _wakeLock = null;
+        ReleaseWakeLock();
 
         _monitoring = false;
+        _windingDown = false;
         if (s_monitoring == this) s_monitoring = null;
+        if (s_service == this) s_service = null;
         EmergencyLog.Info("Monitoring stopped.");
 
         base.OnDestroy();

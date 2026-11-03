@@ -249,7 +249,6 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         set { _timeRemainingDisplay = value; OnPropertyChanged(); }
     }
 
-    public ICommand PauseShiftCommand { get; }
     public ICommand ResumeShiftCommand { get; }
     public ICommand ClockOutCommand { get; }
     public ICommand ConfirmClockOutCommand { get; }
@@ -270,6 +269,13 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         _telemetryService = telemetryService;
         _emergencyFeedback = emergencyFeedback;
         _emergencyMonitor = emergencyMonitor;
+
+        // Timer instantiation remains in the constructor so it exists globally. Created before the
+        // event handlers below, which stop it.
+        _shiftTimer = Application.Current!.Dispatcher.CreateTimer();
+        _shiftTimer.Interval = TimeSpan.FromSeconds(1);
+        _shiftTimer.Tick += OnTimerTick;
+
         // Each GPS point (every ~30s) may flip the unit between moving and Idle.
         _telemetryService.MovementChanged += (_, _) => MainThread.BeginInvokeOnMainThread(RaiseStatusChanged);
 
@@ -293,11 +299,6 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
                 "This shift was already ended (auto-closed, or by a manager). Returning to your dashboard.", "OK");
             await Shell.Current.GoToAsync("//driver-dashboard");
         });
-
-        // Timer instantiation remains in the constructor so it exists globally
-        _shiftTimer = Application.Current.Dispatcher.CreateTimer();
-        _shiftTimer.Interval = TimeSpan.FromSeconds(1);
-        _shiftTimer.Tick += OnTimerTick;
 
         RequestPauseCommand = new Command(() => IsPauseAlertVisible = true);
         CancelPauseCommand = new Command(() => IsPauseAlertVisible = false);
@@ -371,7 +372,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
 
         try
         {
-            string shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
+            string? shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
             if (string.IsNullOrWhiteSpace(shiftId))
             {
                 HideSosOverlay();
@@ -576,14 +577,17 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
         {
             try
             {
-                // FIX: Use the specific proxy defined below
-                var userProfileDoc = await CrossFirebaseFirestore.Current
-                    .GetCollection("users")
-                    .GetDocument(user.Uid)
-                    .GetDocumentSnapshotAsync<ShiftUserProfileProxy>();
-
-                // Show the unit actually being driven today (a substitute, if one was assigned).
-                var dynamicTaxiId = await _shiftService.GetTodaysTaxiIdAsync(userProfileDoc?.Data?.AssignedTaxiId);
+                // Show the unit the open shift is on; without one, today's (a substitute, if one
+                // was assigned). Today's schedule is looked up by date, which moves on at midnight.
+                var dynamicTaxiId = await _shiftService.GetActiveShiftTaxiIdAsync();
+                if (string.IsNullOrWhiteSpace(dynamicTaxiId))
+                {
+                    var userProfileDoc = await CrossFirebaseFirestore.Current
+                        .GetCollection("users")
+                        .GetDocument(user.Uid)
+                        .GetDocumentSnapshotAsync<ShiftUserProfileProxy>();
+                    dynamicTaxiId = await _shiftService.GetTodaysTaxiIdAsync(userProfileDoc?.Data?.AssignedTaxiId);
+                }
 
                 if (!string.IsNullOrWhiteSpace(dynamicTaxiId))
                 {
@@ -603,10 +607,10 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     public class ShiftUserProfileProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("assignedTaxiId")]
-        public string AssignedTaxiId { get; set; }
+        public string? AssignedTaxiId { get; set; }
     }
 
-    private void OnTimerTick(object sender, EventArgs e)
+    private void OnTimerTick(object? sender, EventArgs e)
     {
         _shiftDuration = (ShiftClock.LocalNow - _shiftStartTime) - _totalBreakTime;
         if (_shiftDuration.TotalSeconds < 0) _shiftDuration = TimeSpan.Zero;
@@ -641,7 +645,7 @@ public class ActiveShiftViewModel : INotifyPropertyChanged, IQueryAttributable
     private string ReturnDeadlineDisplay() =>
         ShiftRules.ReturnDeadlineUtc(_shiftStartTime.ToUniversalTime()).ToLocalTime().ToString("hh:mm tt");
 
-    public event PropertyChangedEventHandler PropertyChanged;
+    public event PropertyChangedEventHandler? PropertyChanged;
     protected void OnPropertyChanged([CallerMemberName] string propertyName = "")
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

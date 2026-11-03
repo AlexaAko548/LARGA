@@ -21,7 +21,11 @@ public class LiveLedgerReadOnlyProbe
     private static FirestoreDb Db()
     {
         Environment.SetEnvironmentVariable("FIRESTORE_EMULATOR_HOST", null);
+        // CredentialsPath is obsolete in favor of CredentialFactory, but for an explicit,
+        // developer-supplied key path this is fine - same tradeoff as ManagerWeb and LARGA.SeedTool.
+#pragma warning disable CS0618
         return new FirestoreDbBuilder { ProjectId = "larga-blmtaxi", CredentialsPath = Credentials, EmulatorDetection = Google.Api.Gax.EmulatorDetection.ProductionOnly }.Build();
+#pragma warning restore CS0618
     }
 
     [Fact]

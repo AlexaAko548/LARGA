@@ -238,7 +238,9 @@ public class FuelVerificationService
         try
         {
             DocumentSnapshot config = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
-            return FuelTolerances.From(config.Exists ? config.ConvertTo<SystemConfig>() : null);
+            return FuelTolerances.From(config.Exists
+                ? SystemConfigReader.Read(config, (field, ex) => _logger.LogWarning(ex, "system_configs/global.{Field} is unreadable - using its default", field))
+                : null);
         }
         catch (Exception ex)
         {

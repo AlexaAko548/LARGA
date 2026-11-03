@@ -187,7 +187,7 @@ public class FirebaseAuthService : IFirebaseAuthService
 public class FirestoreRoleProxy : IFirestoreObject
 {
     [Plugin.Firebase.Firestore.FirestoreProperty("role")]
-    public string Role { get; set; }
+    public string? Role { get; set; }
 
     [Plugin.Firebase.Firestore.FirestoreProperty("mustChangePassword")]
     public bool MustChangePassword { get; set; }

@@ -118,7 +118,7 @@ public class PaymentHistoryViewModel : BindableObject
     private async Task ExportAsync()
     {
         if (_isExporting) return;
-        Page? page = Shell.Current ?? Application.Current?.MainPage;
+        Page? page = Shell.Current;
         if (page == null) return;
 
         ExportOptionsResult? options = await ExportOptionsPopup.ShowAsync(page);
@@ -171,7 +171,7 @@ public class PaymentHistoryViewModel : BindableObject
         }
         catch (Exception ex)
         {
-            await (Shell.Current ?? Application.Current?.MainPage)!.DisplayAlert("Export failed", $"Couldn't export your payment history: {ex.Message}", "OK");
+            await Shell.Current.DisplayAlert("Export failed", $"Couldn't export your payment history: {ex.Message}", "OK");
         }
         finally
         {

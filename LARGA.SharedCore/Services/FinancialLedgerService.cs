@@ -1381,7 +1381,7 @@ public class FinancialLedgerService
         try
         {
             DocumentSnapshot snapshot = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
-            return snapshot.Exists ? snapshot.ConvertTo<SystemConfig>().AuthorizedPayoutAccounts ?? new List<string>() : new List<string>();
+            return SystemConfigReader.Read(snapshot, LogBadConfigField).AuthorizedPayoutAccounts ?? new List<string>();
         }
         catch (Exception ex)
         {
@@ -1393,22 +1393,12 @@ public class FinancialLedgerService
     private async Task<decimal> GetDefaultBoundaryRateAsync()
     {
         DocumentSnapshot snapshot = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
-        if (!snapshot.Exists)
-        {
-            return DefaultBoundaryRate;
-        }
-
-        try
-        {
-            SystemConfig config = snapshot.ConvertTo<SystemConfig>();
-            return config.DefaultBoundaryRate > 0 ? (decimal)config.DefaultBoundaryRate : DefaultBoundaryRate;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to read system_configs/global, falling back to default boundary rate");
-            return DefaultBoundaryRate;
-        }
+        SystemConfig config = SystemConfigReader.Read(snapshot, LogBadConfigField);
+        return config.DefaultBoundaryRate > 0 ? (decimal)config.DefaultBoundaryRate : DefaultBoundaryRate;
     }
+
+    private void LogBadConfigField(string field, Exception ex) =>
+        _logger.LogWarning(ex, "system_configs/global.{Field} is unreadable - using its default", field);
 
     private async Task<List<UserProfile>> GetDriversAsync(bool fromCache = false) =>
         (await GetAllAsync<UserProfile>("users", fromCache))

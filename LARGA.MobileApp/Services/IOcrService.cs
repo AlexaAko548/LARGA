@@ -6,7 +6,7 @@ namespace LARGA.MobileApp.Services;
 
 public class OcrTextBlock
 {
-    public string Text { get; set; }
+    public string Text { get; set; } = string.Empty;
     public Rect BoundingBox { get; set; }
 
     /// <summary>The block's text lines with their own boxes, when the OCR engine reports them

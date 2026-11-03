@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Alerts;
 using LARGA.SharedCore.Models.DriverShifts;
 using Microsoft.Extensions.Logging;
 
@@ -103,26 +104,43 @@ public class ClockInApprovalService
 
             string driverName = await GetDriverNameAsync(request.DriverId);
 
-            WriteBatch batch = Db.StartBatch();
-            batch.Update(docRef, new Dictionary<string, object>
+            // One transaction: the decision, its audit entry and its bell row land together, and only
+            // while the request is still Pending - a manager deciding the same request on the phone at
+            // the same moment can't be overwritten.
+            bool decided = await Db.RunTransactionAsync(async transaction =>
             {
-                ["status"] = ClockInRequest.Approved,
-                ["decidedAt"] = DateTime.UtcNow,
-                ["managerNote"] = note?.Trim() ?? string.Empty,
-            });
-            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
-            {
-                UserId = actorUserId ?? string.Empty,
-                ActionType = "ClockInApproved",
-                AuditLogDetails = string.IsNullOrWhiteSpace(note)
-                    ? $"Approved clock-in for driver {driverName} on {request.TaxiId}."
-                    : $"Approved clock-in for driver {driverName} on {request.TaxiId}: {note.Trim()}",
-                Timestamp = DateTime.UtcNow,
-            });
-            await batch.CommitAsync();
+                DocumentSnapshot current = await transaction.GetSnapshotAsync(docRef);
+                DocumentSnapshot bell = await transaction.GetSnapshotAsync(BellRef(requestId));
+                if (!IsPending(current))
+                {
+                    return false;
+                }
 
-            await MarkAlertReadAsync(requestId);
-            return new ClockInDecisionResult { Ok = true };
+                transaction.Update(docRef, new Dictionary<string, object>
+                {
+                    ["status"] = ClockInRequest.Approved,
+                    ["decidedAt"] = DateTime.UtcNow,
+                    ["managerNote"] = note?.Trim() ?? string.Empty,
+                });
+                transaction.Create(Db.Collection("audit_logs").Document(), new AuditLog
+                {
+                    UserId = actorUserId ?? string.Empty,
+                    ActionType = "ClockInApproved",
+                    AuditLogDetails = string.IsNullOrWhiteSpace(note)
+                        ? $"Approved clock-in for driver {driverName} on {request.TaxiId}."
+                        : $"Approved clock-in for driver {driverName} on {request.TaxiId}: {note.Trim()}",
+                    Timestamp = DateTime.UtcNow,
+                });
+                if (bell.Exists)
+                {
+                    transaction.Update(bell.Reference, "isRead", true);
+                }
+                return true;
+            });
+
+            return decided
+                ? new ClockInDecisionResult { Ok = true }
+                : new ClockInDecisionResult { Ok = false, ErrorMessage = "This request was already decided or withdrawn." };
         }
         catch (Exception ex)
         {
@@ -153,57 +171,83 @@ public class ClockInApprovalService
                 return new ClockInDecisionResult { Ok = false, ErrorMessage = "This request was already decided or withdrawn." };
             }
 
-            DateTime now = DateTime.UtcNow;
-            List<string> defectIds = DefectIds(request);
-            foreach (string defectId in defectIds)
-            {
-                await Db.Collection("maintenance_logs").Document(defectId).UpdateAsync(new Dictionary<string, object>
-                {
-                    ["priorityLevel"] = new PriorityLevelConverter().ToFirestore(PriorityLevel.High),
-                });
-            }
-
-            if (defectIds.Count == 0 && HasFailedItems(request))
-            {
-                await Db.Collection("maintenance_logs").AddAsync(new MaintenanceRecord
-                {
-                    TaxiId = request.TaxiId,
-                    MaintenanceType = MaintenanceType.BreakdownRepair,
-                    IssueTitle = "Failed pre-shift inspection",
-                    IssueDescription = $"Clock-in denied. Flagged: {request.FlagReasons}. Manager: {note.Trim()}",
-                    DateLogged = now,
-                    PriorityLevel = PriorityLevel.High,
-                    SupportingPhotoUrl = string.IsNullOrWhiteSpace(request.OdometerPhotoUrl) ? null : request.OdometerPhotoUrl,
-                    ReportedByDriverId = request.DriverId,
-                    Status = "Reported",
-                });
-            }
-
-            if (markUnitUnderMaintenance && !string.IsNullOrWhiteSpace(request.TaxiId))
-            {
-                await Db.Collection("taxis").Document(request.TaxiId).UpdateAsync("status", TaxiStatusRules.UnderMaintenance);
-            }
-
             string driverName = await GetDriverNameAsync(request.DriverId);
 
-            WriteBatch batch = Db.StartBatch();
-            batch.Update(docRef, new Dictionary<string, object>
+            // Every write of the denial in one transaction (gap #13, same as the phone's Alert Center):
+            // a failure part-way can no longer leave the unit Under Maintenance with the request still
+            // Pending, or the reverse. Only while the request is still Pending.
+            bool decided = await Db.RunTransactionAsync(async transaction =>
             {
-                ["status"] = ClockInRequest.Denied,
-                ["decidedAt"] = now,
-                ["managerNote"] = note.Trim(),
-            });
-            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
-            {
-                UserId = actorUserId ?? string.Empty,
-                ActionType = "ClockInDenied",
-                AuditLogDetails = $"Denied clock-in for driver {driverName} on {request.TaxiId}: {note.Trim()}",
-                Timestamp = DateTime.UtcNow,
-            });
-            await batch.CommitAsync();
+                DocumentSnapshot current = await transaction.GetSnapshotAsync(docRef);
+                DocumentSnapshot bell = await transaction.GetSnapshotAsync(BellRef(requestId));
+                if (!IsPending(current))
+                {
+                    return false;
+                }
 
-            await MarkAlertReadAsync(requestId);
-            return new ClockInDecisionResult { Ok = true };
+                ClockInRequest pending = current.ConvertTo<ClockInRequest>();
+                List<DocumentReference> defectRefs = DefectIds(pending)
+                    .Select(id => Db.Collection("maintenance_logs").Document(id))
+                    .ToList();
+                // A listed report that no longer exists is skipped - updating a missing document would
+                // fail the whole denial.
+                List<DocumentSnapshot> defects = defectRefs.Count == 0
+                    ? new List<DocumentSnapshot>()
+                    : (await transaction.GetAllSnapshotsAsync(defectRefs)).Where(d => d.Exists).ToList();
+
+                DateTime now = DateTime.UtcNow;
+                foreach (DocumentSnapshot defect in defects)
+                {
+                    transaction.Update(defect.Reference, new Dictionary<string, object>
+                    {
+                        ["priorityLevel"] = new PriorityLevelConverter().ToFirestore(PriorityLevel.High),
+                    });
+                }
+
+                if (defects.Count == 0 && HasFailedItems(pending))
+                {
+                    transaction.Create(Db.Collection("maintenance_logs").Document(), new MaintenanceRecord
+                    {
+                        TaxiId = pending.TaxiId,
+                        MaintenanceType = MaintenanceType.BreakdownRepair,
+                        IssueTitle = "Failed pre-shift inspection",
+                        IssueDescription = $"Clock-in denied. Flagged: {pending.FlagReasons}. Manager: {note.Trim()}",
+                        DateLogged = now,
+                        PriorityLevel = PriorityLevel.High,
+                        SupportingPhotoUrl = string.IsNullOrWhiteSpace(pending.OdometerPhotoUrl) ? null : pending.OdometerPhotoUrl,
+                        ReportedByDriverId = pending.DriverId,
+                        Status = "Reported",
+                    });
+                }
+
+                if (markUnitUnderMaintenance && !string.IsNullOrWhiteSpace(pending.TaxiId))
+                {
+                    transaction.Update(Db.Collection("taxis").Document(pending.TaxiId), "status", TaxiStatusRules.UnderMaintenance);
+                }
+
+                transaction.Update(docRef, new Dictionary<string, object>
+                {
+                    ["status"] = ClockInRequest.Denied,
+                    ["decidedAt"] = now,
+                    ["managerNote"] = note.Trim(),
+                });
+                transaction.Create(Db.Collection("audit_logs").Document(), new AuditLog
+                {
+                    UserId = actorUserId ?? string.Empty,
+                    ActionType = "ClockInDenied",
+                    AuditLogDetails = $"Denied clock-in for driver {driverName} on {pending.TaxiId}: {note.Trim()}",
+                    Timestamp = now,
+                });
+                if (bell.Exists)
+                {
+                    transaction.Update(bell.Reference, "isRead", true);
+                }
+                return true;
+            });
+
+            return decided
+                ? new ClockInDecisionResult { Ok = true }
+                : new ClockInDecisionResult { Ok = false, ErrorMessage = "This request was already decided or withdrawn." };
         }
         catch (Exception ex)
         {
@@ -218,7 +262,7 @@ public class ClockInApprovalService
         List<ClockInApprovalItem> pending = await GetPendingAsync();
         foreach (ClockInApprovalItem item in pending)
         {
-            DocumentReference alertRef = Db.Collection("system_alerts").Document($"{item.RequestId}_CLOCKIN");
+            DocumentReference alertRef = BellRef(item.RequestId);
             if ((await alertRef.GetSnapshotAsync()).Exists)
             {
                 continue;
@@ -275,23 +319,14 @@ public class ClockInApprovalService
     private static async Task<ClockInRequest?> GetPendingRequestAsync(DocumentReference docRef)
     {
         DocumentSnapshot snapshot = await docRef.GetSnapshotAsync();
-        if (!snapshot.Exists)
-        {
-            return null;
-        }
-
-        ClockInRequest request = snapshot.ConvertTo<ClockInRequest>();
-        return request.Status == ClockInRequest.Pending ? request : null;
+        return IsPending(snapshot) ? snapshot.ConvertTo<ClockInRequest>() : null;
     }
 
-    private async Task MarkAlertReadAsync(string requestId)
-    {
-        DocumentReference alertRef = Db.Collection("system_alerts").Document($"{requestId}_CLOCKIN");
-        if ((await alertRef.GetSnapshotAsync()).Exists)
-        {
-            await alertRef.UpdateAsync("isRead", true);
-        }
-    }
+    private static bool IsPending(DocumentSnapshot snapshot) =>
+        snapshot.Exists && snapshot.ConvertTo<ClockInRequest>().Status == ClockInRequest.Pending;
+
+    // The request's bell row (system_alerts), raised by RaisePendingAlertsAsync.
+    private DocumentReference BellRef(string requestId) => Db.Collection("system_alerts").Document(AlertFeed.ClockInBellId(requestId));
 
     private async Task<List<ClockInDefect>> GetDefectsAsync(ClockInRequest request)
     {

@@ -95,6 +95,10 @@ public sealed class EmergencyCallAutoAnswer
     /// <summary>True while the driver's audio settings are saved (something was changed).</summary>
     public bool HasSavedAudio => _saved != null;
 
+    /// <summary>Still waiting for, answering, or in the manager's call. While true at clock-out the
+    /// detection service winds down to just this instead of stopping (a duress PIN's callback).</summary>
+    public bool IsActive => Mode != null || _answering || _inHandledCall;
+
     /// <summary>Why auto-answer can't be armed, or null when it can. The alert itself is sent either way.
     /// <paramref name="managerNumberCount"/> null: the numbers haven't been looked up yet (permissions only).</summary>
     public static string? ArmBlockedReason(bool hasReadPhoneState, bool hasReadCallLog, bool hasAnswerPhoneCalls, int? managerNumberCount)

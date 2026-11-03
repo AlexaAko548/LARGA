@@ -32,13 +32,13 @@ public class ForgotPasswordViewModel : INotifyPropertyChanged
     {
         if (string.IsNullOrWhiteSpace(Email))
         {
-            await Application.Current.MainPage.DisplayAlert("Error", "Please enter an email address.", "OK");
+            await Shell.Current.DisplayAlert("Error", "Please enter an email address.", "OK");
             return;
         }
 
         if (!LARGA.SharedCore.InputValidator.IsValidEmail(Email))
         {
-            await Application.Current.MainPage.DisplayAlert("Invalid Email", "Enter a valid email address, e.g. juan.delacruz@gmail.com.", "OK");
+            await Shell.Current.DisplayAlert("Invalid Email", "Enter a valid email address, e.g. juan.delacruz@gmail.com.", "OK");
             return;
         }
 
@@ -46,12 +46,12 @@ public class ForgotPasswordViewModel : INotifyPropertyChanged
 
         if (success)
         {
-            await Application.Current.MainPage.DisplayAlert("Email Sent", "If this account exists, a secure password reset link has been sent to your inbox.", "OK");
+            await Shell.Current.DisplayAlert("Email Sent", "If this account exists, a secure password reset link has been sent to your inbox.", "OK");
             await Shell.Current.GoToAsync(".."); // Navigates back to the login screen
         }
         else
         {
-            await Application.Current.MainPage.DisplayAlert("Error", "Could not send reset email. Please try again later.", "OK");
+            await Shell.Current.DisplayAlert("Error", "Could not send reset email. Please try again later.", "OK");
         }
     }
 

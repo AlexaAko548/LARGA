@@ -207,7 +207,7 @@ describe('Driver tampering with their own money and records', () => {
     await assertFails(setDoc(doc(as(DRIVER_A), 'shifts', 'newShift'), {
       ...appClockIn('newShift'), shiftStart: Timestamp.fromDate(new Date('2026-09-01T00:30:00Z')) }));
   });
-  it('[GAP C-03] cannot raise an SOS on a shift that already ended', async () =>
+  it('[GAP C-03] cannot raise an SOS on a shift that ended more than 12 hours ago', async () =>
     assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), { driverId: DRIVER_A, shiftId: 'shiftA_old', isResolved: false })));
   it('can raise an SOS on their own active shift', async () =>
     assertSucceeds(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), { driverId: DRIVER_A, shiftId: 'shiftA', isResolved: false })));
@@ -232,8 +232,32 @@ describe('SOS emergency_alerts (M7 SOS-002/006/007)', () => {
     assertSucceeds(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ latitude: 0, longitude: 0, locationSource: 'none' }))));
   it('SOS-002 driver cannot raise an SOS for a shift that does not exist', async () =>
     assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ shiftId: 'noSuchShift' }))));
-  it('SOS-002 driver cannot raise an SOS on their completed shift', async () =>
+  it('SOS-002 driver cannot raise an SOS on their shift that ended more than 12 hours ago', async () =>
     assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ shiftId: 'shiftA_old' }))));
+  // An SOS queued offline (or a duress SOS sent at clock-out) can reach the server after the shift
+  // closed: accepted for 12 h after it ended, the fuel-report window. SosPushService marks it Unverified.
+  it('SOS-002 an SOS on their shift that ended 2 hours ago is accepted', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'shifts', 'sosEnded2h'),
+      { shiftId: 'sosEnded2h', driverId: DRIVER_A, taxiId: 'TX-01', status: 'Completed', shiftStart: hoursAgo(14), shiftEnd: hoursAgo(2) }));
+    await assertSucceeds(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ shiftId: 'sosEnded2h' })));
+  });
+  it('SOS-002 an SOS on their shift that ended 13 hours ago is refused', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'shifts', 'sosEnded13h'),
+      { shiftId: 'sosEnded13h', driverId: DRIVER_A, taxiId: 'TX-01', status: 'Completed', shiftStart: hoursAgo(25), shiftEnd: hoursAgo(13) }));
+    await assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ shiftId: 'sosEnded13h' })));
+  });
+  it('SOS-002 an SOS on their shift auto-closed at the last 6:00 AM follows the same 12 h window', async () => {
+    const autoClose = lastPhSixAm();
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'shifts', 'sosAuto'),
+      { shiftId: 'sosAuto', driverId: DRIVER_A, taxiId: 'TX-01', status: 'Auto-Closed', shiftStart: atMs(autoClose - 22 * HOUR) }));
+    const write = addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ shiftId: 'sosAuto' }));
+    await (Date.now() - autoClose < 12 * HOUR ? assertSucceeds(write) : assertFails(write));
+  });
+  it("SOS-006 driver cannot raise an SOS on another driver's recently ended shift", async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'shifts', 'sosBEnded'),
+      { shiftId: 'sosBEnded', driverId: DRIVER_B, taxiId: 'TX-02', status: 'Completed', shiftStart: hoursAgo(10), shiftEnd: hoursAgo(1) }));
+    await assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ shiftId: 'sosBEnded' })));
+  });
   it("SOS-006 driver cannot raise an SOS on another driver's active shift", async () =>
     assertFails(addDoc(collection(as(DRIVER_A), 'emergency_alerts'), appSos({ shiftId: 'shiftB' }))));
   it('SOS-006 driver cannot raise an SOS in another driver\'s name', async () =>

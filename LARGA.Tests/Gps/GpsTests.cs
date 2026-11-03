@@ -200,19 +200,21 @@ public class GpsEmulatorTests
         Assert.Equal(10, idle.IdleThresholdMinutes);
     }
 
-    // Same shape as FleetReportingService's IdleThresholdConfigProxy (no [FirestoreData]).
+    // FleetReportingService's IdleThresholdConfigProxy without its [FirestoreData] attribute.
     private sealed class ProxyWithoutFirestoreData
     {
         [FirestoreProperty("idleThresholdMinutes")]
         public double IdleThresholdMinutes { get; set; }
     }
 
+    // Why every narrow config proxy needs [FirestoreData]: without it ConvertTo throws, and the
+    // reader's catch quietly falls back to the default (the original GPS-014 symptom).
     [EmulatorFact]
-    public async Task Diag_ProxyWithoutFirestoreDataAttribute_ConvertTo()
+    public async Task Diag_ProxyWithoutFirestoreDataAttribute_CannotBeConverted()
     {
         FirestoreDb db = await SeedAsync(startedMinutesAgo: 11, speed: 0, idleThreshold: 10, badFuelField: false);
         DocumentSnapshot cfg = await db.Collection("system_configs").Document("global").GetSnapshotAsync();
         Exception? ex = Record.Exception(() => cfg.ConvertTo<ProxyWithoutFirestoreData>());
-        Assert.Null(ex);
+        Assert.IsType<ArgumentException>(ex);
     }
 }

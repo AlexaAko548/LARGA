@@ -74,8 +74,9 @@ public class ChangePasswordViewModel : LARGA.MobileApp.ViewModels.Shared.Passwor
             // Firebase requires a recent sign-in before it allows a sensitive operation like a
             // password change. Signing in again with the current password refreshes that,
             // and also doubles as verifying the current password is actually correct.
-            await CrossFirebaseAuth.Current.SignInWithEmailAndPasswordAsync(email, CurrentPassword);
-            await CrossFirebaseAuth.Current.CurrentUser.UpdatePasswordAsync(NewPassword);
+            var signedIn = await CrossFirebaseAuth.Current.SignInWithEmailAndPasswordAsync(email, CurrentPassword)
+                ?? throw new InvalidOperationException("Sign-in returned no user.");
+            await signedIn.UpdatePasswordAsync(NewPassword);
             await LARGA.MobileApp.Services.MustChangePasswordFlag.ClearAsync();
             AuditLogWriter.Record("ManagerPasswordChanged", "Changed their own mobile app password.");
 

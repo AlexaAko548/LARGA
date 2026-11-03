@@ -11,15 +11,15 @@ namespace LARGA.SharedCore.Services;
 
 public interface IShiftManagementService
 {
-    Task<bool> CreateShiftScheduleAsync(ShiftSchedule schedule);
-    Task<string> StartShiftLogAsync(ShiftLog shift);
-    Task<bool> UpdateTaxiStatusAsync(string taxiId, string newStatus);
-    Task<TaxiUnit> GetTaxiUnitAsync(string taxiId);
-    Task<TaxiUnit> GetCurrentUserAssignedTaxiAsync();
+    Task<TaxiUnit?> GetTaxiUnitAsync(string taxiId);
+    Task<TaxiUnit?> GetCurrentUserAssignedTaxiAsync();
 
     /// <summary>The unit the signed-in driver drives today: a substitute the manager assigned
     /// for today (while their own unit is under maintenance), else their permanent unit.</summary>
     Task<string?> GetTodaysTaxiIdAsync(string? permanentTaxiId = null);
+
+    /// <summary>The unit of the shift this phone has open, or null when none is open.</summary>
+    Task<string?> GetActiveShiftTaxiIdAsync();
     Task<string> ClockInAsync(string taxiId, int startMileage);
 
     /// <summary>Why the signed-in driver can't start a shift on this unit today - no valid
@@ -128,56 +128,7 @@ public class HandoverChecklistSubmission
 
 public class ShiftManagementService : IShiftManagementService
 {
-    public async Task<bool> CreateShiftScheduleAsync(ShiftSchedule schedule)
-    {
-        try
-        {
-            await CrossFirebaseFirestore.Current
-                .GetCollection("shift_schedules")
-                .AddDocumentAsync(schedule);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Schedule Error: {ex.Message}");
-            return false;
-        }
-    }
-
-    public async Task<string> StartShiftLogAsync(ShiftLog shift)
-    {
-        try
-        {
-            var docRef = await CrossFirebaseFirestore.Current
-                .GetCollection("shifts")
-                .AddDocumentAsync(shift);
-            return docRef.Id;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Shift Error: {ex.Message}");
-            return string.Empty;
-        }
-    }
-
-    public async Task<bool> UpdateTaxiStatusAsync(string taxiId, string newStatus)
-    {
-        try
-        {
-            await CrossFirebaseFirestore.Current
-                .GetCollection("taxis")
-                .GetDocument(taxiId)
-                .UpdateDataAsync(new Dictionary<object, object> { { "status", newStatus } });
-            return true;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Taxi Status Error: {ex.Message}");
-            return false;
-        }
-    }
-
-    public async Task<TaxiUnit> GetTaxiUnitAsync(string taxiId)
+    public async Task<TaxiUnit?> GetTaxiUnitAsync(string taxiId)
     {
         try
         {
@@ -208,10 +159,18 @@ public class ShiftManagementService : IShiftManagementService
         }
     }
 
-    public async Task<TaxiUnit> GetCurrentUserAssignedTaxiAsync()
+    public async Task<TaxiUnit?> GetCurrentUserAssignedTaxiAsync()
     {
         var user = CrossFirebaseAuth.Current.CurrentUser;
         if (user == null) return null;
+
+        // Mid-shift (End Shift, a defect reported during the shift): the unit the open shift is
+        // actually on. Today's schedule below is looked up by date, which moves on at midnight -
+        // a substitute driven past midnight would otherwise read as the driver's own unit.
+        if (await GetActiveShiftTaxiIdAsync() is string shiftTaxiId)
+        {
+            return await GetTaxiUnitAsync(shiftTaxiId);
+        }
 
         var profile = await CrossFirebaseFirestore.Current
             .GetCollection("users")
@@ -224,6 +183,30 @@ public class ShiftManagementService : IShiftManagementService
         if (string.IsNullOrWhiteSpace(taxiId)) return null;
 
         return await GetTaxiUnitAsync(taxiId);
+    }
+
+    /// <summary>The unit of the shift this phone has open (SecureStorage "ActiveShiftDocumentId"),
+    /// or null when there's none, it's no longer Active, or it can't be read.</summary>
+    public async Task<string?> GetActiveShiftTaxiIdAsync()
+    {
+        try
+        {
+            string? shiftId = await SecureStorage.GetAsync("ActiveShiftDocumentId");
+            if (string.IsNullOrWhiteSpace(shiftId)) return null;
+
+            var shift = await CrossFirebaseFirestore.Current
+                .GetCollection("shifts")
+                .GetDocument(shiftId)
+                .GetDocumentSnapshotAsync<ShiftReadProxy>();
+            return shift?.Data is ShiftReadProxy data && data.Status == "Active" && !string.IsNullOrWhiteSpace(data.TaxiId)
+                ? data.TaxiId
+                : null;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Active Shift Unit Error: {ex.Message}");
+            return null;
+        }
     }
 
     public async Task<string?> GetTodaysTaxiIdAsync(string? permanentTaxiId = null)
@@ -758,7 +741,7 @@ public class ShiftManagementService : IShiftManagementService
             {
                 DocumentId = d.Reference.Id,
                 TaxiId = d.Data.TaxiId ?? string.Empty,
-                Status = d.Data.Status,
+                Status = d.Data.Status ?? string.Empty,
                 ShiftStartUtc = FixPluginDate(d.Data.ShiftStart),
                 EndMileage = (int)d.Data.EndMileage,
             })
@@ -798,10 +781,10 @@ public class ShiftManagementService : IShiftManagementService
     private class ShiftWindowProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
-        public string DriverId { get; set; }
+        public string? DriverId { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("status")]
-        public string Status { get; set; }
+        public string? Status { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("shiftStart")]
         public DateTime ShiftStart { get; set; }
@@ -820,13 +803,13 @@ public class ShiftManagementService : IShiftManagementService
     private class ShiftReadProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
-        public string TaxiId { get; set; }
+        public string? TaxiId { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("shiftStart")]
         public DateTime ShiftStart { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("status")]
-        public string Status { get; set; }
+        public string? Status { get; set; }
 
         // double, not int - Plugin.Firebase.Firestore's Android deserializer crashes
         // reflecting a Firestore integerValue (always 64-bit) into a C# int property.
@@ -837,16 +820,16 @@ public class ShiftManagementService : IShiftManagementService
     public class TaxiUnitProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
-        public string TaxiId { get; set; }
+        public string? TaxiId { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("model")]
-        public string Model { get; set; }
+        public string? Model { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("plateNumber")]
-        public string PlateNumber { get; set; }
+        public string? PlateNumber { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("status")]
-        public string Status { get; set; }
+        public string? Status { get; set; }
 
         // double, not int - same Plugin.Firebase.Firestore Android deserializer crash as
         // ShiftReadProxy.EndMileage above.
@@ -863,7 +846,7 @@ public class ShiftManagementService : IShiftManagementService
     private class EligibilityJobProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("status")]
-        public string Status { get; set; }
+        public string? Status { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("dateLogged")]
         public DateTimeOffset DateLogged { get; set; }
@@ -875,13 +858,13 @@ public class ShiftManagementService : IShiftManagementService
         public DateTimeOffset? ScheduledDate { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("issueTitle")]
-        public string IssueTitle { get; set; }
+        public string? IssueTitle { get; set; }
     }
 
     private class UserProfileProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("assignedTaxiId")]
-        public string AssignedTaxiId { get; set; }
+        public string? AssignedTaxiId { get; set; }
     }
 
     public async Task<GarageGeofence> GetGarageGeofenceAsync()
@@ -995,10 +978,10 @@ public class ShiftManagementService : IShiftManagementService
 
     private class ClockInRequestProxy
     {
-        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")] public string DriverId { get; set; }
-        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")] public string TaxiId { get; set; }
-        [Plugin.Firebase.Firestore.FirestoreProperty("status")] public string Status { get; set; }
-        [Plugin.Firebase.Firestore.FirestoreProperty("flagReasons")] public string FlagReasons { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")] public string? DriverId { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")] public string? TaxiId { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")] public string? Status { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("flagReasons")] public string? FlagReasons { get; set; }
         [Plugin.Firebase.Firestore.FirestoreProperty("tireCondition")] public bool TireCondition { get; set; }
         [Plugin.Firebase.Firestore.FirestoreProperty("underTheHood")] public bool UnderTheHood { get; set; }
         [Plugin.Firebase.Firestore.FirestoreProperty("lightsCondition")] public bool LightsCondition { get; set; }
@@ -1008,12 +991,12 @@ public class ShiftManagementService : IShiftManagementService
         // double, not int - same Plugin.Firebase.Firestore Android deserializer crash as
         // ShiftReadProxy.EndMileage above.
         [Plugin.Firebase.Firestore.FirestoreProperty("startMileage")] public double StartMileage { get; set; }
-        [Plugin.Firebase.Firestore.FirestoreProperty("fuelDashboardUrl")] public string FuelDashboardUrl { get; set; }
-        [Plugin.Firebase.Firestore.FirestoreProperty("odometerPhotoUrl")] public string OdometerPhotoUrl { get; set; }
-        [Plugin.Firebase.Firestore.FirestoreProperty("defectReportIds")] public string DefectReportIds { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("fuelDashboardUrl")] public string? FuelDashboardUrl { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("odometerPhotoUrl")] public string? OdometerPhotoUrl { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("defectReportIds")] public string? DefectReportIds { get; set; }
         [Plugin.Firebase.Firestore.FirestoreProperty("createdAt")] public DateTime CreatedAt { get; set; }
-        [Plugin.Firebase.Firestore.FirestoreProperty("managerNote")] public string ManagerNote { get; set; }
-        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")] public string ShiftId { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("managerNote")] public string? ManagerNote { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")] public string? ShiftId { get; set; }
     }
 
     public async Task RefreshTestClockAsync()
@@ -1039,7 +1022,7 @@ public class ShiftManagementService : IShiftManagementService
     private class GarageConfigProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("testClockPh")]
-        public string TestClockPh { get; set; }
+        public string? TestClockPh { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("garageLatitude")]
         public double GarageLatitude { get; set; }
@@ -1054,19 +1037,19 @@ public class ShiftManagementService : IShiftManagementService
     private class ShiftScheduleProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
-        public string TaxiId { get; set; }
+        public string? TaxiId { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("status")]
-        public string Status { get; set; }
+        public string? Status { get; set; }
     }
 
     private class HandoverChecklistProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
-        public string ShiftId { get; set; }
+        public string? ShiftId { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("checklistType")]
-        public string ChecklistType { get; set; }
+        public string? ChecklistType { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("tireCondition")]
         public bool TireCondition { get; set; }
@@ -1087,13 +1070,13 @@ public class ShiftManagementService : IShiftManagementService
         public bool ExteriorScratches { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("fuelVerification")]
-        public string FuelVerification { get; set; }
+        public string? FuelVerification { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("fuelDashboardUrl")]
-        public string FuelDashboardUrl { get; set; }
+        public string? FuelDashboardUrl { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("odometerPhotoUrl")]
-        public string OdometerPhotoUrl { get; set; }
+        public string? OdometerPhotoUrl { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
         public DateTime Timestamp { get; set; }

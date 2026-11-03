@@ -45,7 +45,8 @@ public partial class ScanFuelReceiptPage : ContentPage
     public ScanFuelReceiptPage()
     {
         InitializeComponent();
-        _ocrService = Application.Current.MainPage.Handler.MauiContext.Services.GetService<IOcrService>();
+        _ocrService = IPlatformApplication.Current?.Services.GetService<IOcrService>()
+            ?? throw new InvalidOperationException("IOcrService isn't registered (MauiProgram).");
     }
 
     protected override async void OnAppearing()

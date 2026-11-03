@@ -761,7 +761,9 @@ public class DriverManagementService
         try
         {
             DocumentSnapshot snapshot = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
-            if (snapshot.Exists && snapshot.ConvertTo<SystemConfig>().DefaultBoundaryRate is double rate && rate > 0)
+            double rate = SystemConfigReader.Read(snapshot,
+                (field, ex) => _logger.LogWarning(ex, "system_configs/global.{Field} is unreadable - using its default", field)).DefaultBoundaryRate;
+            if (rate > 0)
             {
                 return (decimal)rate;
             }

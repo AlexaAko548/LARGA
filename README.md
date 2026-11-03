@@ -109,7 +109,7 @@ Do not commit directly to `main` or `develop`. Pull requests require review, pas
 
 ## Verification checklist
 
-From the repository root, run `dotnet build LARGA.sln`. The solution should restore and build all five projects. Before a pull request, also test the affected client with its real Firebase development configuration and ensure that no credential files, `bin/`, or `obj/` files are staged.
+From the repository root, run `dotnet build LARGA.sln`. The solution should restore and build all six projects (the five above plus `LARGA.Tests`); then run `dotnet test LARGA.Tests/LARGA.Tests.csproj` (see `LARGA.Tests/README.md` for the emulator-backed tests). Before a pull request, also test the affected client with its real Firebase development configuration and ensure that no credential files, `bin/`, or `obj/` files are staged.
 
 ## Main capabilities
 

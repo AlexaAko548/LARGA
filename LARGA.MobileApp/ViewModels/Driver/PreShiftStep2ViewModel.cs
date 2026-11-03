@@ -232,7 +232,7 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
 
                     await MainThread.InvokeOnMainThreadAsync(async () =>
                     {
-                        var navigation = Shell.Current?.Navigation ?? Application.Current?.MainPage?.Navigation;
+                        var navigation = Shell.Current?.Navigation;
                         if (navigation != null)
                         {
                             await navigation.PushModalAsync(
@@ -491,7 +491,7 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
                 // 6. Compress and save
                 using (var fileStream = File.Create(targetPath))
                 {
-                    finalBitmap.Compress(Android.Graphics.Bitmap.CompressFormat.Jpeg, quality, fileStream);
+                    finalBitmap.Compress(Android.Graphics.Bitmap.CompressFormat.Jpeg!, quality, fileStream);
                 }
 
                 return targetPath;
@@ -546,7 +546,7 @@ public class PreShiftStep2ViewModel : BindableObject, IQueryAttributable
     {
         await MainThread.InvokeOnMainThreadAsync(async () =>
         {
-            var page = Application.Current?.MainPage;
+            Page? page = Shell.Current;
             if (page != null)
             {
                 await page.DisplayAlert(title, message, cancel);
