@@ -74,8 +74,9 @@ public sealed class SensorTrace
 
 /// <summary>
 /// Feeds a <see cref="SensorTrace"/> through the phone's detection pipeline (gravity filter, then
-/// <see cref="CrashDetector"/> and <see cref="HostileMotionDetector"/>, in the same order as
-/// EmergencyDetectionService) and reports what fired and when.
+/// <see cref="CrashDetector"/>, in the same order as EmergencyDetectionService) and reports what
+/// fired and when. Only Crash is detected from the sensors: the Hostile protocol is triggered by
+/// the volume-button pattern or the duress PIN, never by motion.
 /// </summary>
 public static class EmergencyTraceReplayer
 {
@@ -83,9 +84,9 @@ public static class EmergencyTraceReplayer
 
     /// <summary>Replays into fresh detectors. <paramref name="startAt"/> shifts the trace's clock.</summary>
     public static List<Detection> Run(SensorTrace trace, double startAt = 0) =>
-        Run(trace, new GravityFilter(), new HostileMotionDetector(), new CrashDetector(), startAt);
+        Run(trace, new GravityFilter(), new CrashDetector(), startAt);
 
-    public static List<Detection> Run(SensorTrace trace, GravityFilter gravity, HostileMotionDetector hostile, CrashDetector crash, double startAt = 0)
+    public static List<Detection> Run(SensorTrace trace, GravityFilter gravity, CrashDetector crash, double startAt = 0)
     {
         var detections = new List<Detection>();
         foreach (SensorTrace.Sample s in trace.Samples)
@@ -102,10 +103,6 @@ public static class EmergencyTraceReplayer
 
             (double x, double y, double z) = gravity.Linear(s.X, s.Y, s.Z);
             crash.OnLinearAcceleration(t, x, y, z);
-            if (hostile.OnSample(t, x, y, z))
-            {
-                detections.Add(new Detection(t, Shared.Models.Entities.EmergencyAlert.Hostile));
-            }
         }
         return detections;
     }

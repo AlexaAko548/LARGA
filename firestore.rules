@@ -135,7 +135,8 @@ service cloud.firestore {
     }
 
     match /chats/{driverId} {
-      allow read, write: if isStaff() || isOwner(driverId);
+      allow read, delete: if isStaff() || isOwner(driverId);
+      allow create, update: if (isStaff() || isOwner(driverId)) && chatReadStateOk();
 
       // One conversation per driver, shared by the Manager and every Assistant Manager: a staff message
       // must say who wrote it - the signed-in user's own ID, profile name and role. A driver's message
@@ -148,6 +149,26 @@ service cloud.firestore {
         allow update: if (isStaff() || (isOwner(driverId) && expiresAfterDays(365)))
                       && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['senderId', 'senderName', 'senderRole']);
       }
+    }
+
+    // The conversation's per-person read state (ChatReadState): a send stamps lastMessageAt with
+    // server time and lastSenderId with the sender's own uid ("system" only comes from ManagerWeb's
+    // Admin SDK); opening the chat sets the reader's own lastReadAtMs entry (Unix ms, never later
+    // than now), never anyone else's. lastReadAt (timestamps, an earlier build) can't be changed.
+    function chatReadStateOk() {
+      let after = request.resource.data;
+      let before = resource == null ? {} : resource.data;
+      let changed = resource == null ? after.keys() : after.diff(before).affectedKeys();
+      let readsAfter = after.get('lastReadAtMs', {});
+      return (!changed.hasAny(['lastSenderId']) || after.lastSenderId == request.auth.uid)
+        && (!changed.hasAny(['lastMessageAt']) || after.lastMessageAt == request.time)
+        && !changed.hasAny(['lastReadAt'])
+        && (!changed.hasAny(['lastReadAtMs'])
+            || (readsAfter is map
+                && readsAfter.diff(before.get('lastReadAtMs', {})).affectedKeys().hasOnly([request.auth.uid])
+                && readsAfter[request.auth.uid] is int
+                && readsAfter[request.auth.uid] > 0
+                && readsAfter[request.auth.uid] <= request.time.toMillis()));
     }
 
     function staffChatSenderOk() {

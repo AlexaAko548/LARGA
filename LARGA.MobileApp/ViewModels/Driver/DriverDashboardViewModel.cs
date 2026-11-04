@@ -103,6 +103,27 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
     public ICommand MessageManagerCommand { get; }
     public ICommand RefreshCommand { get; }
 
+    // The Message Manager button's red dot (no number): shown while the driver's conversation has an
+    // unread manager or system message (UnreadBadgeService), gone once they've read it.
+    private readonly UnreadBadgeService? _badges;
+    public bool HasMessageBadge => (_badges?.DriverMessagesCount ?? 0) > 0;
+
+    private void OnBadgesChanged(object? sender, EventArgs e) => OnPropertyChanged(nameof(HasMessageBadge));
+
+    /// <summary>Follow the badge while the dashboard shows (the page calls Stop when it hides).</summary>
+    public void StartWatchingMessageBadge()
+    {
+        if (_badges == null) return;
+        _badges.Changed -= OnBadgesChanged;
+        _badges.Changed += OnBadgesChanged;
+        OnBadgesChanged(this, EventArgs.Empty);
+    }
+
+    public void StopWatchingMessageBadge()
+    {
+        if (_badges != null) _badges.Changed -= OnBadgesChanged;
+    }
+
     private bool _isRefreshing;
     public bool IsRefreshing
     {
@@ -110,8 +131,10 @@ public class DriverDashboardViewModel : INotifyPropertyChanged, IQueryAttributab
         private set { _isRefreshing = value; OnPropertyChanged(); }
     }
 
-    public DriverDashboardViewModel(INotificationService notificationService, IShiftManagementService shiftService, IGpsTelemetryService telemetryService, IEmergencyMonitor emergencyMonitor)
+    public DriverDashboardViewModel(INotificationService notificationService, IShiftManagementService shiftService, IGpsTelemetryService telemetryService, IEmergencyMonitor emergencyMonitor,
+        UnreadBadgeService badges)
     {
+        _badges = badges;
         _notificationService = notificationService;
         _shiftService = shiftService;
         _telemetryService = telemetryService;

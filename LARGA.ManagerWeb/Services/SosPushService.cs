@@ -16,8 +16,9 @@ using Microsoft.Extensions.Logging;
 namespace LARGA.ManagerWeb.Services;
 
 /// <summary>
-/// Pushes every new SOS (emergency_alerts, written by the driver app for the manual button and
-/// the LAR-86/87 Hostile/Crash protocols) to the phones of all Managers and Assistant Managers,
+/// Pushes every new SOS (emergency_alerts, written by the driver app for the manual button, the
+/// LAR-86/87 Hostile protocol - volume-button pattern or duress PIN - and the Crash protocol) to
+/// the phones of all Managers and Assistant Managers,
 /// so an emergency reaches them even with the manager app closed and nobody on SOS Dispatch.
 ///
 /// A live Firestore listener, not a poll: unlike IdleAlertMonitorService's checks, an SOS has

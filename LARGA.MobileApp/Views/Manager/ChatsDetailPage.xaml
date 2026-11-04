@@ -78,7 +78,7 @@
             <Border Grid.Column="0" BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 25" HeightRequest="50">
                 <Entry Text="{Binding NewMessage}" Placeholder="Aa" PlaceholderColor="{DynamicResource LargaDarkText}" TextColor="{DynamicResource LargaDarkText}" BackgroundColor="Transparent" Margin="15,0" VerticalOptions="Center" />
             </Border>
-            <ImageButton controls:ThemedIcon.IsEnabled="True" Grid.Column="1" Command="{Binding SendMessageCommand}" Source="{Binding SubmitIcon}" WidthRequest="44" HeightRequest="44" Aspect="AspectFit" Padding="8" BackgroundColor="Transparent" Margin="10,0,0,0" VerticalOptions="Center" />
+            <ImageButton controls:ThemedIcon.IsEnabled="True" controls:KeyboardDismiss.KeepsKeyboardOpen="True" Grid.Column="1" Command="{Binding SendMessageCommand}" Source="{Binding SubmitIcon}" WidthRequest="44" HeightRequest="44" Aspect="AspectFit" Padding="8" BackgroundColor="Transparent" Margin="10,0,0,0" VerticalOptions="Center" />
         </Grid>
     </Grid>
 </ContentPage>

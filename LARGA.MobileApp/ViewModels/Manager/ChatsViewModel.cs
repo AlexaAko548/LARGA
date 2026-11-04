@@ -17,6 +17,10 @@ namespace LARGA.MobileApp.ViewModels.Manager;
 public class ChatsViewModel : INotifyPropertyChanged
 {
     private readonly IChatService _chatService;
+    // Who has what unread (per signed-in person). Not worked out here: Shell keeps this page and view
+    // model across a logout and the next login, so a user id remembered here would go stale and the
+    // rows would be judged for the previous account. The badge service restarts on every login.
+    private readonly LARGA.MobileApp.Services.UnreadBadgeService _badges;
     private string _unreadMessagesText = string.Empty;
 
     // The chat-session listener can fire (and call Rebuild) before the driver roster has
@@ -91,12 +95,30 @@ public class ChatsViewModel : INotifyPropertyChanged
         }
     }
 
-    public ChatsViewModel(IChatService chatService)
+    public ChatsViewModel(IChatService chatService, LARGA.MobileApp.Services.UnreadBadgeService badges)
     {
         _chatService = chatService;
+        _badges = badges;
         OpenChatCommand = new Command<ChatSession>(OnOpenChat);
         RefreshCommand = new Command(async () => await RefreshAsync());
         LoadChatSessions();
+
+        // Raised on the main thread: a message arrived or was read, for this person.
+        _badges.Changed += (_, _) => RefreshUnread();
+
+        // The page outlives a logout: stop listening for the old account, start again for the next one.
+        LARGA.MobileApp.Services.SessionEvents.SigningOut += (_, _) =>
+        {
+            _sessionsListener?.Dispose();
+            _sessionsListener = null;
+        };
+        LARGA.MobileApp.Services.StaffSession.RoleChanged += (_, _) =>
+        {
+            if (LARGA.SharedCore.StaffRoles.IsStaff(LARGA.MobileApp.Services.StaffSession.Role))
+            {
+                MainThread.BeginInvokeOnMainThread(LoadChatSessions);
+            }
+        };
     }
 
     /// <summary>Reloads the driver list. Called by ManagerChatsPage each time it appears.</summary>
@@ -167,7 +189,7 @@ public class ChatsViewModel : INotifyPropertyChanged
                 row.HasConversation = true;
                 row.LastMessage = session.LastMessage;
                 row.Timestamp = session.Timestamp;
-                row.IsUnread = session.IsUnread;
+                row.IsUnread = _badges.IsConversationUnread(driver.Id);
             }
             return row;
         })
@@ -182,9 +204,25 @@ public class ChatsViewModel : INotifyPropertyChanged
             ChatSessions.Add(row);
         }
 
+        UpdateUnreadText();
+    }
+
+    // Re-reads each row's unread state for the signed-in person without rebuilding the list.
+    private void RefreshUnread()
+    {
+        foreach (var row in ChatSessions)
+        {
+            bool unread = row.HasConversation && _badges.IsConversationUnread(row.DriverId);
+            if (row.IsUnread != unread) row.IsUnread = unread;
+        }
+        UpdateUnreadText();
+    }
+
+    private void UpdateUnreadText()
+    {
         if (!_hasLoadedDrivers) return;
 
-        int unreadCount = rows.Count(r => r.IsUnread);
+        int unreadCount = ChatSessions.Count(r => r.IsUnread);
         UnreadMessagesText = unreadCount == 1 ? "1 unread message" : $"{unreadCount} unread messages";
     }
 

@@ -86,7 +86,14 @@
 
         <!-- Action Buttons -->
         <VerticalStackLayout Grid.Row="1" Spacing="10" Padding="20,10,20,16">
-            <Button Text="💬 Message Manager" BackgroundColor="{DynamicResource LargaPrimaryBlue}" TextColor="{DynamicResource LargaWhite}" CornerRadius="10" HorizontalOptions="End" Padding="15,10" Command="{Binding MessageManagerCommand}" />
+            <!-- Red dot on the button's upper-right corner while a manager/system message is unread;
+                 gone once the driver has read it. No number. -->
+            <Grid HorizontalOptions="End" Padding="0,6,6,0">
+                <Button Text="💬 Message Manager" BackgroundColor="{DynamicResource LargaPrimaryBlue}" TextColor="{DynamicResource LargaWhite}" CornerRadius="10" Padding="15,10" Command="{Binding MessageManagerCommand}" />
+                <Border x:Name="MessageBadge" IsVisible="{Binding HasMessageBadge}" InputTransparent="True" BackgroundColor="{DynamicResource LargaDanger}"
+                        Stroke="{DynamicResource LargaWhite}" StrokeThickness="2" StrokeShape="Ellipse"
+                        WidthRequest="14" HeightRequest="14" HorizontalOptions="End" VerticalOptions="Start" Margin="0,-6,-6,0" ZIndex="1" />
+            </Grid>
 
             <VerticalStackLayout Spacing="-3" IsVisible="{Binding IsOffline}">
                 <Button Text="🕒 CLOCK IN   >" Style="{StaticResource LargaButtonStyle}" HeightRequest="60" FontSize="18" Command="{Binding ToggleShiftCommand}" />

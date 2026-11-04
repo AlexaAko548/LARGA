@@ -76,7 +76,7 @@ public sealed class AndroidEmergencyMonitor : IEmergencyMonitor
     /// <summary>
     /// The volume-button Hostile trigger needs <see cref="VolumeSosAccessibilityService"/>
     /// switched on, which only the driver can do. Asked once per shift until it's on, since
-    /// without it the only covert trigger left is the shake.
+    /// without it the only covert trigger left is the duress PIN at clock-out.
     /// </summary>
     private static async Task PromptForVolumeButtonsAsync(string shiftId)
     {

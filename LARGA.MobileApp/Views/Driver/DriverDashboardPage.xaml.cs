@@ -11,6 +11,17 @@ public partial class DriverDashboardPage : ContentPage
     {
         InitializeComponent();
         BindingContext = viewModel;
+
+#if ANDROID
+        // A Material button has its own elevation and would draw over the badge in its corner.
+        MessageBadge.HandlerChanged += (_, _) =>
+        {
+            if (MessageBadge.Handler?.PlatformView is Android.Views.View badge)
+            {
+                badge.Elevation = 24f;
+            }
+        };
+#endif
     }
 
     protected override void OnAppearing()
@@ -26,6 +37,7 @@ public partial class DriverDashboardPage : ContentPage
             // on another phone) - see SyncOpenShiftAsync.
             _ = vm.SyncOpenShiftAsync();
             vm.ResumeWatchingUnit();
+            vm.StartWatchingMessageBadge();
         }
     }
 
@@ -36,6 +48,7 @@ public partial class DriverDashboardPage : ContentPage
         if (BindingContext is DriverDashboardViewModel vm)
         {
             vm.StopWatchingUnit();
+            vm.StopWatchingMessageBadge();
         }
     }
 }

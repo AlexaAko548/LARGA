@@ -2,9 +2,12 @@ using Android.App;
 using Android.Content;
 using Android.Content.PM;
 using Android.OS;
+using Android.Views;
 using Microsoft.Extensions.DependencyInjection;
+using Plugin.Firebase.CloudMessaging;
 using Plugin.Firebase.Core.Platforms.Android;
 using System.Runtime.Versioning;
+using LARGA.MobileApp.Platforms.Android;
 using LARGA.MobileApp.Platforms.Android.Emergency;
 using LARGA.MobileApp.Services;
 
@@ -14,6 +17,7 @@ namespace LARGA.MobileApp;
 public class MainActivity : MauiAppCompatActivity
 {
     private EmergencyCountdownCoordinator? _countdown;
+    private readonly KeyboardDismisser _keyboard = new();
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
@@ -21,6 +25,11 @@ public class MainActivity : MauiAppCompatActivity
         CrossFirebase.Initialize(this, () => this, null, null);
 
         CreateNotificationChannels();
+
+        // Pushes that arrive with the app open: shown on their own channel, except a chat message
+        // for the conversation already on screen (ForegroundPushPresenter).
+        FirebaseCloudMessagingImplementation.ShowLocalNotificationAction = Platforms.Android.Services.ForegroundPushPresenter.Show;
+        HandleNotificationTap(Intent);
 
         _countdown = IPlatformApplication.Current?.Services.GetService<EmergencyCountdownCoordinator>();
         if (_countdown != null)
@@ -34,7 +43,39 @@ public class MainActivity : MauiAppCompatActivity
     protected override void OnNewIntent(Intent? intent)
     {
         base.OnNewIntent(intent);
+        HandleNotificationTap(intent);
         HandleEmergencyIntent(intent);
+    }
+
+    /// <summary>
+    /// A tapped push - one Android drew while the app was in the background (FCM extras) or one
+    /// ForegroundPushPresenter posted - raises CrossFirebaseCloudMessaging.NotificationTapped, which
+    /// App.xaml.cs routes (SOS, pre-shift reminder, chat message). Plugin.Firebase only does this when
+    /// the activity hands it the intent. The FCM extras are removed afterwards so the same tap isn't
+    /// routed twice if the activity is created again from this intent.
+    /// </summary>
+    private static void HandleNotificationTap(Intent? intent)
+    {
+        if (intent == null) return;
+        try
+        {
+            FirebaseCloudMessagingImplementation.OnNewIntent(intent);
+            intent.RemoveExtra("google.message_id");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Notification tap handling failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Tap anywhere outside the focused text field to hide the keyboard (KeyboardDismisser).</summary>
+    public override bool DispatchTouchEvent(MotionEvent? e)
+    {
+        if (e == null)
+        {
+            return base.DispatchTouchEvent(e);
+        }
+        return _keyboard.Dispatch(this, e, ev => base.DispatchTouchEvent(ev));
     }
 
     protected override void OnDestroy()
@@ -93,12 +134,15 @@ public class MainActivity : MauiAppCompatActivity
                 Description = "Notifications for upcoming driver shift schedules"
             };
 
+            // Chat pushes from ManagerWeb's ChatPushService (ChatPushPolicy.AndroidChannelId). Drivers
+            // get the managers' replies here, and managers the drivers' messages - so a neutral name.
+            // (Android keeps a channel's importance once created; the name and description update.)
             var chatChannel = new NotificationChannel(
-                "chat_messages_channel",
-                "Manager Messages",
+                LARGA.SharedCore.Chats.ChatPushPolicy.AndroidChannelId,
+                "Messages",
                 NotificationImportance.High)
             {
-                Description = "Direct incoming chat messages from fleet managers"
+                Description = "New chat messages between drivers and managers"
             };
 
             // Manager phones: SOS pushes from ManagerWeb's SosPushService (its AndroidChannelId).

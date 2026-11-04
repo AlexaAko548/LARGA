@@ -14,7 +14,7 @@ namespace LARGA.MobileApp.Services;
 
 /// <summary>
 /// The one place the driver app writes to emergency_alerts - the manual SOS button and the
-/// LAR-86/87 automated Hostile/Crash protocols both go through here, so every alert carries the
+/// LAR-86/87 Hostile (volume-button pattern, duress PIN) and Crash protocols all go through here, so every alert carries the
 /// same payload (driver, taxi unit, timestamp, GPS) plus its triggerType.
 /// </summary>
 public interface IEmergencyAlertService
@@ -63,7 +63,8 @@ public interface IEmergencyAlertService
 }
 
 /// <summary>
-/// LAR-86/87 automated emergency detection (Hostile shake / Crash) and manager call handling.
+/// LAR-86/87 automated emergency detection (Hostile volume-button pattern and duress PIN, Crash
+/// from the accelerometer and GPS) and manager call handling.
 /// Runs for exactly as long as a shift is open - started and stopped next to
 /// IGpsTelemetryService.Start/Stop.
 /// </summary>
