@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Google.Cloud.Firestore;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Chats;
 using LARGA.SharedCore.Models.Chats;
 using Microsoft.Extensions.Logging;
 
@@ -31,7 +32,8 @@ public class ChatSessionView
 /// up in the driver's Message Manager screen and the manager app's Chats, and vice versa:
 /// chats/{driverId}/messages/{auto} = { text, isDriver, timestamp } and the conversation
 /// summary chats/{driverId} = { driverName, lastMessage, isUnread, timestamp }, where
-/// isUnread means "unread by the manager".
+/// isUnread means "unread by the manager". Sends also stamp lastMessageAt / lastSenderId, the
+/// apps' per-person read state (ChatReadState); this dashboard keeps showing isUnread.
 /// </summary>
 public class ManagerChatService
 {
@@ -138,6 +140,10 @@ public class ManagerChatService
             ["lastMessage"] = text.Trim(),
             ["isUnread"] = false,
             ["timestamp"] = now,
+            // Per-person unread in the apps (ChatReadState): server time and who wrote it - the
+            // staff member's uid, or "system" for a DriverNotifier notice.
+            [ChatReadState.LastMessageAtField] = FieldValue.ServerTimestamp,
+            [ChatReadState.LastSenderIdField] = sender.Id,
         }, SetOptions.MergeAll);
         await batch.CommitAsync();
     }

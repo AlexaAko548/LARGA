@@ -15,7 +15,7 @@ const {
 } = require('@firebase/rules-unit-testing');
 const {
   doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, getDocs, query, where,
-  serverTimestamp, Timestamp, writeBatch,
+  serverTimestamp, Timestamp, writeBatch, deleteField,
 } = require('firebase/firestore');
 
 const PROJECT_ID = 'demo-larga-rules';
@@ -41,6 +41,8 @@ function lastPhSixAm() {
   return sixAm > Date.now() ? sixAm - 24 * HOUR : sixAm;
 }
 const atMs = (ms) => Timestamp.fromDate(new Date(ms));
+// A Unix-milliseconds number h hours ago (chats/{driverId}.lastReadAtMs entries).
+const msAgo = (h) => Math.floor(Date.now() - h * 3600 * 1000);
 
 async function seed(extra) {
   await env.withSecurityRulesDisabled(async (ctx) => {
@@ -569,5 +571,73 @@ describe('Shared driver chat: staff messages say who sent them', () => {
     await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'chats', DRIVER_A, 'messages', 'm1'),
       { text: 'x', isDriver: false, senderId: MANAGER, senderName: 'Mara Manager', senderRole: 'Manager' }));
     await assertFails(updateDoc(doc(as(ASSISTANT), 'chats', DRIVER_A, 'messages', 'm1'), { senderName: 'Ana Assistant' }));
+  });
+});
+
+describe('Chat read state: per-person unread markers (ChatReadState)', () => {
+  const chat = (uid) => doc(as(uid), 'chats', DRIVER_A);
+  const seedChat = (data) => env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'chats', DRIVER_A),
+    { driverName: 'Dan A', lastMessage: 'hi', isUnread: true, ...data }));
+
+  it('a driver send stamps server time and their own uid as the last sender', async () =>
+    assertSucceeds(setDoc(chat(DRIVER_A), { driverName: 'Dan A', lastMessage: 'hi', isUnread: true,
+      lastMessageAt: serverTimestamp(), lastSenderId: DRIVER_A }, { merge: true })));
+  it('a staff send stamps their own uid', async () => {
+    await seedChat({});
+    await assertSucceeds(setDoc(chat(ASSISTANT), { lastMessage: 'ok', isUnread: false,
+      lastMessageAt: serverTimestamp(), lastSenderId: ASSISTANT }, { merge: true }));
+  });
+  it('nobody can forge lastSenderId (another user, or "system")', async () => {
+    await seedChat({});
+    await assertFails(setDoc(chat(ASSISTANT), { lastSenderId: MANAGER, lastMessageAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(chat(DRIVER_A), { lastSenderId: 'system', lastMessageAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(chat(MANAGER), { lastSenderId: DRIVER_A, lastMessageAt: serverTimestamp() }, { merge: true }));
+  });
+  it('lastMessageAt must be server time', async () => {
+    await seedChat({});
+    await assertFails(setDoc(chat(DRIVER_A), { lastSenderId: DRIVER_A, lastMessageAt: hoursAgo(-1) }, { merge: true }));
+  });
+  it('a user can set their own lastReadAtMs entry', async () => {
+    await seedChat({ lastMessageAt: hoursAgo(1), lastSenderId: DRIVER_A, lastReadAtMs: { [MANAGER]: msAgo(2) } });
+    await assertSucceeds(updateDoc(chat(ASSISTANT), { [`lastReadAtMs.${ASSISTANT}`]: msAgo(1), isUnread: false }));
+    await assertSucceeds(updateDoc(chat(DRIVER_A), { [`lastReadAtMs.${DRIVER_A}`]: msAgo(1) }));
+  });
+  it("nobody can set or clear someone else's lastReadAtMs entry", async () => {
+    await seedChat({ lastMessageAt: hoursAgo(1), lastSenderId: DRIVER_A, lastReadAtMs: { [MANAGER]: msAgo(2) } });
+    await assertFails(updateDoc(chat(ASSISTANT), { [`lastReadAtMs.${MANAGER}`]: msAgo(1) }));
+    await assertFails(updateDoc(chat(DRIVER_A), { [`lastReadAtMs.${ASSISTANT}`]: msAgo(1) }));
+    await assertFails(updateDoc(chat(ASSISTANT), { lastReadAtMs: { [ASSISTANT]: msAgo(1) } })); // drops the manager's entry
+  });
+  it('a read marker must be whole milliseconds, not in the future', async () => {
+    await seedChat({ lastMessageAt: hoursAgo(1), lastSenderId: DRIVER_A });
+    await assertFails(updateDoc(chat(ASSISTANT), { [`lastReadAtMs.${ASSISTANT}`]: msAgo(-1) }));
+    await assertFails(updateDoc(chat(ASSISTANT), { [`lastReadAtMs.${ASSISTANT}`]: hoursAgo(1) })); // a timestamp
+    await assertFails(updateDoc(chat(ASSISTANT), { [`lastReadAtMs.${ASSISTANT}`]: 'now' }));
+    await assertFails(updateDoc(chat(ASSISTANT), { [`lastReadAtMs.${ASSISTANT}`]: -5 }));
+  });
+  it('the old timestamp lastReadAt map can no longer be written', async () => {
+    await seedChat({ lastMessageAt: hoursAgo(1), lastSenderId: DRIVER_A });
+    await assertFails(updateDoc(chat(ASSISTANT), { [`lastReadAt.${ASSISTANT}`]: hoursAgo(1) }));
+  });
+  it("driver B can't touch driver A's conversation", async () => {
+    await seedChat({ lastMessageAt: hoursAgo(1), lastSenderId: DRIVER_A });
+    await assertFails(updateDoc(chat(DRIVER_B), { [`lastReadAtMs.${DRIVER_B}`]: msAgo(1) }));
+    await assertFails(getDoc(chat(DRIVER_B)));
+  });
+  it('the old isUnread-only writes still work (older app builds)', async () => {
+    await seedChat({});
+    await assertSucceeds(updateDoc(chat(MANAGER), { isUnread: false }));
+    await assertSucceeds(setDoc(chat(DRIVER_A), { lastMessage: 'x', isUnread: true, timestamp: serverTimestamp() }, { merge: true }));
+  });
+});
+
+describe('Sign-out clears this phone\'s push token', () => {
+  it('a user can delete their own fcmToken', async () => {
+    await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'users', DRIVER_A), { fcmToken: 'tok', tokenUpdatedAt: hoursAgo(1) }));
+    await assertSucceeds(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { fcmToken: deleteField() }));
+  });
+  it("nobody can clear another user's token", async () => {
+    await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'users', DRIVER_A), { fcmToken: 'tok' }));
+    await assertFails(updateDoc(doc(as(DRIVER_B), 'users', DRIVER_A), { fcmToken: deleteField() }));
   });
 });

@@ -12,11 +12,16 @@ public partial class App : Application
 	private readonly LARGA.MobileApp.Services.EmergencyCountdownCoordinator _countdown;
 	private Page? _countdownPage;
 	private bool _syncingCountdown;
+	private readonly LARGA.MobileApp.Services.UnreadBadgeService _badges;
 
 	public App(LARGA.MobileApp.Services.EmergencyCountdownCoordinator countdown, LARGA.MobileApp.Services.IThemeService themeService,
-		LARGA.SharedCore.Services.IGpsTelemetryService telemetryService, LARGA.MobileApp.Services.IEmergencyMonitor emergencyMonitor)
+		LARGA.SharedCore.Services.IGpsTelemetryService telemetryService, LARGA.MobileApp.Services.IEmergencyMonitor emergencyMonitor,
+		LARGA.MobileApp.Services.UnreadBadgeService badges)
 	{
 		InitializeComponent();
+
+		// Unread badges: created here so it's listening for the login that starts its listeners.
+		_badges = badges;
 
 		// Saved System / Light / Dark choice, before the first page is built.
 		themeService.Initialize();
@@ -85,6 +90,16 @@ public partial class App : Application
                     return;
                 }
 
+                // New chat message (ManagerWeb ChatPushService): the driver's Message Manager, or for
+                // staff the Chats tab and then that driver's conversation.
+                if (e.Notification.Data.TryGetValue("type", out var chatType) && chatType == LARGA.SharedCore.Chats.ChatPushPolicy.PushType
+                    && e.Notification.Data.TryGetValue("driverId", out var chatDriverId) && !string.IsNullOrWhiteSpace(chatDriverId))
+                {
+                    e.Notification.Data.TryGetValue("driverName", out var chatDriverName);
+                    await MainThread.InvokeOnMainThreadAsync(() => ChatNotificationRouter.OpenAsync(chatDriverId, chatDriverName));
+                    return;
+                }
+
                 // Check payload key sent by the backend
                 if (e.Notification.Data.TryGetValue("type", out var type) && type?.ToString() == "pre_shift_reminder")
                 {
@@ -130,6 +145,10 @@ public partial class App : Application
 		// Brought forward by the countdown's full-screen notification (screen off / app in the
 		// background): the countdown may have started before the page could be shown.
 		window.Resumed += (_, _) => _ = SyncCountdownPageAsync();
+		// The chat on screen is only kept read (and its pushes silenced) while someone can see it.
+		window.Resumed += (_, _) => _badges.SetForeground(true);
+		window.Activated += (_, _) => _badges.SetForeground(true);
+		window.Stopped += (_, _) => _badges.SetForeground(false);
 		// LAR-117: one loading indicator over every page (added once the window has its platform view).
 		window.Created += (_, _) => window.AddOverlay(new LARGA.MobileApp.Controls.LoadingWindowOverlay(window));
 		return window;

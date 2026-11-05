@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using LARGA.MobileApp.ViewModels.Driver;
 using Microsoft.Maui.Storage;
 using Plugin.Firebase.Auth;
+using Plugin.Firebase.CloudMessaging;
 using Plugin.Firebase.Firestore;
 
 namespace LARGA.MobileApp.Services;
@@ -12,8 +14,10 @@ namespace LARGA.MobileApp.Services;
 /// <summary>
 /// Logout for both apps (audit F-02). Fleet phones are shared, so a logout leaves nothing of this
 /// user behind for the next one:
-/// 1. live listeners stop (SessionEvents) and writes still queued (audit entries, payments made
-///    offline) get a few seconds to reach the server while this user is still signed in;
+/// 1. live listeners stop (SessionEvents), this phone's push token is taken off the user's
+///    users/{uid}.fcmToken (so their chat and SOS pushes stop reaching a phone someone else may use
+///    next), and writes still queued (audit entries, payments made offline) get a few seconds to
+///    reach the server while this user is still signed in;
 /// 2. sign out;
 /// 3. the Firestore offline cache is wiped - it isn't kept per user, and offline queries are
 ///    answered from it without the security rules;
@@ -24,6 +28,7 @@ namespace LARGA.MobileApp.Services;
 public static class SignOutService
 {
     private static readonly TimeSpan PendingWritesWait = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan PushTokenWait = TimeSpan.FromSeconds(4);
 
     private static readonly string[] ShiftKeys =
         { "IsShiftActive", "CurrentShiftId", "ShiftStartTime", ClockInPendingViewModel.PendingRequestKey,
@@ -36,6 +41,9 @@ public static class SignOutService
         SessionEvents.RaiseSigningOut();
 
         IFirebaseFirestore firestore = CrossFirebaseFirestore.Current;
+        // Bounded: reading the token or the user doc mustn't hold up a logout with no signal.
+        Task clearToken = ClearPushTokenAsync(firestore);
+        await Task.WhenAny(clearToken, Task.Delay(PushTokenWait));
         bool writesFlushed = await FlushPendingWritesAsync(firestore);
 
         await CrossFirebaseAuth.Current.SignOutAsync();
@@ -56,6 +64,40 @@ public static class SignOutService
 
         ClearLocalShiftData();
         DeleteCachedPhotos();
+    }
+
+    /// <summary>
+    /// Deletes users/{uid}.fcmToken when it's this phone's token - not when the user has since signed
+    /// in on another phone, whose token it then is. Queued like any write, so it goes out with the
+    /// flush below (or on the next connection). If it never lands, ManagerWeb still gives a token
+    /// shared by two accounts only to the one that saved it last (ChatPushPolicy).
+    /// </summary>
+    private static async Task ClearPushTokenAsync(IFirebaseFirestore firestore)
+    {
+        try
+        {
+            string? uid = CrossFirebaseAuth.Current.CurrentUser?.Uid;
+            if (string.IsNullOrEmpty(uid)) return;
+
+            string? deviceToken = await CrossFirebaseCloudMessaging.Current.GetTokenAsync();
+            IDocumentReference user = firestore.GetCollection("users").GetDocument(uid);
+            var snapshot = await user.GetDocumentSnapshotAsync<PushTokenProxy>();
+            if (string.IsNullOrEmpty(deviceToken) || snapshot?.Data?.FcmToken != deviceToken) return;
+
+            Task clear = user.UpdateDataAsync(new Dictionary<object, object> { { "fcmToken", FieldValue.Delete() } });
+            // Offline the write waits in the queue; the flush below decides how long to wait for it.
+            _ = clear.ContinueWith(t => FirestoreErrors.Log("Sign-out push token clear", t.Exception!), TaskContinuationOptions.OnlyOnFaulted);
+        }
+        catch (Exception ex)
+        {
+            FirestoreErrors.Log("Sign-out push token clear", ex);
+        }
+    }
+
+    private class PushTokenProxy
+    {
+        [FirestoreProperty("fcmToken")]
+        public string? FcmToken { get; set; }
     }
 
     private static async Task<bool> FlushPendingWritesAsync(IFirebaseFirestore firestore)

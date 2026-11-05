@@ -2,7 +2,7 @@ namespace LARGA.SharedCore.Emergency;
 
 /// <summary>
 /// Turns raw accelerometer readings (which include the constant 1G pull) into gravity-free
-/// acceleration for <see cref="HostileMotionDetector"/> and <see cref="CrashDetector"/>: a
+/// acceleration for <see cref="CrashDetector"/>: a
 /// low-pass filter isolates the gravity component, which is then subtracted. The first reading
 /// primes the filter (so it reads as no movement).
 /// </summary>

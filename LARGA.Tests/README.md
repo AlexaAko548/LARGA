@@ -11,7 +11,8 @@ anything that only lives there is tested on the emulator instead (see "Alpha tes
 | `Fuel/` | M3 Fuel & OCR | Receipt parsing, OCR robustness, real ML Kit receipts, fuel review numbers |
 | `Maintenance/` | M4 Vehicle Maintenance | Priority and date rules, the Garage page's due/overdue text, Garage work-order lifecycle and routine-check alerts, spare-part stock status and archiving, a work order's parts deducted all-or-nothing, low-stock alerts |
 | `Gps/` | M6 GPS Tracking | Idle detection, the GPS jitter filter, idle alerts |
-| `Sos/` | M7 SOS Emergency | Hostile/Crash detectors fed recorded sensor traces, SOS protocol rules |
+| `Sos/` | M7 SOS Emergency | Crash detector fed recorded sensor traces, the Hostile volume-button pattern, SOS protocol rules |
+| `Chats/` | Messaging | Who a chat push goes to (`ChatPushPolicy`), per-person unread and the badge numbers (`ChatReadState`) |
 | `Live/` | – | Helpers that talk to the **live** project. They do nothing unless their env vars are set (see below) |
 | `Support/` | – | Shared test helpers (`Emulator.cs`: local Firestore emulator setup) |
 | `Rules/` | M4 / M6 | `firestore.rules` tests for `gps_telemetry` and `maintenance_logs` (JavaScript) |
@@ -95,10 +96,13 @@ LARGA_LIVE_READONLY=1 LARGA_CREDENTIALS='C:\path\to\admin-key.json' dotnet test 
 - `Fixtures/Sos/emu_*.txt` and `Fixtures/Fuel/*.txt` were captured on the emulator (DEBUG record hooks / `LARGA-OCR` logcat lines). They
   can't be regenerated; re-record them if the capture format changes.
 
+The Hostile protocol no longer has a motion trigger, so the SOS-008/010/011/012 motion cases and their traces were
+removed; `sos_rough_road_120s.txt` stays as a Crash negative.
+
 Every `.txt` under `Fixtures/` is copied to the build output with its subfolder, so tests read them from
 `Fixtures/<Module>/<file>` next to the test DLL.
 
 ## Alpha test cases
 
-The test IDs in method names (`Mnt013_...`, `Gps014_...`, `Fuel016_...`, `SOS_008_...`) match the IDs in the LARGA test-case workbook.
+The test IDs in method names (`Mnt013_...`, `Gps014_...`, `Fuel016_...`, `SOS_018_...`) match the IDs in the LARGA test-case workbook.
 Cases that need a real phone (camera, swipe-away, offline driving, the manager map) are run by hand on the Android emulator, not here.

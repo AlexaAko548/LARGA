@@ -1,5 +1,6 @@
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore; // Included to access PhilippineTime
+using LARGA.SharedCore.Chats;
 using LARGA.SharedCore.Models.Chats;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
@@ -24,6 +25,20 @@ public interface IChatService
     /// (it then stops - start a new one to retry).</summary>
     IDisposable ListenForChatSessions(Action<IEnumerable<ChatSession>> onSessionsUpdated, Action<Exception>? onError = null);
     Task MarkMessagesAsReadAsync(string driverId);
+
+    /// <summary>Live read state (ChatReadState) of every driver conversation - the staff badges.</summary>
+    IDisposable ListenForReadStates(Action<IReadOnlyList<ChatReadState.Conversation>> onUpdated, Action<Exception>? onError = null);
+
+    /// <summary>Live read state of one driver's own conversation (null until its first message) - the
+    /// driver's Message Manager badge.</summary>
+    IDisposable ListenForReadState(string driverId, Action<ChatReadState.Conversation?> onUpdated, Action<Exception>? onError = null);
+
+    /// <summary>
+    /// Marks chats/{driverId} read for <paramref name="readerUid"/> only: sets their own
+    /// lastReadAtMs entry to <paramref name="readUpToUtc"/> (the lastMessageAt they saw), and for staff
+    /// also clears the shared isUnread flag. Never creates the doc. Returns false if the write failed.
+    /// </summary>
+    Task<bool> MarkConversationReadAsync(string driverId, string readerUid, DateTime? readUpToUtc, bool clearStaffUnread);
 }
 
 public class ChatService : IChatService
@@ -61,8 +76,10 @@ public class ChatService : IChatService
             // A driver's message must carry no sender keys at all - the plugin writes null properties as
             // explicit nulls, which the rules reject - so it uses a proxy without them.
             object proxy;
+            string? senderUid;
             if (message.IsDriver)
             {
+                senderUid = CrossFirebaseAuth.Current.CurrentUser?.Uid;
                 proxy = new DriverChatMessageProxy
                 {
                     Text = message.Text,
@@ -89,16 +106,27 @@ public class ChatService : IChatService
                     SenderName = sender.Value.Name,
                     SenderRole = sender.Value.Role,
                 };
+                senderUid = sender.Value.Uid;
+            }
+
+            if (string.IsNullOrEmpty(senderUid))
+            {
+                System.Diagnostics.Debug.WriteLine("SendMessageAsync skipped: not signed in.");
+                return false;
             }
 
             var batch = db.CreateBatch();
             batch.SetData(messageRef, proxy);
-            batch.SetData(chatRef, new ChatSessionProxy
+            batch.SetData(chatRef, new Dictionary<object, object>
             {
-                DriverName = realDriverName,
-                LastMessage = message.Text,
-                IsUnread = message.IsDriver, // unread for the manager when the driver sends
-                Timestamp = now
+                { "driverName", realDriverName },
+                { "lastMessage", message.Text },
+                { "isUnread", message.IsDriver }, // unread for the manager when the driver sends
+                { "timestamp", now },
+                // Per-person read state (ChatReadState): server time - firestore.rules require it -
+                // and the sender, which the rules check is the signed-in user.
+                { ChatReadState.LastMessageAtField, FieldValue.ServerTimestamp() },
+                { ChatReadState.LastSenderIdField, senderUid },
             }, SetOptions.Merge());
 
             await batch.CommitAsync();
@@ -264,6 +292,8 @@ public class ChatService : IChatService
                             LastMessage = doc.Data.LastMessage ?? string.Empty,
                             // FIX: Convert UTC to Philippine Time for the Manager's list
                             Timestamp = doc.Data.Timestamp.ToPhilippineTime(),
+                            // The shared "unread by staff" flag. The manager app's Chats list shows the
+                            // per-person state instead (UnreadBadgeService / ChatReadState).
                             IsUnread = doc.Data.IsUnread
                         });
                     }
@@ -275,6 +305,135 @@ public class ChatService : IChatService
                 System.Diagnostics.Debug.WriteLine($"Chat Sessions Listener Error: {error.Message}");
                 onError?.Invoke(error);
             });
+    }
+
+    public IDisposable ListenForReadStates(Action<IReadOnlyList<ChatReadState.Conversation>> onUpdated, Action<Exception>? onError = null)
+    {
+        return CrossFirebaseFirestore.Current
+            .GetCollection("chats")
+            .AddSnapshotListener<ChatSessionProxy>(
+            snapshot =>
+            {
+                var conversations = new List<ChatReadState.Conversation>();
+                foreach (var doc in snapshot.Documents)
+                {
+                    if (doc.Data != null)
+                    {
+                        conversations.Add(ToReadState(doc.Reference.Id, doc.Data));
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"ChatReadState {doc.Reference.Id}: document unreadable (no data)");
+                    }
+                }
+                onUpdated?.Invoke(conversations);
+            },
+            error =>
+            {
+                System.Diagnostics.Debug.WriteLine($"Chat read-state listener error: {error.Message}");
+                onError?.Invoke(error);
+            });
+    }
+
+    public IDisposable ListenForReadState(string driverId, Action<ChatReadState.Conversation?> onUpdated, Action<Exception>? onError = null)
+    {
+        return CrossFirebaseFirestore.Current
+            .GetCollection("chats")
+            .GetDocument(driverId)
+            .AddSnapshotListener<ChatSessionProxy>(
+            snapshot =>
+            {
+                if (snapshot.Data == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"ChatReadState {driverId}: no data (missing or unreadable)");
+                }
+                onUpdated?.Invoke(snapshot.Data == null ? null : ToReadState(driverId, snapshot.Data));
+            },
+            error =>
+            {
+                System.Diagnostics.Debug.WriteLine($"Own chat read-state listener error: {error.Message}");
+                onError?.Invoke(error);
+            });
+    }
+
+    // UpdateData, like MarkMessagesAsReadAsync: never creates the doc. The dotted path writes only
+    // this reader's entry of the lastReadAtMs map - firestore.rules allow no other. Milliseconds, not
+    // a DateTime: the plugin can't read a timestamp back out of a map (ChatReadState).
+    public async Task<bool> MarkConversationReadAsync(string driverId, string readerUid, DateTime? readUpToUtc, bool clearStaffUnread)
+    {
+        if (string.IsNullOrWhiteSpace(driverId) || string.IsNullOrWhiteSpace(readerUid))
+        {
+            return true;
+        }
+
+        var update = new Dictionary<object, object>();
+        if (readUpToUtc is DateTime upTo)
+        {
+            update[$"{ChatReadState.LastReadAtField}.{readerUid}"] = ChatReadState.ToUnixMillis(upTo);
+        }
+        if (clearStaffUnread)
+        {
+            update["isUnread"] = false;
+        }
+        if (update.Count == 0)
+        {
+            return true;
+        }
+
+        try
+        {
+            await CrossFirebaseFirestore.Current.GetCollection("chats").GetDocument(driverId).UpdateDataAsync(update);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error marking chat {driverId} read: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static ChatReadState.Conversation ToReadState(string driverId, ChatSessionProxy data)
+    {
+        var reads = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+        if (data.LastReadAt != null)
+        {
+            foreach (var entry in data.LastReadAt)
+            {
+                if (ChatReadState.FromUnixMillis(entry.Value) is DateTime read)
+                {
+                    reads[entry.Key] = read;
+                }
+            }
+        }
+        DateTime? lastMessageAt = ReadUtc(data.LastMessageAt);
+        System.Diagnostics.Debug.WriteLine(
+            $"ChatReadState {driverId}: lastMessageAt={data.LastMessageAt?.GetType().Name ?? "null"}->{lastMessageAt:O} sender={data.LastSenderId} reads={reads.Count}/{data.LastReadAt?.Count ?? 0} isUnread={data.IsUnread}");
+        return new ChatReadState.Conversation(driverId, lastMessageAt, data.LastSenderId, reads, data.IsUnread);
+    }
+
+    // A timestamp read into an object property: the plugin hands it back as a DateTimeOffset, or a
+    // DateTime that may carry its 1601 marshalling bug (see MobileApp FirestoreDateTimeFix). Null
+    // when missing - including a server timestamp still pending on this phone.
+    private static DateTime? ReadUtc(object? value)
+    {
+        switch (value)
+        {
+            case DateTimeOffset offset:
+                return offset.UtcDateTime;
+            case DateTime dateTime:
+                if (dateTime.Year > 1700) return DateTime.SpecifyKind(dateTime.ToUniversalTime(), DateTimeKind.Utc);
+                long millis = dateTime.Ticks - new DateTime(1601, 1, 1).Ticks;
+                return millis > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(millis).UtcDateTime : null;
+            case null:
+                return null;
+            default:
+                // Same fallback as FirestoreDateTimeFix.ReadUtc (the fuel report's submittedAt): the
+                // plugin can also hand a timestamp back as text.
+                return DateTimeOffset.TryParse(value.ToString(), System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed)
+                    ? parsed.UtcDateTime
+                    : null;
+        }
     }
 
     // Deliberately UpdateData (fails on a missing doc) rather than a merge-set: opening an empty
@@ -362,6 +521,18 @@ public class ChatSessionProxy
 
     [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
     public DateTime Timestamp { get; set; }
+
+    // Per-person read state (ChatReadState). lastMessageAt is typed object, not DateTime: the plugin
+    // then returns a correct DateTimeOffset, and a server timestamp still pending on this phone reads
+    // as null. lastReadAtMs holds numbers only - a timestamp inside a map makes the plugin throw.
+    [Plugin.Firebase.Firestore.FirestoreProperty(ChatReadState.LastMessageAtField)]
+    public object? LastMessageAt { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty(ChatReadState.LastSenderIdField)]
+    public string? LastSenderId { get; set; }
+
+    [Plugin.Firebase.Firestore.FirestoreProperty(ChatReadState.LastReadAtField)]
+    public IDictionary<string, object>? LastReadAt { get; set; }
 }
 
 public class DriverProfileProxy

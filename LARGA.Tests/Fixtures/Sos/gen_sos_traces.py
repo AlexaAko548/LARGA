@@ -6,7 +6,6 @@ Crash spikes are one sample long; the raw value is chosen so the gravity-free ma
 detector sees right after the GravityFilter (0.8 * (raw - gravity)) is the stated G.
 The traces recorded on the emulator (emu_*.txt) are not generated here.
 """
-import math
 import os
 import random
 
@@ -40,18 +39,6 @@ def rest(t0, t1, gravity=(0, 0, G), noise=0.05, rnd=None):
     return out
 
 
-def shake(name, comment, hz, seconds, axis="x", amp=8.0):
-    lines = rest(0, 1)
-    n = int(seconds * HZ)
-    for i in range(n):
-        t = 1 + i / HZ
-        v = amp * math.sin(2 * math.pi * hz * (t - 1))
-        x, y, z = (v, 0, G) if axis == "x" else (0, v, G) if axis == "y" else (0, 0, G + v)
-        lines.append(a(t, x, y, z))
-    lines += rest(1 + seconds, 2 + seconds)
-    write(name, comment, lines)
-
-
 def drive(name, comment, spike_at, spike_g, speeds_after, gravity=(0, 0, G), spike_axis="z",
           speed_before=12.0, total=None):
     """Moving at speed_before (m/s) with 1 Hz fixes; one spike; then speeds_after[i] at spike+1+i s."""
@@ -83,14 +70,7 @@ def drive(name, comment, spike_at, spike_g, speeds_after, gravity=(0, 0, G), spi
     write(name, comment, sorted(lines, key=lambda l: float(l.split(",")[1])))
 
 
-# Hostile (SOS-008/010/011)
-shake("sos008_hostile_shake_3hz.txt", "SOS-008 side-to-side shake ~3 swings/s for 3.5 s (X axis)", 3, 3.5)
-shake("sos010_short_shake_2s.txt", "SOS-010 step 1: side-to-side shake for 2 s only", 3, 2.0)
-shake("sos010_vertical_shake.txt", "SOS-010 step 2: up/down shake ~3/s for 3.5 s (Z axis)", 3, 3.5, axis="z")
-shake("sos011_slow_sway_1hz.txt", "SOS-011 step 1: slow sway ~1 swing/s for 3.5 s", 1, 3.5)
-shake("sos011_fast_vibration_8hz.txt", "SOS-011 step 2: fast vibration ~8 swings/s for 3.5 s", 8, 3.5, amp=6.0)
-
-# Rough road (SOS-010 step 3): 120 s of mostly-vertical bumps with some sway, moving at 8-12 m/s.
+# Rough road: 120 s of mostly-vertical bumps with some sway, moving at 8-12 m/s - never a crash.
 rnd = random.Random(42)
 lines, z_bump = [], 0.0
 for i in range(120 * HZ):
@@ -101,7 +81,7 @@ for i in range(120 * HZ):
     lines.append(a(t, rnd.gauss(0, 1.2), rnd.gauss(0, 1.2), G + z_bump + rnd.gauss(0, 1.5)))
 for s in range(121):
     lines.append(g(s + 0.5, rnd.uniform(8, 12)))
-write("sos010_rough_road_120s.txt", "SOS-010 step 3: 120 s rough road, vertical bumps + lateral noise",
+write("sos_rough_road_120s.txt", "120 s rough road, vertical bumps + lateral noise, moving (not a crash)",
       sorted(lines, key=lambda l: float(l.split(",")[1])))
 
 # Crash (SOS-018..023)

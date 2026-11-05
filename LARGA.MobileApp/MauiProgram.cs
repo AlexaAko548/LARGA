@@ -41,6 +41,13 @@ public static class MauiProgram
             .UseMauiCameraView() // Registered the Camera View
             .UseSkiaSharp() // Required by Mapsui (LAR-48 Live Fleet map, renders MapTiler tiles)
             .RegisterFirebaseServices()
+            .ConfigureMauiHandlers(handlers =>
+            {
+#if ANDROID
+                // Number badges on the manager tab bar's Chats and Alerts tabs (MAUI Shell has no badge API).
+                handlers.AddHandler(typeof(Shell), typeof(LARGA.MobileApp.Platforms.Android.BadgeShellRenderer));
+#endif
+            })
             .ConfigureFonts(fonts =>
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
@@ -75,6 +82,8 @@ public static class MauiProgram
         // Shared by the detection service (runs the countdown) and the cancel pop-up (shows it).
         builder.Services.AddSingleton<EmergencyCountdownCoordinator>();
         builder.Services.AddSingleton<IThemeService, ThemeService>();
+        // Chats / Alerts tab badges and the driver's Message Manager badge, live from sign-in (App starts it).
+        builder.Services.AddSingleton<UnreadBadgeService>();
 #if ANDROID
         builder.Services.AddSingleton<IEmergencyMonitor, LARGA.MobileApp.Platforms.Android.Emergency.AndroidEmergencyMonitor>();
         builder.Services.AddSingleton<IEmergencyFeedback, LARGA.MobileApp.Platforms.Android.Emergency.AndroidEmergencyFeedback>();

@@ -508,9 +508,9 @@ public class AlertCenterViewModel : BindableObject
         }
         var cardIds = actionCards.Select(card => card.Id).ToHashSet();
         DateTime nowUtc = DateTime.UtcNow;
+        // Same rule as the Alerts tab badge (UnreadBadgeService), so the two always agree.
         IEnumerable<AlertItem> bellRows = _bellItems
-            .Where(row => AlertFeed.SourceIdFor(row.Id, row.BellType) is not string sourceId || !cardIds.Contains(sourceId))
-            .Where(row => !AlertFeed.IsHiddenRead(row.IsRead, row.SortTime, nowUtc));
+            .Where(row => AlertCenterUnread.ShowsBellRow(BellRowOf(row), cardIds, nowUtc));
 
         // Newest day first across all alert types. GroupBy keeps that order, so the newest date
         // section comes first. Within a day, unread alerts come before read ones (beta feedback:
@@ -524,8 +524,8 @@ public class AlertCenterViewModel : BindableObject
             .ThenByDescending(item => item.SortTime)
             .ToList();
 
-        // The cards the Unread tab shows.
-        UnreadCount = Alerts.Count(item => item.IsUnread);
+        // The cards the Unread tab shows - counted by the same shared rule as the Alerts tab badge.
+        UnreadCount = AlertCenterUnread.Count(actionCards.Select(card => card.Id).ToList(), _bellItems.Select(BellRowOf), nowUtc);
 
         _hasLoaded = true;
         RebuildGroups();
@@ -534,6 +534,8 @@ public class AlertCenterViewModel : BindableObject
 
         ApplyPendingFocus();
     }
+
+    private static AlertCenterUnread.BellRow BellRowOf(AlertItem row) => new(row.Id, row.BellType, row.IsRead, row.SortTime);
 
     private void RebuildGroups()
     {

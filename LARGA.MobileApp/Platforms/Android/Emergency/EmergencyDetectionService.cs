@@ -21,10 +21,11 @@ namespace LARGA.MobileApp.Platforms.Android.Emergency;
 /// <summary>
 /// LAR-86/87 background emergency detection. Runs as a foreground service for the length of a
 /// shift so the accelerometer and GPS keep delivering with the app minimized or the screen off.
-/// A detected Crash starts a 5-second cancel countdown (popup + notification + haptics). A Hostile
-/// trigger (shake, or the volume-button pattern from <see cref="VolumeSosAccessibilityService"/>)
-/// starts a 10-second one that stays hidden: two short taps and a disguised notification, no
-/// popup. If it isn't cancelled the alert is written to Firestore and
+/// The accelerometer is only used for Crash detection: a detected Crash starts a 5-second cancel
+/// countdown (popup + notification + haptics). The Hostile trigger is the volume-button pattern
+/// from <see cref="VolumeSosAccessibilityService"/>, which starts a 10-second countdown that stays
+/// hidden: two short taps and a disguised notification, no popup. If it isn't cancelled the alert
+/// is written to Firestore and
 /// <see cref="EmergencyCallHandler"/> is armed to auto-answer the manager's callback. The duress
 /// PIN skips the countdown (<see cref="TrySendDuressAlertAsync"/>).
 /// </summary>
@@ -49,7 +50,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
     // then  ... -a larga.emergency.REPLAY --es trace trace.txt
     private const string ActionReplay = "larga.emergency.REPLAY";
     // Records the live accelerometer and GPS speed to files/<name> until RECORD_STOP:
-    // ... -a larga.emergency.RECORD --es trace shake.txt
+    // ... -a larga.emergency.RECORD --es trace crash.txt
     private const string ActionRecord = "larga.emergency.RECORD";
     private const string ActionRecordStop = "larga.emergency.RECORD_STOP";
     // Moves the auto-answer window back by --ei minutes N (e.g. 31 for "manager calls 31 minutes later").
@@ -104,7 +105,6 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
     private int _protocolsInFlight;
 
     private readonly GravityFilter _gravity = new();
-    private readonly HostileMotionDetector _hostile = new();
     private readonly CrashDetector _crash = new();
     private EmergencyCallHandler? _callHandler;
     private IEmergencyAlertService? _alertService;
@@ -248,7 +248,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         }
         else
         {
-            EmergencyLog.Warn("No accelerometer on this device - shake/crash detection unavailable.");
+            EmergencyLog.Warn("No accelerometer on this device - crash detection unavailable.");
         }
 
         TryRequestLocationUpdates();
@@ -350,16 +350,10 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
         Record(SensorTrace.FormatAccel(t - _recordStart, rawX, rawY, rawZ));
 #endif
 
-        // The detectors see only movement, not the constant 1G pull.
+        // The crash detector sees only movement, not the constant 1G pull.
         (double linX, double linY, double linZ) = _gravity.Linear(rawX, rawY, rawZ);
 
         _crash.OnLinearAcceleration(t, linX, linY, linZ);
-
-        if (_hostile.OnSample(t, linX, linY, linZ))
-        {
-            EmergencyLog.Info("Hostile shake pattern detected.");
-            BeginCountdown(EmergencyAlert.Hostile);
-        }
     }
 
     public void OnAccuracyChanged(Sensor? sensor, [GeneratedEnum] SensorStatus accuracy)
@@ -631,9 +625,7 @@ public sealed class EmergencyDetectionService : Service, ISensorEventListener, I
                         + (detections.Count == 0 ? "no detection." : string.Join(", ", detections.Select(d => $"{d.TriggerType} at {d.T:0.00}s"))));
                     if (detections.Count > 0)
                     {
-                        EmergencyLog.Info(detections[0].TriggerType == EmergencyAlert.Crash
-                            ? "Crash pattern detected (G-force spike, then stopped)."
-                            : "Hostile shake pattern detected.");
+                        EmergencyLog.Info("Crash pattern detected (G-force spike, then stopped).");
                         BeginCountdown(detections[0].TriggerType);
                     }
                     break;

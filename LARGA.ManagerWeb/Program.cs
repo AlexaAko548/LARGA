@@ -167,6 +167,8 @@ builder.Services.AddHostedService<MustChangePasswordCleanupService>();
 builder.Services.AddHostedService<ManagerPhoneAllowlistSyncService>();
 // Pushes each new SOS to every Manager/Assistant Manager phone (FCM), app open or not.
 builder.Services.AddHostedService<SosPushService>();
+// Pushes each new chat message to the driver / staff in that conversation (never the sender).
+builder.Services.AddHostedService<ChatPushService>();
 builder.Services.AddSingleton<FuelVerificationService>();
 builder.Services.AddSingleton<ShiftRouteService>();
 // FUEL-017 / FUEL-004: auto-flags fuel submissions outside the system_configs tolerances, and
