@@ -465,11 +465,25 @@ public class QuickLedgerService
                 continue;
             }
 
-            records.Add(new DebtAdjustmentRecord(StringOf(doc.Data.DriverId), ToDecimal(doc.Data.Amount), ToUtc(doc.Data.Timestamp)));
+            records.Add(new DebtAdjustmentRecord(StringOf(doc.Data.DriverId), ToDecimal(doc.Data.Amount), ToUtc(doc.Data.Timestamp),
+                StringOf(doc.Data.Reason).Trim(), StringOf(doc.Data.TransactionId).Trim()));
         }
 
         return records;
     }
+
+    /// <summary>A driver's payments as the Ledger tab badge counts them (LedgerUpdates): one per handover.</summary>
+    internal static IReadOnlyList<LedgerUpdates.Update> PaymentUpdates(IQuerySnapshot<BoundaryPaymentProxy> snapshot) =>
+        LedgerUpdates.FromPayments(snapshot.Documents
+            .Where(doc => doc.Data is not null)
+            .Select(doc => (doc.Reference.Id, (string?)StringOf(doc.Data!.TransactionId), ToDecimal(doc.Data.AmountPaid),
+                ToUtc(doc.Data.Timestamp) ?? ToUtc(doc.Data.RecordedAtUtc))));
+
+    /// <summary>A driver's manual adjustments as the Ledger tab badge counts them (LedgerUpdates).</summary>
+    internal static IReadOnlyList<LedgerUpdates.Update> AdjustmentUpdates(IQuerySnapshot<DebtAdjustmentProxy> snapshot) =>
+        LedgerUpdates.FromAdjustments(snapshot.Documents
+            .Where(doc => doc.Data is not null)
+            .Select(doc => (doc.Reference.Id, (string?)StringOf(doc.Data!.TransactionId), ToUtc(doc.Data.Timestamp))));
 
     /// <summary>
     /// Every user in the users collection. The Other Payment list is every user with role "Driver" (the same filter the
@@ -781,6 +795,14 @@ public class QuickLedgerService
 
         [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
         public object? Timestamp { get; set; }
+
+        // The manager's note on a Manual Adjustment / Correction - what the driver's Ledger shows next to it.
+        [Plugin.Firebase.Firestore.FirestoreProperty("reason")]
+        public object? Reason { get; set; }
+
+        // Set only on the automatic credit a debt payment creates; empty on an adjustment typed in by a manager.
+        [Plugin.Firebase.Firestore.FirestoreProperty("transactionId")]
+        public object? TransactionId { get; set; }
     }
 
     public class UserProxy

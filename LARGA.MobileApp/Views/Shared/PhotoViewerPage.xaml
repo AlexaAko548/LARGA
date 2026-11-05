@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="LARGA.MobileApp.Views.Shared.PhotoViewerPage"
+             BackgroundColor="Black"
+             NavigationPage.HasNavigationBar="False"
+             Shell.NavBarIsVisible="False">
+
+    <!-- One photo, full screen (the inspection photos on a clock-in approval card). Close with the X or the
+         phone's Back button. The browser button opens the same photo where it can be pinch-zoomed. -->
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Padding="16,24,8,8">
+            <Label x:Name="TitleLabel" TextColor="White" FontSize="16" FontAttributes="Bold"
+                   VerticalOptions="Center" LineBreakMode="TailTruncation" />
+            <Button Grid.Column="1" Text="✕" TextColor="White" BackgroundColor="Transparent" FontSize="22"
+                    WidthRequest="48" HeightRequest="48" Padding="0" Clicked="OnCloseClicked"
+                    AutomationProperties.Name="Close photo" />
+        </Grid>
+
+        <Grid Grid.Row="1">
+            <ActivityIndicator IsRunning="{Binding IsLoading, Source={x:Reference Photo}}"
+                               IsVisible="{Binding IsLoading, Source={x:Reference Photo}}"
+                               Color="White" HorizontalOptions="Center" VerticalOptions="Center" />
+            <Image x:Name="Photo" Aspect="AspectFit" />
+        </Grid>
+
+        <VerticalStackLayout Grid.Row="2" Spacing="6" Padding="16,8,16,20">
+            <Label Text="If the photo doesn't appear, check your connection." TextColor="#B0BEC5" FontSize="12"
+                   HorizontalTextAlignment="Center" />
+            <Button Text="Open full size (pinch to zoom)" TextColor="White" BackgroundColor="#0099CC" CornerRadius="22"
+                    HeightRequest="44" Clicked="OnOpenFullSizeClicked" />
+        </VerticalStackLayout>
+    </Grid>
+</ContentPage>

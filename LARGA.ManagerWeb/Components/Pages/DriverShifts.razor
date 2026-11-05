@@ -2377,7 +2377,9 @@ else
         return $"{day}, {value:h:mm tt}";
     }
 
-    private static bool IsToday(DateTime day) => day.Date == DateTime.UtcNow.Date;
+    // Philippine calendar day, not the server's (UTC): between midnight and 8:00 AM here the UTC date is
+    // still yesterday, which left the Schedule Planner's highlighted "today" column a day behind.
+    private static bool IsToday(DateTime day) => day.Date == PhilippineTime.Now.Date;
 
     private string WeekLabel()
     {

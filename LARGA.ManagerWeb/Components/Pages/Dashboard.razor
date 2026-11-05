@@ -396,8 +396,9 @@
     private DashboardSnapshot? _snapshot;
     private string? _dataError;
 
-    private DateTime _reportFromDate = DateTime.Today.AddDays(-7);
-    private DateTime _reportToDate = DateTime.Today;
+    // Philippine "today" (the server's DateTime.Today is UTC on Cloud Run, a day behind until 8:00 AM here).
+    private DateTime _reportFromDate = PhilippineTime.Now.Date.AddDays(-7);
+    private DateTime _reportToDate = PhilippineTime.Now.Date;
 
     private readonly List<string> ReportOptions = new()
     {

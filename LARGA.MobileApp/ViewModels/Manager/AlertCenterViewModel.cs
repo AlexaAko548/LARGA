@@ -124,8 +124,15 @@ public class AlertCenterViewModel : BindableObject
     public ICommand MessageDriverCommand { get; }
     public ICommand ViewLocationCommand { get; }
 
+    /// <summary>Opens one of a clock-in approval's photos full screen. Viewing isn't a decision, so unlike
+    /// Approve / Deny it's open to an Assistant Manager too.</summary>
+    public ICommand OpenPhotoCommand { get; }
+
+    private bool _openingPhoto;
+
     public AlertCenterViewModel()
     {
+        OpenPhotoCommand = new Command<ApprovalPhoto>(async photo => await OpenPhotoAsync(photo));
         // Idempotent - OnAppearing calls this every time the tab is revisited, but the
         // listeners themselves should only ever be started once for this VM's lifetime.
         LoadAlertsCommand = new Command(StartListening);
@@ -315,8 +322,8 @@ public class AlertCenterViewModel : BindableObject
             {
                 var docs = snapshot.Documents.Where(doc => doc.Data != null).ToList();
                 // Every request's defect reports are read at once, not one after another.
-                string?[][] defectLines = await Task.WhenAll(docs.Select(doc =>
-                    Task.WhenAll(SplitIds(doc.Data!.DefectReportIds).Select(DefectLineAsync))));
+                DefectInfo?[][] defectInfos = await Task.WhenAll(docs.Select(doc =>
+                    Task.WhenAll(SplitIds(doc.Data!.DefectReportIds).Select(DefectInfoAsync))));
 
                 var items = new List<AlertItem>();
                 for (int i = 0; i < docs.Count; i++)
@@ -324,7 +331,14 @@ public class AlertCenterViewModel : BindableObject
                     var doc = docs[i];
                     var driver = await GetDriverAsync(doc.Data!.DriverId ?? string.Empty);
                     DateTime createdAt = FirestoreDateTimeFix.Apply(doc.Data.CreatedAt);
-                    var defects = defectLines[i].OfType<string>().ToList();
+                    var defects = defectInfos[i].OfType<DefectInfo>().ToList();
+
+                    // The inspection photos, as the web's Driver & Shifts approval shows them: the fuel gauge,
+                    // the odometer, and the photo of each defect report.
+                    var photos = new List<ApprovalPhoto>();
+                    if (!string.IsNullOrWhiteSpace(doc.Data.FuelDashboardUrl)) photos.Add(new ApprovalPhoto("Fuel", doc.Data.FuelDashboardUrl));
+                    if (!string.IsNullOrWhiteSpace(doc.Data.OdometerPhotoUrl)) photos.Add(new ApprovalPhoto("Odometer", doc.Data.OdometerPhotoUrl));
+                    photos.AddRange(defects.Where(d => d.PhotoUrl is not null).Select(d => new ApprovalPhoto(d.Title, d.PhotoUrl!)));
 
                     items.Add(new AlertItem
                     {
@@ -337,7 +351,8 @@ public class AlertCenterViewModel : BindableObject
                         Timestamp = FormatAlertTime(createdAt),
                         FailedItem = string.Join("\n", (doc.Data.FlagReasons ?? string.Empty)
                             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
-                        DriverDescription = defects.Count == 0 ? "No defect report filed." : string.Join("\n", defects),
+                        DriverDescription = defects.Count == 0 ? "No defect report filed." : string.Join("\n", defects.Select(d => d.Line)),
+                        Photos = photos,
                         HasFailedItems = !(doc.Data.TireCondition && doc.Data.UnderTheHood && doc.Data.LightsCondition
                             && doc.Data.InteriorCleanliness && doc.Data.ExteriorCondition),
                         DefectReportIds = doc.Data.DefectReportIds,
@@ -368,8 +383,32 @@ public class AlertCenterViewModel : BindableObject
             }, ex => OnListenerError("Notifications (system_alerts)", ex));
     }
 
-    // "• Title (Priority): description" for one of a clock-in request's defect reports; null if it can't be read.
-    private static async Task<string?> DefectLineAsync(string defectId)
+    private async Task OpenPhotoAsync(ApprovalPhoto? photo)
+    {
+        if (photo is null || _openingPhoto || Shell.Current?.Navigation is not INavigation navigation) return;
+
+        _openingPhoto = true; // a second tap while the viewer is opening mustn't stack another one
+        try
+        {
+            await navigation.PushModalAsync(new LARGA.MobileApp.Views.Shared.PhotoViewerPage(photo.Label, photo.Url));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Opening approval photo failed: {ex.Message}");
+            await Shell.Current.DisplayAlert("Couldn't open the photo", "Please check your connection and try again.", "OK");
+        }
+        finally
+        {
+            _openingPhoto = false;
+        }
+    }
+
+    // One of a clock-in request's defect reports as the approval card shows it: the "• Title (Priority): description"
+    // line, and its title and photo (if the driver attached one) for the photo strip.
+    private sealed record DefectInfo(string Line, string Title, string? PhotoUrl);
+
+    // Null if the defect report can't be read.
+    private static async Task<DefectInfo?> DefectInfoAsync(string defectId)
     {
         try
         {
@@ -379,7 +418,10 @@ public class AlertCenterViewModel : BindableObject
                 .GetDocumentSnapshotAsync<MaintenanceLogProxy>();
             if (defect?.Data == null) return null;
             string line = $"• {defect.Data.IssueTitle} ({defect.Data.PriorityLevel})";
-            return string.IsNullOrWhiteSpace(defect.Data.IssueDescription) ? line : $"{line}: {defect.Data.IssueDescription}";
+            return new DefectInfo(
+                string.IsNullOrWhiteSpace(defect.Data.IssueDescription) ? line : $"{line}: {defect.Data.IssueDescription}",
+                string.IsNullOrWhiteSpace(defect.Data.IssueTitle) ? "Defect" : defect.Data.IssueTitle,
+                string.IsNullOrWhiteSpace(defect.Data.SupportingPhotoUrl) ? null : defect.Data.SupportingPhotoUrl);
         }
         catch (Exception ex)
         {
@@ -876,6 +918,9 @@ public class AlertCenterViewModel : BindableObject
         [Plugin.Firebase.Firestore.FirestoreProperty("interiorCleanliness")] public bool InteriorCleanliness { get; set; }
         [Plugin.Firebase.Firestore.FirestoreProperty("exteriorCondition")] public bool ExteriorCondition { get; set; }
         [Plugin.Firebase.Firestore.FirestoreProperty("createdAt")] public DateTime CreatedAt { get; set; }
+        // The inspection photos the driver attached (uploaded with the request - SubmitForApprovalAsync).
+        [Plugin.Firebase.Firestore.FirestoreProperty("fuelDashboardUrl")] public string? FuelDashboardUrl { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("odometerPhotoUrl")] public string? OdometerPhotoUrl { get; set; }
     }
 
     /// <summary>The bell entry ManagerWeb raised for this SOS ({alertId}_SOS), if any.</summary>
@@ -1042,6 +1087,10 @@ public class AlertCenterViewModel : BindableObject
 
         [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
         public string? TaxiId { get; set; }
+
+        // The photo the driver attached to the defect report (shown on the clock-in approval card).
+        [Plugin.Firebase.Firestore.FirestoreProperty("supportingPhotoUrl")]
+        public string? SupportingPhotoUrl { get; set; }
     }
 
     private class SystemAlertProxy
@@ -1126,6 +1175,9 @@ public enum AlertType
     Notice
 }
 
+/// <summary>One inspection photo on a clock-in approval card: what it shows and where it is.</summary>
+public sealed record ApprovalPhoto(string Label, string Url);
+
 public class AlertItem
 {
     public string Id { get; set; } = string.Empty;
@@ -1159,6 +1211,11 @@ public class AlertItem
     // reports (maintenance_logs IDs, comma-separated).
     public bool HasFailedItems { get; set; }
     public string? DefectReportIds { get; set; }
+
+    // Clock-in approvals: the inspection photos the manager reviews before deciding (fuel gauge, odometer,
+    // each defect's photo) - the same ones the web shows.
+    public List<ApprovalPhoto> Photos { get; set; } = new();
+    public bool HasPhotos => Photos.Count > 0;
 
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }

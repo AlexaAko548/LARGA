@@ -4,9 +4,11 @@ using System.Linq;
 using LARGA.SharedCore;
 using LARGA.SharedCore.Alerts;
 using LARGA.SharedCore.Chats;
+using LARGA.SharedCore.Ledger;
 using LARGA.SharedCore.Services;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Dispatching;
+using Microsoft.Maui.Storage;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Firestore;
 
@@ -44,6 +46,16 @@ public sealed class UnreadBadgeService
     private IReadOnlyList<string> _clockInIds = Array.Empty<string>();
     private IReadOnlyList<AlertCenterUnread.BellRow> _bellRows = Array.Empty<AlertCenterUnread.BellRow>();
 
+    // Driver: the Ledger tab's red number (LedgerUpdates). A shift this phone ends is counted the moment it ends; a
+    // payment or a manager's adjustment comes from the driver's own boundary_payments / debt_adjustments. "Seen up
+    // to" and the clock-out count are remembered per driver on this phone, so they survive closing the app.
+    private IReadOnlyList<LedgerUpdates.Update> _paymentUpdates = Array.Empty<LedgerUpdates.Update>();
+    private IReadOnlyList<LedgerUpdates.Update> _adjustmentUpdates = Array.Empty<LedgerUpdates.Update>();
+    private bool _paymentsConfirmed;      // each has been read from the server at least once - a cache-only
+    private bool _adjustmentsConfirmed;   // snapshot (a fresh install) mustn't make the whole history look new
+    private DateTime? _ledgerSeenUtc;
+    private int _shiftsEndedUnseen;
+
     private string? _activeConversation;
     private bool _isForeground = true;
     private (string DriverId, DateTime? Marker, bool Clear)? _lastMarkRead;
@@ -64,6 +76,10 @@ public sealed class UnreadBadgeService
     /// <summary>Driver: 1 while their conversation has an unread staff or system message.</summary>
     public int DriverMessagesCount { get; private set; }
 
+    /// <summary>Driver: balance updates since they last opened the Ledger - a shift they ended, a payment a manager
+    /// recorded, or a manager's adjustment. Cleared by opening the Ledger (<see cref="MarkLedgerSeen"/>).</summary>
+    public int LedgerCount { get; private set; }
+
     /// <summary>Raised on the main thread whenever a count may have changed.</summary>
     public event EventHandler? Changed;
 
@@ -81,6 +97,56 @@ public sealed class UnreadBadgeService
                 && conversation.IsUnreadFor(_uid, viewerIsStaff: true);
         }
     }
+
+    /// <summary>
+    /// The driver just ended a shift on this phone, which adds that day's boundary to their balance: the Ledger tab
+    /// shows a red number straight away, without waiting for anything to be read back from the server.
+    /// </summary>
+    public void NoteShiftEnded()
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            lock (_gate)
+            {
+                if (_uid is null || _isStaff) return;
+                _shiftsEndedUnseen++;
+                Preferences.Set(EndedKey(_uid), _shiftsEndedUnseen);
+            }
+            Publish();
+        });
+    }
+
+    /// <summary>
+    /// The driver opened the Ledger: everything up to now counts as seen and the red number goes. Returns how many
+    /// updates it was showing, so the Ledger can say what was new. Main thread.
+    /// </summary>
+    public int MarkLedgerSeen()
+    {
+        int unseen;
+        lock (_gate)
+        {
+            if (_uid is null || _isStaff) return 0;
+            unseen = _shiftsEndedUnseen + LedgerUpdates.CountUnseen(_paymentUpdates.Concat(_adjustmentUpdates), _ledgerSeenUtc);
+
+            _shiftsEndedUnseen = 0;
+            Preferences.Remove(EndedKey(_uid));
+            // Only once the server has answered: with nothing read yet there's nothing to mark seen (a later
+            // baseline covers the history), and an empty list mustn't be recorded as "seen up to the beginning".
+            if (_paymentsConfirmed && _adjustmentsConfirmed)
+            {
+                DateTime? newest = LedgerUpdates.Latest(_paymentUpdates.Concat(_adjustmentUpdates));
+                _ledgerSeenUtc = newest is DateTime latest && latest > (_ledgerSeenUtc ?? DateTime.MinValue)
+                    ? latest
+                    : _ledgerSeenUtc ?? LedgerUpdates.Baseline(_paymentUpdates.Concat(_adjustmentUpdates));
+                Preferences.Set(SeenKey(_uid), _ledgerSeenUtc.Value.Ticks);
+            }
+        }
+        Publish();
+        return unseen;
+    }
+
+    private static string SeenKey(string uid) => $"ledger_seen_ticks_{uid}";
+    private static string EndedKey(string uid) => $"ledger_shifts_ended_{uid}";
 
     /// <summary>True when this conversation is open on screen with the app in the foreground.</summary>
     public bool IsViewingConversation(string? driverId) =>
@@ -157,6 +223,10 @@ public sealed class UnreadBadgeService
             _sosIds = _fuelIds = _clockInIds = Array.Empty<string>();
             _bellRows = Array.Empty<AlertCenterUnread.BellRow>();
             _lastMarkRead = null;
+            _paymentUpdates = _adjustmentUpdates = Array.Empty<LedgerUpdates.Update>();
+            _paymentsConfirmed = _adjustmentsConfirmed = false;
+            _ledgerSeenUtc = null;
+            _shiftsEndedUnseen = 0;
         }
         Publish();
     }
@@ -208,6 +278,52 @@ public sealed class UnreadBadgeService
         Listen(session, "Message Manager badge", () => _chatService.ListenForReadState(uid,
             conversation => Update(session, () => _ownConversation = conversation),
             ex => OnListenerFailed(session, "Message Manager badge", ex)));
+
+        // What was seen of the ledger, remembered from last time on this phone.
+        lock (_gate)
+        {
+            _ledgerSeenUtc = Preferences.ContainsKey(SeenKey(uid))
+                ? new DateTime(Preferences.Get(SeenKey(uid), 0L), DateTimeKind.Utc)
+                : null;
+            _shiftsEndedUnseen = Preferences.Get(EndedKey(uid), 0);
+        }
+
+        // The driver's own payments and manager adjustments (firestore.rules: each by driverId). Equality filters
+        // only, so no index is needed. The first time they're read from the server the history becomes the
+        // baseline, so only what arrives after that shows as new.
+        Listen(session, "Ledger badge (payments)", () => CrossFirebaseFirestore.Current
+            .GetCollection("boundary_payments")
+            .WhereEqualsTo("driverId", uid)
+            .AddSnapshotListener<QuickLedgerService.BoundaryPaymentProxy>(
+                snapshot => Update(session, () =>
+                {
+                    _paymentUpdates = QuickLedgerService.PaymentUpdates(snapshot);
+                    _paymentsConfirmed |= snapshot.Metadata?.IsFromCache != true;
+                    BaselineLedgerIfNeeded(uid);
+                }),
+                ex => OnListenerFailed(session, "Ledger badge (payments)", ex)));
+
+        Listen(session, "Ledger badge (adjustments)", () => CrossFirebaseFirestore.Current
+            .GetCollection("debt_adjustments")
+            .WhereEqualsTo("driverId", uid)
+            .AddSnapshotListener<QuickLedgerService.DebtAdjustmentProxy>(
+                snapshot => Update(session, () =>
+                {
+                    _adjustmentUpdates = QuickLedgerService.AdjustmentUpdates(snapshot);
+                    _adjustmentsConfirmed |= snapshot.Metadata?.IsFromCache != true;
+                    BaselineLedgerIfNeeded(uid);
+                }),
+                ex => OnListenerFailed(session, "Ledger badge (adjustments)", ex)));
+    }
+
+    // Inside _gate. The first time both lists are confirmed by the server and nothing is remembered for this driver
+    // (a new install, or an update that predates this badge): what's there already is old, not new.
+    private void BaselineLedgerIfNeeded(string uid)
+    {
+        if (_ledgerSeenUtc is not null || !_paymentsConfirmed || !_adjustmentsConfirmed) return;
+
+        _ledgerSeenUtc = LedgerUpdates.Baseline(_paymentUpdates.Concat(_adjustmentUpdates));
+        Preferences.Set(SeenKey(uid), _ledgerSeenUtc.Value.Ticks);
     }
 
     private void Listen(int session, string name, Func<IDisposable> start)
@@ -235,7 +351,8 @@ public sealed class UnreadBadgeService
     private void OnListenerFailed(int session, string name, Exception ex)
     {
         FirestoreErrors.Log($"Unread badges: {name}", ex);
-        if (FirestoreErrors.Classify(ex) is FirestoreErrorKind.PermissionDenied or FirestoreErrorKind.SignedOut)
+        // A missing index won't fix itself in 15 seconds either - retrying would only restart every badge in a loop.
+        if (FirestoreErrors.Classify(ex) is FirestoreErrorKind.PermissionDenied or FirestoreErrorKind.SignedOut or FirestoreErrorKind.MissingIndex)
         {
             return;
         }
@@ -277,6 +394,8 @@ public sealed class UnreadBadgeService
                     ? AlertCenterUnread.Count(_sosIds.Concat(_fuelIds).Concat(_clockInIds).ToList(), _bellRows, DateTime.UtcNow)
                     : 0;
                 DriverMessagesCount = isStaff ? 0 : ChatReadState.DriverBadgeCount(_ownConversation, uid);
+                LedgerCount = isStaff || uid is null ? 0
+                    : _shiftsEndedUnseen + LedgerUpdates.CountUnseen(_paymentUpdates.Concat(_adjustmentUpdates), _ledgerSeenUtc);
             }
             Changed?.Invoke(this, EventArgs.Empty);
         });
