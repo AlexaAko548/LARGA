@@ -970,6 +970,63 @@ public class FinancialLedgerService
 
     private DocumentReference LedgerLockRef(string driverId) => Db.Collection("ledger_locks").Document(driverId);
 
+    /// <summary>The marker written once every existing boundary_payments GCash reference has been claimed.</summary>
+    public const string ReferenceBackfillMarkerId = "__backfill_v1";
+
+    /// <summary>
+    /// BRP-008: claims payment_references/{normalized reference} for the boundary_payments saved
+    /// before duplicate references were refused on save (consistency audit row #62 - same pattern as
+    /// FuelVerificationService.BackfillOrNumberClaimsAsync for fuel_or_numbers). Without this, a
+    /// reference recorded before that check existed was never claimed, so it could be reused once.
+    /// The oldest payment keeps the reference; payments already in Firestore are never touched by
+    /// this. Runs once (a marker document in the same collection); returns how many it claimed.
+    /// </summary>
+    public async Task<int> BackfillPaymentReferenceClaimsAsync()
+    {
+        CollectionReference claims = Db.Collection(PaymentReferenceRules.Collection);
+        DocumentReference marker = claims.Document(ReferenceBackfillMarkerId);
+        if ((await marker.GetSnapshotAsync()).Exists)
+        {
+            return 0;
+        }
+
+        QuerySnapshot payments = await Db.Collection("boundary_payments").GetSnapshotAsync();
+        var ordered = payments.Documents
+            .Select(d => d.ConvertTo<BoundaryPayment>())
+            .OrderBy(p => p.RecordedAt);
+
+        int claimed = 0;
+        foreach (BoundaryPayment payment in ordered)
+        {
+            string? reference = PaymentReferenceRules.Normalize(payment.GcashReferenceNumber ?? payment.ReceiptReferenceNo);
+            if (reference is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                await claims.Document(reference).CreateAsync(new Dictionary<string, object>
+                {
+                    ["paymentId"] = payment.PaymentId,
+                    ["driverId"] = payment.DriverId ?? string.Empty,
+                    ["transactionId"] = payment.TransactionId ?? string.Empty,
+                    ["referenceNumber"] = payment.GcashReferenceNumber ?? payment.ReceiptReferenceNo!,
+                    ["createdAt"] = DateTime.UtcNow,
+                    ["backfilled"] = true,
+                });
+                claimed++;
+            }
+            catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
+            {
+                // Already claimed (an earlier payment, or a payment booked since the update) - keep that one.
+            }
+        }
+
+        await marker.SetAsync(new Dictionary<string, object> { ["completedAt"] = DateTime.UtcNow, ["claimed"] = claimed });
+        return claimed;
+    }
+
     /// <summary>Whether payment_references already holds this GCash reference (BRP-008). No
     /// reference (cash): false.</summary>
     private async Task<bool> IsReferenceRecordedAsync(string? referenceNo)

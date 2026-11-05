@@ -21,6 +21,30 @@ public class FuelOrNumberRulesTests
         Assert.Null(FuelOrNumberRules.Normalize(input));
 
     [Fact]
+    public void Key_SameOrNumberDifferentStation_DifferentClaim()
+    {
+        string? petron = FuelOrNumberRules.Key("Petron - EDSA", "0012345");
+        string? shell = FuelOrNumberRules.Key("Shell Pilipinas", "0012345");
+        Assert.NotEqual(petron, shell);
+    }
+
+    [Fact]
+    public void Key_SameStationAndOrNumberWrittenDifferently_SameClaim()
+    {
+        string? a = FuelOrNumberRules.Key("Petron - EDSA", "OR-0012345");
+        string? b = FuelOrNumberRules.Key(" petron edsa ", "or 0012 345");
+        Assert.Equal(a, b);
+    }
+
+    [Fact]
+    public void Key_BlankOrNumber_NotChecked() =>
+        Assert.Null(FuelOrNumberRules.Key("Petron", ""));
+
+    [Fact]
+    public void Key_BlankStation_StillChecked() =>
+        Assert.NotNull(FuelOrNumberRules.Key(null, "0012345"));
+
+    [Fact]
     public void CombineReasons_StationAndDuplicate() =>
         Assert.Equal("Station is not Petron or Shell; OR number already submitted",
             FuelOrNumberRules.CombineReasons(new[] { FuelStations.NotAllowedReason, FuelOrNumberRules.DuplicateReason }));

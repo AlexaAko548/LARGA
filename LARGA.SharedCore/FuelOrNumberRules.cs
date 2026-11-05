@@ -23,6 +23,27 @@ public static class FuelOrNumberRules
     /// (PaymentReferenceRules.Normalize). Null when the OR number is blank.</summary>
     public static string? Normalize(string? orNumber) => PaymentReferenceRules.Normalize(orNumber);
 
+    /// <summary>
+    /// The fuel_or_numbers claim key: station + OR number, not the OR number alone. An OR number is
+    /// only unique per issuing station/branch - two different stations (or branches) can legitimately
+    /// print the same number, and keying by OR number alone wrongly flagged that as a duplicate
+    /// (consistency audit row #58). Station is normalized the same way as the OR number (trimmed,
+    /// spaces/dashes removed, upper-case), which also absorbs minor OCR formatting differences
+    /// between reads of the same station name. Null when the OR number is blank; a blank/unreadable
+    /// station still gets a key (grouped under "UNKNOWN") so the OR number is still checked.
+    /// </summary>
+    public static string? Key(string? station, string? orNumber)
+    {
+        string? orKey = Normalize(orNumber);
+        if (orKey is null)
+        {
+            return null;
+        }
+
+        string stationKey = PaymentReferenceRules.Normalize(station) ?? "UNKNOWN";
+        return $"{stationKey}~{orKey}";
+    }
+
     /// <summary>The fuelLogDetails for a log flagged for more than one reason, e.g.
     /// "Station is not Petron or Shell; OR number already submitted". Null when there are none.</summary>
     public static string? CombineReasons(IEnumerable<string?> reasons)

@@ -353,12 +353,16 @@ public class FuelVerificationService
         });
     }
 
-    /// <summary>The marker written once every existing fuel log's OR number has been claimed.</summary>
-    public const string OrClaimBackfillMarkerId = "__backfill_v1";
+    /// <summary>The marker written once every existing fuel log's OR number has been claimed.
+    /// Bumped to v2 when the claim key changed from the OR number alone to station + OR number
+    /// (row #58) - v1 claims are under the old key format and no longer protect anything, so this
+    /// needs to run again under the new keys.</summary>
+    public const string OrClaimBackfillMarkerId = "__backfill_v2";
 
     /// <summary>
-    /// Proposal §4.2.4.5: claims fuel_or_numbers/{normalized OR} for the fuel logs saved before the
-    /// app claimed them on submit, so a later receipt repeating one of those numbers is caught too.
+    /// Proposal §4.2.4.5: claims fuel_or_numbers/{station}~{normalized OR} for the fuel logs saved
+    /// before the app claimed them on submit, so a later receipt repeating one of those numbers at
+    /// the same station is caught too.
     /// The oldest submission keeps the number; logs already in Firestore are never flagged by this.
     /// Runs once (a marker document in the same collection); returns how many numbers it claimed.
     /// </summary>
@@ -379,7 +383,7 @@ public class FuelVerificationService
         int claimed = 0;
         foreach (var (id, log) in ordered)
         {
-            string? key = FuelOrNumberRules.Normalize(log.ORNumber);
+            string? key = FuelOrNumberRules.Key(log.FuelStation, log.ORNumber);
             if (key is null)
             {
                 continue;

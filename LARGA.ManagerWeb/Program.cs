@@ -161,6 +161,8 @@ builder.Services.AddScoped<LARGA.ManagerWeb.Services.ChatDrawerState>();
 builder.Services.AddScoped<LARGA.ManagerWeb.Services.SosBannerState>();
 builder.Services.AddHostedService<IdleAlertMonitorService>();
 builder.Services.AddHostedService<PaymentDriverIdBackfillService>();
+// BRP-008: one-time claim of the GCash reference numbers on boundary_payments saved before the duplicate check.
+builder.Services.AddHostedService<PaymentReferenceBackfillService>();
 // Clears mustChangePassword for users who already replaced their temporary password (startup, then hourly).
 builder.Services.AddHostedService<MustChangePasswordCleanupService>();
 // LAR-86/87: mirror Manager and Assistant Manager numbers into the driver app's SOS auto-answer allowlist (live).
