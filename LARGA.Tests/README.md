@@ -12,7 +12,11 @@ anything that only lives there is tested on the emulator instead (see "Alpha tes
 | `Maintenance/` | M4 Vehicle Maintenance | Priority and date rules, the Garage page's due/overdue text, Garage work-order lifecycle and routine-check alerts, spare-part stock status and archiving, a work order's parts deducted all-or-nothing, low-stock alerts |
 | `Gps/` | M6 GPS Tracking | Idle detection, the GPS jitter filter, idle alerts |
 | `Sos/` | M7 SOS Emergency | Crash detector fed recorded sensor traces, the Hostile volume-button pattern, SOS protocol rules |
+| `Alerts/` | Alert Center | Access-request and submission alerts, who sees which alert, alert links, the Unread count behind the Alerts tab badge |
+| `Auth/` | Sign-in & accounts | Password policy, forced password change, staff roles, chat sender labels |
 | `Chats/` | Messaging | Who a chat push goes to (`ChatPushPolicy`), per-person unread and the badge numbers (`ChatReadState`) |
+| `Ledger/` | Payments & reports | Boundary payments (BRP-014 configured rate), report driver names (BETA-098), reading `system_configs/global` field by field |
+| `Shifts/` | Clock-in | Pre-shift reminder rules, manager approve/deny of a clock-in request (emulator) |
 | `Live/` | – | Helpers that talk to the **live** project. They do nothing unless their env vars are set (see below) |
 | `Support/` | – | Shared test helpers (`Emulator.cs`: local Firestore emulator setup) |
 | `Rules/` | M4 / M6 | `firestore.rules` tests for `gps_telemetry` and `maintenance_logs` (JavaScript) |
@@ -106,3 +110,10 @@ Every `.txt` under `Fixtures/` is copied to the build output with its subfolder,
 
 The test IDs in method names (`Mnt013_...`, `Gps014_...`, `Fuel016_...`, `SOS_018_...`) match the IDs in the LARGA test-case workbook.
 Cases that need a real phone (camera, swipe-away, offline driving, the manager map) are run by hand on the Android emulator, not here.
+
+### Cases with no automated test
+
+These workbook cases have no test here and are checked by hand: DSM-012 (web login messages), DSM-037 (a missed clock-out is auto-closed on the next
+clock-in: needs a stale Active shift, so use the emulator or a dev project with `system_configs/global` `testClockPh`; the live project refuses it),
+DSM-040 (double-tap on Confirm & Start Shift: one shift only) and DSM-041 (final odometer below the start is refused and the shift stays Active).
+The SOS-008/010/011/012 motion cases were removed with the Hostile motion trigger.
