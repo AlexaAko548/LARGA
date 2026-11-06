@@ -119,7 +119,7 @@
                 <div class="stat-body">
                     <div class="stat-trend @TrendCssClass(_snapshot?.WeeklyRevenue.TrendPercent)">@FormatPercentTrend(_snapshot?.WeeklyRevenue.TrendPercent)</div>
                     <div class="stat-value">₱ @((_snapshot?.WeeklyRevenue.Value ?? 0).ToString("#,##0.00"))</div>
-                    <div class="stat-label">Weekly Revenue</div>
+                    <div class="stat-label">Revenue (Last 7 Days)</div>
                 </div>
             </article>
 
@@ -396,8 +396,10 @@
     private DashboardSnapshot? _snapshot;
     private string? _dataError;
 
-    private DateTime _reportFromDate = DateTime.Today.AddDays(-7);
-    private DateTime _reportToDate = DateTime.Today;
+    // Philippine time, not server time (DateTime.Today): the server runs on UTC (Cloud Run), so
+    // before 8:00 AM Philippine time DateTime.Today is still yesterday's date there (row #65).
+    private DateTime _reportFromDate = PhilippineTime.Now.Date.AddDays(-7);
+    private DateTime _reportToDate = PhilippineTime.Now.Date;
 
     private readonly List<string> ReportOptions = new()
     {

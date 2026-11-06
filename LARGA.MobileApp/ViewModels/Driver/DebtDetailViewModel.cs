@@ -62,7 +62,7 @@ public class DebtDetailViewModel : BindableObject
                 {
                     DateStr = a.TimestampUtc == DateTime.MinValue ? "N/A" : a.TimestampUtc.ToLocalTime().ToString("M/dd"),
                     Amount = $"{a.Amount:N2}",
-                    Label = a.Amount >= 0 ? "penalty" : "credit",
+                    Label = a.Describe(), // says it's from the manager, with their note
                     RawDate = a.TimestampUtc,
                 }))
                 .OrderByDescending(d => d.RawDate)

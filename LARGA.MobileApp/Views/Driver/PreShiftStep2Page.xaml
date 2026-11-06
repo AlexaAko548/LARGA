@@ -101,11 +101,13 @@
 
             <!-- Confirm & Start Shift Button -->
             <Button Text="{Binding StartButtonText}" IsEnabled="{Binding IsNotSubmitting}" Command="{Binding ConfirmStartShiftCommand}" 
-                    BackgroundColor="{DynamicResource ThemePanel}" TextColor="#0099CC" CornerRadius="25" Style="{StaticResource LargaButtonStyle}" HeightRequest="60" FontSize="18" Margin="0,15,0,0">
+                    BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" Style="{StaticResource LargaButtonStyle}" HeightRequest="60" FontSize="18" Margin="0,15,0,0">
                 <Button.Triggers>
-                    <DataTrigger TargetType="Button" Binding="{Binding CanStartShift}" Value="True">
-                        <Setter Property="BackgroundColor" Value="#0099CC" />
-                        <Setter Property="TextColor" Value="White" />
+                    <!-- Looks active whenever it can be tapped (an incomplete form just explains what's missing);
+                         greyed only while it really is disabled - a submit already in flight. -->
+                    <DataTrigger TargetType="Button" Binding="{Binding IsNotSubmitting}" Value="False">
+                        <Setter Property="BackgroundColor" Value="{DynamicResource ThemePanel}" />
+                        <Setter Property="TextColor" Value="{DynamicResource ThemeTextGray}" />
                     </DataTrigger>
                 </Button.Triggers>
             </Button>

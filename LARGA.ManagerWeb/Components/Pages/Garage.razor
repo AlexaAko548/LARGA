@@ -1134,7 +1134,7 @@ else
         {
             // Manual: seed with tomorrow if nothing's picked yet, otherwise leave whatever
             // Auto had already found - a reasonable starting point either way.
-            _scheduleDate ??= DateTime.UtcNow.Date.AddDays(1);
+            _scheduleDate ??= PhilippineTime.Now.Date.AddDays(1); // tomorrow in Philippine time, not UTC
         }
     }
 

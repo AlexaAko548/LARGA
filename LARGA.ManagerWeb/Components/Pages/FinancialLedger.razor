@@ -485,12 +485,7 @@ else
                 </div>
 
                 <div class="info-banner">
-                    This is also how to fix a wrongly recorded payment: a recorded shift's AmountPaid can't be
-                    edited directly, since it's part of the permanent audit trail, so correct the driver's overall
-                    debt balance here instead - "Add to Debt" if more was recorded as paid than the driver actually
-                    gave (so they still owe the shortfall), "Write-off" if less was recorded than they actually
-                    paid (so they're owed that credit back). Adjustments don't touch today's boundary payments;
-                    they feed the Master Debt Ledger balance.
+                    For fixing wrongly recorded payment/add penalty or credit. This will be reflected in the Master Ledger and the driver's next shift.
                 </div>
 
                 @if (_adjustmentError is not null)

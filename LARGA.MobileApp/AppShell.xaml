@@ -25,7 +25,7 @@
         <Tab Route="home" Title="Home" Icon="car.png">
             <ShellContent ContentTemplate="{DataTemplate driver:DriverDashboardPage}" />
         </Tab>
-        <Tab Title="Ledger" Icon="ledger.png">
+        <Tab Route="ledger" Title="Ledger" Icon="ledger.png">
             <ShellContent ContentTemplate="{DataTemplate driver:LedgerPage}" />
         </Tab>
         <Tab Title="Reports" Icon="report.png">

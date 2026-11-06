@@ -153,6 +153,32 @@
                         <Label Text="DEFECT REPORTS:" FontSize="12" TextColor="{DynamicResource ThemeTextTertiary}" Margin="0,4,0,0" />
                         <Label Text="{Binding DriverDescription}" FontSize="14" TextColor="{DynamicResource ThemeTextBlack}" />
 
+                        <!-- The inspection photos the manager reviews before deciding (fuel gauge, odometer, defect photos):
+                             the same ones the web shows. Tap one to view it full screen. Open to the Assistant Manager too. -->
+                        <VerticalStackLayout Spacing="6" IsVisible="{Binding HasPhotos}">
+                            <Label Text="PHOTOS (tap to enlarge):" FontSize="12" TextColor="{DynamicResource ThemeTextTertiary}" Margin="0,4,0,0" />
+                            <ScrollView Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
+                                <HorizontalStackLayout Spacing="10" BindableLayout.ItemsSource="{Binding Photos}">
+                                    <BindableLayout.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ApprovalPhoto">
+                                            <VerticalStackLayout Spacing="4" WidthRequest="96">
+                                                <Border StrokeShape="RoundRectangle 10" StrokeThickness="1" Stroke="{DynamicResource ThemeDivider}"
+                                                        WidthRequest="96" HeightRequest="96" BackgroundColor="{DynamicResource ThemeSurface}">
+                                                    <Image Source="{Binding Url}" Aspect="AspectFill" />
+                                                    <Border.GestureRecognizers>
+                                                        <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.OpenPhotoCommand}"
+                                                                              CommandParameter="{Binding .}" />
+                                                    </Border.GestureRecognizers>
+                                                </Border>
+                                                <Label Text="{Binding Label}" FontSize="11" TextColor="{DynamicResource ThemeTextSecondary}"
+                                                       HorizontalTextAlignment="Center" LineBreakMode="TailTruncation" />
+                                            </VerticalStackLayout>
+                                        </DataTemplate>
+                                    </BindableLayout.ItemTemplate>
+                                </HorizontalStackLayout>
+                            </ScrollView>
+                        </VerticalStackLayout>
+
                         <BoxView HeightRequest="1" Color="{DynamicResource ThemeDivider}" Margin="0,6" />
 
                         <Label Text="Waiting for a Manager to approve or deny this clock-in." FontSize="13"

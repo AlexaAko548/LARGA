@@ -33,20 +33,47 @@ public partial class ActiveShiftPage : ContentPage
     private bool _isHolding;
     private double _holdProgress;
 
-    public ActiveShiftPage(ActiveShiftViewModel viewModel, IEmergencyFeedback feedback)
+    private readonly EmergencyCountdownCoordinator _countdown;
+
+    public ActiveShiftPage(ActiveShiftViewModel viewModel, IEmergencyFeedback feedback, EmergencyCountdownCoordinator countdown)
     {
         InitializeComponent();
         BindingContext = viewModel;
         _viewModel = viewModel;
         _feedback = feedback;
+        _countdown = countdown;
         SosHoldRing.Drawable = _holdRing;
         Unloaded += (_, _) => ResetSosHold();
+    }
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        _countdown.Changed -= OnCountdownChanged;
+        _countdown.Changed += OnCountdownChanged;
+        SyncHostileToast();
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+        _countdown.Changed -= OnCountdownChanged;
+        HostileCancelToast.IsVisible = false;
         ResetSosHold();
+    }
+
+    private void OnCountdownChanged(object? sender, EventArgs e) =>
+        MainThread.BeginInvokeOnMainThread(SyncHostileToast);
+
+    // Hostile only: the Crash countdown has its own full-screen popup.
+    private void SyncHostileToast() =>
+        HostileCancelToast.IsVisible =
+            _countdown.Active is { } active && active.TriggerType == LARGA.Shared.Models.Entities.EmergencyAlert.Hostile;
+
+    private void OnHostileCancelTapped(object? sender, EventArgs e)
+    {
+        HostileCancelToast.IsVisible = false;
+        _countdown.RequestCancel();
     }
 
     private void OnSosTouchStatusChanged(object? sender, TouchStatusChangedEventArgs e)

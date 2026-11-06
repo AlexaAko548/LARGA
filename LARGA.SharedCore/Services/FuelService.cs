@@ -25,8 +25,10 @@ public class FuelService : IFuelService
             IFirebaseFirestore firestore = CrossFirebaseFirestore.Current;
             IDocumentReference docRef = firestore.GetCollection("fuel_logs").CreateDocument();
 
-            // Proposal §4.2.4.5: the OR number is claimed in the same transaction as the log.
-            string? orKey = FuelOrNumberRules.Normalize(record.ORNumber);
+            // Proposal §4.2.4.5: the OR number is claimed (keyed by station + OR number, so the same
+            // number from a different station isn't wrongly flagged - row #58) in the same
+            // transaction as the log.
+            string? orKey = FuelOrNumberRules.Key(record.FuelStation, record.ORNumber);
             IDocumentReference? claimRef = orKey is null ? null : firestore.GetCollection(FuelOrNumberRules.Collection).GetDocument(orKey);
             bool duplicate = false;
 

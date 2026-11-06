@@ -61,6 +61,14 @@ else
                 <div class="sos-summary-title">@(_active.Count == 0 ? "No active emergencies" : _active.Count == 1 ? "Active emergency" : "Active emergencies")</div>
                 <div class="sos-summary-sub">@(_active.Count == 0 ? "Drivers' SOS alerts appear here the moment they're sent." : "Call the driver, send help, then mark the alert resolved.")</div>
             </div>
+            @* Manager only, and only worth it for two or more - one alert has its own Resolved box. *@
+            @if (_canManage && _active.Count > 1)
+            {
+                <button type="button" class="outline-btn sos-resolve-all" disabled="@(_busyAlertId is not null || _resolvingAll)"
+                        aria-busy="@_resolvingAll" @onclick="RequestResolveAll">
+                    <Icon Name="check" /> Mark all as resolved
+                </button>
+            }
         </section>
 
         @if (_isLoading && _active.Count == 0)
@@ -207,6 +215,23 @@ else
 
 <ConfirmationModal Show="_showConfirm" Title="@_confirmTitle" Message="@_confirmMessage"
     ConfirmText="@_confirmButtonText" IsDangerous="_confirmIsDangerous" IsBusy="_confirmBusy" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm" />
+
+@* "Mark all as resolved": lists exactly the alerts that will be closed. An SOS that arrives while this is
+   open isn't in the list and stays active. *@
+<ConfirmationModal Show="_resolveAllTargets is not null" Title="@($"Resolve All {_resolveAllTargets?.Count} Emergencies?")"
+    ConfirmText="Mark All Resolved" IsDangerous="false" IsBusy="_resolvingAll" OnConfirm="ConfirmResolveAllAsync" OnCancel="() => _resolveAllTargets = null">
+    <p>Only do this once every driver below has been reached and is safe. Each alert is logged as resolved by you.</p>
+    <ul class="sos-resolve-all-list">
+        @foreach (SosAlertView target in _resolveAllTargets ?? new())
+        {
+            <li>
+                <strong>@target.DriverName</strong> · @(string.IsNullOrEmpty(target.TaxiId) ? "Unit unknown" : target.TaxiId)
+                · @SosDispatchService.TriggerLabel(target.TriggerType) · @target.Timestamp.ToPhilippineTime().ToString("h:mm tt")
+            </li>
+        }
+    </ul>
+    <p class="sos-resolve-all-note">A new SOS that comes in while this is open won't be included.</p>
+</ConfirmationModal>
 
 @code {
     // Assistant Managers can view SOS alerts but can't resolve them or open driver chats from here.
@@ -383,6 +408,50 @@ else
         finally
         {
             _busyAlertId = null;
+        }
+    }
+
+    // The alerts "Mark all as resolved" will close - fixed when its dialog opens, so the 10-second refresh
+    // can't add a new SOS to it. Null while the dialog is closed.
+    private List<SosAlertView>? _resolveAllTargets;
+    private bool _resolvingAll;
+
+    private void RequestResolveAll()
+    {
+        if (!_canManage || _active.Count == 0)
+        {
+            return;
+        }
+        _resolveAllTargets = _active.ToList();
+    }
+
+    private async Task ConfirmResolveAllAsync()
+    {
+        List<SosAlertView>? targets = _resolveAllTargets;
+        if (targets is null)
+        {
+            return;
+        }
+
+        _resolvingAll = true;
+        try
+        {
+            await Dispatch.ResolveManyAsync(targets.Select(a => a.AlertId).ToList(), _managerUserId);
+            await LoadAsync();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _loadError = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Couldn't resolve the alerts: {ex.Message}";
+        }
+        finally
+        {
+            _resolvingAll = false;
+            _resolveAllTargets = null;
+            _toggleVersion++;
         }
     }
 
