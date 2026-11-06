@@ -44,6 +44,7 @@ internal static class LucideIcons
         ["id-card"] = @"<path d=""M13 19a4 4 0 00-8 0""/> <path d=""M16 10h2""/> <path d=""M16 14h2""/> <circle cx=""9"" cy=""12"" r=""3""/> <rect x=""2"" y=""5"" width=""20"" height=""14"" rx=""2""/>",
         ["image"] = @"<rect width=""18"" height=""18"" x=""3"" y=""3"" rx=""2"" ry=""2""/> <circle cx=""9"" cy=""9"" r=""2""/> <path d=""m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21""/>",
         ["info"] = @"<circle cx=""12"" cy=""12"" r=""10""/> <path d=""M12 16v-4""/> <path d=""M12 8h.01""/>",
+        ["circle-help"] = @"<circle cx=""12"" cy=""12"" r=""10""/> <path d=""M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3""/> <path d=""M12 17h.01""/>",
         ["layout-dashboard"] = @"<rect width=""7"" height=""9"" x=""3"" y=""3"" rx=""1""/> <rect width=""7"" height=""5"" x=""14"" y=""3"" rx=""1""/> <rect width=""7"" height=""9"" x=""14"" y=""12"" rx=""1""/> <rect width=""7"" height=""5"" x=""3"" y=""16"" rx=""1""/>",
         ["list"] = @"<path d=""M3 5h.01""/> <path d=""M3 12h.01""/> <path d=""M3 19h.01""/> <path d=""M8 5h13""/> <path d=""M8 12h13""/> <path d=""M8 19h13""/>",
         ["mail"] = @"<path d=""m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7""/> <rect x=""2"" y=""4"" width=""20"" height=""16"" rx=""2""/>",

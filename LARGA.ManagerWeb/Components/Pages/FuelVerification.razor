@@ -40,6 +40,7 @@ else
             </div>
 
             <div class="header-actions">
+                <TourButton />
                 <NotificationBell />
                 <MessagesButton />
                 <ManagerProfileMenu />
@@ -51,7 +52,7 @@ else
             <div class="data-warning-banner">Fuel log data unavailable: @_error</div>
         }
 
-        <section class="stats-grid">
+        <section class="stats-grid" data-tour="fuel-stats">
             <article class="stat-card">
                 <div class="stat-icon"><Icon Name="receipt" /></div>
                 <div class="stat-body">
@@ -75,7 +76,7 @@ else
             </article>
         </section>
 
-        <section class="tab-bar">
+        <section class="tab-bar" data-tour="fuel-tabs">
             <div class="tab-group">
                 <button class="tab-btn @(_activeTab == FuelVerificationStatus.Pending ? "active" : "")" type="button" @onclick='() => _activeTab = FuelVerificationStatus.Pending'>
                     Pending <span class="tab-count">@(_snapshot?.PendingCount ?? 0)</span>
@@ -89,7 +90,7 @@ else
             </div>
         </section>
 
-        <div class="data-table-wrap">
+        <div class="data-table-wrap" data-tour="fuel-table">
             <table class="data-table">
                 <thead>
                     <tr>
@@ -135,11 +136,11 @@ else
                                 <td>
                                     @if (e.Status == FuelVerificationStatus.Flagged)
                                     {
-                                        @if (_canManage) { <button class="profile-btn" type="button" @onclick="() => OpenResolveModal(e)">Resolve Issue</button> }
+                                        @if (_canManage) { <button class="profile-btn" data-tour="resolve-fuel" type="button" @onclick="() => OpenResolveModal(e)">Resolve Issue</button> }
                                     }
                                     else
                                     {
-                                        @if (_canManage) { <button class="profile-btn" type="button" @onclick="() => OpenReviewModal(e)">Review</button> }
+                                        @if (_canManage) { <button class="profile-btn" data-tour="review-fuel" type="button" @onclick="() => OpenReviewModal(e)">Review</button> }
                                     }
                                 </td>
                             </tr>

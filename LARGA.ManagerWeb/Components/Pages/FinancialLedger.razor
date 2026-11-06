@@ -40,6 +40,7 @@ else
             </div>
 
             <div class="header-actions">
+                <TourButton TourKey="@TourKey" />
                 <NotificationBell />
                 <MessagesButton />
                 <ManagerProfileMenu />
@@ -55,13 +56,13 @@ else
             <div class="data-warning-banner">Debt ledger data unavailable: @_ledgerError</div>
         }
 
-        <section class="tab-bar">
+        <section class="tab-bar" data-tour="ledger-tabs">
             <div class="tab-group">
                 <button class="tab-btn @(_activeTab == "daily" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("daily")'><Icon Name="calendar-check" /> Daily Settlements</button>
                 <button class="tab-btn @(_activeTab == "master" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("master")'><Icon Name="notebook-text" /> Master Debt Ledger</button>
             </div>
             <div class="tab-actions">
-                @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenAdjustmentModal" title="Also used to correct a wrongly recorded payment">+ Adjustment / Correction</button> }
+                @if (_canManage) { <button class="solid-btn" data-tour="adjustment-btn" type="button" @onclick="OpenAdjustmentModal" title="Also used to correct a wrongly recorded payment">+ Adjustment / Correction</button> }
                 @if (_canManage) { <button class="outline-btn" type="button" disabled="@_isExportingCsv" @onclick="ExportCsvAsync" aria-busy="@_isExportingCsv">@if (_isExportingCsv) { <text>Exporting…</text> } else { <Icon Name="download" /> <text>Export</text> }</button> }
             </div>
         </section>
@@ -79,7 +80,7 @@ else
         }
         else
         {
-            <section class="settlement-summary">
+            <section class="settlement-summary" data-tour="settlement-summary">
                 <div class="settlement-summary-header">
                     <div>
                         <div class="settlement-summary-title">@(IsSettlementToday ? "TODAY'S SUMMARY" : "DAY SUMMARY")</div>
@@ -125,7 +126,7 @@ else
                 <div class="settlement-progress-label">@_snapshot.PercentCollected.ToString("0")% collected</div>
             </section>
 
-            <div class="toolbar ledger-search-row">
+            <div class="toolbar ledger-search-row" data-tour="ledger-search">
                 <div class="search-box">
                     <input type="search" class="input-search" maxlength="80" placeholder="Search driver or unit…" aria-label="Search driver or unit"
                            value="@_driverSearch" @oninput="e => _driverSearch = e.Value?.ToString() ?? string.Empty" />
@@ -200,7 +201,7 @@ else
                                     <td>
                                         @if (row.Status != SettlementStatus.Cleared)
                                         {
-                                            <button class="profile-btn" type="button" @onclick="() => OpenPaymentModalAsync(row)">@(row.Status == SettlementStatus.Partial ? "Add Payment" : "Record Payment")</button>
+                                            <button class="profile-btn" data-tour="record-payment" type="button" @onclick="() => OpenPaymentModalAsync(row)">@(row.Status == SettlementStatus.Partial ? "Add Payment" : "Record Payment")</button>
                                         }
                                     </td>
                                 </tr>
@@ -231,7 +232,7 @@ else
             }
             else
             {
-                <section class="stats-grid">
+                <section class="stats-grid" data-tour="debt-stats">
                     <article class="stat-card">
                         <div class="stat-icon"><Icon Name="users" /></div>
                         <div class="stat-body">
@@ -325,7 +326,7 @@ else
                                         <td class="ledger-actions">
                                             @if (row.TotalDebt > 0)
                                             {
-                                                <button class="profile-btn" type="button" @onclick="() => OpenSettleModal(row)">Settle</button>
+                                                <button class="profile-btn" data-tour="settle-debt" type="button" @onclick="() => OpenSettleModal(row)">Settle</button>
                                             }
                                             <button class="profile-btn" type="button" @onclick="() => OpenHistoryModalAsync(row)">History</button>
                                         </td>
@@ -680,6 +681,9 @@ else
 @code {
     // Assistant Managers can view the ledger and record payments, but can't add debt adjustments.
     private bool _canManage;
+
+    // One tour per tab (see TourCatalog); the (?) button replays whichever tab is open.
+    private string TourKey => _activeTab == "master" ? "financial-ledger-master" : "financial-ledger";
 
     private bool _showConfirm;
     private bool _confirmBusy;
