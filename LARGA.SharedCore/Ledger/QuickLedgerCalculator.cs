@@ -518,7 +518,14 @@ public sealed record BoundaryPaymentRecord(
     string TransactionId);
 
 /// <param name="TimestampUtc">When the adjustment was made; only the driver's Debt Details list shows it.</param>
-public sealed record DebtAdjustmentRecord(string DriverId, decimal Amount, DateTime? TimestampUtc = null);
+/// <param name="Reason">The note the manager typed with a manual adjustment (shown to the driver on their Ledger).</param>
+/// <param name="TransactionId">Set on the automatic credit a debt payment creates (the payment's transactionId); empty on an
+/// adjustment a manager added by hand.</param>
+public sealed record DebtAdjustmentRecord(string DriverId, decimal Amount, DateTime? TimestampUtc = null, string? Reason = null, string? TransactionId = null)
+{
+    /// <summary>Added by a manager (Manual Adjustment / Correction) rather than created by a payment.</summary>
+    public bool IsManual => string.IsNullOrWhiteSpace(TransactionId);
+}
 
 /// <summary>One charged shift in a driver's debt (<see cref="QuickLedgerCalculator.DriverDebt"/>).</summary>
 /// <param name="Remaining">What this shift's own records still show unpaid.</param>

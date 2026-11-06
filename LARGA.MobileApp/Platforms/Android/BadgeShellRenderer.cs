@@ -25,12 +25,12 @@ internal sealed class BadgeShellRenderer : ShellRenderer
 }
 
 /// <summary>
-/// The stock bottom-bar appearance plus number badges on the upper right of a tab's icon: Chats
-/// (UnreadBadgeService.ChatsCount) and Alerts (AlertsCount), found by the tab's Route - not by
-/// position - so a tab added or moved later still gets the right badge. Hidden at 0, "99+" above
-/// 99, in the theme's danger color. Re-applied on every appearance update (the tab bar is rebuilt,
-/// the theme switches) and whenever a count changes. A tab bar without those routes (the driver's)
-/// gets none.
+/// The stock bottom-bar appearance plus number badges on the upper right of a tab's icon: the manager's
+/// Chats (UnreadBadgeService.ChatsCount) and Alerts (AlertsCount) tabs, and the driver's Ledger
+/// (LedgerCount) and Home (DriverMessagesCount) tabs, found by the tab's Route - not by position - so a
+/// tab added or moved later still gets the right badge. Hidden at 0, "99+" above 99, in the theme's
+/// danger color. Re-applied on every appearance update (the tab bar is rebuilt, the theme switches) and
+/// whenever a count changes. A tab bar without one of those routes gets no badge for it.
 /// </summary>
 internal sealed class BadgeBottomNavAppearanceTracker : ShellBottomNavViewAppearanceTracker
 {
@@ -38,6 +38,12 @@ internal sealed class BadgeBottomNavAppearanceTracker : ShellBottomNavViewAppear
     {
         ("chats", badges => badges.ChatsCount),
         ("alerts", badges => badges.AlertsCount),
+        // The driver's Ledger tab: balance updates they haven't looked at (a shift they ended, a payment, a manager's
+        // adjustment). The manager tab bar has no such route, so it gets none.
+        ("ledger", badges => badges.LedgerCount),
+        // The driver's Home tab carries the Message Manager button, so an unread manager message shows on the tab
+        // from any other screen too. On the manager's bar "home" is the Map tab, whose count is always 0.
+        ("home", badges => badges.DriverMessagesCount),
     };
 
     private readonly ShellItem _shellItem;

@@ -12,6 +12,7 @@ using Microsoft.Maui.Storage;
 using LARGA.MobileApp.Services;
 using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace LARGA.MobileApp.ViewModels.Driver;
 
@@ -210,6 +211,10 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                 }
 
                 charges = await _shiftService.ClockOutAsync(activeShiftId, endMileage, IsBelowHalfTankSelected, "");
+
+                // The day's boundary is on the driver's balance from here: the Ledger tab shows its red number now,
+                // not whenever the ledger is next read.
+                IPlatformApplication.Current?.Services.GetService<UnreadBadgeService>()?.NoteShiftEnded();
 
                 // The shift is closed from here on. Release everything tied to it before the
                 // photo uploads below, so a slow or stuck upload can't leave GPS tracking and

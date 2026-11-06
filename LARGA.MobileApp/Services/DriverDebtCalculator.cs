@@ -45,6 +45,25 @@ public static class DriverDebtCalculator
     {
         public DateTime TimestampUtc { get; init; }
         public decimal Amount { get; init; }
+
+        /// <summary>The manager's note on a Manual Adjustment / Correction (empty if they left none).</summary>
+        public string Reason { get; init; } = string.Empty;
+
+        /// <summary>Added by a manager, as opposed to the automatic credit a debt payment creates.</summary>
+        public bool IsManual { get; init; } = true;
+
+        /// <summary>Where it came from and why, for the driver: "penalty from your manager: late return Oct 12",
+        /// "credit from your manager", or - for the automatic kind - "credit from your payment".</summary>
+        public string Describe()
+        {
+            if (!IsManual)
+            {
+                return "credit from your payment";
+            }
+
+            string kind = Amount >= 0 ? "penalty" : "credit";
+            return string.IsNullOrWhiteSpace(Reason) ? $"{kind} from your manager" : $"{kind} from your manager: {Reason}";
+        }
     }
 
     public sealed class Result
@@ -157,6 +176,8 @@ public static class DriverDebtCalculator
         {
             TimestampUtc = a.TimestampUtc is DateTime at && at.Year > 2000 ? at : DateTime.MinValue,
             Amount = a.Amount,
+            Reason = a.Reason?.Trim() ?? string.Empty,
+            IsManual = a.IsManual,
         }));
 
         return result;
