@@ -23,6 +23,37 @@ public static class FuelOrNumberRules
     /// (PaymentReferenceRules.Normalize). Null when the OR number is blank.</summary>
     public static string? Normalize(string? orNumber) => PaymentReferenceRules.Normalize(orNumber);
 
+    /// <summary>
+    /// The fuel_or_numbers claim key: station + OR number, not the OR number alone. An OR number is
+    /// only unique per issuing station/branch - two different stations (or branches) can legitimately
+    /// print the same number, and keying by OR number alone wrongly flagged that as a duplicate
+    /// (consistency audit row #58). Station is normalized the same way as the OR number (trimmed,
+    /// spaces/dashes removed, upper-case), which also absorbs minor OCR formatting differences
+    /// between reads of the same station name. A Petron or Shell station is keyed by its brand
+    /// (FuelStations.Match), so editing the station text ("Petron" to "Petron EDSA") can't dodge the
+    /// check; the cost is that two branches of the same brand printing the same number are flagged
+    /// for the manager to review. Null when the OR number is blank; a blank/unreadable
+    /// station still gets a key (grouped under "UNKNOWN") so the OR number is still checked.
+    /// </summary>
+    public static string? Key(string? station, string? orNumber)
+    {
+        string? orKey = Normalize(orNumber);
+        if (orKey is null)
+        {
+            return null;
+        }
+
+        // Brand, not the raw text: "Petron" and "Petron - EDSA" must be the same claim, or editing the
+        // station on the receipt would dodge the duplicate check. Other stations keep their own text.
+        string stationKey = PaymentReferenceRules.Normalize(FuelStations.Match(station) ?? station) ?? "UNKNOWN";
+        return $"{stationKey}~{orKey}";
+    }
+
+    /// <summary>True for a claim document ID, false for a backfill marker ("__backfill_...") - what the
+    /// backfill clears before re-claiming under the current keys.</summary>
+    public static bool IsClaimId(string? documentId) =>
+        !string.IsNullOrEmpty(documentId) && !documentId.StartsWith("__backfill_", StringComparison.Ordinal);
+
     /// <summary>The fuelLogDetails for a log flagged for more than one reason, e.g.
     /// "Station is not Petron or Shell; OR number already submitted". Null when there are none.</summary>
     public static string? CombineReasons(IEnumerable<string?> reasons)
