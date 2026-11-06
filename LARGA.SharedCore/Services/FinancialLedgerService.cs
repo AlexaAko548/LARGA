@@ -998,7 +998,11 @@ public class FinancialLedgerService
         int claimed = 0;
         foreach (BoundaryPayment payment in ordered)
         {
-            string? reference = PaymentReferenceRules.Normalize(payment.GcashReferenceNumber ?? payment.ReceiptReferenceNo);
+            // First non-blank one: an empty-string GcashReferenceNumber must still fall back to ReceiptReferenceNo.
+            string? rawReference = !string.IsNullOrWhiteSpace(payment.GcashReferenceNumber)
+                ? payment.GcashReferenceNumber
+                : payment.ReceiptReferenceNo;
+            string? reference = PaymentReferenceRules.Normalize(rawReference);
             if (reference is null)
             {
                 continue;
@@ -1011,7 +1015,7 @@ public class FinancialLedgerService
                     ["paymentId"] = payment.PaymentId,
                     ["driverId"] = payment.DriverId ?? string.Empty,
                     ["transactionId"] = payment.TransactionId ?? string.Empty,
-                    ["referenceNumber"] = payment.GcashReferenceNumber ?? payment.ReceiptReferenceNo!,
+                    ["referenceNumber"] = rawReference!,
                     ["createdAt"] = DateTime.UtcNow,
                     ["backfilled"] = true,
                 });

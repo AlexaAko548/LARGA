@@ -355,9 +355,10 @@ public class FuelVerificationService
 
     /// <summary>The marker written once every existing fuel log's OR number has been claimed.
     /// Bumped to v2 when the claim key changed from the OR number alone to station + OR number
-    /// (row #58) - v1 claims are under the old key format and no longer protect anything, so this
-    /// needs to run again under the new keys.</summary>
-    public const string OrClaimBackfillMarkerId = "__backfill_v2";
+    /// (row #58), and to v3 when the station part became the brand (Petron/Shell) instead of the raw
+    /// text - claims under an older key format no longer protect anything, so this runs again under
+    /// the current keys.</summary>
+    public const string OrClaimBackfillMarkerId = "__backfill_v3";
 
     /// <summary>
     /// Proposal §4.2.4.5: claims fuel_or_numbers/{station}~{normalized OR} for the fuel logs saved
@@ -375,38 +376,114 @@ public class FuelVerificationService
             return 0;
         }
 
-        QuerySnapshot logs = await Db.Collection("fuel_logs").GetSnapshotAsync();
-        var ordered = logs.Documents
-            .Select(d => (Id: d.Id, Log: d.ConvertTo<FuelLog>()))
-            .OrderBy(x => x.Log.SubmittedAt ?? x.Log.ReceiptTimestamp ?? DateTime.MaxValue);
-
-        int claimed = 0;
-        foreach (var (id, log) in ordered)
+        // Only one server runs it at a time: several Cloud Run instances can start together, and
+        // two backfills would otherwise delete each other's claims. A lock older than
+        // BackfillLockMinutes belongs to a run that died, and is taken over.
+        DocumentReference lockRef = claims.Document(OrClaimBackfillLockId);
+        if (!await TryTakeBackfillLockAsync(lockRef))
         {
-            string? key = FuelOrNumberRules.Key(log.FuelStation, log.ORNumber);
-            if (key is null)
-            {
-                continue;
-            }
-
-            try
-            {
-                await claims.Document(key).CreateAsync(new Dictionary<string, object>
-                {
-                    ["fuelLogId"] = id,
-                    ["createdAt"] = DateTime.UtcNow,
-                    ["backfilled"] = true,
-                });
-                claimed++;
-            }
-            catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
-            {
-                // Already claimed (an earlier log, or the phone since the update) - keep that one.
-            }
+            return 0;
         }
 
-        await marker.SetAsync(new Dictionary<string, object> { ["completedAt"] = DateTime.UtcNow, ["claimed"] = claimed });
-        return claimed;
+        try
+        {
+            QuerySnapshot logs = await Db.Collection("fuel_logs").GetSnapshotAsync();
+            var ordered = logs.Documents
+                .Select(d => (Id: d.Id, Log: d.ConvertTo<FuelLog>()))
+                .OrderBy(x => x.Log.SubmittedAt ?? x.Log.ReceiptTimestamp ?? DateTime.MaxValue)
+                .ToList();
+
+            // 1. Claim every log under the current key FIRST, so the numbers stay protected the whole time.
+            var currentKeys = new HashSet<string>(StringComparer.Ordinal);
+            int claimed = 0;
+            foreach (var (id, log) in ordered)
+            {
+                string? key = FuelOrNumberRules.Key(log.FuelStation, log.ORNumber);
+                if (key is null)
+                {
+                    continue;
+                }
+
+                currentKeys.Add(key);
+                try
+                {
+                    await claims.Document(key).CreateAsync(new Dictionary<string, object>
+                    {
+                        ["fuelLogId"] = id,
+                        ["createdAt"] = DateTime.UtcNow,
+                        ["backfilled"] = true,
+                    });
+                    claimed++;
+                }
+                catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
+                {
+                    // Already claimed (an earlier log, or the phone since the update) - keep that one.
+                }
+            }
+
+            // 2. Then remove the claims under an older key format (the OR number alone, or station~OR
+            // with the raw station text): they match nothing under the current keys. Only a claim for a
+            // log read above is removed - one whose log isn't in that read was made by a phone while this
+            // ran, and is kept. (A phone still on an older app can add old-format claims afterwards;
+            // they are harmless and cleared by the next version bump.)
+            var logIds = new HashSet<string>(ordered.Select(x => x.Id), StringComparer.Ordinal);
+            QuerySnapshot existing = await claims.GetSnapshotAsync();
+            foreach (DocumentSnapshot claim in existing.Documents)
+            {
+                if (!FuelOrNumberRules.IsClaimId(claim.Id) || currentKeys.Contains(claim.Id))
+                {
+                    continue;
+                }
+
+                string? logId = claim.ContainsField("fuelLogId") ? claim.GetValue<string>("fuelLogId") : null;
+                if (logId is not null && logIds.Contains(logId))
+                {
+                    await claim.Reference.DeleteAsync();
+                }
+            }
+
+            await marker.SetAsync(new Dictionary<string, object> { ["completedAt"] = DateTime.UtcNow, ["claimed"] = claimed });
+            return claimed;
+        }
+        finally
+        {
+            try
+            {
+                await lockRef.DeleteAsync();
+            }
+            catch
+            {
+                // A lock that can't be deleted expires by itself.
+            }
+        }
+    }
+
+    /// <summary>The lock document of a running OR-claim backfill (not a claim - see FuelOrNumberRules.IsClaimId).</summary>
+    public const string OrClaimBackfillLockId = "__backfill_v3_lock";
+
+    /// <summary>How long a backfill lock is respected before it counts as left behind by a crashed run.</summary>
+    public const int BackfillLockMinutes = 15;
+
+    private static async Task<bool> TryTakeBackfillLockAsync(DocumentReference lockRef)
+    {
+        var fields = new Dictionary<string, object> { ["startedAt"] = DateTime.UtcNow };
+        try
+        {
+            await lockRef.CreateAsync(fields);
+            return true;
+        }
+        catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
+        {
+            DocumentSnapshot held = await lockRef.GetSnapshotAsync();
+            DateTime? startedAt = held.Exists && held.ContainsField("startedAt") ? held.GetValue<DateTime>("startedAt") : null;
+            if (startedAt is DateTime when && DateTime.UtcNow - when < TimeSpan.FromMinutes(BackfillLockMinutes))
+            {
+                return false;
+            }
+
+            await lockRef.SetAsync(fields);
+            return true;
+        }
     }
 
     private static SystemAlert FuelAlert(FuelReviewDetail detail, string? reason, DateTime now) => new()
