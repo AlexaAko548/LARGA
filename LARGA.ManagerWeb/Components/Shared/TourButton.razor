@@ -1,0 +1,29 @@
+@using LARGA.ManagerWeb.Services.Tours
+@inject TourService Tours
+
+@* The (?) help button in the page header, next to the bell. Starts this page's tour, and also
+   starts it by itself the first time each person opens the page. Pages without a tour show
+   nothing. Tabbed pages pass TourKey so the button replays the tab that's open. *@
+
+@if (Tours.Find(TourKey) is not null)
+{
+    <button type="button" class="icon-btn tour-help-btn" aria-label="Take a quick tour of this page" title="Take a quick tour of this page"
+            @onclick="() => Tours.StartAsync(TourKey)">
+        <Icon Name="circle-help" />
+    </button>
+}
+
+@code {
+    /// <summary>Which tour to play. Leave empty to use the current page's tour.</summary>
+    [Parameter]
+    public string? TourKey { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Once per page visit: the tour itself checks whether this person has seen it before.
+        if (firstRender && Tours.Find(TourKey) is not null)
+        {
+            await Tours.StartIfFirstVisitAsync(TourKey);
+        }
+    }
+}

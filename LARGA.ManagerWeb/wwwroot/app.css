@@ -6592,3 +6592,114 @@ color: var(--muted);
   .sos-summary { flex-wrap: wrap; }
   .sos-summary .sos-resolve-all { margin-left: 0; width: 100%; justify-content: center; }
 }
+
+/* ===== Page tours (driver.js, wwwroot/lib/driver.js) and Help & FAQs =====
+   The popover follows the dashboard's own tokens, so it matches light and dark mode. */
+.driver-popover.larga-tour {
+  background: var(--surface, #ffffff);
+  color: var(--ink);
+  border: 1px solid rgba(var(--accent-rgb), 0.38);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  font-family: var(--font-body);
+  min-width: 260px;
+  max-width: min(340px, 92vw);
+  padding: 1rem 1.1rem;
+}
+.driver-popover.larga-tour .driver-popover-title {
+  font-family: var(--font-body);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.driver-popover.larga-tour .driver-popover-description {
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--ink-soft, #3a4a53);
+}
+.driver-popover.larga-tour .driver-popover-description p { margin: 0 0 0.5rem; }
+.driver-popover.larga-tour .driver-popover-description p:last-child { margin-bottom: 0; }
+.driver-popover.larga-tour .driver-popover-description a { color: var(--accent-text, var(--accent)); font-weight: 700; text-decoration: underline; }
+.driver-popover.larga-tour .driver-popover-progress-text { color: var(--muted); font-size: 0.82rem; font-weight: 600; }
+.driver-popover.larga-tour .driver-popover-close-btn { color: var(--muted); }
+.driver-popover.larga-tour .driver-popover-close-btn:hover { color: var(--ink); }
+.driver-popover.larga-tour .driver-popover-footer button {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-shadow: none;
+  border-radius: var(--radius-md);
+  padding: 0.4rem 0.8rem;
+  background: rgba(var(--accent-rgb), 0.08);
+  color: var(--ink);
+  border: 1px solid rgba(var(--accent-rgb), 0.38);
+}
+.driver-popover.larga-tour .driver-popover-footer .driver-popover-next-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.driver-popover.larga-tour .driver-popover-footer button:hover { filter: brightness(1.08); }
+.driver-popover.larga-tour .driver-popover-footer button:focus-visible,
+.driver-popover.larga-tour .driver-popover-close-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.driver-popover.larga-tour .larga-tour-skip { margin-right: auto; background: transparent; border-color: transparent; color: var(--muted); }
+/* The little arrow takes the popover's background. */
+.driver-popover.larga-tour .driver-popover-arrow-side-top.driver-popover-arrow { border-top-color: var(--surface, #ffffff); }
+.driver-popover.larga-tour .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-color: var(--surface, #ffffff); }
+.driver-popover.larga-tour .driver-popover-arrow-side-left.driver-popover-arrow { border-left-color: var(--surface, #ffffff); }
+.driver-popover.larga-tour .driver-popover-arrow-side-right.driver-popover-arrow { border-right-color: var(--surface, #ffffff); }
+
+.tour-help-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.tour-help-btn svg { width: 1.1rem; height: 1.1rem; }
+
+.faq-toolbar { display: flex; flex-direction: column; gap: 0.75rem; }
+.faq-search { max-width: 32rem; }
+.faq-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.faq-chip {
+  border: 1px solid rgba(var(--accent-rgb), 0.38);
+  background: transparent;
+  color: var(--ink);
+  border-radius: var(--radius-pill);
+  padding: 0.35rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.faq-chip:hover { background: rgba(var(--accent-rgb), 0.1); }
+.faq-chip.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+.faq-chip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.faq-category { scroll-margin-top: 1rem; padding: 0.25rem; border-radius: var(--radius-lg); }
+.faq-category.faq-flash { animation: faq-flash 1.8s ease-out; }
+@keyframes faq-flash { 0% { background: rgba(var(--accent-rgb), 0.22); } 100% { background: transparent; } }
+.faq-category-title { font-size: 1.15rem; font-weight: 700; margin: 0.5rem 0; color: var(--ink); }
+.faq-item {
+  background: var(--surface, #ffffff);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  border-radius: var(--radius-md);
+  margin-bottom: 0.5rem;
+}
+.faq-item > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.faq-item > summary::-webkit-details-marker { display: none; }
+.faq-item > summary::before { content: "+"; font-weight: 700; color: var(--accent-text, var(--accent)); width: 1rem; }
+.faq-item[open] > summary::before { content: "−"; }
+.faq-item > summary:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-md); }
+.faq-question { flex: 1; }
+.faq-answer { padding: 0 1rem 1rem 2.6rem; color: var(--ink-soft, #3a4a53); line-height: 1.5; }
+.faq-answer p { margin: 0 0 0.6rem; }
+.faq-answer ul { margin: 0 0 0.6rem; padding-left: 1.2rem; }
+.faq-answer li { margin-bottom: 0.25rem; }
+.faq-answer .info-banner { margin-bottom: 0.75rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .faq-category.faq-flash { animation: none; }
+}

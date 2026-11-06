@@ -159,6 +159,7 @@ builder.Services.AddSingleton<ManagerChatService>();
 builder.Services.AddSingleton<DriverNotifier>();
 builder.Services.AddScoped<LARGA.ManagerWeb.Services.ChatDrawerState>();
 builder.Services.AddScoped<LARGA.ManagerWeb.Services.SosBannerState>();
+builder.Services.AddScoped<LARGA.ManagerWeb.Services.Tours.TourService>();
 builder.Services.AddHostedService<IdleAlertMonitorService>();
 builder.Services.AddHostedService<PaymentDriverIdBackfillService>();
 // BRP-008: one-time claim of the GCash reference numbers on boundary_payments saved before the duplicate check.

@@ -37,6 +37,7 @@ else
         </div>
 
         <div class="header-actions">
+            <TourButton />
             <NotificationBell />
             <MessagesButton />
             <ManagerProfileMenu />
@@ -54,7 +55,7 @@ else
 
     <!-- Date range, Search & Meta Bar (ANA-015: the whole history, a page at a time) -->
     <div class="toolbar">
-        <div class="filter-dropdown" data-popup>
+        <div class="filter-dropdown" data-tour="audit-date" data-popup>
             <span class="toolbar-filter-label text-muted">Filter by date:</span>
             <button class="filter-btn" type="button" data-popup-toggle @onclick="() => _showDateFilterMenu = !_showDateFilterMenu"><Icon Name="calendar" /> @_dateFilter</button>
             @if (_showDateFilterMenu)
@@ -67,10 +68,10 @@ else
                 </div>
             }
         </div>
-        <div class="search-box">
+        <div class="search-box" data-tour="audit-search">
             <input type="text" class="input-search" placeholder="Search logs in this date range..." value="@searchQuery" @oninput="OnSearchInput" />
         </div>
-        <div class="toolbar-right">
+        <div class="toolbar-right" data-tour="audit-export">
             <span class="entry-counter font-mono">@CounterText</span>
             <button class="btn-export" type="button" disabled="@_isExporting" @onclick="ExportLogsAsync" aria-busy="@_isExporting">
                 <span class="export-icon"><Icon Name="download" /></span> @(_isExporting ? "Exporting..." : "Export CSV")
@@ -97,7 +98,7 @@ else
 
     <!-- Audit Logs Container -->
     <div class="table-container audit-container">
-        <table class="audit-table">
+        <table class="audit-table" data-tour="audit-table">
             <thead>
                 <tr>
                     <th class="col-date font-mono">DATE &amp; TIME</th>

@@ -40,6 +40,7 @@ else
             </div>
 
             <div class="header-actions">
+                <TourButton />
                 <NotificationBell />
                 <MessagesButton />
                 <ManagerProfileMenu />
@@ -60,7 +61,7 @@ else
             <div class="info-banner success">@_actionNotice</div>
         }
 
-        <div class="garage-toolbar">
+        <div class="garage-toolbar" data-tour="garage-history">
             <button class="outline-btn" type="button" @onclick="OpenHistoryModalAsync">History</button>
         </div>
 
@@ -68,7 +69,7 @@ else
         {
             @* BETA-088 / BETA-090: four long sections stacked on one page made finding "Create
                Ticket" or "Start Now" feel like a hunt - jump straight to the section instead. *@
-            <nav class="garage-section-nav">
+            <nav class="garage-section-nav" data-tour="garage-nav">
                 @* The link's page path has to match the current route ("garage") for Blazor's
                    enhanced navigation to scroll in place - a bare "#..." resolves against the
                    app's base href "/" instead and does a full navigation to the Landing page. *@
@@ -85,7 +86,7 @@ else
         }
         else
         {
-            <section class="garage-section" id="section-pending-reports">
+            <section class="garage-section" id="section-pending-reports" data-tour="pending-reports">
                 <h2 class="garage-section-title"><Icon Name="triangle-alert" /> Pending Driver Reports (@_snapshot.PendingReports.Count)</h2>
                 @if (_snapshot.PendingReports.Count == 0)
                 {
@@ -107,7 +108,7 @@ else
                                 <button class="link-btn" type="button" @onclick="() => OpenEvidenceModal(r.IssueTitle, r.ReportedByName, r.IssueDescription, r.SupportingPhotoUrl)"><Icon Name="eye" /> View Evidence</button>
                             </div>
                             <div class="report-card-actions">
-                                @if (_canManage) { <button class="solid-btn" type="button" @onclick="() => OpenCreateTicketModal(r)">+ Create Ticket</button> }
+                                @if (_canManage) { <button class="solid-btn" data-tour="create-ticket" type="button" @onclick="() => OpenCreateTicketModal(r)">+ Create Ticket</button> }
                                 @if (_canManage) { <button class="cancel-btn" type="button" disabled="@_isBusy" @onclick='() => RequestConfirm("Dismiss Report?", "This will dismiss the driver report. It will be removed from the queue and this cannot be undone.", "Dismiss", () => DismissAsync(r.MaintenanceId))'>Dismiss</button> }
                             </div>
                         </article>
@@ -115,7 +116,7 @@ else
                 }
             </section>
 
-            <section class="garage-section" id="section-upcoming-work-orders">
+            <section class="garage-section" id="section-upcoming-work-orders" data-tour="upcoming-orders">
                 <h2 class="garage-section-title"><Icon Name="calendar-days" /> Upcoming Work Orders (@_snapshot.ScheduledWorkOrders.Count)</h2>
                 @if (_snapshot.ScheduledWorkOrders.Count == 0)
                 {
@@ -153,7 +154,7 @@ else
                 }
             </section>
 
-            <section class="garage-section" id="section-active-work-orders">
+            <section class="garage-section" id="section-active-work-orders" data-tour="active-orders">
                 <h2 class="garage-section-title"><Icon Name="settings" /> Active Work Orders (Currently In Shop)</h2>
                 @if (_snapshot.ActiveWorkOrders.Count == 0)
                 {
@@ -195,7 +196,7 @@ else
                 }
             </section>
 
-            <section class="garage-section" id="section-routine-checks">
+            <section class="garage-section" id="section-routine-checks" data-tour="routine-checks">
                 <h2 class="garage-section-title"><Icon Name="calendar-clock" /> Upcoming Routine Checks</h2>
                 @if (_snapshot.UpcomingChecks.Count == 0)
                 {
