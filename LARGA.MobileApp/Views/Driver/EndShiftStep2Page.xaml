@@ -81,11 +81,12 @@
 
             <!-- Confirm & End Shift -->
             <Button Text="{Binding EndButtonText}" IsEnabled="{Binding IsNotSubmitting}" Command="{Binding ConfirmEndShiftCommand}" 
-                    BackgroundColor="{DynamicResource ThemePanel}" TextColor="#0099CC" CornerRadius="25" HeightRequest="55" FontSize="16" FontAttributes="Bold" Margin="0,20,0,0">
+                    BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="55" FontSize="16" FontAttributes="Bold" Margin="0,20,0,0">
                 <Button.Triggers>
-                    <DataTrigger TargetType="Button" Binding="{Binding IsComplete}" Value="True">
-                        <Setter Property="BackgroundColor" Value="#0099CC" />
-                        <Setter Property="TextColor" Value="White" />
+                    <!-- Looks active whenever it can be tapped; greyed only while a submit is already in flight. -->
+                    <DataTrigger TargetType="Button" Binding="{Binding IsNotSubmitting}" Value="False">
+                        <Setter Property="BackgroundColor" Value="{DynamicResource ThemePanel}" />
+                        <Setter Property="TextColor" Value="{DynamicResource ThemeTextGray}" />
                     </DataTrigger>
                 </Button.Triggers>
             </Button>

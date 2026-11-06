@@ -37,6 +37,33 @@ public class LedgerViewModel : INotifyPropertyChanged
 
     public ObservableCollection<PaymentRecord> PaymentHistory { get; set; } = new();
 
+    // Manager-made adjustments of the last month (Manual Adjustment / Correction): shown with their note.
+    private const int AdjustmentNoticeDays = 30;
+    public ObservableCollection<AdjustmentNotice> ManagerAdjustments { get; } = new();
+    public bool HasManagerAdjustments => ManagerAdjustments.Count > 0;
+
+    private string _newUpdatesText = string.Empty;
+    /// <summary>"2 updates since you last checked your ledger." - what the red number on the Ledger tab was counting
+    /// when the driver opened it. Empty when there was nothing new.</summary>
+    public string NewUpdatesText
+    {
+        get => _newUpdatesText;
+        private set
+        {
+            _newUpdatesText = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasNewUpdates));
+        }
+    }
+    public bool HasNewUpdates => !string.IsNullOrEmpty(NewUpdatesText);
+
+    public void ShowNewUpdates(int count) => NewUpdatesText = count switch
+    {
+        <= 0 => string.Empty,
+        1 => "1 update to your balance since you last checked.",
+        _ => $"{count} updates to your balance since you last checked.",
+    };
+
     private bool _isShowingCachedData;
     /// <summary>The balance and list came from the phone's offline copy, so the page says they may be out of date.</summary>
     public bool IsShowingCachedData
@@ -62,6 +89,7 @@ public class LedgerViewModel : INotifyPropertyChanged
     // the near-simultaneous events a payment write produces collapse into one Firestore read.
     private IDisposable? _shiftsListener;
     private IDisposable? _paymentsListener;
+    private IDisposable? _adjustmentsListener;
     private DebouncedAction? _reloadDebounced;
     private bool _isListening;
 
@@ -93,6 +121,14 @@ public class LedgerViewModel : INotifyPropertyChanged
             .AddSnapshotListener<QuickLedgerService.BoundaryPaymentProxy>(
                 _ => _reloadDebounced.Trigger(),
                 ex => System.Diagnostics.Debug.WriteLine($"Ledger payments listener error: {ex.Message}"));
+
+        // A penalty or credit the manager adds by hand shows up here (with their note) while the driver watches.
+        _adjustmentsListener = CrossFirebaseFirestore.Current
+            .GetCollection("debt_adjustments")
+            .WhereEqualsTo("driverId", user.Uid)
+            .AddSnapshotListener<QuickLedgerService.DebtAdjustmentProxy>(
+                _ => _reloadDebounced.Trigger(),
+                ex => System.Diagnostics.Debug.WriteLine($"Ledger adjustments listener error: {ex.Message}"));
     }
 
     public void StopListening()
@@ -102,7 +138,8 @@ public class LedgerViewModel : INotifyPropertyChanged
         Connectivity.Current.ConnectivityChanged -= OnConnectivityChanged;
         _shiftsListener?.Dispose();
         _paymentsListener?.Dispose();
-        _shiftsListener = _paymentsListener = null;
+        _adjustmentsListener?.Dispose();
+        _shiftsListener = _paymentsListener = _adjustmentsListener = null;
         _reloadDebounced?.Dispose();
         _reloadDebounced = null;
     }
@@ -183,6 +220,19 @@ public class LedgerViewModel : INotifyPropertyChanged
                 PaymentHistory.Add(payment);
             }
 
+            // Penalties and credits a manager added by hand (Manual Adjustment / Correction), newest first, with
+            // who they came from and the manager's note - so a change to the balance isn't unexplained.
+            ManagerAdjustments.Clear();
+            DateTime since = DateTime.UtcNow.AddDays(-AdjustmentNoticeDays);
+            foreach (var adjustment in ledger.Adjustments
+                .Where(a => a.IsManual && a.TimestampUtc > since)
+                .OrderByDescending(a => a.TimestampUtc)
+                .Take(5))
+            {
+                ManagerAdjustments.Add(AdjustmentNotice.From(adjustment));
+            }
+            OnPropertyChanged(nameof(HasManagerAdjustments));
+
             // Today's shift: its payment status, or UNPAID when nothing has been paid on it yet.
             var latestShift = ledger.Shifts.OrderByDescending(s => s.ShiftStartUtc).FirstOrDefault();
             CurrentShiftPayment = latestShift is null || !latestShift.HasPayment
@@ -207,6 +257,25 @@ public class LedgerViewModel : INotifyPropertyChanged
     protected void OnPropertyChanged([CallerMemberName] string propertyName = "")
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}
+
+/// <summary>One manual adjustment on the Ledger: when, how much, that it came from the manager, and their note.</summary>
+public class AdjustmentNotice
+{
+    public string Headline { get; init; } = string.Empty;
+    public string Note { get; init; } = string.Empty;
+    public bool HasNote => !string.IsNullOrWhiteSpace(Note);
+
+    public static AdjustmentNotice From(DriverDebtCalculator.AdjustmentEntry adjustment)
+    {
+        bool penalty = adjustment.Amount >= 0;
+        string date = adjustment.TimestampUtc == DateTime.MinValue ? "N/A" : adjustment.TimestampUtc.ToLocalTime().ToString("MMM d");
+        return new AdjustmentNotice
+        {
+            Headline = $"{date} · {(penalty ? "+" : "-")}₱ {Math.Abs(adjustment.Amount):N2} {(penalty ? "penalty added" : "credit given")} by your manager",
+            Note = adjustment.Reason,
+        };
     }
 }
 

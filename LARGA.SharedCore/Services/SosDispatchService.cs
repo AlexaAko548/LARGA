@@ -169,6 +169,85 @@ public class SosDispatchService
         }
     }
 
+    /// <summary>
+    /// "Mark all as resolved" on SOS Dispatch: resolves exactly the alerts the manager confirmed (the page
+    /// passes the IDs it listed, so an SOS that arrived while the dialog was open is never closed by it).
+    /// Same role check, writes and audit entry per alert as <see cref="SetResolvedAsync"/>; all of them commit
+    /// together, so either every listed alert is resolved or none is. Alerts already resolved are skipped.
+    /// Returns how many were resolved.
+    /// </summary>
+    public async Task<int> ResolveManyAsync(IReadOnlyCollection<string> alertIds, string? actorUserId)
+    {
+        string? role = null;
+        if (!string.IsNullOrWhiteSpace(actorUserId))
+        {
+            DocumentSnapshot actor = await Db.Collection("users").Document(actorUserId).GetSnapshotAsync();
+            role = actor.Exists && actor.TryGetValue("role", out object? value) ? value?.ToString() : null;
+        }
+        if (!SosResolvePolicy.CanResolve(role))
+        {
+            _logger.LogWarning("SOS bulk resolve refused: user {UserId} has role {Role}", actorUserId, role);
+            throw new UnauthorizedAccessException(SosResolvePolicy.DeniedMessage);
+        }
+
+        // Each alert is an update plus an audit entry; a Firestore batch holds 500 writes.
+        const int MaxPerBatch = 200;
+        List<string> ids = alertIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().Take(MaxPerBatch).ToList();
+        if (ids.Count == 0)
+        {
+            return 0;
+        }
+
+        DocumentSnapshot[] snapshots = await Task.WhenAll(ids.Select(id => Db.Collection("emergency_alerts").Document(id).GetSnapshotAsync()));
+        List<DocumentSnapshot> open = snapshots
+            .Where(s => s.Exists && !(s.TryGetValue("isResolved", out bool resolved) && resolved))
+            .ToList();
+        if (open.Count == 0)
+        {
+            return 0;
+        }
+
+        DateTime now = DateTime.UtcNow;
+        WriteBatch batch = Db.StartBatch();
+        foreach (DocumentSnapshot snapshot in open)
+        {
+            string who = (snapshot.TryGetValue("driverName", out string? driverName) ? driverName : null) ?? "unknown driver";
+            string unit = (snapshot.TryGetValue("taxiUnit", out string? taxiUnit) ? taxiUnit : null) ?? "unknown unit";
+            batch.Update(snapshot.Reference, new Dictionary<string, object>
+            {
+                ["isResolved"] = true,
+                ["resolvedAt"] = now,
+            });
+            batch.Create(Db.Collection("audit_logs").Document(), new AuditLog
+            {
+                UserId = actorUserId ?? string.Empty,
+                ActionType = "SosResolved",
+                AuditLogDetails = $"Resolved SOS alert for {unit} ({who}) - one of {open.Count} resolved together with Mark All as Resolved.",
+                Timestamp = now,
+            });
+        }
+        await batch.CommitAsync();
+
+        // Their bell rows stop counting as unread, as a single resolve does.
+        foreach (DocumentSnapshot snapshot in open)
+        {
+            try
+            {
+                DocumentReference bell = Db.Collection("system_alerts").Document($"{snapshot.Id}_SOS");
+                if ((await bell.GetSnapshotAsync()).Exists)
+                {
+                    await bell.UpdateAsync("isRead", true);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Couldn't mark the bell row of resolved SOS {AlertId} read", snapshot.Id);
+            }
+        }
+
+        return open.Count;
+    }
+
     /// <summary>Run by ManagerWeb's background monitor: one bell alert per unresolved SOS.</summary>
     public async Task RaiseBellAlertsAsync()
     {

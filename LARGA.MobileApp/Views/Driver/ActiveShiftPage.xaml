@@ -178,6 +178,23 @@
             </Frame>
         </ContentView>
 
+        <!-- HOSTILE SOS CANCEL TOAST: shown only while a volume-triggered Hostile countdown runs.
+             Deliberately small and plain (reads like a sync status, no SOS wording, no dimmed
+             backdrop, no sound) so a bystander glancing at the screen sees nothing alarming. -->
+        <Border x:Name="HostileCancelToast" IsVisible="False" ZIndex="9"
+                BackgroundColor="{DynamicResource ThemePanelAlt}" Stroke="{DynamicResource ThemeTextSecondary}" StrokeThickness="0.5"
+                StrokeShape="RoundRectangle 18" Padding="14,6" Margin="0,0,0,92"
+                HorizontalOptions="Center" VerticalOptions="End">
+            <HorizontalStackLayout Spacing="12">
+                <Label Text="Syncing shift data…" FontSize="12" TextColor="{DynamicResource ThemeTextSecondary}" VerticalOptions="Center"/>
+                <Label Text="Dismiss" FontSize="12" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}" VerticalOptions="Center" Padding="6,8">
+                    <Label.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnHostileCancelTapped" />
+                    </Label.GestureRecognizers>
+                </Label>
+            </HorizontalStackLayout>
+        </Border>
+
         <!-- SOS ALERT OVERLAY -->
         <ContentView IsVisible="{Binding IsSosAlertVisible}" BackgroundColor="#90000000" InputTransparent="False" ZIndex="10">
             <Frame BackgroundColor="{DynamicResource ThemeDangerSoft}" CornerRadius="16" Padding="25" HorizontalOptions="Center" VerticalOptions="Center" WidthRequest="320" HasShadow="True">
