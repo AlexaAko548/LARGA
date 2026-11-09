@@ -280,7 +280,7 @@ service cloud.firestore {
       allow read: if isStaff();
       allow create: if isDriver()
         && request.resource.data.driverId == request.auth.uid
-        && expiresAfterDays(90)
+        && expiresAfterDays(7)
         && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid
         && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.status == 'Active';
     }

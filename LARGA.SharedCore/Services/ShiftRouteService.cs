@@ -16,7 +16,7 @@ public class ShiftRoute
     public string ShiftId { get; init; } = string.Empty;
 
     /// <summary>In time order. Empty when the shift has no GPS data - never tracked, or its
-    /// telemetry already expired (expireAt, 90 days).</summary>
+    /// telemetry already expired (expireAt, 7 days).</summary>
     public IReadOnlyList<RoutePoint> Points { get; init; } = Array.Empty<RoutePoint>();
 
     public bool HasData => Points.Count > 0;

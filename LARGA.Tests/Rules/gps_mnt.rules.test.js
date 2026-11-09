@@ -27,10 +27,10 @@ beforeEach(async () => {
 });
 after(async () => { await env.cleanup(); });
 
-// Exactly what GpsTelemetryService writes.
+// Exactly what GpsTelemetryService writes (RetentionRules.GpsTelemetry, 7 days).
 const point = (shiftId, driverId = 'drv1') => ({
   shiftId, driverId, latitude: 10.25, longitude: 123.9, speed: 0,
-  timestamp: Timestamp.now(), expireAt: days(90),
+  timestamp: Timestamp.now(), expireAt: days(7),
 });
 
 describe('M6 gps_telemetry rules', () => {

@@ -15,8 +15,10 @@ public static class RetentionRules
 {
     public const string ExpireAtField = "expireAt";
 
-    /// <summary>gps_telemetry: the 30-second location trail of a shift.</summary>
-    public static readonly TimeSpan GpsTelemetry = TimeSpan.FromDays(90);
+    /// <summary>gps_telemetry: the 30-second location trail of a shift. SRS §6.2.3 and the live
+    /// Firestore TTL policy both use 7 days (consistency audit row #39) - this constant previously
+    /// said 90, which matched neither.</summary>
+    public static readonly TimeSpan GpsTelemetry = TimeSpan.FromDays(7);
 
     /// <summary>emergency_alerts: SOS location, address and caller details. Stamped by ManagerWeb's
     /// SosPushService (server time), not by the phone.</summary>
