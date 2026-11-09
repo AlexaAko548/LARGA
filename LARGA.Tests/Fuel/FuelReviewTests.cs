@@ -7,7 +7,7 @@ using LARGA.SharedCore.Services;
 namespace LARGA.Tests.Fuel;
 
 /// <summary>FUEL-013 and FUEL-016 to FUEL-019 with each row's numbers and the default tolerances
-/// (8 % distance, PHP 4.50-7.50 per km, auto-flag from a 10 km leg / 2 km gap).</summary>
+/// (8 % distance, PHP 5.00-8.00 per km, auto-flag from a 10 km leg / 2 km gap).</summary>
 public class FuelReviewTests
 {
     private static FuelReviewDetail Detail(int previousOdo, int odo, double? gpsKm, decimal cost = 0m, decimal liters = 0m) => new()
@@ -28,8 +28,8 @@ public class FuelReviewTests
     public void Tolerances_Defaults()
     {
         Assert.Equal(8.0, FuelTolerances.Default.DistanceTolerancePercent);
-        Assert.Equal(4.50m, FuelTolerances.Default.CostPerKmMin);
-        Assert.Equal(7.50m, FuelTolerances.Default.CostPerKmMax);
+        Assert.Equal(5.00m, FuelTolerances.Default.CostPerKmMin);
+        Assert.Equal(8.00m, FuelTolerances.Default.CostPerKmMax);
         Assert.Equal(10.0, FuelTolerances.Default.MinAutoFlagDistanceKm);
         Assert.Equal(2.0, FuelTolerances.Default.MinAutoFlagVarianceKm);
     }

@@ -33,12 +33,13 @@ public class SystemConfig
     [FirestoreProperty("fuelDistanceTolerancePercent")]
     public double FuelDistanceTolerancePercent { get; set; } = 8.0;
 
-    // Plausible fuel cost per odometer km, in pesos.
+    // Plausible fuel cost per odometer km, in pesos. Rough estimate (city-traffic gasoline
+    // sedan, ~8-10 km/L, ~P55-65/L) pending real numbers from BLM's own fuel records.
     [FirestoreProperty("fuelCostPerKmMin")]
-    public double FuelCostPerKmMin { get; set; } = 4.50;
+    public double FuelCostPerKmMin { get; set; } = 5.00;
 
     [FirestoreProperty("fuelCostPerKmMax")]
-    public double FuelCostPerKmMax { get; set; } = 7.50;
+    public double FuelCostPerKmMax { get; set; } = 8.00;
 
     // Optional, per unit (taxiId -> km/L): flagged when a refuel's km/L is off by more than the
     // distance tolerance %. Units not listed aren't checked.

@@ -302,10 +302,12 @@ describe('SOS emergency_alerts (M7 SOS-002/006/007)', () => {
 describe('Retention (expireAt, audit H-01)', () => {
   const days = (n) => Timestamp.fromDate(new Date(Date.now() + n * 86400000));
   const gps = (expireAt) => ({ driverId: DRIVER_A, shiftId: 'shiftA', latitude: 14.6, longitude: 121, expireAt });
-  it('driver can write a GPS point that expires in 90 days', async () =>
-    assertSucceeds(addDoc(collection(as(DRIVER_A), 'gps_telemetry'), gps(days(90)))));
+  it('driver can write a GPS point that expires in 7 days', async () =>
+    assertSucceeds(addDoc(collection(as(DRIVER_A), 'gps_telemetry'), gps(days(7)))));
   it('driver cannot write a GPS point that expires tomorrow (early deletion)', async () =>
     assertFails(addDoc(collection(as(DRIVER_A), 'gps_telemetry'), gps(days(1)))));
+  it('driver cannot write a GPS point with the old 90-day expiry', async () =>
+    assertFails(addDoc(collection(as(DRIVER_A), 'gps_telemetry'), gps(days(90)))));
   it('driver cannot write a GPS point that never expires (10 years)', async () =>
     assertFails(addDoc(collection(as(DRIVER_A), 'gps_telemetry'), gps(days(3650)))));
   it('driver cannot set a retention date on an SOS', async () =>

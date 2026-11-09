@@ -15,6 +15,18 @@ namespace LARGA.MobileApp.Platforms.Android.Services;
 /// and the GpsTelemetryService loop in it, at its normal 30-second interval - alive after the task
 /// is removed. It holds a partial wake lock so the loop isn't held up by Doze while the screen is off.
 ///
+/// GPS-012 retest (Nov 9, 2026, physical device - an itel/Transsion phone, Android 13): the service
+/// and its process survive being swiped away and the screen going off - no kill, confirmed over
+/// 15+ minutes. What doesn't survive is the wake lock itself: Transsion's own power management
+/// (separate from stock Android Doze/battery optimization) silently force-releases a long-held
+/// partial wake lock after roughly 5-6 minutes, without calling OnDestroy - dumpsys power showed
+/// "REL LARGA::ShiftTracking" with no matching app-side release and no new ACQ after it. The service
+/// keeps running, but once the wake lock is gone the CPU can sleep between GpsTelemetryService's
+/// 30-second ticks, so tracking goes quiet instead of crashing. RefreshWakeLock below releases and
+/// re-acquires a fresh lock every few minutes specifically to outrun that OEM timeout; it's a
+/// mitigation for Transsion's behavior; a driver may still need to whitelist LARGA in their phone's
+/// own battery/background-app settings if a device enforces this more aggressively.
+///
 /// It does no tracking itself: <see cref="AndroidGpsTelemetryService"/> starts it alongside
 /// GpsTelemetryService.Start (clock-in, or the dashboard resuming an open shift) and stops it with
 /// GpsTelemetryService.Stop (clock-out, logout, or the shift closed elsewhere - the LAR-77
@@ -38,7 +50,14 @@ public sealed class ShiftTrackingService : Service
     private const string ChannelId = "shift_tracking_channel";
     private const int NotificationId = 8701;
 
+    // GPS-012: a Transsion/itel device was observed stripping the wake lock anywhere from ~28
+    // seconds (right after the task was removed with the screen already off) to ~5-6 minutes
+    // later (see the class summary) - the trigger isn't a single fixed timeout, so this stays
+    // short enough to keep the gap small even in the fast case, not just the slow one.
+    private const long WakeLockRefreshIntervalMs = 60 * 1000;
+
     private PowerManager.WakeLock? _wakeLock;
+    private Handler? _wakeLockRefreshHandler;
 
     public override IBinder? OnBind(Intent? intent) => null;
 
@@ -85,6 +104,9 @@ public sealed class ShiftTrackingService : Service
 
     public override void OnDestroy()
     {
+        _wakeLockRefreshHandler?.RemoveCallbacksAndMessages(null);
+        _wakeLockRefreshHandler = null;
+
         if (_wakeLock?.IsHeld == true)
         {
             _wakeLock.Release();
@@ -129,11 +151,47 @@ public sealed class ShiftTrackingService : Service
 
     private void AcquireWakeLock()
     {
-        if (_wakeLock?.IsHeld == true) return;
+        if (_wakeLock?.IsHeld != true)
+        {
+            var power = (PowerManager?)GetSystemService(PowerService);
+            _wakeLock = power?.NewWakeLock(WakeLockFlags.Partial, "LARGA::ShiftTracking");
+            _wakeLock?.Acquire();
+        }
 
-        var power = (PowerManager?)GetSystemService(PowerService);
-        _wakeLock = power?.NewWakeLock(WakeLockFlags.Partial, "LARGA::ShiftTracking");
-        _wakeLock?.Acquire();
+        ScheduleWakeLockRefresh();
+    }
+
+    // GPS-012: a fresh Acquire() on the existing lock isn't enough - a Transsion/itel device was
+    // observed silently stripping the lock at the OS level without ever calling OnDestroy, so the
+    // app-side handle still looks held. Releasing and acquiring a brand new PowerManager.WakeLock
+    // forces a real new grant each cycle instead of trusting a handle the OS may have already revoked.
+    private void ScheduleWakeLockRefresh()
+    {
+        _wakeLockRefreshHandler ??= new Handler(Looper.MainLooper!);
+        _wakeLockRefreshHandler.RemoveCallbacksAndMessages(null);
+        _wakeLockRefreshHandler.PostDelayed(RefreshWakeLock, WakeLockRefreshIntervalMs);
+    }
+
+    private void RefreshWakeLock()
+    {
+        try
+        {
+            if (_wakeLock?.IsHeld == true)
+            {
+                _wakeLock.Release();
+            }
+
+            var power = (PowerManager?)GetSystemService(PowerService);
+            _wakeLock = power?.NewWakeLock(WakeLockFlags.Partial, "LARGA::ShiftTracking");
+            _wakeLock?.Acquire();
+            global::Android.Util.Log.Info("LARGA_GPS", "Shift tracking wake lock refreshed.");
+        }
+        catch (Exception ex)
+        {
+            global::Android.Util.Log.Error("LARGA_GPS", $"Wake lock refresh failed: {ex}");
+        }
+
+        ScheduleWakeLockRefresh();
     }
 
     private void CreateChannel()
