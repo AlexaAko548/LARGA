@@ -1365,10 +1365,11 @@ internal static class Program
             ManagerPhoneNumbers = new List<string> { "+639171234567" },
             // Target account verification: the GCash number boundary e-receipts must be sent to.
             AuthorizedPayoutAccounts = new List<string> { "0917 123 4567" },
-            // FUEL-017 auto-flag tolerances (the defaults; no per-unit km/L set).
+            // FUEL-017 auto-flag tolerances (the defaults; no per-unit km/L set). Cost-per-km is a
+            // rough city-traffic gasoline-sedan estimate pending real numbers from BLM's own fuel records.
             FuelDistanceTolerancePercent = 8.0,
-            FuelCostPerKmMin = 4.50,
-            FuelCostPerKmMax = 7.50,
+            FuelCostPerKmMin = 5.00,
+            FuelCostPerKmMax = 8.00,
             FuelAutoFlagMinDistanceKm = 10,
             FuelAutoFlagMinVarianceKm = 2,
             // MNT-014/015/016 recurring maintenance intervals (days) - the defaults.
