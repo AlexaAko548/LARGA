@@ -40,6 +40,7 @@
                     }
                 </div>
             </div>
+            <button type="button" class="manager-menu-item" role="menuitem" @onclick="OpenHelp">Help &amp; FAQs</button>
             <button type="button" class="manager-menu-item" role="menuitem" @onclick="OpenSettingsModal">Settings</button>
             @if (IsManager)
             {
@@ -230,6 +231,13 @@
     private bool _isTeamAccessOpen;
     private int _pendingAccessRequests;
     private string _currentUid = string.Empty;
+
+    // Help & FAQs is open to both roles (the page only needs a signed-in Manager or Assistant Manager).
+    private void OpenHelp()
+    {
+        _isDropdownOpen = false;
+        Navigation.NavigateTo("/help");
+    }
 
     private void OpenTeamAccess()
     {

@@ -28,6 +28,7 @@
             </div>
 
             <div class="header-actions">
+                <TourButton />
                 <NotificationBell />
                 <MessagesButton />
                 <ManagerProfileMenu />
@@ -41,7 +42,7 @@
             </div>
         }
 
-        <div class="status-strip">
+        <div class="status-strip" data-tour="fleet-status">
             @if (_snapshot is null)
             {
                 <div class="status-pill status-neutral"><span class="dot"></span> No data</div>
@@ -60,7 +61,7 @@
                     </button>
                 }
             }
-            @if (_canManage) { <button class="generate-btn" type="button" @onclick="OpenReportModal"><Icon Name="file-chart-column" /> Generate Reports</button> }
+            @if (_canManage) { <button class="generate-btn" data-tour="generate-reports" type="button" @onclick="OpenReportModal"><Icon Name="file-chart-column" /> Generate Reports</button> }
         </div>
 
         @if (_snapshot is not null && _openStatus is not null)
@@ -113,7 +114,7 @@
             </section>
         }
 
-        <section class="stats-grid">
+        <section class="stats-grid" data-tour="stats">
             <article class="stat-card">
                 <div class="stat-icon blue"><Icon Name="banknote" /></div>
                 <div class="stat-body">
@@ -152,7 +153,7 @@
         </section>
 
         @* LAR-84: fleet utilization KPIs. *@
-        <section class="utilization-panel">
+        <section class="utilization-panel" data-tour="utilization">
             <div class="utilization-head">
                 <div>
                     <div class="utilization-title">Fleet Utilization</div>
@@ -198,7 +199,7 @@
             </div>
         </section>
 
-        <section class="panel-grid">
+        <section class="panel-grid" data-tour="charts">
             <article class="chart-panel">
                 <div class="panel-header">
                     <span>Boundary Collections</span>
@@ -269,7 +270,7 @@
             </div>
         }
 
-        <section class="leaderboard-panel">
+        <section class="leaderboard-panel" data-tour="standings">
             <div class="leaderboard-header">
                 <div class="leaderboard-title">Top Driver Standings <span class="leaderboard-window">· last @FleetReportingService.StandingsWindowDays days</span></div>
                 <div class="leaderboard-crest"><Icon Name="trophy" /></div>

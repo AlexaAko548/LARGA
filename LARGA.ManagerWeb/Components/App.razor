@@ -33,6 +33,8 @@
         })();
     </script>
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    @* driver.js 1.3.6 (MIT), served from here on purpose - no CDN. Used by the page tours (tour.js). *@
+    <link rel="stylesheet" href="@Assets["lib/driver.js/driver.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["LARGA.ManagerWeb.styles.css"]" />
     <ImportMap />
@@ -47,6 +49,7 @@
     <script src="@Assets["busy-indicator.js"]"></script>
     <script src="@Assets["modal-backdrop.js"]"></script>
     <script src="@Assets["popups.js"]"></script>
+    <script src="@Assets["lib/driver.js/driver.js.iife.js"]"></script>
     <script src="@Assets["password-strength.js"]"></script>
     <script src="@Assets["password-toggle.js"]"></script>
     @* Enhanced navigation can patch <html>'s attributes back to the server's markup. *@

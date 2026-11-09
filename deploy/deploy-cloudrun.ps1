@@ -40,8 +40,8 @@ if (Test-Path $out) { Remove-Item $out -Recurse -Force }
 dotnet publish "$root\LARGA.ManagerWeb\LARGA.ManagerWeb.csproj" -c Release -p:UseMauiEssentials=false -o $out
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
-if (-not (Test-Path "$out\wwwroot\firebase-auth.js")) {
-    throw "wwwroot\firebase-auth.js is missing - copy firebase-auth.example.js to firebase-auth.js and fill in the web config first."
+if (-not (Test-Path "$out\wwwroot\firebase-config.js")) {
+    throw "wwwroot\firebase-config.js is missing - copy firebase-config.example.js to firebase-config.js and fill in the web config first."
 }
 # SOS street addresses need the MapTiler key; it lives in the untracked appsettings.Local.json,
 # which isn't uploaded, so it's passed to Cloud Run as a setting instead.

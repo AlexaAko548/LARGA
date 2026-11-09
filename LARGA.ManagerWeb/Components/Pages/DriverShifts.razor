@@ -41,6 +41,7 @@ else
             </div>
 
             <div class="header-actions">
+                <TourButton TourKey="@TourKey" />
                 <NotificationBell />
                 <MessagesButton />
                 <ManagerProfileMenu />
@@ -54,7 +55,7 @@ else
 
         @if (_clockInRequests.Count > 0)
         {
-            <section class="clockin-approvals">
+            <section class="clockin-approvals" data-tour="clockin-approvals">
                 <div class="clockin-approvals-header">
                     <h2>Clock-in approvals</h2>
                     <span class="status-pill small status-warning">@_clockInRequests.Count waiting</span>
@@ -128,7 +129,7 @@ else
             </section>
         }
 
-        <section class="stats-grid">
+        <section class="stats-grid" data-tour="driver-stats">
             <article class="stat-card">
                 <div class="stat-icon"><Icon Name="users" /></div>
                 <div class="stat-body">
@@ -159,7 +160,7 @@ else
             </article>
         </section>
 
-        <section class="tab-bar">
+        <section class="tab-bar" data-tour="driver-tabs">
             <div class="tab-group">
                 <button class="tab-btn @(_activeTab == "roster" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("roster")'><Icon Name="activity" /> Live Roster</button>
                 <button class="tab-btn @(_activeTab == "schedule" ? "active" : "")" type="button" @onclick='() => SelectTabAsync("schedule")'><Icon Name="calendar-days" /> Schedule Planner</button>
@@ -167,7 +168,7 @@ else
             </div>
             <div class="tab-actions">
                 @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenManagerNoteModal">+ Add Manager Note</button> }
-                @if (_canManage) { <button class="solid-btn" type="button" @onclick="OpenAddDriverModal">+ Add New Driver</button> }
+                @if (_canManage) { <button class="solid-btn" data-tour="add-driver" type="button" @onclick="OpenAddDriverModal">+ Add New Driver</button> }
             </div>
         </section>
 
@@ -178,7 +179,7 @@ else
 
         @if (_activeTab == "roster")
         {
-            <div class="data-table-wrap">
+            <div class="data-table-wrap" data-tour="roster-table">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -241,7 +242,7 @@ else
                 {
                     <div class="data-warning-banner">Schedule data unavailable: @_scheduleError</div>
                 }
-                <div class="schedule-toolbar">
+                <div class="schedule-toolbar" data-tour="schedule-week">
                     <div class="schedule-week-label">
                         <button class="week-nav" type="button" @onclick="() => ChangeWeekAsync(-1)" aria-label="Previous week"><Icon Name="chevron-left" /></button>
                         <span>WEEK OF @WeekLabel()</span>
@@ -257,7 +258,7 @@ else
                 else
                 {
                     <div class="data-table-wrap">
-                        <table class="data-table schedule-table">
+                        <table class="data-table schedule-table" data-tour="schedule-grid">
                             <thead>
                                 <tr>
                                     <th>Driver</th>
@@ -349,7 +350,7 @@ else
                     <div class="data-warning-banner">Shift log data unavailable: @_shiftLogsError</div>
                 }
 
-                <div class="logs-filters">
+                <div class="logs-filters" data-tour="log-filters">
                     <div class="filter-dropdown" data-popup>
                         <button class="filter-btn" type="button" data-popup-toggle @onclick="() => _showDateFilterMenu = !_showDateFilterMenu"><Icon Name="calendar" /> @_logDateFilter</button>
                         @if (_showDateFilterMenu)
@@ -469,7 +470,7 @@ else
                                             }
                                         </td>
                                         <td>
-                                            <button class="checklist-link" type="button" @onclick="() => OpenRouteAsync(log)">View route</button>
+                                            <button class="checklist-link" data-tour="view-route" type="button" @onclick="() => OpenRouteAsync(log)">View route</button>
                                         </td>
                                     </tr>
                                 }
@@ -1168,6 +1169,9 @@ else
     private string _managerUserId = string.Empty;
 
     private string _activeTab = "roster";
+
+    // Which on-page tour the (?) button replays: one per tab (see TourCatalog).
+    private string TourKey => _activeTab switch { "schedule" => "driver-shifts-schedule", "logs" => "driver-shifts-logs", _ => "driver-shifts" };
 
     private RosterSnapshot? _roster;
     private string? _rosterError;

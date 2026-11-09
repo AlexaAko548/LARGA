@@ -44,6 +44,7 @@ else
             </div>
 
             <div class="header-actions">
+                <TourButton />
                 <NotificationBell />
                 <MessagesButton />
                 <ManagerProfileMenu />
@@ -55,7 +56,7 @@ else
             <div class="data-warning-banner">SOS alerts unavailable: @_loadError</div>
         }
 
-        <section class="sos-summary @(_active.Count > 0 ? "has-active" : "")">
+        <section class="sos-summary @(_active.Count > 0 ? "has-active" : "")" data-tour="sos-summary">
             <div class="sos-summary-count">@_active.Count</div>
             <div>
                 <div class="sos-summary-title">@(_active.Count == 0 ? "No active emergencies" : _active.Count == 1 ? "Active emergency" : "Active emergencies")</div>
@@ -64,7 +65,7 @@ else
             @* Manager only, and only worth it for two or more - one alert has its own Resolved box. *@
             @if (_canManage && _active.Count > 1)
             {
-                <button type="button" class="outline-btn sos-resolve-all" disabled="@(_busyAlertId is not null || _resolvingAll)"
+                <button type="button" class="outline-btn sos-resolve-all" data-tour="sos-resolve-all" disabled="@(_busyAlertId is not null || _resolvingAll)"
                         aria-busy="@_resolvingAll" @onclick="RequestResolveAll">
                     <Icon Name="check" /> Mark all as resolved
                 </button>
@@ -76,7 +77,7 @@ else
             <div class="table-empty"><LoadingSpinner Text="Loading SOS alerts…" /></div>
         }
 
-        <section class="sos-list">
+        <section class="sos-list" data-tour="sos-list">
             @foreach (SosAlertView sos in _active)
             {
                 SosAlertView alert = sos;
@@ -127,7 +128,7 @@ else
                     <div class="sos-actions">
                         @if (alert.PhoneNumber is not null)
                         {
-                            <a class="solid-btn sos-call" href="tel:@DialNumber(alert.PhoneNumber)"><Icon Name="phone" /> Call driver</a>
+                            <a class="solid-btn sos-call" data-tour="sos-call" href="tel:@DialNumber(alert.PhoneNumber)"><Icon Name="phone" /> Call driver</a>
                         }
                         else
                         {
@@ -142,7 +143,7 @@ else
                         @* SOS-007: only a Manager resolves (SosDispatchService checks it too). *@
                         @if (_canManage)
                         {
-                            <label class="sos-toggle" title="Mark this emergency as handled">
+                            <label class="sos-toggle" data-tour="sos-resolve" title="Mark this emergency as handled">
                                 <input type="checkbox" @key="(alert.AlertId, _toggleVersion)" checked="@alert.IsResolved" disabled="@(_busyAlertId == alert.AlertId)"
                                        @onchange="e => HandleResolvedToggle(alert, e.Value is true)" />
                                 <span>Resolved</span>
@@ -159,7 +160,7 @@ else
 
         @if (_recentlyResolved.Count > 0)
         {
-            <section class="sos-resolved">
+            <section class="sos-resolved" data-tour="sos-resolved">
                 <h2>Resolved in the last 7 days <span class="sos-resolved-count">· @_recentlyResolved.Count</span></h2>
                 @* Shows up to 10 rows; past that the table scrolls inside its box (header stays put)
                    instead of pushing the page longer with every resolved alert. *@
