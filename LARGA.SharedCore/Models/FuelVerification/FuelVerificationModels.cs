@@ -223,8 +223,8 @@ public sealed record FuelTolerances(
     double MinAutoFlagVarianceKm = FuelTolerances.DefaultMinAutoFlagVarianceKm)
 {
     public const double DefaultDistanceTolerancePercent = 8.0;
-    public const decimal DefaultCostPerKmMin = 4.50m;
-    public const decimal DefaultCostPerKmMax = 7.50m;
+    public const decimal DefaultCostPerKmMin = 5.00m;
+    public const decimal DefaultCostPerKmMax = 8.00m;
     public const double DefaultMinAutoFlagDistanceKm = 10.0;
     public const double DefaultMinAutoFlagVarianceKm = 2.0;
 

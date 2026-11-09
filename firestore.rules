@@ -21,13 +21,18 @@ service cloud.firestore {
       return request.auth != null && getUserRole() in ['manager', 'assistant manager', 'driver'];
     }
 
-    function expiresAfterDays(days) {
+    // expireAt must land within +/- slack days of `days` from now (slack allows for phone clock drift).
+    function expiresWithin(days, slack) {
       let d = request.resource.data;
       return !('expireAt' in d)
         || (resource != null && resource.data.get('expireAt', null) == d.expireAt)
         || (d.expireAt is timestamp
-            && d.expireAt > request.time + duration.value(days - 7, 'd')
-            && d.expireAt < request.time + duration.value(days + 7, 'd'));
+            && d.expireAt > request.time + duration.value(days - slack, 'd')
+            && d.expireAt < request.time + duration.value(days + slack, 'd'));
+    }
+
+    function expiresAfterDays(days) {
+      return expiresWithin(days, 7);
     }
 
     function isOwner(userId) {
@@ -280,7 +285,7 @@ service cloud.firestore {
       allow read: if isStaff();
       allow create: if isDriver()
         && request.resource.data.driverId == request.auth.uid
-        && expiresAfterDays(7)
+        && expiresWithin(7, 2)
         && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.driverId == request.auth.uid
         && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.status == 'Active';
     }
