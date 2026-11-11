@@ -210,7 +210,13 @@ public partial class ActiveShiftPage : ContentPage
     }
 
     // Coming back from the background (notification tap, app switcher) starts a fresh idle count.
-    private void OnWindowActivated(object? sender, EventArgs e) => RestartStandbyTimer();
+    // Leave standby first: restarting the idle timer while the overlay is up would replace the
+    // one-minute standby timer and strand the screen black with no way to hand over to background.
+    private void OnWindowActivated(object? sender, EventArgs e)
+    {
+        ExitStandby();
+        RestartStandbyTimer();
+    }
 
     private void ExitStandby()
     {
