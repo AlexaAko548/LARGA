@@ -280,7 +280,7 @@ public static class FaqCatalog
 
         new("record-retention", "roles", "How long are records kept?",
             """
-            • Driver location trails (GPS): 90 days.
+            • Driver location trails (GPS): 7 days.
             • SOS alerts and chat messages: 12 months.
 
             These times are set in LARGA. Records are only deleted once the automatic clean-up is switched on in Firebase, which is done by whoever looks after the system. For other records, such as audit logs and photos, no automatic deletion time is set in LARGA.
