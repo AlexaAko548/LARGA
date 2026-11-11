@@ -51,19 +51,201 @@ public partial class ActiveShiftPage : ContentPage
         base.OnAppearing();
         _countdown.Changed -= OnCountdownChanged;
         _countdown.Changed += OnCountdownChanged;
+        _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         SyncHostileToast();
+        if (Window != null)
+        {
+            Window.Activated -= OnWindowActivated;
+            Window.Activated += OnWindowActivated;
+        }
+        RestartStandbyTimer();
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
         _countdown.Changed -= OnCountdownChanged;
+        _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        if (Window != null) Window.Activated -= OnWindowActivated;
         HostileCancelToast.IsVisible = false;
         ResetSosHold();
+        ExitStandby();
+        StopStandbyTimer();
     }
 
     private void OnCountdownChanged(object? sender, EventArgs e) =>
-        MainThread.BeginInvokeOnMainThread(SyncHostileToast);
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            SyncHostileToast();
+            if (_countdown.Active != null) ExitStandby();
+        });
+
+    // ---- Standby (battery saver) ---------------------------------------------------------
+    // Idle on the active screen for StandbyDelay -> black overlay + minimum window brightness.
+    // Only the display is reduced: GPS tracking, the foreground service, the safety monitor and
+    // the shift timer are untouched, so nothing the manager sees changes.
+    private static readonly TimeSpan StandbyDelay = TimeSpan.FromSeconds(30);
+    private const float StandbyBrightness = 0.01f;
+
+    private IDispatcherTimer? _standbyTimer;
+    private bool _inStandby;
+
+    private bool CanEnterStandby =>
+        _viewModel.IsActive
+        && !_viewModel.IsPauseAlertVisible && !_viewModel.IsClockOutAlertVisible
+        && !_viewModel.IsDuressPinVisible && !_viewModel.IsSosAlertVisible
+        && !_isHolding && _countdown.Active == null;
+
+    private void OnUserActivity(object? sender, EventArgs e) => RestartStandbyTimer();
+
+    private void OnStandbyTapped(object? sender, EventArgs e)
+    {
+        ExitStandby();
+        RestartStandbyTimer();
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        // Any dialog, pause or SOS state change counts as activity and wakes the screen.
+        switch (e.PropertyName)
+        {
+            case nameof(ActiveShiftViewModel.IsPaused):
+            case nameof(ActiveShiftViewModel.IsPauseAlertVisible):
+            case nameof(ActiveShiftViewModel.IsClockOutAlertVisible):
+            case nameof(ActiveShiftViewModel.IsDuressPinVisible):
+            case nameof(ActiveShiftViewModel.IsSosAlertVisible):
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    ExitStandby();
+                    RestartStandbyTimer();
+                });
+                break;
+        }
+    }
+
+    private void RestartStandbyTimer()
+    {
+        StopStandbyTimer();
+        _standbyTimer = Dispatcher.CreateTimer();
+        _standbyTimer.Interval = StandbyDelay;
+        _standbyTimer.IsRepeating = false;
+        _standbyTimer.Tick += OnStandbyTimerTick;
+        _standbyTimer.Start();
+    }
+
+    private void StopStandbyTimer()
+    {
+        if (_standbyTimer == null) return;
+        _standbyTimer.Stop();
+        _standbyTimer.Tick -= OnStandbyTimerTick;
+        _standbyTimer = null;
+    }
+
+    private void OnStandbyTimerTick(object? sender, EventArgs e)
+    {
+        StopStandbyTimer();
+        if (CanEnterStandby) EnterStandby();
+        else RestartStandbyTimer();
+    }
+
+    private void EnterStandby()
+    {
+        if (_inStandby) return;
+        _inStandby = true;
+        StandbyClockLabel.Text = DateTime.Now.ToString("hh:mm tt");
+        StandbyOverlay.IsVisible = true;
+        SetWindowBrightness(StandbyBrightness);
+
+        // Keep the standby clock current without a fast timer: once a minute is enough. The same
+        // tick counts minutes in standby to decide when to hand over to the background.
+        _standbyMinutes = 0;
+        _standbyTimer = Dispatcher.CreateTimer();
+        _standbyTimer.Interval = TimeSpan.FromMinutes(1);
+        _standbyTimer.IsRepeating = true;
+        _standbyTimer.Tick += OnStandbyMinuteTick;
+        _standbyTimer.Start();
+    }
+
+    // ---- Stage 2: hand over to the background ----------------------------------------------
+    // After StandbyBackgroundAfterMinutes in standby the app moves to the background so the phone's
+    // own screen timeout can turn the display fully off. The ShiftTrackingService (foreground
+    // service + wake lock + "shift tracking active" notification) keeps GPS and the safety monitor
+    // alive; tapping the notification or reopening the app brings the driver straight back.
+    // Set to false to keep stage 1 (black screen) only.
+    private const bool BackgroundAfterStandby = true;
+    private const int StandbyBackgroundAfterMinutes = 5;
+    private int _standbyMinutes;
+
+    private void OnStandbyMinuteTick(object? sender, EventArgs e)
+    {
+        StandbyClockLabel.Text = DateTime.Now.ToString("hh:mm tt");
+
+        if (!BackgroundAfterStandby || ++_standbyMinutes < StandbyBackgroundAfterMinutes) return;
+
+        // Something needing the driver (SOS, countdown, dialog) means stay put.
+        if (!CanEnterStandby)
+        {
+            ExitStandby();
+            RestartStandbyTimer();
+            return;
+        }
+
+        ExitStandby(); // restores the system brightness so the screen timeout behaves normally
+        MoveAppToBackground();
+    }
+
+    private static void MoveAppToBackground()
+    {
+#if ANDROID
+        try
+        {
+            Microsoft.Maui.ApplicationModel.Platform.CurrentActivity?.MoveTaskToBack(true);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Move to background failed: {ex.Message}");
+        }
+#endif
+    }
+
+    // Coming back from the background (notification tap, app switcher) starts a fresh idle count.
+    // Leave standby first: restarting the idle timer while the overlay is up would replace the
+    // one-minute standby timer and strand the screen black with no way to hand over to background.
+    private void OnWindowActivated(object? sender, EventArgs e)
+    {
+        ExitStandby();
+        RestartStandbyTimer();
+    }
+
+    private void ExitStandby()
+    {
+        if (!_inStandby) return;
+        _inStandby = false;
+        StandbyOverlay.IsVisible = false;
+        SetWindowBrightness(null);
+        StopStandbyTimer();
+    }
+
+    // null restores the user's own brightness setting.
+    private static void SetWindowBrightness(float? level)
+    {
+#if ANDROID
+        try
+        {
+            var window = Microsoft.Maui.ApplicationModel.Platform.CurrentActivity?.Window;
+            if (window?.Attributes is { } attrs)
+            {
+                attrs.ScreenBrightness = level ?? Android.Views.WindowManagerLayoutParams.BrightnessOverrideNone;
+                window.Attributes = attrs;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Standby brightness change failed: {ex.Message}");
+        }
+#endif
+    }
 
     // Hostile only: the Crash countdown has its own full-screen popup.
     private void SyncHostileToast() =>
@@ -78,6 +260,7 @@ public partial class ActiveShiftPage : ContentPage
 
     private void OnSosTouchStatusChanged(object? sender, TouchStatusChangedEventArgs e)
     {
+        RestartStandbyTimer();
         switch (e.Status)
         {
             case TouchStatus.Started:
