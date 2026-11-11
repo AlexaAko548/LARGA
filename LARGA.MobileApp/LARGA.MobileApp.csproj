@@ -22,7 +22,7 @@
 		<Nullable>enable</Nullable>
 
 		<!-- Display name -->
-		<ApplicationTitle>LARGA.MobileApp</ApplicationTitle>
+		<ApplicationTitle>LARGA</ApplicationTitle>
 
 		<!-- App Identifier -->
 		<ApplicationId>com.blmtaxi.larga.mobile</ApplicationId>
