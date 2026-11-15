@@ -80,7 +80,7 @@
                         <RadioButton GroupName="Fuel" IsChecked="{Binding IsBelowHalfTankSelected}" ControlTemplate="{StaticResource FuelRadioTemplate}" />
                         <VerticalStackLayout>
                             <Label Text="Below half-tank" TextColor="{DynamicResource ThemeTextBlack}" />
-                            <Label Text="(Penalty to the previous driver : ₱ 50.00)" TextColor="{DynamicResource LargaDanger}" TextDecorations="Underline" FontSize="10" IsVisible="{Binding PenaltyNoteVisible}" />
+                            <Label Text="(Penalty: ₱ 50.00)" TextColor="{DynamicResource LargaDanger}" TextDecorations="Underline" FontSize="10" IsVisible="{Binding PenaltyNoteVisible}" />
                         </VerticalStackLayout>
                     </HorizontalStackLayout>
 

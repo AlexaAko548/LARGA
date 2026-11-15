@@ -47,7 +47,16 @@ export async function largaFirebaseSignIn(email, password) {
     try {
         const auth = await initializeFirebase();
         const cred = await window.firebaseSdk.signIn(auth, email, password);
-        const roleResult = await getManagerRole(cred.user);
+        // A quick early "not a manager" answer. If the browser can't reach Firestore (a network, VPN,
+        // ad-blocker or antivirus blocking firestore.googleapis.com reports "client is offline"), skip it:
+        // ManagerSignInService checks the same role on the server before any session is issued.
+        let roleResult;
+        try {
+            roleResult = await getManagerRole(cred.user);
+        } catch (roleError) {
+            console.warn('Browser role check skipped; the server will check the role.', roleError);
+            roleResult = { ok: true };
+        }
 
         if (!roleResult.ok) {
             await window.firebaseSdk.signOut(auth);

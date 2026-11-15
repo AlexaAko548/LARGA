@@ -126,7 +126,8 @@ public class DriverNotifier
     /// driver app's pre_shift_channel; tapping it opens the pre-shift inspection. False when the driver
     /// has no FCM token or the push failed (logged). Never throws.
     /// </summary>
-    public async Task<bool> SendPreShiftReminderAsync(string driverId, string taxiId)
+    /// <param name="unitLabel">What the message calls the unit (PreShiftReminderRules.UnitLabel: the plate).</param>
+    public async Task<bool> SendPreShiftReminderAsync(string driverId, string taxiId, string unitLabel, DateTime philippineNow)
     {
         try
         {
@@ -143,7 +144,7 @@ public class DriverNotifier
 #pragma warning disable CS0618 // a registration token - see SendPushAsync
                 Token = token,
 #pragma warning restore CS0618
-                Notification = new Notification { Title = PreShiftReminderRules.Title, Body = PreShiftReminderRules.Body(taxiId) },
+                Notification = new Notification { Title = PreShiftReminderRules.Title, Body = PreShiftReminderRules.Body(unitLabel, philippineNow) },
                 Data = new Dictionary<string, string> { ["type"] = PreShiftReminderRules.PushType, ["taxiId"] = taxiId },
                 Android = new AndroidConfig
                 {

@@ -557,7 +557,7 @@ public class FleetReportingService
                 FullName = driver.FullName,
                 TaxiId = driver.AssignedTaxiId,
                 PunctualPercent = performance.PunctualityPercent ?? 0,
-                IncidentCount = performance.Incidents,
+                IncidentCount = performance.DamageIncidents,
                 BoundariesRemitted = performance.BoundariesRemitted,
                 Performance = performance,
             };
