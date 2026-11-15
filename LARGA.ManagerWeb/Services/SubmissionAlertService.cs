@@ -3,13 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using FirebaseAdmin;
-using FirebaseAdmin.Auth;
-using FirebaseAdmin.Messaging;
 using Google.Cloud.Firestore;
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore;
 using LARGA.SharedCore.Alerts;
+using LARGA.SharedCore.Push;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -31,19 +29,17 @@ namespace LARGA.ManagerWeb.Services;
 /// </summary>
 public class SubmissionAlertService : BackgroundService
 {
-    // Must match the FirebaseApp name created with the FirebaseAuth registration in Program.cs.
-    private const string FirebaseAppName = "LargaManagerWeb";
     private static readonly TimeSpan RestartDelay = TimeSpan.FromSeconds(15);
 
     private readonly Lazy<FirestoreDb> _db;
-    private readonly Lazy<FirebaseAuth> _auth;
+    private readonly PushTokenStore _tokens;
     private readonly ILogger<SubmissionAlertService> _logger;
     private DateTime _startedUtc;
 
-    public SubmissionAlertService(Lazy<FirestoreDb> db, Lazy<FirebaseAuth> auth, ILogger<SubmissionAlertService> logger)
+    public SubmissionAlertService(Lazy<FirestoreDb> db, PushTokenStore tokens, ILogger<SubmissionAlertService> logger)
     {
         _db = db;
-        _auth = auth;
+        _tokens = tokens;
         _logger = logger;
     }
 
@@ -209,43 +205,30 @@ public class SubmissionAlertService : BackgroundService
         return shift.Exists && shift.TryGetValue("taxiId", out string? taxi) && !string.IsNullOrWhiteSpace(taxi) ? taxi : "unknown unit";
     }
 
-    /// <summary>A defect report push to every Manager / Assistant Manager phone (users.fcmToken, saved by
-    /// the manager app's dashboard). Best effort: a failure is only logged - the bell row is there.</summary>
+    /// <summary>A defect report push to every Manager / Assistant Manager phone (their users/{uid}/fcmTokens,
+    /// saved by the manager app's dashboard). Best effort: a failure is only logged - the bell row is there.</summary>
     private async Task PushToStaffAsync(string title, string body, string maintenanceId, CancellationToken token)
     {
         try
         {
             QuerySnapshot users = await _db.Value.Collection("users").GetSnapshotAsync(token);
-            List<string> tokens = users.Documents
+            List<string> staff = users.Documents
                 .Where(doc => doc.TryGetValue("role", out object? role) && StaffRoles.IsStaff(role?.ToString()))
-                .Select(doc => doc.TryGetValue("fcmToken", out string? fcm) ? fcm : null)
-                .Where(fcm => !string.IsNullOrWhiteSpace(fcm))
-                .Select(fcm => fcm!)
-                .Distinct()
-                .Take(500)
+                .Select(doc => doc.Id)
                 .ToList();
-            if (tokens.Count == 0) return;
+            if (staff.Count == 0) return;
 
-            _ = _auth.Value; // creates the shared FirebaseApp on first use
-            FirebaseMessaging messaging = FirebaseMessaging.GetMessaging(FirebaseApp.GetInstance(FirebaseAppName));
-            BatchResponse response = await messaging.SendEachForMulticastAsync(new MulticastMessage
+            var data = new Dictionary<string, string>
             {
-                // users/{id}.fcmToken is a registration token, so Tokens (not Fids) - see SosPushService.
-#pragma warning disable CS0618
-                Tokens = tokens,
-#pragma warning restore CS0618
-                Notification = new Notification { Title = title, Body = body },
-                Data = new Dictionary<string, string>
-                {
-                    ["type"] = SubmissionAlerts.DefectPushType,
-                    ["maintenanceId"] = maintenanceId,
-                },
-            }, token);
-
-            if (response.FailureCount > 0)
+                ["type"] = SubmissionAlerts.DefectPushType,
+                ["maintenanceId"] = maintenanceId,
+            };
+            (int sent, int total) = await _tokens.SendToUsersAsync(staff,
+                device => PushTokenStore.NotificationMessage(device, title, body, data),
+                token, platforms: p => p == PushTokenRules.AndroidPlatform);
+            if (sent < total)
             {
-                _logger.LogWarning("Defect report push failed for {Failed}/{Total} staff device(s) (stale tokens?).",
-                    response.FailureCount, tokens.Count);
+                _logger.LogWarning("Defect report push failed for {Failed}/{Total} staff device(s).", total - sent, total);
             }
         }
         catch (Exception ex)

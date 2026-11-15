@@ -1,0 +1,148 @@
+@* Web push for chat messages, on every signed-in page (DashboardSidebar). Never asks on page load:
+   once signed in, a small prompt offers "Turn on" and the browser's permission request only runs
+   from that click. With permission already granted, this browser's token is (re)registered
+   silently for the signed-in staff member - server-side, with the uid from the session cookie
+   (PushTokenStore), never one the browser supplies.
+   Also opens the chat a tapped web notification is about (/dashboard?openChat={driverId}&for={uid}),
+   but only when `for` is the signed-in user - a notification someone else's session left behind
+   opens nothing. *@
+@implements IAsyncDisposable
+@using System.Security.Claims
+@using Google.Cloud.Firestore
+@using LARGA.ManagerWeb.Services
+@using LARGA.SharedCore.Push
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.WebUtilities
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthStateProvider
+@inject PushTokenStore PushTokens
+@inject ChatDrawerState Drawer
+@inject NavigationManager Navigation
+@inject Lazy<FirestoreDb> FirestoreDb
+@inject ILogger<WebPushPrompt> Logger
+
+@if (_showPrompt)
+{
+    <div class="webpush-prompt" role="status">
+        <Icon Name="bell" Class="webpush-prompt-icon" />
+        <span class="webpush-prompt-text">Get a notification when a driver messages you.</span>
+        <button type="button" class="webpush-prompt-on" @onclick="TurnOnAsync" disabled="@_busy">Turn on</button>
+        <button type="button" class="webpush-prompt-later" @onclick="DismissAsync">Not now</button>
+    </div>
+}
+
+@code {
+    private IJSObjectReference? _module;
+    private string? _uid;
+    private bool _showPrompt;
+    private bool _busy;
+
+    private sealed record Status(string State, bool Dismissed);
+    private sealed record EnableResult(bool Ok, string? Token, string? DeviceId);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        AuthenticationState auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        _uid = auth.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(_uid)) return;
+
+        await OpenChatFromNotificationAsync();
+
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "/web-push.js");
+            Status status = await _module.InvokeAsync<Status>("largaWebPushStatus");
+            if (status.State == "granted")
+            {
+                await EnableAsync(ask: false);
+            }
+            else if (status.State == "default" && !status.Dismissed)
+            {
+                _showPrompt = true;
+                StateHasChanged();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Web push setup failed; the portal works without it.");
+        }
+    }
+
+    private async Task TurnOnAsync()
+    {
+        _busy = true;
+        await EnableAsync(ask: true);
+        _busy = false;
+        _showPrompt = false;
+    }
+
+    private async Task DismissAsync()
+    {
+        _showPrompt = false;
+        if (_module is not null)
+        {
+            try { await _module.InvokeVoidAsync("largaWebPushDismiss"); } catch (JSException) { }
+        }
+    }
+
+    private async Task EnableAsync(bool ask)
+    {
+        if (_module is null || string.IsNullOrEmpty(_uid)) return;
+        try
+        {
+            EnableResult result = await _module.InvokeAsync<EnableResult>("largaWebPushEnable", _uid, ask);
+            if (result.Ok && !string.IsNullOrWhiteSpace(result.Token))
+            {
+                await PushTokens.RegisterAsync(_uid, result.Token, PushTokenRules.WebPlatform, result.DeviceId ?? string.Empty);
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Registering this browser for web push failed.");
+        }
+    }
+
+    // A tapped web notification: open that driver's chat - only for the user it was sent to.
+    private async Task OpenChatFromNotificationAsync()
+    {
+        Uri uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+        if (!query.TryGetValue("openChat", out var driverIds) || string.IsNullOrWhiteSpace(driverIds.ToString()))
+        {
+            return;
+        }
+
+        string driverId = driverIds.ToString();
+        bool forMe = query.TryGetValue("for", out var forUid) && string.Equals(forUid.ToString(), _uid, StringComparison.Ordinal);
+        Navigation.NavigateTo(uri.GetLeftPart(UriPartial.Path), replace: true);
+        if (!forMe) return;
+
+        try
+        {
+            DocumentSnapshot driver = await FirestoreDb.Value.Collection("users").Document(driverId).GetSnapshotAsync();
+            if (!driver.Exists) return;
+            string name = driver.TryGetValue("fullName", out string? fullName) && !string.IsNullOrWhiteSpace(fullName) ? fullName : "Driver";
+            Drawer.OpenChat(driverId, name);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Opening the chat from a web notification failed.");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            try { await _module.DisposeAsync(); } catch (JSDisconnectedException) { }
+        }
+    }
+}

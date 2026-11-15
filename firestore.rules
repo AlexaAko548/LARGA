@@ -1,27 +1,32 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // The signed-in user's role from users/{uid}, lower-cased.
     function getUserRole() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role.trim().lower();
     }
 
+    // Signed in as a Manager.
     function isManager() {
       return request.auth != null && getUserRole() == 'manager';
     }
 
+    // Signed in as a Manager or an Assistant Manager.
     function isStaff() {
       return request.auth != null && getUserRole() in ['manager', 'assistant manager'];
     }
 
+    // Signed in as a Driver.
     function isDriver() {
       return request.auth != null && getUserRole() == 'driver';
     }
 
+    // Signed in with any LARGA role (not just any Firebase account).
     function isLargaUser() {
       return request.auth != null && getUserRole() in ['manager', 'assistant manager', 'driver'];
     }
 
-    // expireAt must land within +/- slack days of `days` from now (slack allows for phone clock drift).
+    // expireAt (TTL delete date) is about `days` from now, give or take `slack` days for phone clock drift.
     function expiresWithin(days, slack) {
       let d = request.resource.data;
       return !('expireAt' in d)
@@ -31,23 +36,59 @@ service cloud.firestore {
             && d.expireAt < request.time + duration.value(days + slack, 'd'));
     }
 
+    // expiresWithin with a 7-day slack.
     function expiresAfterDays(days) {
       return expiresWithin(days, 7);
     }
 
+    // The signed-in user is this user.
     function isOwner(userId) {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    // Profiles: staff can read all; users may only change their phone number and clear their own mustChangePassword.
     match /users/{userId} {
       allow read: if isOwner(userId) || isStaff();
-      // A user may clear their own mustChangePassword (after replacing a temporary password) - never set it.
-      allow write: if isManager() || (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys()
+      allow write: if (isManager() && !legacyPushTokenSet())
+                   || (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['fcmToken', 'tokenUpdatedAt', 'phoneNumber', 'mustChangePassword'])
+                        && !legacyPushTokenSet()
                         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['mustChangePassword'])
                             || request.resource.data.mustChangePassword == false));
+
+      // Push tokens, one doc per device: only the owner can read, write or delete them, and nobody can list them.
+      match /fcmTokens/{tokenId} {
+        allow get, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && pushTokenOk(tokenId);
+      }
     }
 
+    // True when a write sets the old users.fcmToken / tokenUpdatedAt fields (they may only be removed now).
+    function legacyPushTokenSet() {
+      return request.resource != null
+        && legacyFieldSet((resource == null ? request.resource.data.keys()
+                                            : request.resource.data.diff(resource.data).affectedKeys()), request.resource.data);
+    }
+
+    // A changed old token field that is still present after the write.
+    function legacyFieldSet(changed, after) {
+      return (changed.hasAny(['fcmToken']) && 'fcmToken' in after)
+        || (changed.hasAny(['tokenUpdatedAt']) && 'tokenUpdatedAt' in after);
+    }
+
+    // A valid token doc: known fields only, doc ID = SHA-256 of the token, lastSeen = server time.
+    function pushTokenOk(tokenId) {
+      let t = request.resource.data;
+      return t.keys().hasOnly(['token', 'platform', 'deviceId', 'lastSeen'])
+        && t.keys().hasAll(['token', 'platform', 'lastSeen'])
+        && t.token is string && t.token.size() > 0 && t.token.size() <= 4096
+        && tokenId == hashing.sha256(t.token).toHexString()
+        && t.platform in ['android', 'ios', 'web']
+        && t.get('deviceId', '') is string && t.get('deviceId', '').size() <= 64
+        && t.lastSeen == request.time;
+    }
+
+    // Shifts: a driver clocks in only for themselves, at server time and after 6:00 AM PH.
     match /shifts/{shiftId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow create: if isDriver()
@@ -64,6 +105,7 @@ service cloud.firestore {
       allow update: if isManager() || (isDriver() && driverShiftUpdateOk(shiftId));
     }
 
+    // What a driver may change on their own shift: GPS, break, clock-out (server time) and a few end-of-shift fields.
     function driverShiftUpdateOk(shiftId) {
       let before = resource.data;
       let after = request.resource.data;
@@ -83,19 +125,23 @@ service cloud.firestore {
         && (!changed.hasAny(['shiftId']) || after.shiftId == shiftId);
     }
 
+    // The hour of a timestamp in Philippine time (UTC+8).
     function phHour(t) {
       return (t.hours() + 8) % 24;
     }
 
+    // Payment locks that stop two cashiers booking the same driver at once: staff only.
     match /ledger_locks/{driverId} {
       allow read, write: if isStaff();
     }
 
+    // One active shift per driver and per unit: a driver may only take or release locks for their own shift.
     match /shift_locks/{lockId} {
       allow read: if isLargaUser();
       allow write: if isManager() || (isDriver() && ownShiftLock(lockId));
     }
 
+    // The lock belongs to the driver's own shift, and matches whether that shift is active or ended.
     function ownShiftLock(lockId) {
       let shiftLock = request.resource.data;
       let lockedShift = getAfter(/databases/$(database)/documents/shifts/$(shiftLock.shiftId)).data;
@@ -107,11 +153,13 @@ service cloud.firestore {
               : lockedShift.status == 'Active' && shiftLock.get('shiftStart', null) == lockedShift.shiftStart);
     }
 
+    // Schedules: staff read all, drivers read their own days, only the Manager writes.
     match /shift_schedules/{docId} {
       allow read: if isStaff() || (request.auth != null && docId.matches(request.auth.uid + '_[0-9]{8}'));
       allow write: if isManager();
     }
 
+    // Clock-in requests: a driver creates their own, and can only cancel it or mark it clocked in.
     match /clockin_requests/{requestId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow create: if isDriver() && request.resource.data.driverId == request.auth.uid
@@ -122,44 +170,39 @@ service cloud.firestore {
                         || (resource.data.status == 'Approved' && request.resource.data.status == 'ClockedIn')));
     }
 
+    // Debt adjustments: Manager only, except the automatic negative credit staff record with a payment.
     match /debt_adjustments/{adjustmentId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow write: if isManager();
-      // An Assistant Manager recording a payment in Quick Ledger: only the automatic credit against
-      // manual debt that comes with it (negative, tied to the payment's transactionId). Manual
-      // adjustments stay Manager-only.
       allow create: if isStaff()
                     && request.resource.data.amount is number && request.resource.data.amount < 0
                     && request.resource.data.transactionId is string && request.resource.data.transactionId.size() > 0
                     && request.resource.data.driverId is string && request.resource.data.driverId.size() > 0;
     }
 
+    // Performance stats: the driver and staff can read, only the Manager writes.
     match /driverPerformance/{driverId} {
       allow read: if isOwner(driverId) || isStaff();
       allow write: if isManager();
     }
 
+    // One conversation per driver: only that driver and staff can open it.
     match /chats/{driverId} {
       allow read, delete: if isStaff() || isOwner(driverId);
       allow create, update: if (isStaff() || isOwner(driverId)) && chatReadStateOk();
 
-      // One conversation per driver, shared by the Manager and every Assistant Manager: a staff message
-      // must say who wrote it - the signed-in user's own ID, profile name and role. A driver's message
-      // carries no sender fields, and nobody can change a message's sender afterwards.
+      // Messages: only the conversation's people read or post them; nobody edits, deletes or sets pushSentAt from an app.
       match /messages/{messageId} {
-        allow read, delete: if isStaff() || isOwner(driverId);
-        allow create: if (isStaff() && staffChatSenderOk())
-                      || (isOwner(driverId) && expiresAfterDays(365)
-                          && !request.resource.data.keys().hasAny(['senderId', 'senderName', 'senderRole']));
-        allow update: if (isStaff() || (isOwner(driverId) && expiresAfterDays(365)))
-                      && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['senderId', 'senderName', 'senderRole']);
+        allow read: if isStaff() || isOwner(driverId);
+        allow create: if !request.resource.data.keys().hasAny(['pushSentAt'])
+                      && ((isStaff() && staffChatSenderOk())
+                          || (isOwner(driverId) && expiresAfterDays(365)
+                              && request.resource.data.get('isDriver', false) == true
+                              && !request.resource.data.keys().hasAny(['senderId', 'senderName', 'senderRole'])));
       }
     }
 
-    // The conversation's per-person read state (ChatReadState): a send stamps lastMessageAt with
-    // server time and lastSenderId with the sender's own uid ("system" only comes from ManagerWeb's
-    // Admin SDK); opening the chat sets the reader's own lastReadAtMs entry (Unix ms, never later
-    // than now), never anyone else's. lastReadAt (timestamps, an earlier build) can't be changed.
+    // Chat read markers: server-time lastMessageAt, own uid as lastSenderId, and only your own lastReadAtMs entry.
     function chatReadStateOk() {
       let after = request.resource.data;
       let before = resource == null ? {} : resource.data;
@@ -176,6 +219,7 @@ service cloud.firestore {
                 && readsAfter[request.auth.uid] <= request.time.toMillis()));
     }
 
+    // A staff message carries the sender's real uid, name and role.
     function staffChatSenderOk() {
       let msg = request.resource.data;
       let me = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
@@ -186,14 +230,13 @@ service cloud.firestore {
         && msg.get('senderRole', '').trim().lower() == me.role.trim().lower();
     }
 
+    // Units: everyone reads, only the Manager edits.
     match /taxis/{taxiId} {
       allow read: if isLargaUser();
       allow create, update, delete: if isManager();
     }
 
-    // managerPhoneNumbers (the SOS auto-answer allowlist, LAR-86/87) has one writer: ManagerWeb's
-    // ManagerPhoneAllowlistSyncService, which rebuilds it from every Manager's and Assistant
-    // Manager's users.phoneNumber. The app may change the rest of the config, never that field.
+    // Settings: everyone reads, the Manager edits, but never the SOS phone allowlist (ManagerWeb keeps that).
     match /system_configs/{configId} {
       allow read: if isLargaUser();
       allow create: if isManager() && !request.resource.data.keys().hasAny(['managerPhoneNumbers']);
@@ -202,21 +245,24 @@ service cloud.firestore {
       allow delete: if isManager();
     }
 
+    // Payments: staff record them (up to the apps' 100,000 cap), drivers read their own, only the Manager deletes.
     match /boundary_payments/{paymentId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow create: if isStaff()
                     && request.resource.data.amountPaid is number
                     && request.resource.data.amountPaid > 0
-                    && request.resource.data.amountPaid <= 100000 // the apps' cap (FinancialLedgerService, RecordPaymentViewModel)
+                    && request.resource.data.amountPaid <= 100000
                     && request.resource.data.driverId is string && request.resource.data.driverId.size() > 0
                     && request.resource.data.shiftId is string;
       allow delete: if isManager();
     }
 
+    // GCash reference numbers already used: staff only, never overwritten.
     match /payment_references/{reference} {
       allow read, create: if isStaff();
     }
 
+    // Maintenance: drivers report defects for themselves, the Manager does the rest.
     match /maintenance_logs/{maintenanceId} {
       allow read: if isStaff() || isDriver();
       allow create: if isManager()
@@ -226,6 +272,7 @@ service cloud.firestore {
       allow update: if isManager();
     }
 
+    // Fuel reports: a driver files their own, with sane amounts, server time and a shift of theirs.
     match /fuel_logs/{fuelId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow create: if isDriver()
@@ -243,11 +290,7 @@ service cloud.firestore {
       allow update: if isManager();
     }
 
-    // REQ-4.3-3 / REQ-5.5-6 (FuelShiftRules): a fuel log is always linked to one of the driver's own
-    // shifts - the active one, or one that ended within the last 12 hours. An Auto-Closed shift has
-    // no shiftEnd; it ended at its auto-close (ShiftRules.AutoCloseAtUtc): 6:00 AM Philippine time
-    // (UTC+8) the day after it started. In UTC that's the start's Philippine date at 00:00 + 22 h,
-    // so the window closes 12 h later, at that date + 34 h.
+    // The fuel report's shift exists, is the driver's own, and is active or recently ended.
     function fuelShiftOk(shiftId) {
       let shiftPath = /databases/$(database)/documents/shifts/$(shiftId);
       let shift = get(shiftPath).data;
@@ -257,6 +300,7 @@ service cloud.firestore {
         && activeOrEndedWithin12h(shift);
     }
 
+    // The shift is active or ended in the last 12 hours (an auto-closed one ended at 6:00 AM PH the next day).
     function activeOrEndedWithin12h(shift) {
       return shift.status == 'Active'
         || (shift.status == 'Completed' && shift.get('shiftEnd', null) is timestamp
@@ -265,11 +309,7 @@ service cloud.firestore {
             && request.time <= (shift.shiftStart + duration.value(8, 'h')).date() + duration.value(34, 'h'));
     }
 
-    // Proposal §4.2.4.5 (FuelOrNumberRules): one claim per station brand + OR number ({brand}~{OR}), written by the driver app in
-    // the same transaction as the fuel log it belongs to. A driver may read a single claim (that's how
-    // the app knows a number is taken - it holds only fuelLogId and createdAt) but not list them, and
-    // may only create one for their own fuel log being created in that same write. Never updated or
-    // deleted from a client.
+    // One claim per fuel receipt OR number, created with its fuel log so a receipt can't be used twice.
     match /fuel_or_numbers/{orNumber} {
       allow get: if isLargaUser();
       allow list: if isStaff();
@@ -281,6 +321,7 @@ service cloud.firestore {
                     && getAfter(/databases/$(database)/documents/fuel_logs/$(request.resource.data.fuelLogId)).data.driverId == request.auth.uid;
     }
 
+    // GPS points: a driver writes them only during their own active shift; staff read them.
     match /gps_telemetry/{logId} {
       allow read: if isStaff();
       allow create: if isDriver()
@@ -290,15 +331,9 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/shifts/$(request.resource.data.shiftId)).data.status == 'Active';
     }
 
+    // SOS: a driver raises it for their own recent shift and can't set the server's fields; staff read, the Manager resolves.
     match /emergency_alerts/{alertId} {
       allow read: if isStaff();
-      // SOS-006: the fields ManagerWeb's SosPushService writes (caller check, push claim, address,
-      // retention) and the Resolved state are never the driver's to set - a pre-set pushSentAt
-      // skipped the caller check and the push, leaving a driver-written callerCheck in place.
-      // The shift must be the sender's own and Active - or have ended within the last 12 hours
-      // (same window as a fuel report): an SOS queued offline, or a duress SOS that reaches the
-      // server just after the clock-out, must not be refused. SosPushService marks those Unverified
-      // ("the shift had already ended") and still pushes them.
       allow create: if isDriver() && request.resource.data.driverId == request.auth.uid
                     && request.resource.data.get('isResolved', false) == false
                     && !request.resource.data.keys().hasAny(['expireAt', 'pushSentAt', 'callerCheck', 'callerVerified',
@@ -309,10 +344,12 @@ service cloud.firestore {
       allow update: if isManager();
     }
 
+    // Inventory: Manager only.
     match /spare_parts/{partId} {
       allow read, write: if isManager();
     }
 
+    // Audit log: only the Manager reads; users add entries in their own name, drivers only a few action types.
     match /audit_logs/{logId} {
       allow read: if isManager();
       allow create: if isStaff() && ownAuditEntry();
@@ -320,22 +357,26 @@ service cloud.firestore {
          && request.resource.data.actionType in ['SosTriggered', 'VehicleDefectReported', 'DriverPasswordChanged'];
     }
 
+    // The entry is in the writer's own name, stamped with server time.
     function ownAuditEntry() {
       return request.resource.data.userId == request.auth.uid
         && request.resource.data.timestamp == request.time;
     }
 
+    // Pre/end-of-shift checklists: a driver writes them for their own shift; staff read.
     match /handover_checklists/{checklistId} {
       allow read: if isStaff();
       allow create, update: if isManager() || (isDriver() && ownChecklist(checklistId));
     }
 
+    // The checklist ID is the shift's _PRE or _END, and the shift is the driver's own.
     function ownChecklist(checklistId) {
       let shiftId = request.resource.data.shiftId;
       return checklistId in [shiftId + '_PRE', shiftId + '_END']
         && get(/databases/$(database)/documents/shifts/$(shiftId)).data.driverId == request.auth.uid;
     }
 
+    // Alert Center items: staff read them and can only mark them read.
     match /system_alerts/{alertId} {
       allow read: if isStaff();
       allow update: if isStaff() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
