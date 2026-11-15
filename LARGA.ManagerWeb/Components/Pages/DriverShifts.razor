@@ -108,16 +108,14 @@ else
                             }
                         </div>
 
+                        @* The Manager and the Assistant Manager both decide flagged clock-ins. *@
                         <div class="clockin-request-actions">
-                            @if (_canManage)
+                            @if (item.BlockedReason is not null)
                             {
-                                @if (item.BlockedReason is not null)
-                                {
-                                    <div class="field-error">Can't be approved: @item.BlockedReason.</div>
-                                }
-                                <button class="solid-btn" type="button" disabled="@(_isDecidingClockIn || item.BlockedReason is not null)" title="@(item.BlockedReason is null ? null : $"Can't be approved: {item.BlockedReason}")" @onclick="() => ApproveClockInAsync(item)"><Icon Name="check" /> Approve</button>
-                                <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)"><Icon Name="x" /> Deny</button>
+                                <div class="field-error">Can't be approved: @item.BlockedReason.</div>
                             }
+                            <button class="solid-btn" type="button" disabled="@(_isDecidingClockIn || item.BlockedReason is not null)" title="@(item.BlockedReason is null ? null : $"Can't be approved: {item.BlockedReason}")" @onclick="() => ApproveClockInAsync(item)"><Icon Name="check" /> Approve</button>
+                            <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)"><Icon Name="x" /> Deny</button>
                         </div>
                     </article>
                 }
@@ -1113,7 +1111,8 @@ else
     ConfirmText="@_confirmButtonText" IsBusy="_confirmBusy" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm" />
 
 @code {
-    // Assistant Managers can view drivers and shifts but can't approve clock-ins, edit the schedule, or add notes/drivers.
+    // Assistant Managers can view drivers and shifts and approve/deny flagged clock-ins, but can't edit the
+    // schedule or add notes/drivers.
     private bool _canManage;
 
     private bool _showConfirm;

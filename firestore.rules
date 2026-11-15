@@ -159,12 +159,38 @@ service cloud.firestore {
       allow write: if isManager();
     }
 
+    // An Assistant Manager's clock-in decision: Pending -> Approved, or Denied with a note, touching only
+    // the decision fields (the same writes the phone's Alert Center makes).
+    function staffClockInDecisionOk() {
+      let d = request.resource.data;
+      return resource.data.status == 'Pending'
+        && d.diff(resource.data).affectedKeys().hasOnly(['status', 'decidedAt', 'managerNote'])
+        && (d.status == 'Approved'
+            || (d.status == 'Denied' && d.managerNote is string && d.managerNote.trim().size() > 0));
+    }
+
+    // clockin_requests/{requestId} is Pending now and Denied once this batch lands - so a write that
+    // claims to be part of a clock-in denial really is one.
+    function deniedInThisBatch(requestId) {
+      let path = /databases/$(database)/documents/clockin_requests/$(requestId);
+      return requestId is string
+        && get(path).data.status == 'Pending'
+        && getAfter(path).data.status == 'Denied';
+    }
+
+    // The clock-in request a denial write names (only read after deniedInThisBatch has passed).
+    function clockInRequest(requestId) {
+      return get(/databases/$(database)/documents/clockin_requests/$(requestId)).data;
+    }
+
     // Clock-in requests: a driver creates their own, and can only cancel it or mark it clocked in.
+    // The Manager and the Assistant Manager decide flagged ones (approve / deny).
     match /clockin_requests/{requestId} {
       allow read: if isStaff() || (isDriver() && resource.data.driverId == request.auth.uid);
       allow create: if isDriver() && request.resource.data.driverId == request.auth.uid
                     && request.resource.data.status == 'Pending';
-      allow update: if isManager() || (isDriver() && resource.data.driverId == request.auth.uid
+      allow update: if isManager() || (isStaff() && staffClockInDecisionOk())
+                    || (isDriver() && resource.data.driverId == request.auth.uid
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'shiftId'])
                     && ((resource.data.status == 'Pending' && request.resource.data.status == 'Cancelled')
                         || (resource.data.status == 'Approved' && request.resource.data.status == 'ClockedIn')));
@@ -230,10 +256,17 @@ service cloud.firestore {
         && msg.get('senderRole', '').trim().lower() == me.role.trim().lower();
     }
 
-    // Units: everyone reads, only the Manager edits.
+    // Units: everyone reads, only the Manager edits - except that an Assistant Manager denying a flagged
+    // clock-in may send that request's unit to the Garage in the same batch (status only, and naming the request).
     match /taxis/{taxiId} {
       allow read: if isLargaUser();
-      allow create, update, delete: if isManager();
+      allow create, delete: if isManager();
+      allow update: if isManager()
+                    || (isStaff()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'groundedByClockInRequestId'])
+                        && request.resource.data.status == 'Under Maintenance'
+                        && deniedInThisBatch(request.resource.data.get('groundedByClockInRequestId', null))
+                        && clockInRequest(request.resource.data.groundedByClockInRequestId).taxiId == taxiId);
     }
 
     // Settings: everyone reads, the Manager edits, but never the SOS phone allowlist (ManagerWeb keeps that).
@@ -262,14 +295,38 @@ service cloud.firestore {
       allow read, create: if isStaff();
     }
 
-    // Maintenance: drivers report defects for themselves, the Manager does the rest.
+    // Maintenance: drivers report defects for themselves, the Manager does the rest. An Assistant Manager
+    // denying a flagged clock-in may, in the same batch, raise that request's defect reports to High or file
+    // the "Failed pre-shift inspection" report for its unit (each naming the request).
     match /maintenance_logs/{maintenanceId} {
       allow read: if isStaff() || isDriver();
       allow create: if isManager()
                     || (isDriver()
                         && request.resource.data.reportedByDriverId == request.auth.uid
-                        && request.resource.data.status == 'Reported');
-      allow update: if isManager();
+                        && request.resource.data.status == 'Reported')
+                    || (isStaff() && staffClockInDenialReportOk());
+      allow update: if isManager()
+                    || (isStaff() && staffClockInDefectRaiseOk(maintenanceId));
+    }
+
+    function staffClockInDenialReportOk() {
+      let d = request.resource.data;
+      let requestId = d.get('clockInRequestId', null);
+      return d.status == 'Reported'
+        && d.issueTitle == 'Failed pre-shift inspection'
+        && d.priorityLevel == 'High'
+        && deniedInThisBatch(requestId)
+        && d.taxiId == clockInRequest(requestId).taxiId
+        && d.reportedByDriverId == clockInRequest(requestId).driverId;
+    }
+
+    function staffClockInDefectRaiseOk(maintenanceId) {
+      let d = request.resource.data;
+      let requestId = d.get('clockInRequestId', null);
+      return d.diff(resource.data).affectedKeys().hasOnly(['priorityLevel', 'clockInRequestId'])
+        && d.priorityLevel == 'High'
+        && deniedInThisBatch(requestId)
+        && maintenanceId in clockInRequest(requestId).get('defectReportIds', '').split(',');
     }
 
     // Fuel reports: a driver files their own, with sane amounts, server time and a shift of theirs.

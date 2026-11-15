@@ -490,18 +490,123 @@ describe('Assistant Manager in the mobile app', () => {
   });
   it("a driver still cannot read another driver's chat", async () =>
     assertFails(getDocs(collection(as(DRIVER_B), 'chats', DRIVER_A, 'messages'))));
-  it('cannot approve or deny a clock-in request', async () => {
-    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'clockin_requests', 'req1'), { driverId: DRIVER_A, status: 'Pending' }));
-    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'Approved' }));
-    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'Denied' }));
-    await assertSucceeds(updateDoc(doc(as(MANAGER), 'clockin_requests', 'req1'), { status: 'Approved' }));
+  // Flagged clock-ins: the Assistant Manager decides them too (2026-11-15) - the same writes the phone's
+  // Alert Center makes (AlertCenterViewModel.ApproveClockInAsync / DenyClockInAsync).
+  async function pendingRequest(extra) {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'maintenance_logs', 'defA'), { taxiId: 'TX-01', reportedByDriverId: DRIVER_A, status: 'Reported', priorityLevel: 'Low' });
+      await setDoc(doc(db, 'maintenance_logs', 'defOther'), { taxiId: 'TX-02', reportedByDriverId: DRIVER_B, status: 'Reported', priorityLevel: 'Low' });
+      await setDoc(doc(db, 'clockin_requests', 'req1'), { driverId: DRIVER_A, taxiId: 'TX-01', status: 'Pending', defectReportIds: 'defA', ...extra });
+    });
+  }
+  const decision = (status, note) => ({ status, decidedAt: serverTimestamp(), managerNote: note });
+  const denialReport = (extra) => ({
+    taxiId: 'TX-01', maintenanceType: 'Breakdown Repair', issueTitle: 'Failed pre-shift inspection',
+    issueDescription: 'Clock-in denied.', dateLogged: serverTimestamp(), priorityLevel: 'High',
+    reportedByDriverId: DRIVER_A, status: 'Reported', clockInRequestId: 'req1', ...extra });
+
+  it('can approve a flagged clock-in', async () => {
+    await pendingRequest();
+    await assertSucceeds(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), decision('Approved', '')));
+  });
+  it('can deny a flagged clock-in with a note', async () => {
+    await pendingRequest();
+    await assertSucceeds(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), decision('Denied', 'Bring it to the garage')));
+  });
+  it('cannot deny a clock-in without a note', async () => {
+    await pendingRequest();
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), decision('Denied', '  ')));
+  });
+  it('cannot set any other clock-in status (ClockedIn, Cancelled, back to Pending)', async () => {
+    await pendingRequest();
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'ClockedIn' }));
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'Cancelled' }));
+    await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'clockin_requests', 'req1'), { status: 'Denied' }));
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'Pending' }));
+  });
+  it('cannot change a decided clock-in', async () => {
+    await pendingRequest({ status: 'Denied' });
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), decision('Approved', '')));
+  });
+  it('cannot change other clock-in fields with the decision', async () => {
+    await pendingRequest();
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { ...decision('Approved', ''), taxiId: 'TX-02' }));
+  });
+  it('can deny with the full Garage batch: defects to High, new report, unit to Under Maintenance', async () => {
+    await pendingRequest();
+    const db = as(ASSISTANT);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'maintenance_logs', 'defA'), { priorityLevel: 'High', clockInRequestId: 'req1' });
+    batch.set(doc(collection(db, 'maintenance_logs')), denialReport(), { merge: true });
+    batch.update(doc(db, 'taxis', 'TX-01'), { status: 'Under Maintenance', groundedByClockInRequestId: 'req1' });
+    batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'Brakes first'));
+    await assertSucceeds(batch.commit());
+  });
+  it('the Manager can still deny with the full Garage batch', async () => {
+    await pendingRequest();
+    const db = as(MANAGER);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'maintenance_logs', 'defA'), { priorityLevel: 'High', clockInRequestId: 'req1' });
+    batch.update(doc(db, 'taxis', 'TX-01'), { status: 'Under Maintenance', groundedByClockInRequestId: 'req1' });
+    batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'Brakes first'));
+    await assertSucceeds(batch.commit());
+  });
+  it('cannot send a unit to the Garage outside a clock-in denial', async () => {
+    await pendingRequest();
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'taxis', 'TX-01'), { status: 'Under Maintenance' }));
+    // Naming the request isn't enough: the same batch has to deny it.
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'taxis', 'TX-01'), { status: 'Under Maintenance', groundedByClockInRequestId: 'req1' }));
+  });
+  it("cannot ground a different unit than the denied request's", async () => {
+    await pendingRequest();
+    await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'taxis', 'TX-02'), { status: 'Active Unit' }));
+    const db = as(ASSISTANT);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'taxis', 'TX-02'), { status: 'Under Maintenance', groundedByClockInRequestId: 'req1' });
+    batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'x'));
+    await assertFails(batch.commit());
+  });
+  it('cannot put a unit back in service, even with a denial', async () => {
+    await pendingRequest({ taxiId: 'TX-02' });
+    const db = as(ASSISTANT);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'taxis', 'TX-02'), { status: 'Active Unit', groundedByClockInRequestId: 'req1' });
+    batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'x'));
+    await assertFails(batch.commit());
+  });
+  it("cannot raise a defect report that isn't on the denied request", async () => {
+    await pendingRequest();
+    const db = as(ASSISTANT);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'maintenance_logs', 'defOther'), { priorityLevel: 'High', clockInRequestId: 'req1' });
+    batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'x'));
+    await assertFails(batch.commit());
+  });
+  it('cannot change other defect report fields, or raise one outside a denial', async () => {
+    await pendingRequest();
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'maintenance_logs', 'defA'), { priorityLevel: 'High', clockInRequestId: 'req1' }));
+    const db = as(ASSISTANT);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'maintenance_logs', 'defA'), { priorityLevel: 'High', clockInRequestId: 'req1', status: 'Dismissed' });
+    batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'x'));
+    await assertFails(batch.commit());
+  });
+  it('cannot file a Garage report outside a denial, or for another driver or unit', async () => {
+    await pendingRequest();
+    await assertFails(setDoc(doc(collection(as(ASSISTANT), 'maintenance_logs')), denialReport()));
+    for (const wrong of [{ reportedByDriverId: DRIVER_B }, { taxiId: 'TX-02' }, { issueTitle: 'Something else' }, { status: 'InProgress' }]) {
+      const db = as(ASSISTANT);
+      const batch = writeBatch(db);
+      batch.set(doc(collection(db, 'maintenance_logs')), denialReport(wrong));
+      batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'x'));
+      await assertFails(batch.commit());
+    }
   });
   it('cannot resolve a fuel flag', async () => {
     await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'fuel_logs', 'fuelB'), { verificationStatus: 'Flagged' }));
     await assertFails(updateDoc(doc(as(ASSISTANT), 'fuel_logs', 'fuelB'), { verificationStatus: 'Verified', fuelLogDetails: 'Resolved: ok' }));
   });
-  it('cannot send a unit to the Garage', async () =>
-    assertFails(updateDoc(doc(as(ASSISTANT), 'taxis', 'TX-01'), { status: 'Under Maintenance' })));
   it('can record the automatic credit that comes with a Quick Ledger payment', async () =>
     assertSucceeds(addDoc(collection(as(ASSISTANT), 'debt_adjustments'), {
       driverId: DRIVER_A, amount: -150, reason: 'Automatic credit from a debt payment.', timestamp: serverTimestamp(), transactionId: 'tx1' })));
