@@ -3219,10 +3219,22 @@ width: auto;
 
 /* Garage / Maintenance Scheduler */
 
+/* The section jump links and the History button share one sticky row. */
 .garage-toolbar {
+position: sticky;
+top: 0;
+z-index: 5;
 display: flex;
-justify-content: flex-end;
-margin-bottom: 0.8rem;
+align-items: center;
+gap: 0.75rem;
+margin-bottom: 1rem;
+padding: 0.6rem 0.2rem;
+background: var(--surface);
+}
+
+.garage-history-btn {
+margin-left: auto;
+flex-shrink: 0;
 }
 
 .garage-section {
@@ -3235,15 +3247,10 @@ scroll-margin-top: 3.5rem;
 /* Quick-jump links to each section (BETA-088/090: the page is four long lists stacked
    vertically, and scrolling to find Create Ticket or Start Now was reported as hard to find). */
 .garage-section-nav {
-position: sticky;
-top: 0;
-z-index: 5;
 display: flex;
 flex-wrap: wrap;
 gap: 0.5rem;
-margin-bottom: 1rem;
-padding: 0.6rem 0.2rem;
-background: var(--surface);
+min-width: 0;
 }
 
 .garage-section-nav a {
