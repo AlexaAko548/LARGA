@@ -1,0 +1,177 @@
+# ML Kit reads of tests/license.jfif, one pass per section,
+# captured from the emulator with the DEBUG OcrBatchReceiver (LicenseScanPipeline, LARGA-LIC lines).
+=== pass original
+REPUBLIC OF THE PHILIPPINES
+DEPARTMENT OF TRANSPORTATION
+LAND TRANSPORTATION OFFICE
+DRIVER'S LICENSE
+NGZAALEAROSE NSa
+Signature of Licensee
+Last Nane. First Name. Middie Name
+MINOZA, ALEXA ROSE INSO
+Naticnality Sex. Date of Birth
+F 2005/09/27
+CEBU 200
+ACense
+GO1-25-0937
+Blood Type
+0+
+NASPIT, TALAMBAN, CEBU CITY (CAPITAL),
+DL Codes
+A,B,B 1,B2
+Expiration Date
+2030/09/27
+Eyes Co:
+BiACK
+Ủondirions
+AANSPURA
+Weight (kg) Height(m)
+70
+tmentof
+1.60
+Agency Code
+GO1
+MARKUg V. LACANILAO
+Assistant Secretary
+=== pass ColorMax
+REPUBLIC OF THE PHILIPPINES
+DEPARTMENT OF TRANSPORTATION
+HLAND TRANSPORTATION OFFICE
+DRIVER'S LICENSE
+372NOZA,ACEXA RISE NSO
+Signature of Licensee
+Last name. First Name. Middie Name
+MINOA, ALEXA ROSE INSO
+Naicnality Se>. Date of Birth
+2005/09/27
+CEB9
+Ícensei
+NBEPIT, TALAMBAN, CEBU CITY (CAPITAL),
+G01-25-Ca937
+rADdlood Type
+00
+DL Codee
+A,B,B1,B2
+KRANSPORTATION
+70
+Eyes Cok:
+ACK
+Üondirions
+imer
+Weight (kg) Height(m)
+1.60
+Expiratkon Data Agency Code
+2030/09/27
+GO1
+MARKUSN. LACANILAO
+Assistant Secretary
+=== pass Gray
+REPUBLIC OF THE PHILIPPINES
+DEPARTMENT OF TRANSPORTATIONE
+LAND TRANSPORTATION OFFICE
+22NOTAALEKAROSE SO
+Signature of Licensee
+DRIVER'S LICENSE
+Last Name, First Name. Middie Name
+MINOZA, ALEXA ROSE INSO
+Naticnality Se>. Date of Birth
+2005/09/27
+Cense
+reNBlood Type
+G0125-GO37 2030/09/27
+O+
+NESIPIT, TALAMBAN, CEBU CITY (CAPITAL),
+CEB9 00
+DL Codes
+A,B,B 1,b2
+ACK
+TRANSP ORTATIO
+70
+Conditions
+ent of T Transporta
+Weight (kg) Height(m)
+1.60
+tmer
+Expiration Data Agency Code
+GO1
+MARKUSN. LACANILAO
+Assistant Secretary
+=== pass GraySharp
+REPUBLIC OF THE PHILIPPINES
+DEPARTMENT OF TRANSPORTATION
+LAND TRANSPORTATION OFFICE
+DRIVER'S LICENSE
+7NOZA ALEXAROSE NSO
+Signature of Licensee
+Last Name. First Name. Middte Name
+MINGZA, ALEXA ROSE INSO
+Naticnality Se>. Date of Birth
+2005/09/27
+raDlood Type
+G01-25-37 2030/09/27
+DL Codes
+A,B,B1,B2
+pep
+70
+ACK
+Londitions
+RANSPOA TATIO,
+Rment of Tras
+Weight (kg) Height(m)
+NERPIT, TALAMBAN, CEBU CITY (CAPITAL),
+BU 00
+pot
+1.60
+Expiration Data Agency Code
+GO1
+MARKUSN. LACANILAO
+Assistant Secretary
+=== pass RowColorMax
+ic9nse
+ExpratIKon Di
+GO1-25-C37 2030/09
+=== pass RowGray
+tConse
+ExpratIon Di
+G01-25-0837 2030/097
+=== pass RowGraySharp
+ense
+ExpratIon De
+G01-25-09837 2030/09
+=== pass RowColorMaxWide
+Expration D
+GO1-25-C37 2030/09
+=== pass Contrast
+REPUBLIC OF THE PHILIPPINES
+DEPARTMENT OF TRANSPORTATION
+LAND TRANSPORTATION OFFICE
+DRIVER'S LICENSE
+7NOZAACE XA ROSE SO
+Signature of Licensee
+Last Name, First Name. Middie Name
+MINOZA, ALEXA ROSE INSO
+Naticnality Se>. Date of Birth
+2005/09/27
+C9nse
+Expiration Data
+GO125-Goa37 2030/09/27
+ED Blood Type
+O+
+NE8PIT, TALAMBAN, CEBU CITY (CAPITAL),
+EBU 00
+DL Codes
+A,B,B1,B2
+Eyes Cos
+8ACK
+TRANS ORTATIo
+Condirions
+0AMD
+Weight (kg)
+70
+ment o Transp
+Height(m)
+1.60
+Agency Code
+G01
+MARKUSN. LACANILAO
+Assistant Secretary

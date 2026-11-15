@@ -80,6 +80,99 @@ export async function readImage(input) {
     }
 }
 
+// Copy of a driver's license with the shiny security seal and glare filtered out - the same
+// filter as the phone's license scan (LARGA.SharedCore OcrGlareFilter, ColorMax mode):
+// 1. each pixel's brightest channel: black ink stays dark, the seal's colours and the card's
+//    pastel print turn white;
+// 2. divided by a heavily blurred copy (the local paper brightness), so shadows, glare
+//    patches and faded print all end up as dark ink on even white;
+// 3. the 1st-99th percentile stretched to full black-white.
+async function glareFiltered(file) {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(3, 2400 / Math.max(bitmap.width, bitmap.height));
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close();
+
+    const image = ctx.getImageData(0, 0, w, h);
+    const px = image.data;
+    const ink = new Float32Array(w * h);
+    for (let i = 0, p = 0; i < ink.length; i++, p += 4) {
+        ink[i] = Math.max(px[p], px[p + 1], px[p + 2]);
+        px[p] = px[p + 1] = px[p + 2] = ink[i];
+    }
+    ctx.putImageData(image, 0, 0);
+
+    // Paper brightness: shrunk 8x, blurred, scaled back up (smooth, and fast).
+    const sw = Math.max(1, Math.round(w / 8));
+    const sh = Math.max(1, Math.round(h / 8));
+    const small = document.createElement("canvas");
+    small.width = sw;
+    small.height = sh;
+    const sctx = small.getContext("2d");
+    sctx.filter = `blur(${Math.max(2, Math.round(Math.max(sw, sh) / 40))}px)`;
+    sctx.drawImage(canvas, 0, 0, sw, sh);
+    const paperCanvas = document.createElement("canvas");
+    paperCanvas.width = w;
+    paperCanvas.height = h;
+    const pctx = paperCanvas.getContext("2d", { willReadFrequently: true });
+    pctx.imageSmoothingQuality = "high";
+    pctx.drawImage(small, 0, 0, w, h);
+    const paper = pctx.getImageData(0, 0, w, h).data;
+
+    const flat = new Float32Array(ink.length);
+    const histogram = new Uint32Array(1024);
+    for (let i = 0; i < flat.length; i++) {
+        flat[i] = Math.min(1.5, ink[i] / Math.max(paper[i * 4], 8));
+        histogram[Math.min(1023, Math.floor(flat[i] / 1.5 * 1023))]++;
+    }
+    const at = (fraction) => {
+        let seen = 0;
+        const target = flat.length * fraction;
+        for (let i = 0; i < 1024; i++) {
+            seen += histogram[i];
+            if (seen > target) {
+                return i * 1.5 / 1023;
+            }
+        }
+        return 1.5;
+    };
+    const low = at(0.01);
+    const range = Math.max(at(0.99) - low, 0.05);
+    for (let i = 0, p = 0; i < flat.length; i++, p += 4) {
+        const v = Math.max(0, Math.min(255, (flat[i] - low) / range * 255));
+        px[p] = px[p + 1] = px[p + 2] = v;
+    }
+    ctx.putImageData(image, 0, 0);
+    return canvas;
+}
+
+// One more OCR pass over the glare-filtered copy of the selected file - Driver & Shifts calls it
+// only when the first two passes didn't read the license number or expiry cleanly. Returns the
+// text, or null if no file is selected.
+export async function readFiltered(input) {
+    const file = input?.files?.[0];
+    if (!file) {
+        return null;
+    }
+
+    const Tesseract = await loadTesseract();
+    const worker = await Tesseract.createWorker("eng");
+    try {
+        const result = await worker.recognize(await glareFiltered(file));
+        return result.data.text ?? "";
+    } finally {
+        await worker.terminate();
+    }
+}
+
 export function releasePreview(url) {
     if (url) {
         URL.revokeObjectURL(url);

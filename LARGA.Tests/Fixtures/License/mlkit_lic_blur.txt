@@ -1,0 +1,63 @@
+# ML Kit reads of tests/lic_blur (degraded copy of license2.jfif), one pass per section,
+# captured from the emulator with the DEBUG OcrBatchReceiver (LicenseScanPipeline, LARGA-LIC lines).
+=== pass original
+REPUBLIC OF THE PHILIPPINES
+DEPARTMENT OF TRANSPORTATION
+LAND TRANSPORTATION OFFICE
+DRIVERS LICENSE
+Signature of Licensee
+Last Name. First Name. Middle Name
+MIÑOZA, ALEXA ROSE INSo
+Nationality Sex
+PHL
+Address
+CEBU, 6000
+License Ne
+F
+NASIPIT, TALAM BAN, CEBU CITY (CAPITAL),
+Blood Type
+Date of Bith
+2005/09/27
+DL Codes
+A,B,B1,82
+Expiration Date
+GO1-25-009637 2030/09 /27
+Weight (kg Heightim)
+70
+1.60
+Eyes Color
+BLACK
+Conditions
+Agency Cade
+G01
+MARKU. LÄCANILAO
+Assitant Secretary
+=== pass ColorMax
+REPUBLIC OF THE PHILIPPINES
+DEPARTMENT OF TRANSPORTATION
+AND TRANSPORTATION OFFICE
+DRIVERs LICENSE
+Signature of Licensee
+Last Name. Firt Name Middie Name
+MIÑOZA, ALEXA ROSE INSO
+Nstionality Sex Date of Birh
+PHL
+F z005/09/27
+Address
+NASIPIT, TALAMBAN. CEBU CITY (CAPITAL),
+CEBU, 6000
+License No
+Blood Type
+Weight (kg) Heightim
+70
+1.60
+GO 1-25-009637 2030/09/27
+tyes Color
+BLACK
+DL Codes
+A,B,B1,82
+Expiration Date Agency Code
+Conditions
+GO1
+MARKU. LẮCANILAo
+Assstant Secretary

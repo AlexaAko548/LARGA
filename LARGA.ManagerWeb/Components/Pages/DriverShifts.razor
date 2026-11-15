@@ -1037,6 +1037,10 @@ else
                                     <div class="field-error">@_licenseValidation.NameError</div>
                                 }
                                 <div class="license-scan-field"><span>License No.</span><strong>@(_licenseScan.LicenseNumber ?? "—")</strong></div>
+                                @if (_licenseScan.LicenseNumber is not null && _licenseScan.LicenseNumberUncertain)
+                                {
+                                    <div class="field-error"><Icon Name="triangle-alert" /> Glare over the seal made this hard to read - check it against the photo, and fix it under Edit details if it's wrong.</div>
+                                }
 
                                 <div class="license-scan-field">
                                     <span>Date of Birth</span>
@@ -2095,6 +2099,20 @@ else
             _scannedLicensePhoto = photo;
             _scannedLicensePhotoType = string.IsNullOrEmpty(e.File.ContentType) ? "image/jpeg" : e.File.ContentType;
             _licenseScan = LtoLicenseParser.ParseBest(ocr.Texts);
+
+            // The shiny seal and glare sit on the License No. row. When the number or expiry
+            // didn't read cleanly, add a pass over a copy with the seal's colours filtered out
+            // and the lighting evened (ocr.js readFiltered) - only then, as it's another few seconds.
+            if (_licenseScan.IsPhilippineLicense
+                && (_licenseScan.LicenseNumber is null || _licenseScan.LicenseNumberUncertain || _licenseScan.ExpiryDate is null))
+            {
+                string? filtered = await _ocrModule.InvokeAsync<string?>("readFiltered", TimeSpan.FromMinutes(2), _licenseInput!.Element);
+                if (!string.IsNullOrWhiteSpace(filtered))
+                {
+                    _licenseScan = LtoLicenseParser.ParseBest(ocr.Texts.Append(filtered));
+                }
+            }
+
             _licenseValidation = LtoLicenseParser.Validate(_licenseScan, PhilippineTime.Now, _selectedProfile?.FullName);
 
             if (_licenseValidation.IsValid)

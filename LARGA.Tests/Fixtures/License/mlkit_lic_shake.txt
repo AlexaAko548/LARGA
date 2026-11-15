@@ -1,0 +1,99 @@
+# ML Kit reads of tests/lic_shake (degraded copy of license2.jfif), one pass per section,
+# captured from the emulator with the DEBUG OcrBatchReceiver (LicenseScanPipeline, LARGA-LIC lines).
+=== pass original
+REPUBLIC OF THE PHILIPPINES
+DEPARTMENT OF TRANSPORTATION
+LAND TRANSPORTATION OFFICE
+DRIVERS LICENSE
+Signature of Licensee
+Last Name. First Name. Middie Name
+MIÑOZA, ALEXA ROSE INSo
+Nationality Sex
+PHL
+Address
+CEBU, 6000
+License No
+F
+NASIPIT, TALAM BAN. CEBU CITY (CAPITAL),
+Blood Type
+0+
+Date of Birth
+2005/09/27
+DL Codes
+A,B,B1,B2
+GO 1-25-009637 2030/09/27
+Weight (kg Heightim}
+70
+1.60
+Expiration Date Agency Code
+Eyes Color
+BLACK
+Conditions
+1
+GO1
+MARKU. LÄCANILAO
+Assistant Secretary
+=== pass ColorMax
+REPUBLIC OF THE PHILIPPINES
+DEPARTMENT OF TRAANSPORTATION
+LAND TRANSPORTATON OFFICE
+DRIVERs LICENSE
+Signature of Licensee
+Last Name. First Name. Middle Name
+MIÑOZA, ALEXA ROSE INSO
+Nationality Sex Date of Birth
+PHL
+F 2005/09/27
+Address
+NASIPIT, TALAMBAN, CEBU CITY (CAPITAL),
+CEBU, 6000
+License No.
+Blood Type
+0+
+GO 1-25-009637 2030/09/27
+DL Codes
+A,B,B1,B2
+Éxpiration Date
+Eyes Color
+BLACK
+Weight (kg Heightim)
+70
+1.60
+Conditions
+1
+Agency Code
+GO1
+MARKUS. LÃCANILAO
+Assistant Secretary
+=== pass Gray
+REPUBLIC OF THE PHILIPPINES
+DEPARTMENT OF TRANSPORTATION
+LAND TRANSPORTATION OFFICE
+DRIVERs LICENSE
+Signature of Licensee
+Last Name. First Name. Middie Name
+MIÑOZA, ALEXA ROSE INSo
+Nationality Sex Date of Birth
+PHL
+F 2005/09/27
+Address
+NASIPIT, TALAMBAN, CEBU CITY (CAPITAL),
+CEBU, 6000
+License No.
+Blood Type
+0+
+GO1-25-009637 2030/09 /27
+DL Codes
+A,B,B1,B2
+Expiration Date
+Eyes Color
+BLACK
+Weight (kg Heightim)
+70
+1.60
+Conditions
+1
+Agency Code
+GO1
+MARKUS. LÄCANILAO
+Assistant Secretary

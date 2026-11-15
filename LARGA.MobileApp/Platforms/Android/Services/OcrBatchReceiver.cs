@@ -41,6 +41,24 @@ public class OcrBatchReceiver : BroadcastReceiver
             string name = Path.GetFileName(photo);
             try
             {
+                // Driver's license photos (lic*.jpg) go through the license scan's own passes and
+                // voting, logged as LARGA-LIC lines, with the final result last.
+                if (name.StartsWith("lic", StringComparison.OrdinalIgnoreCase))
+                {
+                    var outcome = await LicenseScanPipeline.RunAsync(ocr, photo);
+                    var r = outcome.Result;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"LARGA-LIC final file={name} passes={outcome.Passes} number={r.LicenseNumber ?? "-"}" +
+                        $"{(r.LicenseNumberUncertain ? " (check)" : "")} expiry={r.ExpiryDate:yyyy-MM-dd}" +
+                        $"{(r.ExpiryUncertain ? " (check)" : "")} name={r.FullName ?? "-"} dl={r.DlCodes ?? "-"} sex={r.Sex ?? "-"}");
+
+                    // The face crop Confirm & Save runs (profile picture) - ML Kit face detection.
+                    string? face = await new AndroidFaceCropService().CropDriverFaceAsync(photo);
+                    System.Diagnostics.Debug.WriteLine($"LARGA-LIC face file={name} cropped={(face != null ? new FileInfo(face).Length + " bytes" : "no face")}");
+                    if (face != null) File.Delete(face);
+                    continue;
+                }
+
                 System.Diagnostics.Debug.WriteLine($"LARGA-OCR file name={name} pass=original");
                 await ocr.ExtractTextBlocksAsync(photo);
 
