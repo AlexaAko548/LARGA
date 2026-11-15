@@ -113,7 +113,7 @@
 
 	<ItemGroup Condition="'$(TargetFramework)' == 'net9.0-android'">
 		<PackageReference Include="Xamarin.Google.MLKit.TextRecognition" Version="116.0.0.9" />
-		<PackageReference Include="Xamarin.Google.MLKit.FaceDetection" Version="116.0.0" />
+		<PackageReference Include="Xamarin.Google.MLKit.FaceDetection" Version="116.1.6" />
 	</ItemGroup>
 
 	<ItemGroup>
