@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using LARGA.MobileApp.Services;
+using LARGA.SharedCore;
 using LARGA.SharedCore.Services;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
@@ -87,7 +88,7 @@ public class ProfileViewModel : BindableObject
         set { _shiftPunctualityDisplay = value; OnPropertyChanged(); }
     }
 
-    private string _damageHistoryDisplay = "0 Incidents";
+    private string _damageHistoryDisplay = "0 reports";
     public string DamageHistoryDisplay
     {
         get => _damageHistoryDisplay;
@@ -278,19 +279,28 @@ public class ProfileViewModel : BindableObject
 
                 var reliability = ResolvePaymentReliability(data, currentDebt);
                 var punctuality = ResolveShiftPunctuality(data);
-                var damage = ResolveDamageHistory(data.DamageHistory);
 
                 SetPropertyOnMainThread(() =>
                 {
                     if (reliability is not null) PaymentReliability = reliability;
                     ShiftPunctualityDisplay = punctuality;
-                    DamageHistoryDisplay = damage;
                 });
             }
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"[ProfileViewModel] User Performance Load Error: {ex.Message}");
+        }
+
+        // Damage History: counted from the records, the same way as the web's "Accidents/Damage".
+        try
+        {
+            int damage = await CountDamageHistoryAsync(uid);
+            SetPropertyOnMainThread(() => DamageHistoryDisplay = DescribeDamageHistory(damage));
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ProfileViewModel] Damage History Load Error: {ex.Message}");
         }
 
         // Try standalone driverPerformance collection metrics
@@ -317,11 +327,6 @@ public class ProfileViewModel : BindableObject
                         var punctuality = data.ShiftPunctuality.Value;
                         if (punctuality <= 1) punctuality *= 100;
                         ShiftPunctualityDisplay = $"{Math.Clamp(Math.Round(punctuality), 0, 100)}%";
-                    }
-
-                    if (data.DamageHistory != null)
-                    {
-                        DamageHistoryDisplay = ResolveDamageHistory(data.DamageHistory);
                     }
                 });
             }
@@ -370,10 +375,57 @@ public class ProfileViewModel : BindableObject
         return $"{Math.Clamp(Math.Round(value), 0, 100)}%";
     }
 
-    private static string ResolveDamageHistory(long? damageHistory)
+    /// <summary>
+    /// Damage History over the same period as the web profile (DriverManagementService.PerformanceWindowDays,
+    /// Philippine days): accident / damage reports logged from this driver's shifts, not dismissed
+    /// (DriverPerformanceCalculator.IsDamageIncident - the web's "Accidents/Damage"). Replaces the old
+    /// users.damageHistory field, which nothing ever wrote. firestore.rules let a driver read their own
+    /// shifts and the maintenance log.
+    /// </summary>
+    private static async Task<int> CountDamageHistoryAsync(string uid)
     {
-        var incidents = damageHistory ?? 0;
-        return incidents == 1 ? "1 Incident" : $"{incidents} Incidents";
+        DateTime fromPh = PhilippineTime.Now.Date.AddDays(1 - DriverManagementService.PerformanceWindowDays);
+        DateTime nowUtc = DateTime.UtcNow;
+
+        var warnings = new System.Collections.Generic.List<string>();
+        var shifts = await QuickLedgerService.ReadShiftsAsync(warnings, uid);
+        var shiftIds = new System.Collections.Generic.HashSet<string>();
+        foreach (var shift in shifts)
+        {
+            if (shift.StartUtc is not DateTime start || start > nowUtc || start.ToPhilippineTime().Date < fromPh) continue;
+            if (!string.IsNullOrEmpty(shift.DocumentId)) shiftIds.Add(shift.DocumentId);
+            if (!string.IsNullOrEmpty(shift.ShiftId)) shiftIds.Add(shift.ShiftId);
+        }
+        if (shiftIds.Count == 0) return 0;
+
+        var reports = await CrossFirebaseFirestore.Current
+            .GetCollection("maintenance_logs")
+            .WhereEqualsTo("maintenanceType", "Accident Correction")
+            .GetDocumentsAsync<AccidentReportProxy>();
+
+        int count = 0;
+        foreach (var doc in reports.Documents)
+        {
+            if (doc.Data is { } report
+                && DriverPerformanceCalculator.IsDamageIncident(
+                    LARGA.Shared.Models.Entities.MaintenanceType.AccidentCorrection,
+                    report.ShiftId?.ToString(), report.Status?.ToString(), shiftIds))
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static string DescribeDamageHistory(int reports) => reports == 1 ? "1 report" : $"{reports} reports";
+
+    public class AccidentReportProxy
+    {
+        [FirestoreProperty("shiftId")]
+        public object? ShiftId { get; set; }
+
+        [FirestoreProperty("status")]
+        public object? Status { get; set; }
     }
 
     public class DriverProfileProxy
@@ -407,9 +459,6 @@ public class ProfileViewModel : BindableObject
 
         [FirestoreProperty("shiftPunctualityRate")]
         public double? ShiftPunctualityRate { get; set; }
-
-        [FirestoreProperty("damageHistory")]
-        public int? DamageHistory { get; set; }
     }
 
     public class DriverPerformanceProxy
@@ -419,8 +468,5 @@ public class ProfileViewModel : BindableObject
 
         [FirestoreProperty("shiftPunctuality")]
         public double? ShiftPunctuality { get; set; }
-
-        [FirestoreProperty("damageHistory")]
-        public int? DamageHistory { get; set; }
     }
 }

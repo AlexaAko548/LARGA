@@ -298,8 +298,11 @@
                                 <strong>@Pct(driver.Performance.PunctualityPercent)</strong>
                                 <span title="Boundaries paid in full by the next day">Paid on time</span>
                                 <strong>@Pct(driver.Performance.PaymentReliabilityPercent)</strong>
-                                <span title="Accident / damage reports from their shifts">Incidents</span>
-                                <strong>@driver.IncidentCount</strong>
+                                @* Shown, not ranked: only attendance, punctuality and payment feed the order. *@
+                                <span title="Accident / damage reports from their shifts (dismissed reports and routine defects not counted). Not part of the ranking.">Accidents/Damage</span>
+                                <strong>@driver.Performance.DamageIncidents</strong>
+                                <span title="SOS alerts they raised. Not part of the ranking - an SOS isn't necessarily the driver's fault.">SOS</span>
+                                <strong>@driver.Performance.SosAlerts</strong>
                                 <span title="Total paid toward boundaries from their completed shifts in the last @FleetReportingService.StandingsWindowDays days">Boundaries Remitted</span>
                                 <strong>₱ @driver.BoundariesRemitted.ToString("#,##0.00")</strong>
                             </div>

@@ -114,13 +114,14 @@ public class DriverNotifier
     /// driver app's pre_shift_channel; tapping it opens the pre-shift inspection. False when the driver
     /// has no registered phone or the push failed (logged). Never throws.
     /// </summary>
-    public async Task<bool> SendPreShiftReminderAsync(string driverId, string taxiId)
+    /// <param name="unitLabel">What the message calls the unit (PreShiftReminderRules.UnitLabel: the plate).</param>
+    public async Task<bool> SendPreShiftReminderAsync(string driverId, string taxiId, string unitLabel, DateTime philippineNow)
     {
         try
         {
             var data = new Dictionary<string, string> { ["type"] = PreShiftReminderRules.PushType, ["taxiId"] = taxiId };
             (int sent, _) = await _tokens.SendToUsersAsync(new[] { driverId },
-                device => PushTokenStore.NotificationMessage(device, PreShiftReminderRules.Title, PreShiftReminderRules.Body(taxiId),
+                device => PushTokenStore.NotificationMessage(device, PreShiftReminderRules.Title, PreShiftReminderRules.Body(unitLabel, philippineNow),
                     data, PreShiftReminderRules.AndroidChannelId),
                 platforms: p => p == PushTokenRules.AndroidPlatform);
             if (sent == 0)
