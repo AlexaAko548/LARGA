@@ -7,6 +7,7 @@
 // they FAIL against the current firestore.rules and should pass once the matching SECURITY_AUDIT.md fix is applied.
 
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 const {
   initializeTestEnvironment,
@@ -15,7 +16,7 @@ const {
 } = require('@firebase/rules-unit-testing');
 const {
   doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, getDocs, query, where,
-  serverTimestamp, Timestamp, writeBatch, deleteField,
+  serverTimestamp, Timestamp, writeBatch, deleteField, collectionGroup,
 } = require('firebase/firestore');
 
 const PROJECT_ID = 'demo-larga-rules';
@@ -43,6 +44,10 @@ function lastPhSixAm() {
 const atMs = (ms) => Timestamp.fromDate(new Date(ms));
 // A Unix-milliseconds number h hours ago (chats/{driverId}.lastReadAtMs entries).
 const msAgo = (h) => Math.floor(Date.now() - h * 3600 * 1000);
+// users/{uid}/fcmTokens/{SHA-256 of the token, upper-case hex} (SharedCore PushTokenRules.DocId).
+const tokenId = (token) => crypto.createHash('sha256').update(token, 'utf8').digest('hex').toUpperCase();
+const tokenDoc = (asUid, ownerUid, token) => doc(as(asUid), 'users', ownerUid, 'fcmTokens', tokenId(token));
+const tokenData = (token, extra) => ({ token, platform: 'android', deviceId: 'dev1', lastSeen: serverTimestamp(), ...extra });
 
 async function seed(extra) {
   await env.withSecurityRulesDisabled(async (ctx) => {
@@ -485,18 +490,123 @@ describe('Assistant Manager in the mobile app', () => {
   });
   it("a driver still cannot read another driver's chat", async () =>
     assertFails(getDocs(collection(as(DRIVER_B), 'chats', DRIVER_A, 'messages'))));
-  it('cannot approve or deny a clock-in request', async () => {
-    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'clockin_requests', 'req1'), { driverId: DRIVER_A, status: 'Pending' }));
-    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'Approved' }));
-    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'Denied' }));
-    await assertSucceeds(updateDoc(doc(as(MANAGER), 'clockin_requests', 'req1'), { status: 'Approved' }));
+  // Flagged clock-ins: the Assistant Manager decides them too (2026-11-15) - the same writes the phone's
+  // Alert Center makes (AlertCenterViewModel.ApproveClockInAsync / DenyClockInAsync).
+  async function pendingRequest(extra) {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'maintenance_logs', 'defA'), { taxiId: 'TX-01', reportedByDriverId: DRIVER_A, status: 'Reported', priorityLevel: 'Low' });
+      await setDoc(doc(db, 'maintenance_logs', 'defOther'), { taxiId: 'TX-02', reportedByDriverId: DRIVER_B, status: 'Reported', priorityLevel: 'Low' });
+      await setDoc(doc(db, 'clockin_requests', 'req1'), { driverId: DRIVER_A, taxiId: 'TX-01', status: 'Pending', defectReportIds: 'defA', ...extra });
+    });
+  }
+  const decision = (status, note) => ({ status, decidedAt: serverTimestamp(), managerNote: note });
+  const denialReport = (extra) => ({
+    taxiId: 'TX-01', maintenanceType: 'Breakdown Repair', issueTitle: 'Failed pre-shift inspection',
+    issueDescription: 'Clock-in denied.', dateLogged: serverTimestamp(), priorityLevel: 'High',
+    reportedByDriverId: DRIVER_A, status: 'Reported', clockInRequestId: 'req1', ...extra });
+
+  it('can approve a flagged clock-in', async () => {
+    await pendingRequest();
+    await assertSucceeds(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), decision('Approved', '')));
+  });
+  it('can deny a flagged clock-in with a note', async () => {
+    await pendingRequest();
+    await assertSucceeds(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), decision('Denied', 'Bring it to the garage')));
+  });
+  it('cannot deny a clock-in without a note', async () => {
+    await pendingRequest();
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), decision('Denied', '  ')));
+  });
+  it('cannot set any other clock-in status (ClockedIn, Cancelled, back to Pending)', async () => {
+    await pendingRequest();
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'ClockedIn' }));
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'Cancelled' }));
+    await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'clockin_requests', 'req1'), { status: 'Denied' }));
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { status: 'Pending' }));
+  });
+  it('cannot change a decided clock-in', async () => {
+    await pendingRequest({ status: 'Denied' });
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), decision('Approved', '')));
+  });
+  it('cannot change other clock-in fields with the decision', async () => {
+    await pendingRequest();
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'clockin_requests', 'req1'), { ...decision('Approved', ''), taxiId: 'TX-02' }));
+  });
+  it('can deny with the full Garage batch: defects to High, new report, unit to Under Maintenance', async () => {
+    await pendingRequest();
+    const db = as(ASSISTANT);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'maintenance_logs', 'defA'), { priorityLevel: 'High', clockInRequestId: 'req1' });
+    batch.set(doc(collection(db, 'maintenance_logs')), denialReport(), { merge: true });
+    batch.update(doc(db, 'taxis', 'TX-01'), { status: 'Under Maintenance', groundedByClockInRequestId: 'req1' });
+    batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'Brakes first'));
+    await assertSucceeds(batch.commit());
+  });
+  it('the Manager can still deny with the full Garage batch', async () => {
+    await pendingRequest();
+    const db = as(MANAGER);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'maintenance_logs', 'defA'), { priorityLevel: 'High', clockInRequestId: 'req1' });
+    batch.update(doc(db, 'taxis', 'TX-01'), { status: 'Under Maintenance', groundedByClockInRequestId: 'req1' });
+    batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'Brakes first'));
+    await assertSucceeds(batch.commit());
+  });
+  it('cannot send a unit to the Garage outside a clock-in denial', async () => {
+    await pendingRequest();
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'taxis', 'TX-01'), { status: 'Under Maintenance' }));
+    // Naming the request isn't enough: the same batch has to deny it.
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'taxis', 'TX-01'), { status: 'Under Maintenance', groundedByClockInRequestId: 'req1' }));
+  });
+  it("cannot ground a different unit than the denied request's", async () => {
+    await pendingRequest();
+    await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'taxis', 'TX-02'), { status: 'Active Unit' }));
+    const db = as(ASSISTANT);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'taxis', 'TX-02'), { status: 'Under Maintenance', groundedByClockInRequestId: 'req1' });
+    batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'x'));
+    await assertFails(batch.commit());
+  });
+  it('cannot put a unit back in service, even with a denial', async () => {
+    await pendingRequest({ taxiId: 'TX-02' });
+    const db = as(ASSISTANT);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'taxis', 'TX-02'), { status: 'Active Unit', groundedByClockInRequestId: 'req1' });
+    batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'x'));
+    await assertFails(batch.commit());
+  });
+  it("cannot raise a defect report that isn't on the denied request", async () => {
+    await pendingRequest();
+    const db = as(ASSISTANT);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'maintenance_logs', 'defOther'), { priorityLevel: 'High', clockInRequestId: 'req1' });
+    batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'x'));
+    await assertFails(batch.commit());
+  });
+  it('cannot change other defect report fields, or raise one outside a denial', async () => {
+    await pendingRequest();
+    await assertFails(updateDoc(doc(as(ASSISTANT), 'maintenance_logs', 'defA'), { priorityLevel: 'High', clockInRequestId: 'req1' }));
+    const db = as(ASSISTANT);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'maintenance_logs', 'defA'), { priorityLevel: 'High', clockInRequestId: 'req1', status: 'Dismissed' });
+    batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'x'));
+    await assertFails(batch.commit());
+  });
+  it('cannot file a Garage report outside a denial, or for another driver or unit', async () => {
+    await pendingRequest();
+    await assertFails(setDoc(doc(collection(as(ASSISTANT), 'maintenance_logs')), denialReport()));
+    for (const wrong of [{ reportedByDriverId: DRIVER_B }, { taxiId: 'TX-02' }, { issueTitle: 'Something else' }, { status: 'InProgress' }]) {
+      const db = as(ASSISTANT);
+      const batch = writeBatch(db);
+      batch.set(doc(collection(db, 'maintenance_logs')), denialReport(wrong));
+      batch.update(doc(db, 'clockin_requests', 'req1'), decision('Denied', 'x'));
+      await assertFails(batch.commit());
+    }
   });
   it('cannot resolve a fuel flag', async () => {
     await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'fuel_logs', 'fuelB'), { verificationStatus: 'Flagged' }));
     await assertFails(updateDoc(doc(as(ASSISTANT), 'fuel_logs', 'fuelB'), { verificationStatus: 'Verified', fuelLogDetails: 'Resolved: ok' }));
   });
-  it('cannot send a unit to the Garage', async () =>
-    assertFails(updateDoc(doc(as(ASSISTANT), 'taxis', 'TX-01'), { status: 'Under Maintenance' })));
   it('can record the automatic credit that comes with a Quick Ledger payment', async () =>
     assertSucceeds(addDoc(collection(as(ASSISTANT), 'debt_adjustments'), {
       driverId: DRIVER_A, amount: -150, reason: 'Automatic credit from a debt payment.', timestamp: serverTimestamp(), transactionId: 'tx1' })));
@@ -506,8 +616,8 @@ describe('Assistant Manager in the mobile app', () => {
     assertSucceeds(addDoc(collection(as(ASSISTANT), 'audit_logs'), { userId: ASSISTANT, actionType: 'PaymentRecorded', timestamp: serverTimestamp() })));
   it("cannot write an audit entry in someone else's name", async () =>
     assertFails(addDoc(collection(as(ASSISTANT), 'audit_logs'), { userId: MANAGER, actionType: 'PaymentRecorded', timestamp: serverTimestamp() })));
-  it('can save their own FCM token (SOS pushes)', async () =>
-    assertSucceeds(updateDoc(doc(as(ASSISTANT), 'users', ASSISTANT), { fcmToken: 'tok', tokenUpdatedAt: serverTimestamp() })));
+  it('can register their own push token (SOS and chat pushes)', async () =>
+    assertSucceeds(setDoc(tokenDoc(ASSISTANT, ASSISTANT, 'tok-asst'), tokenData('tok-asst'))));
   it('cannot change system_configs (the SOS allowlist is kept by ManagerWeb)', async () =>
     assertFails(updateDoc(doc(as(ASSISTANT), 'system_configs', 'global'), { managerPhoneNumbers: ['+639170000000'] })));
 });
@@ -537,9 +647,9 @@ describe('mustChangePassword (forced password change)', () => {
     await flag(DRIVER_B, true);
     await assertFails(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_B), { mustChangePassword: false }));
   });
-  it('the FCM token can still be saved while the flag is set', async () => {
+  it('the push token can still be registered while the flag is set', async () => {
     await flag(DRIVER_A, true);
-    await assertSucceeds(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { fcmToken: 'tok', tokenUpdatedAt: serverTimestamp() }));
+    await assertSucceeds(setDoc(tokenDoc(DRIVER_A, DRIVER_A, 'tok-a'), tokenData('tok-a')));
   });
   it('clearing the flag cannot smuggle in other fields (role)', async () => {
     await flag(DRIVER_A, true);
@@ -641,5 +751,106 @@ describe('Sign-out clears this phone\'s push token', () => {
   it("nobody can clear another user's token", async () => {
     await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'users', DRIVER_A), { fcmToken: 'tok' }));
     await assertFails(updateDoc(doc(as(DRIVER_B), 'users', DRIVER_A), { fcmToken: deleteField() }));
+  });
+});
+
+describe('Push tokens: users/{uid}/fcmTokens belong to that user alone', () => {
+  const seedToken = (owner, token) => env.withSecurityRulesDisabled((ctx) =>
+    setDoc(doc(ctx.firestore(), 'users', owner, 'fcmTokens', tokenId(token)),
+      { token, platform: 'android', deviceId: 'dev1', lastSeen: hoursAgo(1) }));
+
+  it('a driver can register, refresh, read and delete their own token', async () => {
+    await assertSucceeds(setDoc(tokenDoc(DRIVER_A, DRIVER_A, 'tok-a'), tokenData('tok-a')));
+    await assertSucceeds(setDoc(tokenDoc(DRIVER_A, DRIVER_A, 'tok-a'), tokenData('tok-a')));
+    await assertSucceeds(getDoc(tokenDoc(DRIVER_A, DRIVER_A, 'tok-a')));
+    await assertSucceeds(deleteDoc(tokenDoc(DRIVER_A, DRIVER_A, 'tok-a')));
+  });
+  it('a web token (platform web) is accepted too', async () =>
+    assertSucceeds(setDoc(tokenDoc(MANAGER, MANAGER, 'tok-web'), tokenData('tok-web', { platform: 'web' }))));
+  it("driver A can't read, write or delete driver B's token", async () => {
+    await seedToken(DRIVER_B, 'tok-b');
+    await assertFails(getDoc(tokenDoc(DRIVER_A, DRIVER_B, 'tok-b')));
+    await assertFails(setDoc(tokenDoc(DRIVER_A, DRIVER_B, 'tok-b'), tokenData('tok-b')));
+    await assertFails(setDoc(tokenDoc(DRIVER_A, DRIVER_B, 'tok-new'), tokenData('tok-new')));
+    await assertFails(deleteDoc(tokenDoc(DRIVER_A, DRIVER_B, 'tok-b')));
+  });
+  it("staff can read users docs but not anyone's push tokens", async () => {
+    await seedToken(DRIVER_A, 'tok-a');
+    await seedToken(MANAGER, 'tok-mgr');
+    await assertSucceeds(getDoc(doc(as(MANAGER), 'users', DRIVER_A)));
+    await assertFails(getDoc(tokenDoc(MANAGER, DRIVER_A, 'tok-a')));
+    await assertFails(getDoc(tokenDoc(ASSISTANT, MANAGER, 'tok-mgr')));
+    await assertFails(deleteDoc(tokenDoc(MANAGER, DRIVER_A, 'tok-a')));
+  });
+  it("tokens cannot be listed - not one user's, and not across users", async () => {
+    await seedToken(DRIVER_A, 'tok-a');
+    await assertFails(getDocs(collection(as(DRIVER_B), 'users', DRIVER_A, 'fcmTokens')));
+    await assertFails(getDocs(collection(as(MANAGER), 'users', DRIVER_A, 'fcmTokens')));
+    await assertFails(getDocs(collectionGroup(as(MANAGER), 'fcmTokens')));
+    await assertFails(getDocs(query(collectionGroup(as(DRIVER_A), 'fcmTokens'), where('token', '==', 'tok-a'))));
+  });
+  it('signed-out users and accounts without a profile get nothing', async () => {
+    await seedToken(DRIVER_A, 'tok-a');
+    await assertFails(getDoc(doc(anon(), 'users', DRIVER_A, 'fcmTokens', tokenId('tok-a'))));
+    await assertFails(getDoc(tokenDoc(STRANGER, DRIVER_A, 'tok-a')));
+  });
+  it('the doc ID must be the SHA-256 of the token inside it', async () =>
+    assertFails(setDoc(doc(as(DRIVER_A), 'users', DRIVER_A, 'fcmTokens', tokenId('other')), tokenData('tok-a'))));
+  it('lastSeen must be server time, and only the known fields are allowed', async () => {
+    await assertFails(setDoc(tokenDoc(DRIVER_A, DRIVER_A, 'tok-a'), tokenData('tok-a', { lastSeen: hoursAgo(-1) })));
+    await assertFails(setDoc(tokenDoc(DRIVER_A, DRIVER_A, 'tok-a'), tokenData('tok-a', { uid: DRIVER_B })));
+    await assertFails(setDoc(tokenDoc(DRIVER_A, DRIVER_A, 'tok-a'), tokenData('tok-a', { platform: 'sms' })));
+    await assertFails(setDoc(tokenDoc(DRIVER_A, DRIVER_A, 'tok-a'), { token: 'tok-a', lastSeen: serverTimestamp() }));
+  });
+  it('a phone that changes hands: the new driver registers the same token under their own uid only', async () => {
+    await seedToken(DRIVER_A, 'shared-phone');
+    await assertSucceeds(setDoc(tokenDoc(DRIVER_B, DRIVER_B, 'shared-phone'), tokenData('shared-phone')));
+    // ...and can't remove driver A's copy (ManagerWeb's PushTokenOwnershipService does that).
+    await assertFails(deleteDoc(tokenDoc(DRIVER_B, DRIVER_A, 'shared-phone')));
+  });
+  it('the old users.fcmToken field can only be removed, never set again', async () => {
+    await assertFails(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { fcmToken: 'tok', tokenUpdatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(as(MANAGER), 'users', DRIVER_A), { fcmToken: 'tok' }));
+    await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'users', DRIVER_A), { fcmToken: 'tok', tokenUpdatedAt: hoursAgo(1) }));
+    await assertSucceeds(updateDoc(doc(as(DRIVER_A), 'users', DRIVER_A), { fcmToken: deleteField(), tokenUpdatedAt: deleteField() }));
+  });
+  it('a manager can still edit and delete user profiles', async () => {
+    await assertSucceeds(updateDoc(doc(as(MANAGER), 'users', DRIVER_A), { assignedTaxiId: 'TX-02' }));
+    await assertSucceeds(deleteDoc(doc(as(MANAGER), 'users', DRIVER_B)));
+  });
+});
+
+describe("Chat messages: only the conversation's people, and no tampering", () => {
+  const msgs = (uid) => collection(as(uid), 'chats', DRIVER_A, 'messages');
+  const seedStaffMessage = () => env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'chats', DRIVER_A, 'messages', 'm1'),
+    { text: 'Return the unit by 6', isDriver: false, senderId: MANAGER, senderName: 'Mara Manager', senderRole: 'Manager', timestamp: hoursAgo(1) }));
+
+  it('driver A, the manager and the assistant manager can read it; driver B cannot', async () => {
+    await seedStaffMessage();
+    await assertSucceeds(getDocs(msgs(DRIVER_A)));
+    await assertSucceeds(getDocs(msgs(MANAGER)));
+    await assertSucceeds(getDocs(msgs(ASSISTANT)));
+    await assertFails(getDocs(msgs(DRIVER_B)));
+    await assertFails(getDoc(doc(as(DRIVER_B), 'chats', DRIVER_A, 'messages', 'm1')));
+  });
+  it("driver B cannot post into driver A's conversation", async () =>
+    assertFails(addDoc(msgs(DRIVER_B), { text: 'hi', isDriver: true, timestamp: serverTimestamp() })));
+  it('a driver message must be marked isDriver (it would otherwise show as from "Manager")', async () => {
+    await assertFails(addDoc(msgs(DRIVER_A), { text: 'hi', isDriver: false, timestamp: serverTimestamp() }));
+    await assertFails(addDoc(msgs(DRIVER_A), { text: 'hi', timestamp: serverTimestamp() }));
+  });
+  it('no client can set pushSentAt (it would stop the push)', async () => {
+    await assertFails(addDoc(msgs(DRIVER_A), { text: 'hi', isDriver: true, timestamp: serverTimestamp(), pushSentAt: serverTimestamp() }));
+    await assertFails(addDoc(msgs(MANAGER), { text: 'ok', isDriver: false, timestamp: serverTimestamp(), pushSentAt: serverTimestamp(),
+      senderId: MANAGER, senderName: 'Mara Manager', senderRole: 'Manager' }));
+  });
+  it('messages cannot be edited or deleted from the apps', async () => {
+    await seedStaffMessage();
+    const m1 = (uid) => doc(as(uid), 'chats', DRIVER_A, 'messages', 'm1');
+    await assertFails(updateDoc(m1(DRIVER_A), { text: 'Keep the unit' }));
+    await assertFails(updateDoc(m1(DRIVER_A), { pushSentAt: serverTimestamp() }));
+    await assertFails(deleteDoc(m1(DRIVER_A)));
+    await assertFails(updateDoc(m1(ASSISTANT), { text: 'changed' }));
+    await assertFails(deleteDoc(m1(MANAGER)));
   });
 });

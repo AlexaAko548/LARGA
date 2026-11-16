@@ -1,9 +1,7 @@
 using System.Globalization;
-using FirebaseAdmin;
-using FirebaseAdmin.Auth;
-using FirebaseAdmin.Messaging;
 using Google.Cloud.Firestore;
 using LARGA.SharedCore;
+using LARGA.SharedCore.Push;
 using LARGA.SharedCore.Services;
 
 namespace LARGA.ManagerWeb.Services;
@@ -11,24 +9,20 @@ namespace LARGA.ManagerWeb.Services;
 /// <summary>
 /// Tells a driver about something the manager did to their unit, two ways:
 ///  - a message in their Messages chat with the manager (always - the record they can reread);
-///  - a phone notification to the FCM token the driver app saves on users/{id}.fcmToken
-///    (best effort: skipped when the driver has no token, and a failed push is only logged).
-/// Sent with the Admin SDK app ManagerWeb already uses for Auth.
+///  - a phone notification to the driver's own registered phones (users/{id}/fcmTokens, via
+///    PushTokenStore; best effort: skipped when none is registered, and a failed push is only logged).
 /// </summary>
 public class DriverNotifier
 {
-    // Must match the FirebaseApp name created with the FirebaseAuth registration in Program.cs.
-    private const string FirebaseAppName = "LargaManagerWeb";
-
     private readonly Lazy<FirestoreDb> _db;
-    private readonly Lazy<FirebaseAuth> _auth;
+    private readonly PushTokenStore _tokens;
     private readonly ManagerChatService _chat;
     private readonly ILogger<DriverNotifier> _logger;
 
-    public DriverNotifier(Lazy<FirestoreDb> db, Lazy<FirebaseAuth> auth, ManagerChatService chat, ILogger<DriverNotifier> logger)
+    public DriverNotifier(Lazy<FirestoreDb> db, PushTokenStore tokens, ManagerChatService chat, ILogger<DriverNotifier> logger)
     {
         _db = db;
-        _auth = auth;
+        _tokens = tokens;
         _chat = chat;
         _logger = logger;
     }
@@ -65,10 +59,7 @@ public class DriverNotifier
                 string name = driver.TryGetValue("fullName", out string? fullName) && !string.IsNullOrWhiteSpace(fullName) ? fullName : "Driver";
                 await _chat.SendAsync(driver.Id, name, body, ChatSenderInfo.System);
 
-                if (driver.TryGetValue("fcmToken", out string? token) && !string.IsNullOrWhiteSpace(token))
-                {
-                    await SendPushAsync(token, title, body, taxiId);
-                }
+                await SendPushAsync(driver.Id, title, body, taxiId);
             }
         }
         catch (Exception ex)
@@ -107,10 +98,7 @@ public class DriverNotifier
                 string name = driver.TryGetValue("fullName", out string? fullName) && !string.IsNullOrWhiteSpace(fullName) ? fullName : "Driver";
                 await _chat.SendAsync(driver.Id, name, body, ChatSenderInfo.System);
 
-                if (driver.TryGetValue("fcmToken", out string? token) && !string.IsNullOrWhiteSpace(token))
-                {
-                    await SendPushAsync(token, title, body, taxiId);
-                }
+                await SendPushAsync(driver.Id, title, body, taxiId);
             }
             return true;
         }
@@ -124,32 +112,22 @@ public class DriverNotifier
     /// <summary>
     /// SRS REQ-4.1-9: the 5:30 AM pre-shift reminder (PreShiftReminderService) - a push only, on the
     /// driver app's pre_shift_channel; tapping it opens the pre-shift inspection. False when the driver
-    /// has no FCM token or the push failed (logged). Never throws.
+    /// has no registered phone or the push failed (logged). Never throws.
     /// </summary>
-    public async Task<bool> SendPreShiftReminderAsync(string driverId, string taxiId)
+    /// <param name="unitLabel">What the message calls the unit (PreShiftReminderRules.UnitLabel: the plate).</param>
+    public async Task<bool> SendPreShiftReminderAsync(string driverId, string taxiId, string unitLabel, DateTime philippineNow)
     {
         try
         {
-            DocumentSnapshot driver = await _db.Value.Collection("users").Document(driverId).GetSnapshotAsync();
-            if (!driver.Exists || !driver.TryGetValue("fcmToken", out string? token) || string.IsNullOrWhiteSpace(token))
+            var data = new Dictionary<string, string> { ["type"] = PreShiftReminderRules.PushType, ["taxiId"] = taxiId };
+            (int sent, _) = await _tokens.SendToUsersAsync(new[] { driverId },
+                device => PushTokenStore.NotificationMessage(device, PreShiftReminderRules.Title, PreShiftReminderRules.Body(unitLabel, philippineNow),
+                    data, PreShiftReminderRules.AndroidChannelId),
+                platforms: p => p == PushTokenRules.AndroidPlatform);
+            if (sent == 0)
             {
                 return false;
             }
-
-            _ = _auth.Value; // creates the shared FirebaseApp on first use
-            FirebaseMessaging messaging = FirebaseMessaging.GetMessaging(FirebaseApp.GetInstance(FirebaseAppName));
-            await messaging.SendAsync(new Message
-            {
-#pragma warning disable CS0618 // a registration token - see SendPushAsync
-                Token = token,
-#pragma warning restore CS0618
-                Notification = new Notification { Title = PreShiftReminderRules.Title, Body = PreShiftReminderRules.Body(taxiId) },
-                Data = new Dictionary<string, string> { ["type"] = PreShiftReminderRules.PushType, ["taxiId"] = taxiId },
-                Android = new AndroidConfig
-                {
-                    Notification = new AndroidNotification { ChannelId = PreShiftReminderRules.AndroidChannelId },
-                },
-            });
             return true;
         }
         catch (Exception ex)
@@ -159,26 +137,18 @@ public class DriverNotifier
         }
     }
 
-    private async Task SendPushAsync(string token, string title, string body, string taxiId)
+    private async Task SendPushAsync(string driverId, string title, string body, string taxiId)
     {
         try
         {
-            _ = _auth.Value; // creates the shared FirebaseApp on first use
-            FirebaseMessaging messaging = FirebaseMessaging.GetMessaging(FirebaseApp.GetInstance(FirebaseAppName));
-            await messaging.SendAsync(new Message
-            {
-                // users/{id}.fcmToken is a registration token (NotificationService), not an
-                // installation ID, so Token - not its suggested replacement Fid - is right here.
-#pragma warning disable CS0618
-                Token = token,
-#pragma warning restore CS0618
-                Notification = new Notification { Title = title, Body = body },
-                Data = new Dictionary<string, string> { ["type"] = "unit_maintenance", ["taxiId"] = taxiId },
-            });
+            var data = new Dictionary<string, string> { ["type"] = "unit_maintenance", ["taxiId"] = taxiId };
+            await _tokens.SendToUsersAsync(new[] { driverId },
+                device => PushTokenStore.NotificationMessage(device, title, body, data),
+                platforms: p => p == PushTokenRules.AndroidPlatform);
         }
         catch (Exception ex)
         {
-            // An old/uninstalled token or FCM being unavailable - the chat message still reached them.
+            // FCM being unavailable - the chat message still reached them.
             _logger.LogWarning(ex, "Push to the driver of {TaxiId} failed", taxiId);
         }
     }

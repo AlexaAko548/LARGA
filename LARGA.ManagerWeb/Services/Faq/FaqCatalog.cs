@@ -57,7 +57,7 @@ public static class FaqCatalog
             • Approve: the driver's phone clocks in. If the driver or unit is blocked (for example, an expired license), the button is greyed out and the reason is shown.
             • Deny: you must write a note so the driver knows why. You can also send the unit to the Garage so the problem is looked at.
             """,
-            ManagerOnly: true, Keywords: "flagged clock-in approval approve deny inspection"),
+            Keywords: "flagged clock-in approval approve deny inspection assistant manager"),
 
         new("create-driver-account", "drivers", "How do I create a driver account?",
             """
@@ -250,11 +250,10 @@ public static class FaqCatalog
         // ---- Roles, reports & records ----
         new("assistant-manager", "roles", "What can the Assistant Manager do?",
             """
-            The Assistant Manager can look at every page except Audit Logs and Spare Parts Inventory, message and call drivers, and record payments.
+            The Assistant Manager can look at every page except Audit Logs and Spare Parts Inventory, message and call drivers, record payments, and approve or deny flagged clock-ins.
 
             Only the Manager can:
             • open Audit Logs or Spare Parts Inventory,
-            • approve or deny clock-ins,
             • edit the schedule or driver accounts,
             • add debt adjustments (and export the ledger),
             • resolve fuel flags or SOS alerts,

@@ -9,6 +9,7 @@ using Microsoft.Maui.Controls;
 using Microsoft.Maui.Media;
 using Microsoft.Maui.Storage;
 using LARGA.SharedCore;
+using LARGA.SharedCore.Services;
 using Plugin.Firebase.Firestore;
 using Plugin.Firebase.Storage;
 
@@ -26,7 +27,11 @@ public class ScanDriverLicenseViewModel : BindableObject
     private readonly IFaceCropService _faceCropService;
     private readonly string _targetUserId;
     private string _localFilePath; // THE FIX: Store path instead of byte[]
-    private DriverLicenseTextParser.ParsedLicense? _parsed;
+    private LtoLicenseParser.Result? _parsed;
+
+    // OCR text from an earlier photo of the same card, kept when glare hid the license number
+    // and the user retook the photo at another angle: both photos are voted on together.
+    private IReadOnlyList<string> _earlierTexts = Array.Empty<string>();
 
     private ImageSource? _capturedImage;
     public ImageSource? CapturedImage
@@ -65,6 +70,13 @@ public class ScanDriverLicenseViewModel : BindableObject
     private string _licenseNumberDisplay = string.Empty;
     public string LicenseNumberDisplay { get => _licenseNumberDisplay; set { _licenseNumberDisplay = value; OnPropertyChanged(); } }
 
+    private bool _licenseNumberNeedsCheck;
+    /// <summary>The number may be misread (glare over it, passes disagreed) - shown with a warning.</summary>
+    public bool LicenseNumberNeedsCheck { get => _licenseNumberNeedsCheck; set { _licenseNumberNeedsCheck = value; OnPropertyChanged(); } }
+
+    private bool _expiryNeedsCheck;
+    public bool ExpiryNeedsCheck { get => _expiryNeedsCheck; set { _expiryNeedsCheck = value; OnPropertyChanged(); } }
+
     private DateTime _expiryDate = DateTime.Today;
     public DateTime ExpiryDate { get => _expiryDate; set { _expiryDate = value; OnPropertyChanged(); } }
 
@@ -87,19 +99,34 @@ public class ScanDriverLicenseViewModel : BindableObject
         // Bind natively from file
         CapturedImage = ImageSource.FromFile(_localFilePath);
 
-        RetakeCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.RunAsync(RetakeAsync));
+        RetakeCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.RunAsync(async () =>
+        {
+            // A fresh photo from the review step starts over; only the glare retake keeps the old reads.
+            _earlierTexts = Array.Empty<string>();
+            await RetakeAsync();
+        }));
         ConfirmScanCommand = new Command(async () => await RunOcrAsync());
         ConfirmAndSaveCommand = new Command(async () => await _saveGate.RunAsync(SaveAsync, showLoading: false));
         CancelCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.RunAsync(ClosePageAsync));
     }
 
-    private async Task RetakeAsync()
+    /// <summary>True when a new photo replaced the current one.</summary>
+    private async Task<bool> RetakeAsync()
     {
         try
         {
-            if (!MediaPicker.Default.IsCaptureSupported) return;
+            // DEBUG: a photo queued for the emulator stands in for the camera.
+            if (DebugCameraSource.TakeQueued() is string queued)
+            {
+                TryDeleteCachedFile(_localFilePath);
+                _localFilePath = queued;
+                CapturedImage = ImageSource.FromFile(_localFilePath);
+                return true;
+            }
+
+            if (!MediaPicker.Default.IsCaptureSupported) return false;
             var photo = await MediaPicker.Default.CapturePhotoAsync();
-            if (photo == null) return;
+            if (photo == null) return false;
 
             string newLocalFilePath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_{photo.FileName}");
 
@@ -115,10 +142,12 @@ public class ScanDriverLicenseViewModel : BindableObject
             _localFilePath = newLocalFilePath;
 
             CapturedImage = ImageSource.FromFile(_localFilePath);
+            return true;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Retake License Photo Error: {ex.Message}");
+            return false;
         }
     }
 
@@ -127,15 +156,17 @@ public class ScanDriverLicenseViewModel : BindableObject
         IsBusy = true;
         try
         {
-            // THE FIX: Pass file path to OCR
-            var blocks = await _ocrService.ExtractTextBlocksAsync(_localFilePath);
-            _parsed = DriverLicenseTextParser.Parse(blocks.Select(b => b.Text));
+            // Several ML Kit passes (glare-filtered, flattened, the License No. row enlarged)
+            // until the fields agree - LicenseScanPipeline.
+            var outcome = await LicenseScanPipeline.RunAsync(_ocrService, _localFilePath, _earlierTexts);
+            _parsed = outcome.Result;
 
-            if (!_parsed.HasMinimumData)
+            if (_parsed.LicenseNumber is null && _parsed.ExpiryDate is null)
             {
+                _earlierTexts = Array.Empty<string>();
                 await Shell.Current.DisplayAlert(
                     "Couldn't read that clearly",
-                    "We couldn't make out the license number or expiry date. Try retaking the photo with better lighting and make sure it fills the frame.",
+                    "We couldn't make out the license number or expiry date. Retake the photo with the card filling the frame, in even light, and hold the phone still.",
                     "OK");
                 return;
             }
@@ -154,21 +185,49 @@ public class ScanDriverLicenseViewModel : BindableObject
                     return;
                 }
 
-                if (!LARGA.SharedCore.Services.LtoLicenseParser.NameMatches(registeredName, _parsed.FullName))
+                if (!LtoLicenseParser.NameMatches(registeredName, _parsed.FullName))
                 {
+                    _earlierTexts = Array.Empty<string>();
                     await Shell.Current.DisplayAlert(
                         "Name doesn't match",
-                        $"This license appears to belong to \"{_parsed.FullName}\", but this account is registered as \"{registeredName}\". The driver's first and last name must be on the license.",
+                        $"This license appears to belong to \"{DisplayName(_parsed.FullName)}\", but this account is registered as \"{registeredName}\". The driver's first and last name must be on the license.",
                         "OK");
                     return;
                 }
             }
 
-            NameDisplay = _parsed.FullName ?? string.Empty;
+            // The shiny seal sits over the License No. row - glare there hides or garbles digits.
+            // Glare moves when the card is tilted, so a second photo usually reads it; the two
+            // photos' reads are combined.
+            if (_parsed.LicenseNumber is null || _parsed.LicenseNumberUncertain)
+            {
+                bool retake = await Shell.Current.DisplayAlert(
+                    _parsed.LicenseNumber is null ? "License number hidden by glare" : "Check the license number",
+                    (_parsed.LicenseNumber is null
+                        ? "The shiny seal or a reflection is covering the License No."
+                        : $"Glare over the seal made the License No. hard to read - we got {_parsed.LicenseNumber}.")
+                    + " Tilt the card slightly so the shine moves off the number and retake, or continue and check it against the card yourself.",
+                    "Retake", "Continue");
+                if (retake)
+                {
+                    var keep = outcome.Texts.Concat(_earlierTexts).ToList();
+                    if (await RetakeAsync())
+                    {
+                        _earlierTexts = keep;
+                        await RunOcrAsync();
+                        return;
+                    }
+                }
+            }
+
+            _earlierTexts = Array.Empty<string>();
+            NameDisplay = DisplayName(_parsed.FullName);
             SexDisplay = _parsed.Sex ?? string.Empty;
             DlCodesDisplay = _parsed.DlCodes ?? string.Empty;
             LicenseNumberDisplay = _parsed.LicenseNumber ?? string.Empty;
+            LicenseNumberNeedsCheck = _parsed.LicenseNumber is null || _parsed.LicenseNumberUncertain;
             ExpiryDate = _parsed.ExpiryDate ?? DateTime.Today;
+            ExpiryNeedsCheck = _parsed.ExpiryDate is null || _parsed.ExpiryUncertain;
 
             IsReviewStep = false;
         }
@@ -182,6 +241,20 @@ public class ScanDriverLicenseViewModel : BindableObject
             IsBusy = false;
         }
     }
+
+    /// <summary>The card prints "LAST, FIRST MIDDLE"; the screen shows "First Middle Last".</summary>
+    private static string DisplayName(string? cardName)
+    {
+        if (string.IsNullOrWhiteSpace(cardName)) return string.Empty;
+
+        string[] parts = cardName.Split(',', 2);
+        if (parts.Length < 2) return ToTitleCase(cardName.Trim());
+
+        return $"{ToTitleCase(parts[1].Trim())} {ToTitleCase(parts[0].Trim())}".Trim();
+    }
+
+    private static string ToTitleCase(string value) =>
+        System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(value.ToLowerInvariant());
 
     private async Task<string?> GetRegisteredNameAsync()
     {

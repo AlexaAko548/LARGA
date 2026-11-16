@@ -3,12 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using FirebaseAdmin;
-using FirebaseAdmin.Auth;
-using FirebaseAdmin.Messaging;
 using Google.Cloud.Firestore;
 using LARGA.Shared.Models.Entities;
 using LARGA.SharedCore.Emergency;
+using LARGA.SharedCore.Push;
 using LARGA.SharedCore.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -28,9 +26,8 @@ namespace LARGA.ManagerWeb.Services;
 /// seen are claimed without a push,
 /// so deploying this doesn't buzz managers about old unresolved alerts.
 ///
-/// Sent with the Admin SDK app ManagerWeb already uses for Auth (same as DriverNotifier).
-/// Recipients' tokens are users/{uid}.fcmToken, saved by the manager app's dashboard
-/// (NotificationService). Never throws out of the host - failures are logged and the listener
+/// Sent through PushTokenStore to each staff member's own registered phones
+/// (users/{uid}/fcmTokens, saved by the manager app's dashboard - NotificationService). Never throws out of the host - failures are logged and the listener
 /// is restarted.
 ///
 /// Before pushing, each alert's caller is validated (SosCallerVerificationService) and its
@@ -42,9 +39,6 @@ namespace LARGA.ManagerWeb.Services;
 /// </summary>
 public class SosPushService : BackgroundService
 {
-    // Must match the FirebaseApp name created with the FirebaseAuth registration in Program.cs.
-    private const string FirebaseAppName = "LargaManagerWeb";
-
     // Must match the channel the manager app creates in MainActivity.CreateNotificationChannels.
     public const string AndroidChannelId = "sos_alert_channel";
 
@@ -61,16 +55,16 @@ public class SosPushService : BackgroundService
     private static readonly string[] StaffRoles = [ManagerSignInService.ManagerRole, ManagerSignInService.AssistantManagerRole];
 
     private readonly Lazy<FirestoreDb> _db;
-    private readonly Lazy<FirebaseAuth> _auth;
+    private readonly PushTokenStore _tokens;
     private readonly MapTilerGeocoder _geocoder;
     private readonly SosCallerVerificationService _callerVerification;
     private readonly ILogger<SosPushService> _logger;
 
-    public SosPushService(Lazy<FirestoreDb> db, Lazy<FirebaseAuth> auth, MapTilerGeocoder geocoder,
+    public SosPushService(Lazy<FirestoreDb> db, PushTokenStore tokens, MapTilerGeocoder geocoder,
         SosCallerVerificationService callerVerification, ILogger<SosPushService> logger)
     {
         _db = db;
-        _auth = auth;
+        _tokens = tokens;
         _geocoder = geocoder;
         _callerVerification = callerVerification;
         _logger = logger;
@@ -187,10 +181,10 @@ public class SosPushService : BackgroundService
             ? await addressLookup
             : null;
 
-        List<string> tokens = await GetStaffTokensAsync(token);
-        if (tokens.Count == 0)
+        List<string> staff = await GetStaffUidsAsync(token);
+        if (staff.Count == 0)
         {
-            _logger.LogWarning("SOS emergency_alerts/{AlertId}: no manager has a push token yet - open the manager app once to register one.", alert.Id);
+            _logger.LogWarning("SOS emergency_alerts/{AlertId}: no Manager or Assistant Manager account found.", alert.Id);
             return;
         }
 
@@ -217,46 +211,31 @@ public class SosPushService : BackgroundService
                          : hasLocation ? " Open LARGA for their location." : " Location unavailable - call the driver.")
                       + (caller.Verified ? string.Empty : " (Caller not verified - confirm with the driver.)");
 
-        _ = _auth.Value; // creates the shared FirebaseApp on first use
-        FirebaseMessaging messaging = FirebaseMessaging.GetMessaging(FirebaseApp.GetInstance(FirebaseAppName));
-
-        // FCM accepts at most 500 tokens per multicast; far more than this fleet's managers.
-        BatchResponse response = await messaging.SendEachForMulticastAsync(new MulticastMessage
+        var data = new Dictionary<string, string>
         {
-            // users/{id}.fcmToken is a registration token (NotificationService), not an
-            // installation ID, so Tokens - not its suggested replacement Fids - is right here.
-#pragma warning disable CS0618
-            Tokens = tokens.Take(500).ToList(),
-#pragma warning restore CS0618
-            Notification = new Notification { Title = title, Body = body },
-            Data = new Dictionary<string, string>
-            {
-                ["type"] = PushType,
-                ["alertId"] = alert.Id,
-                ["triggerType"] = EmergencyTypes.Normalize(triggerType),
-                ["emergencyLabel"] = label,
-                ["address"] = address ?? string.Empty,
-                ["callerCheck"] = caller.Status,
-            },
-            Android = new AndroidConfig
-            {
-                Priority = Priority.High,
-                Notification = new AndroidNotification { ChannelId = AndroidChannelId },
-            },
-        }, token);
+            ["type"] = PushType,
+            ["alertId"] = alert.Id,
+            ["triggerType"] = EmergencyTypes.Normalize(triggerType),
+            ["emergencyLabel"] = label,
+            ["address"] = address ?? string.Empty,
+            ["callerCheck"] = caller.Status,
+        };
+        // Manager phones only (the web dashboard has its own SOS banner); each staff member's own
+        // devices, each push naming its recipientUid.
+        (int sent, int total) = await _tokens.SendToUsersAsync(staff,
+            device => PushTokenStore.NotificationMessage(device, title, body, data, AndroidChannelId, highPriority: true),
+            token, platforms: p => p == PushTokenRules.AndroidPlatform);
+        if (total == 0)
+        {
+            _logger.LogWarning("SOS emergency_alerts/{AlertId}: no manager phone is registered yet - open the manager app once to register one.", alert.Id);
+            return;
+        }
 
         _logger.LogInformation("SOS emergency_alerts/{AlertId} pushed to {Sent}/{Total} manager device(s).",
-            alert.Id, response.SuccessCount, tokens.Count);
-        if (response.SuccessCount > 0)
+            alert.Id, sent, total);
+        if (sent > 0)
         {
             _repeatPushes.Remember(driverId, EmergencyTypes.Severity(triggerType), DateTime.UtcNow);
-        }
-        if (response.FailureCount > 0)
-        {
-            foreach (SendResponse failed in response.Responses.Where(r => !r.IsSuccess))
-            {
-                _logger.LogWarning(failed.Exception, "SOS push to one manager device failed (stale token?)");
-            }
         }
     }
 
@@ -323,18 +302,15 @@ public class SosPushService : BackgroundService
             return true;
         }, cancellationToken: token);
 
-    /// <summary>Push tokens of every Manager / Assistant Manager. The role is matched
-    /// case-insensitively, the same way the apps' logins treat it.</summary>
-    private async Task<List<string>> GetStaffTokensAsync(CancellationToken token)
+    /// <summary>Every Manager / Assistant Manager uid. The role is matched case-insensitively, the
+    /// same way the apps' logins treat it.</summary>
+    private async Task<List<string>> GetStaffUidsAsync(CancellationToken token)
     {
         QuerySnapshot users = await _db.Value.Collection("users").GetSnapshotAsync(token);
         return users.Documents
             .Where(doc => doc.TryGetValue("role", out object? role)
                           && StaffRoles.Any(r => string.Equals(r, role?.ToString()?.Trim(), StringComparison.OrdinalIgnoreCase)))
-            .Select(doc => doc.TryGetValue("fcmToken", out string? fcm) ? fcm : null)
-            .Where(fcm => !string.IsNullOrWhiteSpace(fcm))
-            .Select(fcm => fcm!)
-            .Distinct()
+            .Select(doc => doc.Id)
             .ToList();
     }
 }

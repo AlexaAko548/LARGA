@@ -7,7 +7,7 @@ using Microsoft.Maui.Storage;
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using Com.Google.Mlkit.Vision.Face;
+using Xamarin.Google.MLKit.Vision.Face;
 using Xamarin.Google.MLKit.Vision.Common;
 
 namespace LARGA.MobileApp.Platforms.Android.Services;
@@ -85,7 +85,11 @@ public class AndroidFaceCropService : IFaceCropService
         try
         {
             using var image = InputImage.FromBitmap(upright, 0);
-            var faces = (Java.Util.IList)await detector.Process(image);
+            // The task's result is a java.util.List, but the binding hands it back as a plain
+            // Java object - a C# cast fails ("Specified cast is not valid"); JavaCast asks Java.
+            Java.Lang.Object? result = await detector.Process(image);
+            if (result is null) return null;
+            var faces = result.JavaCast<Java.Util.IList>()!;
 
             // A license has one face. Prefer the detection with the most eyes found, then the
             // larger one: the LTO seal on the card can be a bigger box than the small photo, so

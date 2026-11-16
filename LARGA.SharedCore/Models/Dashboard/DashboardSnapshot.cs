@@ -141,6 +141,8 @@ public class DriverStanding
     public string FullName { get; set; } = string.Empty;
     public string TaxiId { get; set; } = string.Empty;
     public double PunctualPercent { get; set; }
+    /// <summary>Accident / damage reports from their shifts ("Accidents/Damage", the paper's Damage History).
+    /// SOS alerts are a separate figure (Performance.SosAlerts). Neither is part of the ranking.</summary>
     public int IncidentCount { get; set; }
     public decimal BoundariesRemitted { get; set; }
 

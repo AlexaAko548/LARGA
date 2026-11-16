@@ -12,15 +12,16 @@ namespace LARGA.MobileApp.Services;
 /// Opens the conversation a tapped chat push (ChatPushPolicy.PushType) is about: a driver goes to
 /// Message Manager, staff to the Chats tab and then that driver's ChatsDetailPage - the same route
 /// and parameters ChatsViewModel.OnOpenChat uses. Works from a cold start too: it waits for the
-/// Shell and for the login (or LandingPage's auto-login) to reach a dashboard first. Not signed
-/// in, or signed in as someone the message isn't for: stays put.
+/// Shell and for the login (or LandingPage's auto-login) to reach a dashboard first. Only once
+/// someone is signed in, and only when that's the push's recipientUid, does it open anything; not
+/// signed in, or signed in as someone the message isn't for: stays put.
 /// </summary>
 public static class ChatNotificationRouter
 {
     private static readonly TimeSpan SignInWait = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(100);
 
-    public static async Task OpenAsync(string driverId, string? driverName)
+    public static async Task OpenAsync(string driverId, string? driverName, string? recipientUid)
     {
         try
         {
@@ -32,7 +33,11 @@ public static class ChatNotificationRouter
             string? uid = CrossFirebaseAuth.Current.CurrentUser?.Uid;
             string? role = StaffSession.Role;
             var badges = IPlatformApplication.Current?.Services.GetService<UnreadBadgeService>();
-            if (uid is null || badges?.IsViewingConversation(driverId) == true)
+            if (uid is null || !string.Equals(recipientUid?.Trim(), uid, StringComparison.Ordinal))
+            {
+                return; // not for the account signed in here
+            }
+            if (badges?.IsViewingConversation(driverId) == true)
             {
                 return; // already on it
             }

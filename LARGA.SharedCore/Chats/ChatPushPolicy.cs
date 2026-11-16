@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Push;
 
 namespace LARGA.SharedCore.Chats;
 
@@ -33,11 +34,13 @@ public static class ChatPushPolicy
     /// with an older timestamp; <see cref="IsTooOldToPush"/> is what decides, on server time.</summary>
     public static readonly TimeSpan ListenWindow = TimeSpan.FromDays(1);
 
-    /// <summary>Longest notification body; longer messages end in "…".</summary>
-    public const int MaxBodyLength = 160;
+    /// <summary>Longest notification preview; longer messages end in "…". Short on purpose - the
+    /// full text stays in the chat, behind the sign-in.</summary>
+    public const int MaxBodyLength = 100;
 
-    /// <summary>A users/{uid} doc as the push needs it.</summary>
-    public readonly record struct User(string Uid, string? Role, string? FcmToken, DateTime? TokenUpdatedAtUtc);
+    /// <summary>A users/{uid} doc as the push needs it (its push tokens are separate:
+    /// users/{uid}/fcmTokens, <see cref="PushTokenRules"/>).</summary>
+    public readonly record struct User(string Uid, string? Role);
 
     /// <summary>A new message in chats/{DriverId}/messages.</summary>
     public readonly record struct Message(string DriverId, bool IsDriver, string? SenderId, string? SenderRole);
@@ -85,54 +88,48 @@ public static class ChatPushPolicy
     }
 
     /// <summary>
-    /// The push tokens to send <paramref name="message"/> to. A token belongs to the user who saved
-    /// it last (tokenUpdatedAt): on a shared phone, the account signed in now, not one that was
-    /// signed in before and whose doc still holds the token. A token two users saved at the same
-    /// moment belongs to neither. Any token on the sender's own doc is left out.
+    /// The devices to push <paramref name="message"/> to: each recipient's own tokens
+    /// (<see cref="PushTokenRules.Deliverable"/> - a token belongs to the account that registered it
+    /// last, so a shared phone only hears about the account signed in on it now), never a token that
+    /// also sits under the sender.
     /// </summary>
-    public static IReadOnlyList<string> RecipientTokens(Message message, IReadOnlyCollection<User> users)
+    public static IReadOnlyList<PushTokenRules.DeviceToken> RecipientDevices(
+        Message message, IReadOnlyCollection<User> users, IEnumerable<PushTokenRules.DeviceToken> tokens)
     {
         IReadOnlyList<string> recipients = RecipientUids(message, users);
-        if (recipients.Count == 0)
-        {
-            return Array.Empty<string>();
-        }
-
-        Dictionary<string, string?> owners = TokenOwners(users);
-        string? sender = SenderUid(message);
-        var senderTokens = users
-            .Where(u => sender is not null && u.Uid == sender && !string.IsNullOrWhiteSpace(u.FcmToken))
-            .Select(u => u.FcmToken!.Trim())
-            .ToHashSet(StringComparer.Ordinal);
-
-        var recipientSet = recipients.ToHashSet(StringComparer.Ordinal);
-        return users
-            .Where(u => recipientSet.Contains(u.Uid) && !string.IsNullOrWhiteSpace(u.FcmToken))
-            .Select(u => (u.Uid, Token: u.FcmToken!.Trim()))
-            .Where(t => owners.TryGetValue(t.Token, out string? owner) && owner == t.Uid && !senderTokens.Contains(t.Token))
-            .Select(t => t.Token)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        return recipients.Count == 0
+            ? Array.Empty<PushTokenRules.DeviceToken>()
+            : PushTokenRules.Deliverable(tokens, recipients, excludeUid: SenderUid(message));
     }
 
-    // token -> the uid that saved it last, or null when that can't be told apart.
-    private static Dictionary<string, string?> TokenOwners(IEnumerable<User> users)
+    /// <summary>Data keys of a chat push. Chat pushes are data-only: the phone's presenter and the
+    /// browser's service worker draw the notification themselves, after checking recipientUid.</summary>
+    public const string ConversationIdKey = "conversationId";
+    public const string TitleKey = "title";
+    public const string BodyKey = "body";
+    public const string DriverNameKey = "driverName";
+
+    /// <summary>
+    /// The whole payload of one recipient's chat push, kept small: who wrote (title), a short
+    /// preview (body), which conversation, and who it's for. The driver's name - the staff app's
+    /// chat header - only goes to staff; a driver's own conversation needs no name.
+    /// </summary>
+    public static Dictionary<string, string> Payload(
+        string conversationId, string recipientUid, bool recipientIsStaff, string title, string body, string? driverName)
     {
-        var owners = new Dictionary<string, (string? Uid, DateTime At)>(StringComparer.Ordinal);
-        foreach (User user in users.Where(u => !string.IsNullOrWhiteSpace(u.FcmToken)))
+        var data = new Dictionary<string, string>
         {
-            string token = user.FcmToken!.Trim();
-            DateTime at = user.TokenUpdatedAtUtc ?? DateTime.MinValue;
-            if (!owners.TryGetValue(token, out var current) || at > current.At)
-            {
-                owners[token] = (user.Uid, at);
-            }
-            else if (at == current.At && current.Uid != user.Uid)
-            {
-                owners[token] = (null, at);
-            }
+            ["type"] = PushType,
+            [ConversationIdKey] = conversationId,
+            [PushTokenRules.RecipientUidKey] = recipientUid,
+            [TitleKey] = title,
+            [BodyKey] = body,
+        };
+        if (recipientIsStaff && !string.IsNullOrWhiteSpace(driverName))
+        {
+            data[DriverNameKey] = driverName.Trim();
         }
-        return owners.ToDictionary(o => o.Key, o => o.Value.Uid, StringComparer.Ordinal);
+        return data;
     }
 
     /// <summary>True when the message reached the server more than <see cref="MaxMessageAge"/>

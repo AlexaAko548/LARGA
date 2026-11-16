@@ -14,7 +14,8 @@ anything that only lives there is tested on the emulator instead (see "Alpha tes
 | `Sos/` | M7 SOS Emergency | Crash detector fed recorded sensor traces, the Hostile volume-button pattern, SOS protocol rules, the SOS push `sentAt` stamp |
 | `Alerts/` | Alert Center | Access-request and submission alerts, who sees which alert, alert links, the Unread count behind the Alerts tab badge |
 | `Auth/` | Sign-in & accounts | Password policy, forced password change, staff roles, chat sender labels |
-| `Chats/` | Messaging | Who a chat push goes to (`ChatPushPolicy`), per-person unread and the badge numbers (`ChatReadState`) |
+| `Chats/` | Messaging | Who a chat push goes to (`ChatPushPolicy`: sender excluded, only the conversation's driver and staff, the small per-recipient payload), per-person unread and the badge numbers (`ChatReadState`) |
+| `Push/` | Push tokens | Which device a push may go to (`PushTokenRules`): own tokens only, a shared phone belongs to whoever registered last, the token doc ID, and the on-device `recipientUid` check |
 | `Ledger/` | Payments & reports | Boundary payments (BRP-014 configured rate), ledger updates, report driver names (BETA-098), reading `system_configs/global` field by field, payment-reference claim backfill (BRP-008) |
 | `Shifts/` | Clock-in | Pre-shift reminder rules, manager approve/deny of a clock-in request (emulator) |
 | `Live/` | – | Helpers that talk to the **live** project. They do nothing unless their env vars are set (see below) |

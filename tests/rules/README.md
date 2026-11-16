@@ -37,3 +37,4 @@ The `PERMISSION_DENIED` lines in the output are expected. They are the denied wr
 
 | 2026-10-24 | `fix/emergency-sos-alpha-defects` (repo rules) | Firestore 107, Storage 35 | 0 | M7 SOS: emergency_alerts block (own active shift only, Manager-only resolve, no deletes, no server-owned fields from the driver) |
 | 2026-11-04 | `feature/chat-push-badges-keyboard` (repo rules) | Firestore 172, Storage 35 | 0 | chats/{driverId} read state: own `lastReadAtMs` entry only (Unix ms), `lastSenderId` = own uid, `lastMessageAt` = server time; own `fcmToken` cleared at sign-out |
+| 2026-11-15 | `20311b5` + push-token changes (repo rules) | Firestore 189, Storage 35 | 0 | `users/{uid}/fcmTokens`: owner-only get/write/delete, no listing, doc ID = SHA-256 of the token, `lastSeen` = server time; old `users.fcmToken` can only be removed; messages: driver posts must be `isDriver`, no client `pushSentAt`, no client edits or deletes |

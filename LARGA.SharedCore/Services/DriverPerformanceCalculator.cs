@@ -74,9 +74,9 @@ public class DriverPerformance
 ///    show up for counts as not punctual.
 ///  - Payment reliability: the shift's boundary (plus its extra charges) was paid in full by
 ///    the end of the next day, counting every payment document (BoundaryPaymentRules).
-///  - Incidents: SOS alerts the driver raised in the period, plus accident / damage reports
-///    from their shifts. Routine defect reports aren't incidents. Incidents are shown, not
-///    scored.
+///  - Damage History (DamageIncidents, "Accidents/Damage" on the web): accident / damage reports
+///    from their shifts (<see cref="IsDamageIncident"/>). SOS alerts are a separate figure.
+///    Routine defect reports count as neither. Both are shown, not scored.
 /// Today only counts once the driver has driven today - the day isn't over.
 /// </summary>
 public static class DriverPerformanceCalculator
@@ -176,9 +176,7 @@ public static class DriverPerformanceCalculator
 
         // --- Damage incidents ------------------------------------------------------------------
         HashSet<string> shiftIds = shifts.SelectMany(s => new[] { s.DocumentId, s.ShiftId }).Where(id => !string.IsNullOrEmpty(id)).ToHashSet();
-        result.DamageIncidents = maintenance.Count(m => m.MaintenanceType == MaintenanceType.AccidentCorrection
-            && m.ShiftId is not null && shiftIds.Contains(m.ShiftId)
-            && !string.Equals(m.Status, "Dismissed", StringComparison.OrdinalIgnoreCase));
+        result.DamageIncidents = maintenance.Count(m => IsDamageIncident(m.MaintenanceType, m.ShiftId, m.Status, shiftIds));
 
         // SOS alerts: matched by driver, or by one of their shifts (older alerts may lack driverId).
         DateTime startUtc = startPh - PhilippineTime.Offset;
@@ -188,6 +186,16 @@ public static class DriverPerformanceCalculator
 
         return result;
     }
+
+    /// <summary>
+    /// Damage History ("Accidents/Damage" on the web): an accident / damage report (Accident Correction) logged
+    /// from one of the driver's shifts in the period, unless it was dismissed. Routine defect reports and SOS
+    /// alerts don't count. Shown, not ranked. The driver's phone (ProfileViewModel) counts with this too.
+    /// </summary>
+    public static bool IsDamageIncident(MaintenanceType type, string? shiftId, string? status, ISet<string> driverShiftIds) =>
+        type == MaintenanceType.AccidentCorrection
+        && !string.IsNullOrEmpty(shiftId) && driverShiftIds.Contains(shiftId)
+        && !string.Equals(status, "Dismissed", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsAutoClosed(ShiftLog shift) =>
         string.Equals(shift.Status, ShiftManagementService.AutoClosedStatus, StringComparison.OrdinalIgnoreCase);
