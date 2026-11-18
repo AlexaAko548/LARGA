@@ -9,6 +9,7 @@
 @inject Lazy<FirestoreDb> FirestoreDb
 
 <SosBanner OnSosPage="@(ActiveItem == "SosDispatch")" OnActiveCountChanged="@(count => _sosActiveCount = count)" />
+<WebPushPrompt />
 
 <aside class="dashboard-sidebar @(Collapsed ? "collapsed" : "")">
     <div class="sidebar-brand">

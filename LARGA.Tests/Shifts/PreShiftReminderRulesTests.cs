@@ -30,6 +30,31 @@ public class PreShiftReminderRulesTests
     {
         Assert.Equal("pre_shift_reminder", PreShiftReminderRules.PushType);
         Assert.Equal("pre_shift_channel", PreShiftReminderRules.AndroidChannelId);
-        Assert.Contains("TX-01", PreShiftReminderRules.Body("TX-01"));
+        Assert.Contains("TX-01", PreShiftReminderRules.Body("TX-01", Ph(5, 30)));
     }
+
+    [Fact]
+    public void Body_SaysClockInOpensAtSix_BeforeSix_AndIsOpen_After()
+    {
+        Assert.Contains("Clock-in opens at 6:00 AM", PreShiftReminderRules.Body("ABC 1234", Ph(5, 45)));
+        Assert.Contains("Clock-in is open now", PreShiftReminderRules.Body("ABC 1234", Ph(6, 0)));
+        Assert.Contains("Clock-in is open now", PreShiftReminderRules.Body("ABC 1234", Ph(8, 55)));
+        Assert.DoesNotContain("opens at 6:00", PreShiftReminderRules.Body("ABC 1234", Ph(7, 10)));
+    }
+
+    [Theory]
+    [InlineData("TAXI_001", "ABC 1234", "ABC 1234")]
+    [InlineData("TAXI_001", "  ABC 1234 ", "ABC 1234")]
+    [InlineData("TAXI_001", null, "TAXI_001")]
+    [InlineData("TAXI_001", "", "TAXI_001")]
+    public void UnitLabel_IsThePlate_FallingBackToTheTaxiId(string taxiId, string? plate, string expected) =>
+        Assert.Equal(expected, PreShiftReminderRules.UnitLabel(taxiId, plate));
+
+    [Theory]
+    [InlineData(false, 1, true)]
+    [InlineData(false, 2, true)]
+    [InlineData(false, 3, false)] // MaxAttempts reached
+    [InlineData(true, 1, false)]  // already delivered
+    public void FailedPush_IsRetried_UpToMaxAttempts(bool pushed, int attempts, bool expected) =>
+        Assert.Equal(expected, PreShiftReminderRules.ShouldRetry(pushed, attempts));
 }

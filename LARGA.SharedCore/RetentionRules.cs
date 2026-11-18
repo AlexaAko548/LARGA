@@ -8,8 +8,9 @@ namespace LARGA.SharedCore;
 /// Console - see SECURITY_AUDIT.md, H-01) deletes them after that date. Nothing is deleted until that
 /// policy is switched on, and documents written before this change have no expireAt and are kept.
 ///
-/// PROPOSED PERIODS - confirm with BLM Taxi before enabling the TTL policy. firestore.rules checks the
-/// same numbers (expiresAfterDays), so change both together.
+/// GPS telemetry: 7 days, BLM Taxi's decision (consistency audit row #79). The SOS and chat periods are
+/// still proposals to confirm with BLM. firestore.rules checks the same numbers (expiresWithin /
+/// expiresAfterDays), so change both together.
 /// </summary>
 public static class RetentionRules
 {

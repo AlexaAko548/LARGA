@@ -22,7 +22,7 @@ public static class TourCatalog
 
         new("driver-shifts", 1, "drivers",
         [
-            new("clockin-approvals", "Clock-in approvals", "When a driver's clock-in needs a second look, it waits here. Approving or denying it is for the Manager only.", ManagerOnly: true),
+            new("clockin-approvals", "Clock-in approvals", "When a driver's clock-in needs a second look, it waits here. The Manager or the Assistant Manager approves or denies it."),
             new("driver-stats", "Driver counts", "How many drivers you have, who is on shift, who is off duty, and whose license has expired."),
             new("driver-tabs", "Three views", "Live Roster shows who is working now. Schedule Planner sets days off and substitute units. Shift Logs lists past shifts."),
             new("roster-table", "Live Roster", "One row per driver with their license status, current status and assigned unit."),

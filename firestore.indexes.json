@@ -9,6 +9,14 @@
       ]
     },
     {
+      "collectionGroup": "gps_telemetry",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "shiftId", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "shifts",
       "queryScope": "COLLECTION",
       "fields": [
@@ -34,6 +42,16 @@
     }
   ],
   "fieldOverrides": [
+    {
+      "collectionGroup": "gps_telemetry",
+      "fieldPath": "timestamp",
+      "ttl": true,
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "arrayConfig": "CONTAINS", "queryScope": "COLLECTION" }
+      ]
+    },
     {
       "collectionGroup": "messages",
       "fieldPath": "timestamp",

@@ -3219,10 +3219,22 @@ width: auto;
 
 /* Garage / Maintenance Scheduler */
 
+/* The section jump links and the History button share one sticky row. */
 .garage-toolbar {
+position: sticky;
+top: 0;
+z-index: 5;
 display: flex;
-justify-content: flex-end;
-margin-bottom: 0.8rem;
+align-items: center;
+gap: 0.75rem;
+margin-bottom: 1rem;
+padding: 0.6rem 0.2rem;
+background: var(--surface);
+}
+
+.garage-history-btn {
+margin-left: auto;
+flex-shrink: 0;
 }
 
 .garage-section {
@@ -3235,15 +3247,10 @@ scroll-margin-top: 3.5rem;
 /* Quick-jump links to each section (BETA-088/090: the page is four long lists stacked
    vertically, and scrolling to find Create Ticket or Start Now was reported as hard to find). */
 .garage-section-nav {
-position: sticky;
-top: 0;
-z-index: 5;
 display: flex;
 flex-wrap: wrap;
 gap: 0.5rem;
-margin-bottom: 1rem;
-padding: 0.6rem 0.2rem;
-background: var(--surface);
+min-width: 0;
 }
 
 .garage-section-nav a {
@@ -6703,3 +6710,36 @@ color: var(--muted);
 @media (prefers-reduced-motion: reduce) {
   .faq-category.faq-flash { animation: none; }
 }
+
+/* Web push opt-in (WebPushPrompt.razor): a small card, bottom right, after sign-in. */
+.webpush-prompt {
+position: fixed;
+right: var(--space-4, 1rem);
+bottom: var(--space-4, 1rem);
+z-index: 900;
+display: flex;
+align-items: center;
+flex-wrap: wrap;
+gap: 0.6rem;
+max-width: min(26rem, calc(100vw - 2rem));
+padding: 0.75rem 0.9rem;
+border: 1px solid var(--accent-border);
+border-radius: var(--radius-md, 12px);
+background: var(--surface, #fff);
+color: var(--ink);
+box-shadow: var(--shadow-md);
+font-size: 0.9rem;
+}
+.webpush-prompt-icon { width: 1.1rem; height: 1.1rem; color: var(--accent); flex-shrink: 0; }
+.webpush-prompt-text { flex: 1 1 12rem; }
+.webpush-prompt button {
+border: 1px solid var(--accent-border);
+border-radius: var(--radius-pill, 999px);
+padding: 0.3rem 0.85rem;
+font: inherit;
+cursor: pointer;
+}
+.webpush-prompt-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.webpush-prompt-on:disabled { opacity: 0.6; cursor: default; }
+.webpush-prompt-later { background: transparent; color: var(--muted); }
+.webpush-prompt button:focus-visible { outline: none; box-shadow: var(--focus-ring); }

@@ -58,6 +58,15 @@ public partial class App : Application
         {
             if (e.Notification?.Data != null)
             {
+                // Every push names the account it's for: a tap on one for someone else (a user who
+                // was signed in on this phone before) does nothing. No one signed in yet (cold
+                // start): the routes below wait for the login and check again.
+                string? signedIn = Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser?.Uid;
+                if (signedIn != null && !LARGA.SharedCore.Push.PushTokenRules.IsForSignedInUser(e.Notification.Data, signedIn))
+                {
+                    return;
+                }
+
                 // SOS push to a manager (ManagerWeb SosPushService), or a new defect report
                 // (SubmissionAlertService): open the Alert Center.
                 if (e.Notification.Data.TryGetValue("type", out var sosType)
@@ -93,10 +102,11 @@ public partial class App : Application
                 // New chat message (ManagerWeb ChatPushService): the driver's Message Manager, or for
                 // staff the Chats tab and then that driver's conversation.
                 if (e.Notification.Data.TryGetValue("type", out var chatType) && chatType == LARGA.SharedCore.Chats.ChatPushPolicy.PushType
-                    && e.Notification.Data.TryGetValue("driverId", out var chatDriverId) && !string.IsNullOrWhiteSpace(chatDriverId))
+                    && e.Notification.Data.TryGetValue(LARGA.SharedCore.Chats.ChatPushPolicy.ConversationIdKey, out var chatDriverId) && !string.IsNullOrWhiteSpace(chatDriverId))
                 {
-                    e.Notification.Data.TryGetValue("driverName", out var chatDriverName);
-                    await MainThread.InvokeOnMainThreadAsync(() => ChatNotificationRouter.OpenAsync(chatDriverId, chatDriverName));
+                    e.Notification.Data.TryGetValue(LARGA.SharedCore.Chats.ChatPushPolicy.DriverNameKey, out var chatDriverName);
+                    e.Notification.Data.TryGetValue(LARGA.SharedCore.Push.PushTokenRules.RecipientUidKey, out var chatRecipient);
+                    await MainThread.InvokeOnMainThreadAsync(() => ChatNotificationRouter.OpenAsync(chatDriverId, chatDriverName, chatRecipient));
                     return;
                 }
 

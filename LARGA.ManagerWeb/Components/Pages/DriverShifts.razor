@@ -108,16 +108,14 @@ else
                             }
                         </div>
 
+                        @* The Manager and the Assistant Manager both decide flagged clock-ins. *@
                         <div class="clockin-request-actions">
-                            @if (_canManage)
+                            @if (item.BlockedReason is not null)
                             {
-                                @if (item.BlockedReason is not null)
-                                {
-                                    <div class="field-error">Can't be approved: @item.BlockedReason.</div>
-                                }
-                                <button class="solid-btn" type="button" disabled="@(_isDecidingClockIn || item.BlockedReason is not null)" title="@(item.BlockedReason is null ? null : $"Can't be approved: {item.BlockedReason}")" @onclick="() => ApproveClockInAsync(item)"><Icon Name="check" /> Approve</button>
-                                <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)"><Icon Name="x" /> Deny</button>
+                                <div class="field-error">Can't be approved: @item.BlockedReason.</div>
                             }
+                            <button class="solid-btn" type="button" disabled="@(_isDecidingClockIn || item.BlockedReason is not null)" title="@(item.BlockedReason is null ? null : $"Can't be approved: {item.BlockedReason}")" @onclick="() => ApproveClockInAsync(item)"><Icon Name="check" /> Approve</button>
+                            <button class="outline-btn danger" type="button" disabled="@_isDecidingClockIn" @onclick="() => OpenDenyClockIn(item)"><Icon Name="x" /> Deny</button>
                         </div>
                     </article>
                 }
@@ -931,7 +929,7 @@ else
                         <div class="profile-metric-track"><div class="profile-metric-fill" style="width:@MeterText(perf.PaymentReliabilityPercent)%"></div></div>
                         <small class="receipt-hint">@(perf.BoundariesDue == 0 ? "No boundaries due yet." : $"{perf.BoundariesPaidOnTime} of {perf.BoundariesDue} boundaries paid in full by the next day")</small>
                     </div>
-                    <div class="profile-field">Incidents: <strong>@perf.Incidents</strong> <span class="field-optional">(@perf.SosAlerts SOS, @perf.DamageIncidents accident)</span> · Boundaries Remitted: <strong>₱ @perf.BoundariesRemitted.ToString("N0")</strong></div>
+                    <div class="profile-field" title="Shown, not ranked: only attendance, punctuality and payment reliability feed the driver's standing.">Accidents/Damage: <strong>@perf.DamageIncidents</strong> · SOS: <strong>@perf.SosAlerts</strong> · Boundaries Remitted: <strong>₱ @perf.BoundariesRemitted.ToString("N0")</strong></div>
                 </div>
 
                 @if (!string.IsNullOrWhiteSpace(_selectedProfile.ManagerNote))
@@ -1039,6 +1037,10 @@ else
                                     <div class="field-error">@_licenseValidation.NameError</div>
                                 }
                                 <div class="license-scan-field"><span>License No.</span><strong>@(_licenseScan.LicenseNumber ?? "—")</strong></div>
+                                @if (_licenseScan.LicenseNumber is not null && _licenseScan.LicenseNumberUncertain)
+                                {
+                                    <div class="field-error"><Icon Name="triangle-alert" /> Glare over the seal made this hard to read - check it against the photo, and fix it under Edit details if it's wrong.</div>
+                                }
 
                                 <div class="license-scan-field">
                                     <span>Date of Birth</span>
@@ -1113,7 +1115,8 @@ else
     ConfirmText="@_confirmButtonText" IsBusy="_confirmBusy" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm" />
 
 @code {
-    // Assistant Managers can view drivers and shifts but can't approve clock-ins, edit the schedule, or add notes/drivers.
+    // Assistant Managers can view drivers and shifts and approve/deny flagged clock-ins, but can't edit the
+    // schedule or add notes/drivers.
     private bool _canManage;
 
     private bool _showConfirm;
@@ -2096,6 +2099,20 @@ else
             _scannedLicensePhoto = photo;
             _scannedLicensePhotoType = string.IsNullOrEmpty(e.File.ContentType) ? "image/jpeg" : e.File.ContentType;
             _licenseScan = LtoLicenseParser.ParseBest(ocr.Texts);
+
+            // The shiny seal and glare sit on the License No. row. When the number or expiry
+            // didn't read cleanly, add a pass over a copy with the seal's colours filtered out
+            // and the lighting evened (ocr.js readFiltered) - only then, as it's another few seconds.
+            if (_licenseScan.IsPhilippineLicense
+                && (_licenseScan.LicenseNumber is null || _licenseScan.LicenseNumberUncertain || _licenseScan.ExpiryDate is null))
+            {
+                string? filtered = await _ocrModule.InvokeAsync<string?>("readFiltered", TimeSpan.FromMinutes(2), _licenseInput!.Element);
+                if (!string.IsNullOrWhiteSpace(filtered))
+                {
+                    _licenseScan = LtoLicenseParser.ParseBest(ocr.Texts.Append(filtered));
+                }
+            }
+
             _licenseValidation = LtoLicenseParser.Validate(_licenseScan, PhilippineTime.Now, _selectedProfile?.FullName);
 
             if (_licenseValidation.IsValid)

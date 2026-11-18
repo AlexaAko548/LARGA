@@ -168,6 +168,10 @@ builder.Services.AddHostedService<PaymentReferenceBackfillService>();
 builder.Services.AddHostedService<MustChangePasswordCleanupService>();
 // LAR-86/87: mirror Manager and Assistant Manager numbers into the driver app's SOS auto-answer allowlist (live).
 builder.Services.AddHostedService<ManagerPhoneAllowlistSyncService>();
+// Every push goes through here: each user's own users/{uid}/fcmTokens, dead tokens removed.
+builder.Services.AddSingleton<PushTokenStore>();
+// Keeps each push token on one account only (a shared phone or PC that changed hands).
+builder.Services.AddHostedService<PushTokenOwnershipService>();
 // Pushes each new SOS to every Manager/Assistant Manager phone (FCM), app open or not.
 builder.Services.AddHostedService<SosPushService>();
 // Pushes each new chat message to the driver / staff in that conversation (never the sender).

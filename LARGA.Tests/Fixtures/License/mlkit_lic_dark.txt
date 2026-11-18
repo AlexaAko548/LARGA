@@ -1,0 +1,36 @@
+# ML Kit reads of tests/lic_dark (degraded copy of license2.jfif), one pass per section,
+# captured from the emulator with the DEBUG OcrBatchReceiver (LicenseScanPipeline, LARGA-LIC lines).
+=== pass original
+REPUBLIC OF THE PHILIPPINES
+DEPARTMENT OF TRANSPORTATION
+LAND TRANSPORTATION OFFICE
+Signature of Licensee
+DRIVER'S LICENSE
+Last Name. First Name. Middle Name
+MINOZA, ALEXA ROSE INSO
+Nationality Sex
+PHL
+Address
+F
+CEBU, 6000
+Blood Type
+Date of Birth
+2005/09/27
+NASIPIT, TALAMBAN. CEBU CITY (CAPITAL),
+DL Codes
+A,B,B1,B2
+License No.
+Expiration Date
+GO1-25-009637 2030/09/27
+Eyes Color
+BLACK
+Gonditions
+SRANS FOHLATe
+Weight (kg) Height(m)
+70
+1.60
+1
+Agency Code
+GO1
+MARKUgV. LACANILAO
+Assistant Secretary

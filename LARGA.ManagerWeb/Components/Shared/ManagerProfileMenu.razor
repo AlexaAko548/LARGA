@@ -13,6 +13,7 @@
 @inject PayoutAccountService PayoutAccounts
 @inject DuressPinService DuressPins
 @inject AccessRequestService AccessRequests
+@inject PushTokenStore PushTokens
 
 @* Header profile menu: the same pill the header always showed, now opening Settings
    (contact number, password) and Logout. Styled with the app's own header/modal classes. *@
@@ -597,9 +598,25 @@
     private async Task<IJSObjectReference> GetFirebaseModuleAsync() =>
         _firebaseModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
 
-    // Ends both sessions: the browser's Firebase sign-in, then the server cookie.
+    // Ends both sessions: the browser's Firebase sign-in, then the server cookie. First this
+    // browser stops getting this user's pushes: the service worker forgets who's signed in, the
+    // FCM token is deleted, and it's removed from the account.
     private async Task HandleLogoutAsync()
     {
+        try
+        {
+            IJSObjectReference push = await JS.InvokeAsync<IJSObjectReference>("import", "/web-push.js");
+            string? token = await push.InvokeAsync<string?>("largaWebPushDisable");
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                await PushTokens.RemoveAsync(await CurrentUserIdAsync(), token);
+            }
+        }
+        catch (Exception)
+        {
+            // Not set up in this browser, or offline - a token left behind is dropped once FCM rejects it.
+        }
+
         try
         {
             IJSObjectReference module = await GetFirebaseModuleAsync();

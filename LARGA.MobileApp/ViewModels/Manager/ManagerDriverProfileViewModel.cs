@@ -158,18 +158,24 @@ public class ManagerDriverProfileViewModel : BindableObject
         try
         {
             if (string.IsNullOrWhiteSpace(DriverId)) return;
-            if (!MediaPicker.Default.IsCaptureSupported) return;
 
-            var photo = await MediaPicker.Default.CapturePhotoAsync();
-            if (photo == null) return;
-
-            // Save the photo to a local cache file with a unique name to avoid collisions/locks
-            string localFilePath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_{photo.FileName}");
-
-            using (var sourceStream = await photo.OpenReadAsync())
-            using (var localFileStream = File.OpenWrite(localFilePath))
+            // DEBUG: a photo queued for the emulator stands in for the camera.
+            string? localFilePath = DebugCameraSource.TakeQueued();
+            if (localFilePath == null)
             {
-                await sourceStream.CopyToAsync(localFileStream);
+                if (!MediaPicker.Default.IsCaptureSupported) return;
+
+                var photo = await MediaPicker.Default.CapturePhotoAsync();
+                if (photo == null) return;
+
+                // Save the photo to a local cache file with a unique name to avoid collisions/locks
+                localFilePath = Path.Combine(FileSystem.CacheDirectory, $"{Guid.NewGuid():N}_{photo.FileName}");
+
+                using (var sourceStream = await photo.OpenReadAsync())
+                using (var localFileStream = File.OpenWrite(localFilePath))
+                {
+                    await sourceStream.CopyToAsync(localFileStream);
+                }
             }
 
             // Safely update navigation on the Main Thread; exceptions bubble up to the outer try/catch.

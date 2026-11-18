@@ -111,9 +111,10 @@ public class AlertCenterViewModel : BindableObject
     // "No unread alerts" - the Unread filter hides every alert there is.
     public bool IsUnreadEmpty => _hasLoaded && !HasError && Alerts.Count > 0 && ShowUnreadOnly && !Alerts.Any(a => a.IsUnread);
 
-    /// <summary>Resolving an SOS (SOS-007), approving/denying a clock-in and resolving a fuel flag are a
-    /// Manager's decisions - an Assistant Manager sees the cards (and can call or message the driver)
-    /// but not those buttons. firestore.rules refuse the writes too.</summary>
+    /// <summary>Resolving an SOS (SOS-007) and resolving a fuel flag are a Manager's decisions - an
+    /// Assistant Manager sees the cards (and can call or message the driver) but not those buttons, and
+    /// firestore.rules refuse the writes too. Approving / denying a flagged clock-in is open to both
+    /// (user decision 2026-11-15), so those buttons don't use this.</summary>
     public bool CanDecide => !StaffSession.IsAssistantManager;
     public bool IsDecisionManagerOnly => !CanDecide;
     public ICommand DismissAlertCommand { get; }
@@ -124,8 +125,7 @@ public class AlertCenterViewModel : BindableObject
     public ICommand MessageDriverCommand { get; }
     public ICommand ViewLocationCommand { get; }
 
-    /// <summary>Opens one of a clock-in approval's photos full screen. Viewing isn't a decision, so unlike
-    /// Approve / Deny it's open to an Assistant Manager too.</summary>
+    /// <summary>Opens one of a clock-in approval's photos full screen.</summary>
     public ICommand OpenPhotoCommand { get; }
 
     private bool _openingPhoto;
@@ -356,6 +356,7 @@ public class AlertCenterViewModel : BindableObject
                         HasFailedItems = !(doc.Data.TireCondition && doc.Data.UnderTheHood && doc.Data.LightsCondition
                             && doc.Data.InteriorCleanliness && doc.Data.ExteriorCondition),
                         DefectReportIds = doc.Data.DefectReportIds,
+                        OdometerPhotoUrl = string.IsNullOrWhiteSpace(doc.Data.OdometerPhotoUrl) ? null : doc.Data.OdometerPhotoUrl,
                         BellId = AlertFeed.ClockInBellId(doc.Reference.Id),
                         PhoneNumber = driver?.PhoneNumber?.ToString()
                     });
@@ -700,11 +701,10 @@ public class AlertCenterViewModel : BindableObject
     /// <summary>
     /// Same as ManagerWeb's ClockInApprovalService.ApproveAsync: refused when the driver has no
     /// valid license or the unit is under maintenance (ShiftEligibilityRules), otherwise the
-    /// request becomes Approved and the driver's phone clocks in.
+    /// request becomes Approved and the driver's phone clocks in. A Manager or an Assistant Manager.
     /// </summary>
     private async Task ApproveClockInAsync(AlertItem? alert)
     {
-        if (!await EnsureCanDecideAsync()) return;
         if (alert == null || alert.Type != AlertType.ShiftApproval) return;
 
         // Approving lets a unit with a flagged inspection go out - confirm, like Deny asks for a note.
@@ -758,11 +758,12 @@ public class AlertCenterViewModel : BindableObject
     /// <summary>
     /// Same as ManagerWeb's ClockInApprovalService.DenyAsync: a note for the driver is required;
     /// the driver's defect reports go to the Garage queue at High priority (failed checklist items
-    /// with no report get one created); optionally the unit is marked Under Maintenance.
+    /// with no report get one created); optionally the unit is marked Under Maintenance. A Manager or
+    /// an Assistant Manager: every Garage / unit write names the request (clockInRequestId,
+    /// groundedByClockInRequestId) so firestore.rules can check it belongs to this denial.
     /// </summary>
     private async Task DenyClockInAsync(AlertItem? alert)
     {
-        if (!await EnsureCanDecideAsync()) return;
         if (alert == null || alert.Type != AlertType.ShiftApproval) return;
 
         string? note = await Shell.Current.DisplayPromptAsync(
@@ -814,13 +815,17 @@ public class AlertCenterViewModel : BindableObject
 
             foreach (IDocumentReference defect in defects)
             {
-                batch.UpdateData(defect, new Dictionary<object, object> { ["priorityLevel"] = "High" });
+                batch.UpdateData(defect, new Dictionary<object, object>
+                {
+                    ["priorityLevel"] = "High",
+                    ["clockInRequestId"] = alert.Id,
+                });
             }
 
             if (defects.Count == 0 && alert.HasFailedItems)
             {
-                // Same fields ManagerWeb's DenyAsync writes for a new Garage report.
-                batch.SetData(firestore.GetCollection("maintenance_logs").CreateDocument(), new Dictionary<object, object>
+                // Same fields ManagerWeb's DenyAsync writes for a new Garage report (with the odometer photo).
+                var report = new Dictionary<object, object>
                 {
                     ["taxiId"] = alert.TaxiId ?? string.Empty,
                     ["maintenanceType"] = "Breakdown Repair",
@@ -830,13 +835,20 @@ public class AlertCenterViewModel : BindableObject
                     ["priorityLevel"] = "High",
                     ["reportedByDriverId"] = alert.DriverId ?? string.Empty,
                     ["status"] = "Reported",
-                }, SetOptions.Merge());
+                    ["clockInRequestId"] = alert.Id,
+                };
+                if (alert.OdometerPhotoUrl is not null) report["supportingPhotoUrl"] = alert.OdometerPhotoUrl;
+                batch.SetData(firestore.GetCollection("maintenance_logs").CreateDocument(), report, SetOptions.Merge());
             }
 
             if (markUnderMaintenance && !string.IsNullOrWhiteSpace(alert.TaxiId))
             {
                 batch.UpdateData(firestore.GetCollection("taxis").GetDocument(alert.TaxiId),
-                    new Dictionary<object, object> { ["status"] = LARGA.SharedCore.TaxiStatusRules.UnderMaintenance });
+                    new Dictionary<object, object>
+                    {
+                        ["status"] = LARGA.SharedCore.TaxiStatusRules.UnderMaintenance,
+                        ["groundedByClockInRequestId"] = alert.Id,
+                    });
             }
 
             batch.UpdateData(request, new Dictionary<object, object>
@@ -1211,6 +1223,9 @@ public class AlertItem
     // reports (maintenance_logs IDs, comma-separated).
     public bool HasFailedItems { get; set; }
     public string? DefectReportIds { get; set; }
+
+    // Clock-in approvals: the odometer photo, attached to the Garage report a denial files (as the web does).
+    public string? OdometerPhotoUrl { get; set; }
 
     // Clock-in approvals: the inspection photos the manager reviews before deciding (fuel gauge, odometer,
     // each defect's photo) - the same ones the web shows.

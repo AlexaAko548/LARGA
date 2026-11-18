@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using LARGA.SharedCore.Services;
+using Microsoft.Maui.Graphics;
 using Microsoft.Maui.Storage;
 using SkiaSharp;
 
@@ -73,6 +75,70 @@ public static class OcrImageEnhancer
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"OCR image enhance failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>A copy for the license scan's extra passes (LicenseScanPipeline): upright,
+    /// optionally cropped to <paramref name="crop"/> (normalized 0-1, in ML Kit's upright frame)
+    /// and enlarged, then run through OcrGlareFilter - which strips the shiny seal's colours,
+    /// evens out glare/shadows and darkens faded print. Null if the photo can't be read.</summary>
+    public static string? CreateLicensePass(string sourcePath, OcrGlareFilter.Mode mode, double sharpen = 0, Rect? crop = null, double? backgroundFraction = null)
+    {
+        try
+        {
+            using var upright = LoadUpright(sourcePath);
+            if (upright == null)
+            {
+                return null;
+            }
+
+            SKRectI area = new(0, 0, upright.Width, upright.Height);
+            if (crop is Rect c)
+            {
+                area = SKRectI.Intersect(area, new SKRectI(
+                    (int)(c.X * upright.Width), (int)(c.Y * upright.Height),
+                    (int)Math.Ceiling(c.Right * upright.Width), (int)Math.Ceiling(c.Bottom * upright.Height)));
+                if (area.Width < 8 || area.Height < 8)
+                {
+                    return null;
+                }
+            }
+
+            // Whole card: ~2000 px on the long side, like the receipt pass. Crop of one row:
+            // enlarged up to 3x so the digits are tall enough for ML Kit to separate.
+            int target = crop is null ? TargetLongSide : 1800;
+            float scale = Math.Clamp((float)target / Math.Max(area.Width, area.Height), 0.25f, MaxUpscale);
+            int width = Math.Max(1, (int)(area.Width * scale));
+            int height = Math.Max(1, (int)(area.Height * scale));
+
+            using var scaled = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+            using (var canvas = new SKCanvas(scaled))
+            using (var image = SKImage.FromBitmap(upright))
+            {
+                canvas.Clear(SKColors.White);
+                canvas.DrawImage(image, SKRect.Create(area.Left, area.Top, area.Width, area.Height),
+                    new SKRect(0, 0, width, height), new SKSamplingOptions(SKCubicResampler.Mitchell), null);
+            }
+
+            // A crop is one row of text: the paper-brightness blur must still be wider than a digit.
+            byte[] gray = OcrGlareFilter.Apply(scaled.Bytes, width, height, mode,
+                backgroundFraction: backgroundFraction ?? (crop is null ? 1.0 / 40 : 1.0 / 12), sharpen: sharpen);
+
+            using var output = new SKBitmap(new SKImageInfo(width, height, SKColorType.Gray8, SKAlphaType.Opaque));
+            System.Runtime.InteropServices.Marshal.Copy(gray, 0, output.GetPixels(), gray.Length);
+
+            string path = Path.Combine(FileSystem.CacheDirectory, $"ocr_license_{Guid.NewGuid():N}.jpg");
+            using var data = output.Encode(SKEncodedImageFormat.Jpeg, 92);
+            using (var stream = File.OpenWrite(path))
+            {
+                data.SaveTo(stream);
+            }
+            return path;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"License OCR pass failed: {ex.Message}");
             return null;
         }
     }
