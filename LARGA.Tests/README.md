@@ -72,6 +72,8 @@ LARGA_EMULATOR=1 dotnet test LARGA.Tests/LARGA.Tests.csproj
 
 ## Rules tests (JavaScript)
 
+These two files only cover GPS, maintenance and payment rules. The full security-rules suite (the Firestore and Storage tests counted in our paper) is in `tests/rules`; see [tests/rules/README.md](../tests/rules/README.md).
+
 Two files check the repo's `firestore.rules`: `Rules/gps_mnt.rules.test.js` (GPS-004/005 and driver defect reports MNT-002/003) and
 `Rules/brp.rules.test.js` (BRP-026: drivers can't read other drivers' payments, shifts or debt adjustments, and ledger writes are staff-only).
 With the emulator above running, from the repo root:
