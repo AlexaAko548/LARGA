@@ -195,7 +195,6 @@ public static class MauiProgram
         builder.Services.AddTransient<FleetRegistryPage>();
         builder.Services.AddTransient<ChangePasswordPage>();
         builder.Services.AddTransient<UpdateContactNumberPage>();
-        builder.Services.AddTransient<ComingSoonPage>();
         builder.Services.AddTransient<FuelReportPage>();
         builder.Services.AddTransient<Views.Driver.ScanFuelReceiptPage>();
         builder.Services.AddTransient<FuelReportDetailPage>();

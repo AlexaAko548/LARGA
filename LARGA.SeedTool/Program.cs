@@ -12,8 +12,8 @@ namespace LARGA.SeedTool;
 /// <summary>
 /// One-off / re-runnable console tool that seeds the LARGA Firestore project with a
 /// small, internally-consistent set of test data across every collection the
-/// ManagerWeb dashboard (and near-future pages: Garage, Inventory, Fuel Verification,
-/// Audit Logs) will need to render something meaningful.
+/// ManagerWeb dashboard (including its Garage, Inventory, Fuel Verification and
+/// Audit Logs pages) will need to render something meaningful.
 ///
 /// All documents use fixed IDs, so re-running this tool overwrites the same records
 /// instead of creating duplicates - safe to run again before a demo to reset state.
