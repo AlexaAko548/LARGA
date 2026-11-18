@@ -2,7 +2,7 @@
 
 This documents the Firestore data model actually implemented in [LARGA.Shared.Models/Entities](../LARGA.Shared.Models/Entities) and written to by [LARGA.SharedCore/Services](../LARGA.SharedCore/Services) and the mobile/web apps.
 
-It reflects the original capstone ERD **plus three tables that exist in code and in the live Firestore database but were missing from the original diagram**: `CHAT_MESSAGE`, `SHIFT_SCHEDULE`, and `SYSTEM_CONFIG`. Every table maps 1:1 to a Firestore collection of the same name in lowercase/snake_case (e.g. `USER` → `users`, `SHIFT_LOG` → `shifts`, `MAINTENANCE_RECORD` → `maintenance_logs`).
+It reflects the original capstone ERD **plus tables that exist in code and in the live Firestore database but were missing from the original diagram**: `CHAT_MESSAGE`, `SHIFT_SCHEDULE`, `SYSTEM_CONFIG`, `SYSTEM_ALERT`, `CLOCKIN_REQUEST`, `PAYMENT_REFERENCE`, `FUEL_OR_NUMBER`, `SHIFT_LOCK`, `LEDGER_LOCK`, `FCM_TOKEN` and `DRIVER_PERFORMANCE`. `PRE_SHIFT_REMINDER` is server-only and only described in the notes. Every table maps 1:1 to a Firestore collection of the same name in lowercase/snake_case (e.g. `USER` → `users`, `SHIFT_LOG` → `shifts`, `MAINTENANCE_RECORD` → `maintenance_logs`).
 
 ```mermaid
 erDiagram
@@ -29,6 +29,16 @@ erDiagram
     SPARE_PARTS ||--o{ MAINTENANCE_PARTS_USED : "used in"
     TAXI_UNIT ||--o{ ROUTINE_CHECK : "has upcoming"
     USER ||--o{ MAINTENANCE_RECORD : "reports (ReportedByDriverID)"
+
+    USER ||--o{ CLOCKIN_REQUEST : "requests (DriverID)"
+    SHIFT_LOG |o--o| CLOCKIN_REQUEST : "created from (ShiftID, once clocked in)"
+    TAXI_UNIT ||--o{ CLOCKIN_REQUEST : "inspected for"
+    BOUNDARY_PAYMENT_LEDGER ||--o{ PAYMENT_REFERENCE : "claims GCash reference"
+    FUEL_LOG ||--o| FUEL_OR_NUMBER : "claims OR number"
+    SHIFT_LOG ||--o{ SHIFT_LOCK : "held by"
+    USER ||--o| LEDGER_LOCK : "has"
+    USER ||--o{ FCM_TOKEN : "registers"
+    USER ||--o| DRIVER_PERFORMANCE : "has"
 
     USER {
         string UserID PK
@@ -74,11 +84,13 @@ erDiagram
         string TaxiID FK
         timestamp ShiftStart
         timestamp ShiftEnd "nullable"
-        enum Status "'Active','Completed','Overdue'"
+        enum Status "'Active','Completed','Auto-Closed' (missed clock-out, closed at 6:00 AM next day)"
         int StartMileage
         int EndMileage "nullable"
         boolean IsOnBreak "driver-toggled mid-shift"
         text ManagerNote
+        decimal LateFee "nullable"
+        decimal FuelPenalty "nullable"
     }
 
     BOUNDARY_PAYMENT_LEDGER {
@@ -89,8 +101,13 @@ erDiagram
         decimal AmountPaid "DECIMAL(10,2)"
         enum PaymentMethod "'Cash','E-Wallet'"
         enum PaymentStatus "'Paid','Partial','Unpaid'"
-        int ReferenceNumber
+        int ReferenceNumber "nullable"
+        string GcashReferenceNumber "nullable"
         string EPayReceiptPhoto "URL"
+        decimal FuelPenalty
+        string DriverID FK "nullable"
+        string TransactionId "nullable"
+        string RecordedVia "nullable"
         timestamp Timestamp
     }
 
@@ -100,6 +117,7 @@ erDiagram
         decimal Amount "DECIMAL(10,2), positive adds to debt, negative is a credit/write-off"
         string Reason
         timestamp Timestamp
+        string TransactionId "nullable"
     }
 
     HANDOVER_CHECKLIST {
@@ -111,9 +129,11 @@ erDiagram
         boolean CoolantLevel
         boolean InteriorCleanliness
         boolean ExteriorScratches
+        boolean LightsCondition "nullable"
         enum FuelVerification "'Half-tank','Below half-tank'"
         string ScratchesPhotoURL "URL"
         string FuelDashboardURL "URL"
+        string OdometerPhotoURL "URL, nullable"
         timestamp Timestamp
     }
 
@@ -133,6 +153,11 @@ erDiagram
         decimal Longitude "DECIMAL(9,6)"
         boolean IsResolved
         timestamp Timestamp
+        string DriverID FK
+        string TriggerType "nullable, e.g. Standard / Hostile / Crash"
+        string Address "nullable street address"
+        boolean CallerVerified "nullable"
+        timestamp ResolvedAt "nullable"
     }
 
     FUEL_LOG {
@@ -148,6 +173,14 @@ erDiagram
         text FuelLogDetails
         int OdometerReading
         string OdometerPhotoURL "URL"
+        string DriverID FK
+        boolean IsCostManuallyEdited
+        boolean IsQuantityManuallyEdited
+        boolean IsFuelStationManuallyEdited
+        boolean IsReceiptDateManuallyEdited
+        boolean IsOrNumberManuallyEdited
+        boolean IsAnyFieldManuallyEdited
+        boolean AutoFlagged
     }
 
     MAINTENANCE_RECORD {
@@ -168,6 +201,11 @@ erDiagram
         string Status "'Reported','InProgress','Resolved','Dismissed' - added 2026-09-10"
         text MechanicInstructions "nullable - added 2026-09-10"
         date EstimatedCompletionDate "nullable - added 2026-09-10"
+        date ScheduledDate "nullable"
+        string RoutineType "nullable"
+        timestamp BookedAt "nullable"
+        date DriverNotifiedShopDay "nullable"
+        date DayOffReminderSentFor "nullable"
     }
 
     ROUTINE_CHECK {
@@ -176,6 +214,7 @@ erDiagram
         string CheckName "VARCHAR(100)"
         int DueMileage "nullable - absolute odometer target"
         date DueDate "nullable - for a date-based check instead of a mileage-based one"
+        string RoutineType "nullable"
     }
 
     MAINTENANCE_PARTS_USED {
@@ -191,6 +230,12 @@ erDiagram
         int StockQuantity
         int ReorderLevel
         decimal UnitPrice "DECIMAL(10,2)"
+        string Unit
+        string Brand
+        string Supplier
+        bool IsArchived "default false"
+        timestamp ArchivedAt "nullable"
+        string ArchivedBy "nullable"
     }
 
     CHAT_MESSAGE {
@@ -198,6 +243,9 @@ erDiagram
         string DriverID FK "parent path: chats/{DriverID}/messages"
         text Text
         boolean IsDriver "true = sent by driver, false = sent by manager"
+        string SenderId "nullable, staff messages"
+        string SenderName "nullable, staff messages"
+        string SenderRole "nullable, Manager / Assistant Manager"
         timestamp Timestamp
     }
 
@@ -213,11 +261,23 @@ erDiagram
         string ConfigID PK
         decimal DefaultBoundaryRate "DECIMAL(10,2)"
         decimal IdleThresholdMinutes "minutes of no movement before a unit is flagged Idle; default 15"
+        string ManagerPhoneNumbers "list"
+        string AuthorizedPayoutAccounts "list"
+        decimal FuelDistanceTolerancePercent
+        decimal FuelCostPerKmMin
+        decimal FuelCostPerKmMax
+        decimal FuelAutoFlagMinDistanceKm
+        decimal FuelAutoFlagMinVarianceKm
+        int MaintenanceWeeklyIntervalDays
+        int MaintenanceBiweeklyIntervalDays
+        int MaintenanceMonthlyIntervalDays
+        int OilChangeIntervalDays
+        int MaintenanceDueSoonDays
     }
 
     SYSTEM_ALERT {
         string AlertID PK
-        string Type "'DriverIdle' for now"
+        string Type "DriverIdle, DefectReported, FuelSubmitted, low-stock and routine-check types"
         string DriverID FK
         string DriverName "denormalized"
         string TaxiID FK
@@ -226,6 +286,73 @@ erDiagram
         string Message
         timestamp Timestamp
         bool IsRead "default false"
+        string Status
+    }
+
+    CLOCKIN_REQUEST {
+        string RequestID PK
+        string DriverID FK
+        string TaxiID FK
+        string ShiftID FK "nullable, set once clocked in"
+        enum Status "'Pending','Approved','Denied','Cancelled','ClockedIn'"
+        string FlagReasons
+        boolean TireCondition
+        boolean UnderTheHood
+        boolean LightsCondition
+        boolean InteriorCleanliness
+        boolean ExteriorCondition
+        boolean IsBelowHalfTank
+        int StartMileage
+        string FuelDashboardUrl "URL, nullable"
+        string OdometerPhotoUrl "URL, nullable"
+        string DefectReportIds
+        timestamp CreatedAt
+        timestamp DecidedAt "nullable"
+        string ManagerNote "nullable"
+    }
+
+    PAYMENT_REFERENCE {
+        string ReferenceNumber PK "document ID: normalized GCash reference"
+        string PaymentID FK
+        string DriverID FK
+        string TransactionId
+        string ReferenceNumberRaw "field referenceNumber, as entered"
+        timestamp CreatedAt
+    }
+
+    FUEL_OR_NUMBER {
+        string ClaimKey PK "document ID: station + OR number, normalized (FuelOrNumberRules.Key)"
+        string FuelLogID FK "field fuelLogId"
+        timestamp CreatedAt
+        bool Backfilled "only on claims made for older logs"
+    }
+
+    SHIFT_LOCK {
+        string LockID PK "driver_{uid} or unit_{taxiId}"
+        string ShiftID FK
+        string DriverID FK
+        timestamp ShiftStart
+        bool Released
+        timestamp UpdatedAt
+    }
+
+    LEDGER_LOCK {
+        string DriverID PK
+        int Version "bumped on every payment save, checked before a payment plan commits"
+    }
+
+    FCM_TOKEN {
+        string TokenDocID PK "users/{uid}/fcmTokens/{hash of token}"
+        string Token
+        string Platform
+        string DeviceID
+        timestamp LastSeen
+    }
+
+    DRIVER_PERFORMANCE {
+        string DriverID PK
+        string PaymentReliability
+        decimal ShiftPunctuality "nullable"
     }
 ```
 
@@ -244,7 +371,7 @@ The ManagerWeb dashboard's 5 fleet-status pills (Active / Maintenance / On Break
 
 `SHIFT_LOG` and `BOUNDARY_PAYMENT` are written roughly once per taxi per day, so their total row count grows without bound the longer the fleet actually operates - unlike `TAXI_UNIT`/`USER` (bounded by fleet/team size) or `MAINTENANCE_RECORD`/`EMERGENCY_ALERT` (incident-driven, far lower volume). [FleetReportingService](../LARGA.SharedCore/Services/FleetReportingService.cs) queries the first two narrowly (`status == "Active"`, or `shiftStart`/`timestamp` within the last 14 days) instead of fetching either collection in full, so a dashboard load stays cheap regardless of how many months/years of history have accumulated. One consequence: **Top Driver Standings reports the last 14 days, not all-time** - a deliberate tradeoff of this design, not a bug.
 
-## Notes / known gaps vs. this diagram (as of 2026-09-05)
+## Notes / known gaps vs. this diagram (as of 2026-11-18)
 
 - **`AUDIT_LOG`**: modeled since early on, but had no reader anywhere until the ManagerWeb "Generate Reports" CSV export (Full Audit Trail) landed on 2026-09-06 — first real consumer.
 - **`HANDOVER_CHECKLIST`**: same situation until the Driver & Shift Management page's Shift Logs checklist modal landed on 2026-09-07 - first real consumer. Note the modal doesn't show a 1:1 mapping of every mockup checklist item: `OilLevel`/`CoolantLevel` are combined into a single "under the hood" row, and "starting odometer documented" is omitted entirely since no field anywhere backs it (odometer readings live on `FUEL_LOG`, not `HANDOVER_CHECKLIST`).
@@ -262,7 +389,7 @@ The ManagerWeb dashboard's 5 fleet-status pills (Active / Maintenance / On Break
 - **Master Debt Ledger tab (2026-09-10)**: an all-time reckoning of each driver's outstanding debt, so - unlike everywhere else in this service - it fetches `SHIFT_LOG` and `BOUNDARY_PAYMENT_LEDGER` in full rather than windowed (see "Dashboard read-cost notes" above for why those two normally stay narrow; windowing would defeat a feature whose whole point is all-time visibility). A driver's debt = sum of (Expected + LateFees − AmountPaid) across their non-Paid `BOUNDARY_PAYMENT_LEDGER` rows, plus their net `DEBT_ADJUSTMENT` total, floored at 0. Same lazy-payment-doc limitation as Daily Settlements: a shift nobody ever attempted to pay (no document at all) isn't visible to this either. "Settle" applies a lump sum oldest-debt-first across a driver's outstanding boundary payments, then any leftover as an automatic offsetting credit against their adjustment total; an overpayment beyond total debt is reported back rather than recorded as a negative balance. "History" reconstructs a running-debt column by replaying a driver's `BOUNDARY_PAYMENT_LEDGER` rows (one per shift, its *current* state - not a payment-by-payment log, since `RecordPaymentAsync`/`SettleDebtAsync` update the same document in place) and `DEBT_ADJUSTMENT` rows (append-only, so these do have real history) in chronological order - it isn't stored anywhere.
 - **Garage / Maintenance Scheduler page (2026-09-10)**: `MAINTENANCE_RECORD.Status` (new field) drives the page's 3 sections - `"Reported"` = a driver-filed defect report with no work order yet ("Pending Driver Reports"); `"InProgress"` = a ticket has been created and it's an active work order currently in the shop ("Active Work Orders" - the "Day N" badge is computed from `DateLogged`, not stored); `"Resolved"`/`"Dismissed"` both go to the History modal, distinguished by status since `DateResolved` alone can't express "dismissed without ever being worked on." "Create Ticket" sets `Status="InProgress"` plus `MechanicInstructions`/`EstimatedCompletionDate`; "Schedule" on a `ROUTINE_CHECK` skips the driver-report stage entirely (it's manager/system-initiated, not driver-flagged) - it prompts for a date (Automatic or Manual), then creates a `MAINTENANCE_RECORD` directly as `"InProgress"` (that date becomes its `EstimatedCompletionDate`) and deletes the `ROUTINE_CHECK` document, rather than round-tripping through "Reported" first. Automatic mode (`GetNextAvailableScheduleDateAsync`) never picks today - it starts at tomorrow and, for each candidate day, counts existing `"InProgress"` rows sharing that `EstimatedCompletionDate`; at 2 or more (the shop's daily capacity, hardcoded) it tries the next day, repeating until one is under capacity. Manual mode isn't capacity-checked - only Automatic enforces it. `GetGarageSnapshotAsync` fetches `maintenance_logs` in full, same reasoning as `FleetReportingService`'s dashboard reads: it's incident-driven, not written once-per-taxi-per-day, so its volume grows far slower than `shifts`/`boundary_payments`. "Due in X km" on a `ROUTINE_CHECK` is `DueMileage − current odometer`, where current odometer is read from each taxi's most recent `SHIFT_LOG` in the last 30 days (`EndMileage` if that shift has ended, else its `StartMileage`) rather than the static `TAXI_UNIT.CurrentMileage` field, which nothing keeps in sync automatically - a taxi with no shifts in that window falls back to `CurrentMileage`. The 30-day window is queried with `WhereGreaterThanOrEqualTo` on `shiftStart` alone (auto-indexed) rather than `WhereEqualTo(taxiId)` + `OrderBy(shiftStart)` per taxi, which would need a manually-created composite index.
 - **Mobile evidence photos now upload to Firebase Cloud Storage (2026-09-14)**: [PhotoStorageService](../LARGA.SharedCore/Services/PhotoStorageService.cs) wraps `Plugin.Firebase.Storage`'s client SDK (`CrossFirebaseStorage` - authenticates as the signed-in driver, subject to Storage Security Rules, not the admin SDK ManagerWeb/SeedTool use) with one method: upload bytes, return the download URL or `null` on failure. Wired into the three places mobile captures a photo: `PreShiftStep2ViewModel`/`EndShiftStep2ViewModel`'s fuel-level photo (`fuel_photos/{driverId}/{preshift|endshift}_{timestamp}.jpg`) and `OdometerScanPage`'s odometer-dashboard photo, uploaded only for the one frame the driver actually taps to confirm (`odometer_photos/{driverId}/{timestamp}.jpg`), then relayed back to whichever step-2 page opened the scanner via the same `Shell.GoToAsync` query-parameter dictionary already carrying the recognized number, into new `FuelPhotoUrl`/`OdometerPhotoUrl` view-model properties. A failed upload returns `null` rather than throwing/blocking the flow - these properties aren't part of `CanStartShift`/`IsComplete`, only the local in-memory preview is. **These URLs aren't persisted anywhere yet**: like `SHIFT_LOG`/`FUEL_LOG` creation itself (see above), nothing on mobile writes a shift or fuel-log document at all right now, so there's currently no Firestore field these URLs end up in - they're sitting on the view models ready for whenever that write pipeline gets built. Also out of scope here: `MAINTENANCE_RECORD.SupportingPhotoUrl` (the defect-report photo) isn't wired, since the defect-report page itself (`vehicle-defect-page`) doesn't exist yet - see `ReportDefectCommand` in `PreShiftStep1ViewModel`/`EndShiftStep1ViewModel`. Also needs its own Storage Security Rules (a separate rule set from Firestore's, configured in the same Firebase Console) before any of these uploads will actually succeed against a real project - not yet written/reviewed as part of this change.
-- **`SYSTEM_ALERT` / idle-driver alerts + notification bell (2026-09-15)**: `SYSTEM_CONFIG.IdleThresholdMinutes` changed from 10 to 15. New `system_alerts` collection (`SystemAlert.cs`) for system-*generated* notices, distinct from driver-initiated `EMERGENCY_ALERT` (SOS) and `MAINTENANCE_RECORD` (defect reports). [IdleAlertMonitorService](../LARGA.ManagerWeb/Services/IdleAlertMonitorService.cs) is a `BackgroundService` inside the ManagerWeb process (there's no separate worker/cron infra in this project) that polls every 3 minutes via `FleetReportingService.GetIdleDriversAsync()` - which mirrors the live fleet-status precedence (skips a taxi that's under maintenance, on break, or has an unresolved SOS, so only a genuinely-idle active shift qualifies) - and writes one alert per idle episode via a deterministic doc ID (`{shiftId}_IDLE`), making repeated polling ticks idempotent; a driver who moves and goes idle again *within the same shift* won't get a second alert. [AlertService](../LARGA.SharedCore/Services/AlertService.cs) is ManagerWeb's admin-SDK reader/writer (recent alerts + mark-read) backing the new `NotificationBell` component that replaced the old placeholder "Notifications" icon-button in all 4 page headers (Dashboard/Driver & Shifts/Financial Ledger/Garage) - polls every 60s while mounted. Mobile's `AlertCenterViewModel` separately reads unread `DriverIdle` alerts directly from `system_alerts` via the client SDK (single `WhereEqualsTo("type", "DriverIdle")` filter - `isRead` filtering and timestamp ordering done client-side to stay index-free) and renders them as a 4th card type (`DriverIdleTemplate`) alongside the existing mock SOS/Fuel/ShiftApproval cards; dismissing a real alert marks it read in Firestore so it doesn't reappear, while dismissing a mock card is still purely local. **Needs a Firestore rule added** (not in this diff, rules aren't tracked in this repo - see `firestore.rules` in Firebase Console): managers need `read` on `system_alerts` and `update` limited to the `isRead` field; no client `create` rule is needed since alerts are only ever written server-side by `IdleAlertMonitorService`. **Not seeded**: none of `LARGA.SeedTool`'s 5 demo taxis represent the specific "active shift, stale telemetry" state this alert fires on (the existing Idle demo taxi, `TAXI_005`, has no active shift at all, which doesn't qualify) - the feature has nothing to show until a real idle episode occurs or dedicated seed data is added.
+- **`SYSTEM_ALERT` / idle-driver alerts + notification bell (2026-09-15)**: `SYSTEM_CONFIG.IdleThresholdMinutes` changed from 10 to 15. New `system_alerts` collection (`SystemAlert.cs`) for system-*generated* notices, distinct from driver-initiated `EMERGENCY_ALERT` (SOS) and `MAINTENANCE_RECORD` (defect reports). [IdleAlertMonitorService](../LARGA.ManagerWeb/Services/IdleAlertMonitorService.cs) is a `BackgroundService` inside the ManagerWeb process (there's no separate worker/cron infra in this project) that polls every 3 minutes via `FleetReportingService.GetIdleDriversAsync()` - which mirrors the live fleet-status precedence (skips a taxi that's under maintenance, on break, or has an unresolved SOS, so only a genuinely-idle active shift qualifies) - and writes one alert per idle episode via a deterministic doc ID (`{shiftId}_IDLE`), making repeated polling ticks idempotent; a driver who moves and goes idle again *within the same shift* won't get a second alert. [AlertService](../LARGA.SharedCore/Services/AlertService.cs) is ManagerWeb's admin-SDK reader/writer (recent alerts + mark-read) backing the new `NotificationBell` component that replaced the old placeholder "Notifications" icon-button in all 4 page headers (Dashboard/Driver & Shifts/Financial Ledger/Garage) - polls every 60s while mounted. Mobile's `AlertCenterViewModel` separately reads unread `DriverIdle` alerts directly from `system_alerts` via the client SDK (single `WhereEqualsTo("type", "DriverIdle")` filter - `isRead` filtering and timestamp ordering done client-side to stay index-free) and renders them as a 4th card type (`DriverIdleTemplate`) alongside the existing mock SOS/Fuel/ShiftApproval cards; dismissing a real alert marks it read in Firestore so it doesn't reappear, while dismissing a mock card is still purely local. **Needs a Firestore rule added** (not in this diff, the rule has since been added to the repo's `firestore.rules`): managers need `read` on `system_alerts` and `update` limited to the `isRead` field; no client `create` rule is needed since alerts are only ever written server-side by `IdleAlertMonitorService`. **Not seeded**: none of `LARGA.SeedTool`'s 5 demo taxis represent the specific "active shift, stale telemetry" state this alert fires on (the existing Idle demo taxi, `TAXI_005`, has no active shift at all, which doesn't qualify) - the feature has nothing to show until a real idle episode occurs or dedicated seed data is added.
 - **License eligibility (2026-09-15)**: `DriverManagementService.ComputeLicenseStatus`'s "Expiring" window changed from 30 days to 3 calendar months (Expired/Valid thresholds unchanged: past-due and beyond-3-months respectively). New `IsEligibleForShift` check: a driver whose license expires within 1 month (or has already expired) is never reported as "On Shift" by `GetRosterSnapshotAsync`/`GetDriverProfileAsync`, even if they have a real `SHIFT_LOG` with `Status == "Active"` - same "computed, not stored" pattern as `LicenseStatus`/live fleet status elsewhere in this codebase. This does **not** end or modify the underlying shift document; it only overrides what the Driver & Shift Management roster/profile *reports*. Shift Logs still shows the real shift as-is.
 - **Philippine-time display + PH-calendar-day settlements (2026-09-15)**: new `PhilippineTime` (`LARGA.SharedCore`) - a fixed UTC+8 offset (the Philippines has no daylight saving, so no `TimeZoneInfo` lookup is needed, which would also require different zone-ID strings on Windows vs. Linux). `PhilippineTime.Now`/`.ToPhilippineTime()` are used everywhere a manager-facing timestamp is *displayed* (Dashboard's header date, Financial Ledger's shift-end/payment/transaction times and CSV exports, Garage's report/history dates, Driver & Shift Management's shift-log "Today"/"Yesterday" labels, `FleetReportingService`'s 4 CSV-export builders) - Firestore itself stays UTC throughout, only the rendering changed. Separately, `FinancialLedgerService.GetDailySettlementAsync`'s "today" window now truncates to the *Philippine* calendar day before converting back to UTC query bounds, fixing a real bug: the old `dateUtc.Date` truncation was up to 8 hours off from the actual PH business day, so a shift starting in the early-morning PH hours could be silently excluded from "Daily Settlements (Today)" for part of the day. **Deliberately not touched** (same UTC-`.Date` bug class, flagged for a separate pass): Schedule Planner's `IsToday`/`GetWeekScheduleAsync`/`StartOfWeek` week-grid boundaries (touching this risks the `ScheduleDocId` `{driverId}_{yyyyMMdd}` convention against already-seeded data), `GarageService.GetNextAvailableScheduleDateAsync`'s "tomorrow" boundary, and `FleetReportingService`'s rolling 7/14-day dashboard windows (lowest severity - multi-day windows are barely affected by an 8-hour skew).
 - **Checklist comparison + previous inspection/damage history (2026-09-15)**: the Driver & Shift Management checklist modal no longer tab-switches between Pre-Shift and Post-Shift (only one visible at a time) - both now render side by side via the new `ChecklistPanel` component so a manager can compare them directly, still genuinely separate `HANDOVER_CHECKLIST` documents as before. `GetShiftChecklistsAsync` also now returns the taxi unit's last few past checklists (`PreviousChecklists`, from other shifts on the same `TaxiID`) and its accident/damage maintenance history (`DamageHistory`, `MAINTENANCE_RECORD` rows with `MaintenanceType == "Accident Correction"`), shown in a "Previous Inspection & Damage History" section below the two panels - both single-equality-filtered on `taxiId`/`shiftId` (no composite index), same index-avoidance pattern used elsewhere.
@@ -273,7 +400,7 @@ The ManagerWeb dashboard's 5 fleet-status pills (Active / Maintenance / On Break
 - **Driver-side license expiry alert + maintenance day count (2026-09-15)**: `DriverDashboardViewModel` (mobile) now reads the signed-in driver's own `licenseExpiryDate` and shows a License Alert card using the same thresholds as `DriverManagementService.ComputeLicenseStatus` (Expired past-due, Expiring within 3 months) - computed client-side, nothing new stored. When the driver's assigned taxi is `"Under Maintenance"`, it also queries `maintenance_logs` (single equality filter on `taxiId`, `status == "InProgress"` filtered client-side) and shows "Day X of Y" under the Maintenance Status pill, mirroring `WorkOrderEntry.DayNumber`'s `DateLogged`-based computation on the ManagerWeb side, with Y derived from `EstimatedCompletionDate` when the manager set one.
 - **Naming consistency (2026-09-15)**: the sidebar nav label changed from "Fin. Ledger" to "Financial Ledger" - every other reference in the app (page title, service doc comments) already used the full name; this was the one holdout.
 - **Fuel logs always belong to a shift (2026-10-28, SRS REQ-4.3-3 / REQ-5.5-6)**: `FUEL_LOG.ShiftID` is never the old `UNKNOWN_SHIFT` placeholder any more. A driver can file a fuel report during their active shift or for a shift that ended within the last 12 hours ([FuelShiftRules](../LARGA.SharedCore/FuelShiftRules.cs); an Auto-Closed shift counts from its 6:00 AM auto-close). The phone remembers the last finished shift (`LastShiftId`/`LastShiftEndedAt` preferences) and otherwise finds it with a `shifts` query on `driverId` + `shiftStart` (new composite index). `firestore.rules` require the shift to exist, belong to the driver and be inside that window. Older `UNKNOWN_SHIFT` documents were left as they are.
-- **`fuel_or_numbers` - OR number duplicate check (2026-10-28, Proposal §4.2.4.5)**: new collection, one document per OR number already submitted, keyed by the normalized number ([FuelOrNumberRules](../LARGA.SharedCore/FuelOrNumberRules.cs): trimmed, spaces/dashes removed, upper-case), holding `fuelLogId` and `createdAt` (`backfilled` on the ones ManagerWeb claimed for older logs; the `__backfill_v1` document marks that one-time pass done). The driver app claims it in the same transaction as the `FUEL_LOG`. If it's already claimed the log is still saved, but `Flagged` with `autoFlagged` and `fuelLogDetails` "OR number already submitted" (joined with the non-Petron/Shell reason when both apply). Blank OR numbers aren't checked. Claims are permanent.
+- **`fuel_or_numbers` - OR number duplicate check (2026-10-28, Proposal §4.2.4.5)**: new collection, one document per OR number already submitted, keyed by station + normalized OR number since consistency-audit row #58 ([FuelOrNumberRules.Key](../LARGA.SharedCore/FuelOrNumberRules.cs): both trimmed, spaces/dashes removed, upper-case; a Petron or Shell station is keyed by its brand), holding `fuelLogId` and `createdAt` (`backfilled` on the ones ManagerWeb claimed for older logs; the `__backfill_v1` document marks that one-time pass done). The driver app claims it in the same transaction as the `FUEL_LOG`. If it's already claimed the log is still saved, but `Flagged` with `autoFlagged` and `fuelLogDetails` "OR number already submitted" (joined with the non-Petron/Shell reason when both apply). Blank OR numbers aren't checked. Claims are permanent.
 - **Shift route view (2026-10-28, SRS REQ-4.6-5 / §4.6.2)**: Driver & Shifts > Shift Logs has a "View route" link per shift (Manager and Assistant Manager). [ShiftRouteService](../LARGA.SharedCore/Services/ShiftRouteService.cs) reads that shift's `GPS_TELEMETRY` ordered by `Timestamp` (existing `shiftId` + `timestamp` index), drops 0,0 pings and sums the distance with the shared [GeoMath](../LARGA.SharedCore/GeoMath.cs) haversine (also used by the fuel review now). `wwwroot/route-map.js` draws it with Leaflet on MapTiler tiles (`MapTiler:ApiKey`), with start/end markers. A shift whose telemetry has expired shows "No GPS data for this shift".
 - **Alerts for every defect report and fuel submission (2026-10-28, SRS REQ-4.3-7 / REQ-4.4-8)**: two new `SYSTEM_ALERT.Type` values written by ManagerWeb's `SubmissionAlertService` - `DefectReported` (`defect_{maintenanceId}`, one per `MAINTENANCE_RECORD` with `Status` "Reported", plus an FCM push to every Manager/Assistant Manager) and `FuelSubmitted` (`fuelsub_{fuelId}`, one per `FUEL_LOG`, web bell only - the phone's Alert Center already has a card for each flagged one). Created with deterministic IDs, so restarts don't duplicate them; on startup only the last 24 hours are alerted. Marked read once reviewed: the report leaves "Reported" (ticket/dismiss), or the fuel log is verified, flagged by a manager or resolved.
 - **Pre-shift reminder (2026-10-28, SRS REQ-4.1-9)**: ManagerWeb's `PreShiftReminderService` pushes a reminder at 5:30 AM Philippine time (catching up until 9:00 AM if the service started late) to each driver the Schedule Planner has working today (unit assigned or lent, no `DayOff`, license eligible, unit not in the shop) who has no shift open yet. New server-only collection `pre_shift_reminders/{driverId}_{yyyyMMdd}` (no client rules, so no app can read or write it) marks each one sent, so a driver gets it once per day; it carries `expireAt` (30 days) for an optional TTL policy. Tapping the push opens the driver dashboard.
@@ -284,3 +411,4 @@ The ManagerWeb dashboard's 5 fleet-status pills (Active / Maintenance / On Break
 - **Shared driver conversation with sender names (2026-10-28)**: each driver still has one `chats/{driverId}/messages` thread, shared by the Manager and every Assistant Manager. `CHAT_MESSAGE` gains `senderId`, `senderName` and `senderRole` on staff messages, so the phone's Chats screen, the driver's Message Manager screen and the web Messages drawer show who wrote each one (e.g. "Ana Reyes (Assistant Manager)"). ManagerWeb's automatic Garage notices are labelled "BLM Taxi (automatic)" (`senderRole` "System"), and older staff messages show as "Manager". `firestore.rules` require a staff message to carry the writer's own ID, profile name and role. Driver messages can't carry sender fields, and no one can change a message's sender afterwards. Unread status stays shared (team inbox).
 - **Password-change audit and low-stock alert status (2026-10-30)**: `AUDIT_LOG.ActionType` gains `DriverPasswordChanged`, which firestore.rules now let a driver write for themselves (with `SosTriggered` and `VehicleDefectReported`). The driver's Change Password screen and the forced "Set a New Password" screen write it; a Manager or Assistant Manager writes `ManagerPasswordChanged`. A `SYSTEM_ALERT` of type LowStock now uses the Inventory page's rule for `Status` (`SparePartStockRules`): Critical when out of stock or at or below half the part's minimum, otherwise Low Stock. When a restock or an edit raises the stock (or lowers the minimum) but the part is still at or below its minimum, the open alert's `Status`, `StockQuantity` and `Message` are updated quietly: its `IsRead` and `Timestamp` stay as they were.
 - **Assistant Manager clock-in decisions (2026-11-15)**: the Assistant Manager may now approve or deny a flagged `CLOCKIN_REQUEST` on the web and the phone (SOS and fuel-flag decisions stay Manager-only). A phone denial names its request on every Garage write so firestore.rules can tie it to that denial: `MAINTENANCE_RECORD` gains `clockInRequestId` (on the defect reports raised to High and on the "Failed pre-shift inspection" report it files, which now carries the odometer photo as on the web) and `TAXI_UNIT` gains `groundedByClockInRequestId` when the unit is sent to the Garage. An Assistant Manager can make those writes only in the same batch that moves that request from Pending to Denied.
+- **Collections added to the diagram (2026-11-18, consistency audit #57)**: `clockin_requests` (a driver's flagged pre-shift inspection waiting for a Manager / Assistant Manager decision), `payment_references` (one claim per GCash reference, so it can't be recorded twice), `fuel_or_numbers` (see above), `shift_locks` (`driver_{uid}` and `unit_{taxiId}`, claimed with the shift in one transaction), `ledger_locks` (a per-driver `version` that stops two cashiers booking the same driver at once), `users/{uid}/fcmTokens` (push tokens, readable only by that user) and `driverPerformance` (Manager-written stats). `pre_shift_reminders/{driverId}_{yyyyMMdd}` stays out of the diagram: it is server-only (no client rules) and its fields (`createdAt`, `attempts`, `pushed`, `expireAt`) are described in the pre-shift reminder note above.
