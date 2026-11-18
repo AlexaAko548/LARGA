@@ -3,9 +3,9 @@
 A console tool that seeds the `larga-blmtaxi` Firestore project with a small, internally-consistent
 set of test data (5 drivers, 1 manager, 5 taxis, 11 shifts, boundary payments, fuel logs,
 maintenance records + parts, spare parts inventory, emergency alerts, GPS telemetry, audit logs,
-handover checklists, and upcoming shift schedules) so the ManagerWeb dashboard and its
-not-yet-built pages (Garage, Inventory, Fuel Verification, Audit Logs) have something realistic
-to render.
+handover checklists, routine checks, system config, and upcoming shift schedules) so the
+ManagerWeb dashboard and its Garage, Inventory, Fuel Verification and Audit Logs pages have
+something realistic to render.
 
 Every document uses a fixed ID, so **re-running the tool overwrites the same records** instead of
 creating duplicates — safe to re-run to reset test data before a demo.
@@ -30,33 +30,35 @@ This tool seeds one dedicated, unambiguous example of each state:
 
 ## 1. Get a service account key
 
-You need a Firebase/Google Cloud service account key with Firestore write access:
+You need a Firebase/Google Cloud service account key with Firestore write access, for a **dev/test
+project** (not the live one, see "Run it" below):
 
-1. Go to the [Firebase Console](https://console.firebase.google.com/) → your `larga-blmtaxi` project → ⚙️ **Project settings** → **Service accounts**.
+1. Go to the [Firebase Console](https://console.firebase.google.com/) → your dev/test project → ⚙️ **Project settings** → **Service accounts**.
 2. Click **Generate new private key**. This downloads a `.json` file.
 3. Save it **outside the repo** (e.g. your Desktop or a local secrets folder) — never commit it. If you do save it inside the repo folder, the root `.gitignore` has a catch-all for common key filename patterns, but outside the repo is safer.
 
 ## 2. Run it
 
-From the repo root:
+The project ID is **required** (there is no default). From the repo root:
 
 ```
-dotnet run --project LARGA.SeedTool -- "C:\path\to\your-service-account-key.json"
+dotnet run --project LARGA.SeedTool -- "C:\path\to\your-service-account-key.json" your-dev-project-id
 ```
 
 It will print a summary of what it's about to write and ask you to type `YES` to continue.
 
-If you've instead authenticated via `gcloud auth application-default login`, you can omit the key
-path:
+If you've instead authenticated via `gcloud auth application-default login` (or set
+`GOOGLE_APPLICATION_CREDENTIALS`), pass `-` in place of the key path:
 
 ```
-dotnet run --project LARGA.SeedTool
+dotnet run --project LARGA.SeedTool -- - your-dev-project-id
 ```
 
-To target a different project id, pass it as the second argument:
+The live project (`larga-blmtaxi`) is refused unless you add `--production`, because the fixed IDs
+overwrite real users, shifts and payments that share them:
 
 ```
-dotnet run --project LARGA.SeedTool -- "C:\path\to\key.json" some-other-project-id
+dotnet run --project LARGA.SeedTool -- "C:\path\to\key.json" larga-blmtaxi --production
 ```
 
 ## What it does NOT touch
