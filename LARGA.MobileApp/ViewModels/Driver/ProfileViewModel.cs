@@ -88,7 +88,7 @@ public class ProfileViewModel : BindableObject
         set { _shiftPunctualityDisplay = value; OnPropertyChanged(); }
     }
 
-    private string _damageHistoryDisplay = "0 reports";
+    private string _damageHistoryDisplay = "N/A";
     public string DamageHistoryDisplay
     {
         get => _damageHistoryDisplay;
@@ -293,14 +293,16 @@ public class ProfileViewModel : BindableObject
         }
 
         // Damage History: counted from the records, the same way as the web's "Accidents/Damage".
+        // "N/A" (not "0 reports") when it couldn't be counted, so a failed read never looks like a clean record.
         try
         {
-            int damage = await CountDamageHistoryAsync(uid);
+            int? damage = await CountDamageHistoryAsync(uid);
             SetPropertyOnMainThread(() => DamageHistoryDisplay = DescribeDamageHistory(damage));
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"[ProfileViewModel] Damage History Load Error: {ex.Message}");
+            SetPropertyOnMainThread(() => DamageHistoryDisplay = DescribeDamageHistory(null));
         }
 
         // Try standalone driverPerformance collection metrics
@@ -381,14 +383,24 @@ public class ProfileViewModel : BindableObject
     /// (DriverPerformanceCalculator.IsDamageIncident - the web's "Accidents/Damage"). Replaces the old
     /// users.damageHistory field, which nothing ever wrote. firestore.rules let a driver read their own
     /// shifts and the maintenance log.
+    /// Only reports logged against this driver's shifts in the window are downloaded (shiftId "in"
+    /// queries, <see cref="ShiftIdsPerQuery"/> at a time), not every accident report in the fleet. The
+    /// type is read with the same converter as the web, so "Accident Correction" and older
+    /// "AccidentCorrection" records both count. Null when the shifts or a report couldn't be read.
     /// </summary>
-    private static async Task<int> CountDamageHistoryAsync(string uid)
+    private static async Task<int?> CountDamageHistoryAsync(string uid)
     {
         DateTime fromPh = PhilippineTime.Now.Date.AddDays(1 - DriverManagementService.PerformanceWindowDays);
         DateTime nowUtc = DateTime.UtcNow;
 
         var warnings = new System.Collections.Generic.List<string>();
         var shifts = await QuickLedgerService.ReadShiftsAsync(warnings, uid);
+        if (warnings.Count > 0)
+        {
+            Debug.WriteLine($"[ProfileViewModel] Damage History: shifts unreadable ({string.Join("; ", warnings)})");
+            return null;
+        }
+
         var shiftIds = new System.Collections.Generic.HashSet<string>();
         foreach (var shift in shifts)
         {
@@ -398,29 +410,48 @@ public class ProfileViewModel : BindableObject
         }
         if (shiftIds.Count == 0) return 0;
 
-        var reports = await CrossFirebaseFirestore.Current
-            .GetCollection("maintenance_logs")
-            .WhereEqualsTo("maintenanceType", "Accident Correction")
-            .GetDocumentsAsync<AccidentReportProxy>();
-
-        int count = 0;
-        foreach (var doc in reports.Documents)
+        var typeConverter = new LARGA.Shared.Models.Entities.MaintenanceTypeConverter();
+        var counted = new System.Collections.Generic.HashSet<string>();
+        foreach (var chunk in shiftIds.Chunk(ShiftIdsPerQuery))
         {
-            if (doc.Data is { } report
-                && DriverPerformanceCalculator.IsDamageIncident(
-                    LARGA.Shared.Models.Entities.MaintenanceType.AccidentCorrection,
-                    report.ShiftId?.ToString(), report.Status?.ToString(), shiftIds))
+            var reports = await CrossFirebaseFirestore.Current
+                .GetCollection("maintenance_logs")
+                .WhereFieldIn("shiftId", chunk.Cast<object>().ToArray())
+                .GetDocumentsAsync<AccidentReportProxy>();
+
+            foreach (var doc in reports.Documents)
             {
-                count++;
+                if (doc.Data is not { } report)
+                {
+                    Debug.WriteLine($"[ProfileViewModel] Damage History: report {doc.Reference.Id} unreadable");
+                    return null;
+                }
+                if (DriverPerformanceCalculator.IsDamageIncident(
+                        typeConverter.FromFirestore(report.MaintenanceType?.ToString()),
+                        report.ShiftId?.ToString(), report.Status?.ToString(), shiftIds))
+                {
+                    counted.Add(doc.Reference.Id);
+                }
             }
         }
-        return count;
+        return counted.Count;
     }
 
-    private static string DescribeDamageHistory(int reports) => reports == 1 ? "1 report" : $"{reports} reports";
+    /// <summary>Values per Firestore "in" filter (10 is the limit on older SDKs; newer ones allow 30).</summary>
+    private const int ShiftIdsPerQuery = 10;
+
+    private static string DescribeDamageHistory(int? reports) => reports switch
+    {
+        null => "N/A",
+        1 => "1 report",
+        _ => $"{reports} reports",
+    };
 
     public class AccidentReportProxy
     {
+        [FirestoreProperty("maintenanceType")]
+        public object? MaintenanceType { get; set; }
+
         [FirestoreProperty("shiftId")]
         public object? ShiftId { get; set; }
 

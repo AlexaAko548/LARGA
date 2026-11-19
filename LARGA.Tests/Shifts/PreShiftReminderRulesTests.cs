@@ -50,11 +50,51 @@ public class PreShiftReminderRulesTests
     public void UnitLabel_IsThePlate_FallingBackToTheTaxiId(string taxiId, string? plate, string expected) =>
         Assert.Equal(expected, PreShiftReminderRules.UnitLabel(taxiId, plate));
 
+    private static readonly DateTime NowUtc = new(2026, 10, 27, 21, 40, 0, DateTimeKind.Utc);
+
     [Theory]
-    [InlineData(false, 1, true)]
-    [InlineData(false, 2, true)]
-    [InlineData(false, 3, false)] // MaxAttempts reached
-    [InlineData(true, 1, false)]  // already delivered
-    public void FailedPush_IsRetried_UpToMaxAttempts(bool pushed, int attempts, bool expected) =>
-        Assert.Equal(expected, PreShiftReminderRules.ShouldRetry(pushed, attempts));
+    [InlineData(PreShiftPushOutcome.Failed, 1, true)]
+    [InlineData(PreShiftPushOutcome.Failed, 2, true)]
+    [InlineData(PreShiftPushOutcome.Failed, 3, false)]   // MaxAttempts reached
+    [InlineData(PreShiftPushOutcome.Sent, 1, false)]     // already delivered
+    [InlineData(PreShiftPushOutcome.NoDevice, 1, false)] // no phone: a retry can't help
+    public void FailedPush_IsRetried_UpToMaxAttempts(PreShiftPushOutcome outcome, int attempts, bool expected) =>
+        Assert.Equal(expected, PreShiftReminderRules.CanClaim(outcome, attempts, NowUtc.AddMinutes(-5), NowUtc));
+
+    [Fact]
+    public void ClaimedTry_StillSending_CannotBeClaimedAgain_UntilItsLeaseRunsOut()
+    {
+        // Two ManagerWeb copies: the second sees the first one's claim (no outcome yet) and stays out.
+        Assert.False(PreShiftReminderRules.CanClaim(null, 1, NowUtc.AddSeconds(-10), NowUtc));
+        Assert.False(PreShiftReminderRules.CanClaim(PreShiftPushOutcome.Failed, 1, NowUtc.AddMinutes(-1), NowUtc));
+        // The claimer stopped mid-send and never reported back: the try can be taken over later.
+        Assert.True(PreShiftReminderRules.CanClaim(null, 1, NowUtc - PreShiftReminderRules.ClaimLease, NowUtc));
+    }
+
+    [Fact]
+    public void ClaimLease_IsShorterThanTheFiveMinuteCheck() =>
+        Assert.True(PreShiftReminderRules.ClaimLease < TimeSpan.FromMinutes(5));
+
+    [Theory]
+    [InlineData(PreShiftPushOutcome.Failed, 1, true)]
+    [InlineData(PreShiftPushOutcome.Failed, 3, false)]
+    [InlineData(PreShiftPushOutcome.NoDevice, 1, false)]
+    [InlineData(PreShiftPushOutcome.Sent, 1, false)]
+    public void RetryLeft_OnlyForAFailedPushWithTriesLeft(PreShiftPushOutcome outcome, int attempts, bool expected) =>
+        Assert.Equal(expected, PreShiftReminderRules.RetryLeft(outcome, attempts));
+
+    [Theory]
+    [InlineData(PreShiftPushOutcome.Sent)]
+    [InlineData(PreShiftPushOutcome.NoDevice)]
+    [InlineData(PreShiftPushOutcome.Failed)]
+    public void Outcome_RoundTripsThroughTheMarker(PreShiftPushOutcome outcome) =>
+        Assert.Equal(outcome, PreShiftReminderRules.ParseOutcome(PreShiftReminderRules.OutcomeValue(outcome), null));
+
+    [Fact]
+    public void OlderMarkers_ReadFromTheirPushedFlag()
+    {
+        Assert.Equal(PreShiftPushOutcome.Sent, PreShiftReminderRules.ParseOutcome(null, true));
+        Assert.Equal(PreShiftPushOutcome.Failed, PreShiftReminderRules.ParseOutcome(null, false));
+        Assert.Null(PreShiftReminderRules.ParseOutcome(null, null));
+    }
 }

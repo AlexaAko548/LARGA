@@ -35,6 +35,14 @@ public class ManagerSignInService
     /// <summary>Policy for pages only a full Manager may open (Audit Logs, Inventory).</summary>
     public const string ManagerOnlyPolicy = "ManagerOnly";
 
+    /// <summary>Wrong password, unknown email, and a Firebase account with no LARGA profile all get this
+    /// (DSM-012: never reveal which emails have accounts). Same wording as the mobile app.</summary>
+    public const string IncorrectCredentialsMessage =
+        "Incorrect email or password. Check your details, or contact your manager if you don't have an account yet.";
+
+    /// <summary>A real LARGA account without portal access (a driver).</summary>
+    public const string NotAuthorizedMessage = "This account is not authorized to access the manager portal.";
+
     private static readonly TimeSpan TicketLifetime = TimeSpan.FromSeconds(60);
 
     /// <summary>How often a page request re-checks a signed-in manager's access (DSM-022: a
@@ -93,10 +101,26 @@ public class ManagerSignInService
 
         string? email = token.Claims.TryGetValue("email", out var emailClaim) ? emailClaim as string : null;
 
-        string? role = await StaffRoleAsync(token.Uid, email);
+        // Same answers as the browser's early check (firebase-auth.js), which is skipped when the browser
+        // can't reach Firestore - so a rejected account sees the same message either way.
+        bool profileFound;
+        string? role;
+        try
+        {
+            (profileFound, role) = await LookupProfileAsync(token.Uid, email);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Manager role lookup failed for uid {Uid}.", token.Uid);
+            return (null, "We couldn't check your access right now. Please try again.");
+        }
+        if (!profileFound)
+        {
+            return (null, IncorrectCredentialsMessage);
+        }
         if (role is null)
         {
-            return (null, "This account is not authorized to access the manager portal.");
+            return (null, NotAuthorizedMessage);
         }
 
         _revokedUids.TryRemove(token.Uid, out _);
@@ -131,23 +155,15 @@ public class ManagerSignInService
     }
 
     /// <summary>The portal role (<see cref="ManagerRole"/> or <see cref="AssistantManagerRole"/>), or null if the account has neither.</summary>
-    private async Task<string?> StaffRoleAsync(string uid, string? email)
-    {
-        try
-        {
-            return await LookupStaffRoleAsync(uid, email);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Manager role lookup failed for uid {Uid}.", uid);
-            return null;
-        }
-    }
+    // Throws when Firestore can't be reached.
+    private async Task<string?> LookupStaffRoleAsync(string uid, string? email) =>
+        (await LookupProfileAsync(uid, email)).Role;
 
     // Same lookup as getManagerRole() in wwwroot/firebase-auth.js: users/{uid}, falling back to a
     // users doc whose email matches (email comes from the verified token, not from the client).
+    // Found = a LARGA profile exists; Role = its portal role, null when it has none.
     // Throws when Firestore can't be reached.
-    private async Task<string?> LookupStaffRoleAsync(string uid, string? email)
+    private async Task<(bool Found, string? Role)> LookupProfileAsync(string uid, string? email)
     {
         CollectionReference users = _firestore.Value.Collection("users");
         DocumentSnapshot profile = await users.Document(uid).GetSnapshotAsync();
@@ -158,11 +174,15 @@ public class ManagerSignInService
             profile = matches.Documents.FirstOrDefault() ?? profile;
         }
 
-        if (!profile.Exists || !profile.TryGetValue("role", out string role))
+        if (!profile.Exists)
         {
-            return null;
+            return (false, null);
         }
-        return StaffRoles.FirstOrDefault(r => string.Equals(r, role?.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (!profile.TryGetValue("role", out string role))
+        {
+            return (true, null);
+        }
+        return (true, StaffRoles.FirstOrDefault(r => string.Equals(r, role?.Trim(), StringComparison.OrdinalIgnoreCase)));
     }
 
     /// <summary>True when the session's access is due for a re-check (or was never stamped).</summary>
