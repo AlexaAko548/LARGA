@@ -1,4 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <resources>
 	<string name="com.google.firebase.crashlytics.mapping_file_id">none</string>
+	<string name="volume_sos_accessibility_description">Lets LARGA respond to the safety button pattern on the volume keys during your shift. It only listens to the volume buttons and does not read your screen.</string>
 </resources>

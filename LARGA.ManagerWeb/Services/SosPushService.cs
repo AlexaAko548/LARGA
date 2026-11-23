@@ -1,0 +1,316 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Google.Cloud.Firestore;
+using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Emergency;
+using LARGA.SharedCore.Push;
+using LARGA.SharedCore.Services;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace LARGA.ManagerWeb.Services;
+
+/// <summary>
+/// Pushes every new SOS (emergency_alerts, written by the driver app for the manual button, the
+/// LAR-86/87 Hostile protocol - volume-button pattern or duress PIN - and the Crash protocol) to
+/// the phones of all Managers and Assistant Managers,
+/// so an emergency reaches them even with the manager app closed and nobody on SOS Dispatch.
+///
+/// A live Firestore listener, not a poll: unlike IdleAlertMonitorService's checks, an SOS has
+/// to arrive within seconds. Each alert is claimed in a transaction (pushSentAt) before it's
+/// sent, so it's pushed exactly once - across restarts, and even if two ManagerWeb instances
+/// run. Alerts that reached the server more than SosPushPolicy.MaxAlertAge before they're first
+/// seen are claimed without a push,
+/// so deploying this doesn't buzz managers about old unresolved alerts.
+///
+/// Sent through PushTokenStore to each staff member's own registered phones
+/// (users/{uid}/fcmTokens, saved by the manager app's dashboard - NotificationService). Never throws out of the host - failures are logged and the listener
+/// is restarted.
+///
+/// Before pushing, each alert's caller is validated (SosCallerVerificationService) and its
+/// position reverse-geocoded (MapTiler, stored on the alert). Only a Rejected alert - positively
+/// from the wrong sender - is held back; it still shows, flagged, on SOS Dispatch and in the
+/// manager app's Alert Center. An Unverified one (details missing, e.g. weak signal) is pushed
+/// with a note. The address is waited on for at most AddressWaitForPush, so a slow MapTiler
+/// never delays an SOS; it still lands on the alert afterwards.
+/// </summary>
+public class SosPushService : BackgroundService
+{
+    // Must match the channel the manager app creates in MainActivity.CreateNotificationChannels.
+    public const string AndroidChannelId = "sos_alert_channel";
+
+    // FCM data "type" the manager app routes to its Alert Center on tap (App.xaml.cs).
+    public const string PushType = "sos_alert";
+
+    private static readonly TimeSpan RestartDelay = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan AddressWaitForPush = TimeSpan.FromSeconds(2);
+
+    // Audit C-03: a driver's repeated SOS within a minute isn't pushed again unless it's more
+    // severe. One instance runs (deploy-cloudrun.ps1); a restart just forgets it.
+    private readonly SosRepeatPushFilter _repeatPushes = new();
+
+    private static readonly string[] StaffRoles = [ManagerSignInService.ManagerRole, ManagerSignInService.AssistantManagerRole];
+
+    private readonly Lazy<FirestoreDb> _db;
+    private readonly PushTokenStore _tokens;
+    private readonly MapTilerGeocoder _geocoder;
+    private readonly SosCallerVerificationService _callerVerification;
+    private readonly ILogger<SosPushService> _logger;
+
+    public SosPushService(Lazy<FirestoreDb> db, PushTokenStore tokens, MapTilerGeocoder geocoder,
+        SosCallerVerificationService callerVerification, ILogger<SosPushService> logger)
+    {
+        _db = db;
+        _tokens = tokens;
+        _geocoder = geocoder;
+        _callerVerification = callerVerification;
+        _logger = logger;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            FirestoreChangeListener? listener = null;
+            try
+            {
+                listener = _db.Value.Collection("emergency_alerts")
+                    .WhereEqualTo("isResolved", false)
+                    .Listen(OnSnapshotAsync, stoppingToken);
+
+                // Completes only when the listener stops (cancellation) or faults.
+                await listener.ListenerTask;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SOS push listener stopped; restarting in {Delay}.", RestartDelay);
+            }
+            finally
+            {
+                if (listener is not null)
+                {
+                    try { await listener.StopAsync(); } catch { /* already stopped */ }
+                }
+            }
+
+            try
+            {
+                await Task.Delay(RestartDelay, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }
+
+    private async Task OnSnapshotAsync(QuerySnapshot snapshot, CancellationToken token)
+    {
+        foreach (DocumentChange change in snapshot.Changes)
+        {
+            if (change.ChangeType != DocumentChange.Type.Added)
+            {
+                continue;
+            }
+
+            try
+            {
+                await HandleNewAlertAsync(change.Document, token);
+            }
+            catch (Exception ex)
+            {
+                // One alert failing must not stop the others (or the listener).
+                _logger.LogWarning(ex, "SOS push for emergency_alerts/{AlertId} failed", change.Document.Id);
+            }
+        }
+    }
+
+    private async Task HandleNewAlertAsync(DocumentSnapshot alert, CancellationToken token)
+    {
+        if (alert.ContainsField("pushSentAt"))
+        {
+            return;
+        }
+
+        // Server create time, not the phone's timestamp: an SOS queued offline arrives late but is new.
+        DateTime? raisedAt = alert.TryGetValue("timestamp", out Timestamp ts) ? ts.ToDateTime() : null;
+        bool tooOld = SosPushPolicy.IsTooOldToPush(alert.CreateTime?.ToDateTime(), raisedAt, DateTime.UtcNow);
+
+        if (!await ClaimAsync(alert.Reference, token))
+        {
+            return; // another listener pass (or instance) already handled it
+        }
+
+        // Already claimed, so nothing past this point may throw before the push: an alert that
+        // can't be read is still pushed, just without the address and caller check.
+        EmergencyAlert? parsed = null;
+        try
+        {
+            parsed = alert.ConvertTo<EmergencyAlert>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "emergency_alerts/{AlertId} couldn't be read; pushing without caller check or address", alert.Id);
+        }
+
+        Task<string?> addressLookup = parsed is null ? Task.FromResult<string?>(null) : StoreAddressAsync(alert.Reference, parsed, token);
+        SosCallerValidator.Result caller = parsed is null
+            ? new SosCallerValidator.Result(SosCallerCheck.Unverified, "The alert couldn't be read to check the caller.")
+            : await VerifyCallerAsync(alert.Reference, parsed);
+
+        if (tooOld)
+        {
+            _logger.LogInformation("emergency_alerts/{AlertId} is older than {MaxAge}; marked without a push.", alert.Id, SosPushPolicy.MaxAlertAge);
+            return;
+        }
+
+        if (caller.Rejected)
+        {
+            _logger.LogWarning("SOS emergency_alerts/{AlertId} not pushed - rejected caller: {Reason}", alert.Id, caller.Reason);
+            return;
+        }
+
+        string? address = await Task.WhenAny(addressLookup, Task.Delay(AddressWaitForPush, token)) == addressLookup
+            ? await addressLookup
+            : null;
+
+        List<string> staff = await GetStaffUidsAsync(token);
+        if (staff.Count == 0)
+        {
+            _logger.LogWarning("SOS emergency_alerts/{AlertId}: no Manager or Assistant Manager account found.", alert.Id);
+            return;
+        }
+
+        string triggerType = alert.TryGetValue("triggerType", out string? t) ? t ?? string.Empty : string.Empty;
+        string driverId = alert.TryGetValue("driverId", out string? id) ? id ?? string.Empty : string.Empty;
+        if (_repeatPushes.IsRepeat(driverId, EmergencyTypes.Severity(triggerType), DateTime.UtcNow))
+        {
+            _logger.LogWarning("SOS emergency_alerts/{AlertId} not pushed - driver {DriverId} already had one pushed in the last {Window}s (it still shows on SOS Dispatch).",
+                alert.Id, driverId, SosRepeatPushFilter.Window.TotalSeconds);
+            return;
+        }
+        string driverName = alert.TryGetValue("driverName", out string? d) && !string.IsNullOrWhiteSpace(d) ? d : "A driver";
+        string taxiUnit = alert.TryGetValue("taxiUnit", out string? u) && !string.IsNullOrWhiteSpace(u) ? u : "unknown unit";
+        bool hasLocation = (alert.TryGetValue("latitude", out double lat) && lat != 0)
+                           | (alert.TryGetValue("longitude", out double lng) && lng != 0);
+
+        string label = EmergencyTypes.Label(triggerType);
+        string title = $"SOS - {label}";
+        // When it was sent (Philippine time), first - managers may read the push later.
+        string? sentAt = SosPushPolicy.SentAtText(alert.CreateTime?.ToDateTime(), raisedAt);
+        string body = (sentAt is null ? string.Empty : $"{sentAt}. ")
+                      + $"{driverName} ({taxiUnit}) needs help."
+                      + (!string.IsNullOrWhiteSpace(address) ? $" Near {address}."
+                         : hasLocation ? " Open LARGA for their location." : " Location unavailable - call the driver.")
+                      + (caller.Verified ? string.Empty : " (Caller not verified - confirm with the driver.)");
+
+        var data = new Dictionary<string, string>
+        {
+            ["type"] = PushType,
+            ["alertId"] = alert.Id,
+            ["triggerType"] = EmergencyTypes.Normalize(triggerType),
+            ["emergencyLabel"] = label,
+            ["address"] = address ?? string.Empty,
+            ["callerCheck"] = caller.Status,
+        };
+        // Manager phones only (the web dashboard has its own SOS banner); each staff member's own
+        // devices, each push naming its recipientUid.
+        (int sent, int total) = await _tokens.SendToUsersAsync(staff,
+            device => PushTokenStore.NotificationMessage(device, title, body, data, AndroidChannelId, highPriority: true),
+            token, platforms: p => p == PushTokenRules.AndroidPlatform);
+        if (total == 0)
+        {
+            _logger.LogWarning("SOS emergency_alerts/{AlertId}: no manager phone is registered yet - open the manager app once to register one.", alert.Id);
+            return;
+        }
+
+        _logger.LogInformation("SOS emergency_alerts/{AlertId} pushed to {Sent}/{Total} manager device(s).",
+            alert.Id, sent, total);
+        if (sent > 0)
+        {
+            _repeatPushes.Remember(driverId, EmergencyTypes.Severity(triggerType), DateTime.UtcNow);
+        }
+    }
+
+    /// <summary>Reverse-geocodes the alert's position and stores it as emergency_alerts.address
+    /// (only ManagerWeb's Admin SDK may update alerts besides a Manager). Returns the address, or
+    /// null when there's no location or MapTiler couldn't be reached.</summary>
+    private async Task<string?> StoreAddressAsync(DocumentReference alertRef, EmergencyAlert alert, CancellationToken token)
+    {
+        if (!string.IsNullOrWhiteSpace(alert.Address) || (alert.Latitude == 0 && alert.Longitude == 0))
+        {
+            return string.IsNullOrWhiteSpace(alert.Address) ? null : alert.Address;
+        }
+
+        try
+        {
+            string? address = await _geocoder.ReverseGeocodeAsync(alert.Latitude, alert.Longitude, token);
+            await alertRef.UpdateAsync(new Dictionary<string, object>
+            {
+                ["address"] = address ?? MapTilerGeocoder.FormatCoordinates(alert.Latitude, alert.Longitude),
+                ["addressSource"] = address is null ? MapTilerGeocoder.SourceCoordinates : MapTilerGeocoder.SourceMapTiler,
+            }, cancellationToken: token);
+            return address;
+        }
+        catch (Exception ex) when (!token.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Reverse geocoding emergency_alerts/{AlertId} failed", alertRef.Id);
+            return null;
+        }
+    }
+
+    /// <summary>Runs the SOS caller validation and stores the outcome on the alert. A lookup
+    /// failure (Firestore unreachable) leaves it Unverified - pushed - so a genuine SOS is never
+    /// held back by an outage; only a positive mismatch (Rejected) suppresses the push.</summary>
+    private async Task<SosCallerValidator.Result> VerifyCallerAsync(DocumentReference alertRef, EmergencyAlert alert)
+    {
+        try
+        {
+            return await _callerVerification.VerifyAndStoreAsync(alertRef, alert);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Caller validation for emergency_alerts/{AlertId} failed; pushing anyway", alertRef.Id);
+            return new SosCallerValidator.Result(SosCallerCheck.Unverified, "Caller not checked (lookup failed).");
+        }
+    }
+
+    /// <summary>Marks the alert as pushed - true only for the caller that set it first.</summary>
+    private Task<bool> ClaimAsync(DocumentReference alertRef, CancellationToken token) =>
+        _db.Value.RunTransactionAsync(async transaction =>
+        {
+            DocumentSnapshot current = await transaction.GetSnapshotAsync(alertRef);
+            if (!current.Exists || current.ContainsField("pushSentAt"))
+            {
+                return false;
+            }
+
+            transaction.Update(alertRef, new Dictionary<string, object>
+            {
+                ["pushSentAt"] = FieldValue.ServerTimestamp,
+                // The SOS's retention date, from server time: the phone can't set one (firestore.rules),
+                // so a wrong phone clock can never block an SOS. Deleted by the TTL policy (audit H-01).
+                [LARGA.SharedCore.RetentionRules.ExpireAtField] = LARGA.SharedCore.RetentionRules.ExpireAt(DateTime.UtcNow, LARGA.SharedCore.RetentionRules.EmergencyAlert),
+            });
+            return true;
+        }, cancellationToken: token);
+
+    /// <summary>Every Manager / Assistant Manager uid. The role is matched case-insensitively, the
+    /// same way the apps' logins treat it.</summary>
+    private async Task<List<string>> GetStaffUidsAsync(CancellationToken token)
+    {
+        QuerySnapshot users = await _db.Value.Collection("users").GetSnapshotAsync(token);
+        return users.Documents
+            .Where(doc => doc.TryGetValue("role", out object? role)
+                          && StaffRoles.Any(r => string.Equals(r, role?.ToString()?.Trim(), StringComparison.OrdinalIgnoreCase)))
+            .Select(doc => doc.Id)
+            .ToList();
+    }
+}

@@ -1,0 +1,17 @@
+@* LAR-117: one loading indicator for every page, panel and modal that waits on Firestore - a
+   spinner plus a short message, announced to screen readers. Size "lg" is the full-page version
+   shown before a page's first data arrives. *@
+
+<div class="loading-state @(Size == "lg" ? "loading-state-lg" : null) @Class" role="status" aria-live="polite">
+    <span class="loading-spinner" aria-hidden="true"></span>
+    <span class="loading-text">@Text</span>
+</div>
+
+@code {
+    [Parameter] public string Text { get; set; } = "Loading…";
+
+    /// <summary>"sm" (default, inside a panel or table) or "lg" (whole page).</summary>
+    [Parameter] public string Size { get; set; } = "sm";
+
+    [Parameter] public string? Class { get; set; }
+}

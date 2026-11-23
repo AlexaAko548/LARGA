@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Driver"
+             xmlns:controls="clr-namespace:LARGA.MobileApp.Controls"
+             x:Class="LARGA.MobileApp.Views.Driver.ScanDriverLicensePage"
+             x:DataType="vm:ScanDriverLicenseViewModel"
+             NavigationPage.HasNavigationBar="False"
+             BackgroundColor="{DynamicResource ThemeSurface}">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20,0" Spacing="15">
+
+            <!-- Same back arrow as the other screens (this page is modal, so there's no nav bar) -->
+            <ImageButton controls:ThemedIcon.IsEnabled="True" Source="back_icon.png" WidthRequest="32" HeightRequest="32" Margin="-10,15,0,0"
+                         Aspect="AspectFit" Padding="10" BackgroundColor="Transparent" HorizontalOptions="Start"
+                         SemanticProperties.Description="Back" Command="{Binding CancelCommand}" />
+
+            <!-- Review Step -->
+            <VerticalStackLayout Spacing="15" IsVisible="{Binding IsReviewStep}">
+                <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="10">
+                    <Label Text="SCANNED DRIVER'S LICENSE" FontSize="12" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" HorizontalTextAlignment="Center" />
+                </Border>
+
+                <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="10">
+                    <Image Source="{Binding CapturedImage}" HeightRequest="220" Aspect="AspectFit" />
+                </Border>
+
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="15" HorizontalOptions="Center">
+                    <Border Grid.Column="0" StrokeShape="RoundRectangle 25" HeightRequest="50" WidthRequest="50" BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0">
+                        <Button Text="🔄" Command="{Binding RetakeCommand}" BackgroundColor="Transparent" FontSize="18" />
+                    </Border>
+                </Grid>
+
+                <Label Text="Tip: if the shiny seal reflects light onto the License No., tilt the card slightly before taking the photo."
+                       FontSize="12" TextColor="{DynamicResource ThemeTextTertiary}" HorizontalTextAlignment="Center" />
+
+                <!-- Reading can take a few passes on a glare-covered or faded card -->
+                <HorizontalStackLayout Spacing="8" HorizontalOptions="Center" IsVisible="{Binding IsBusy}">
+                    <ActivityIndicator IsRunning="{Binding IsBusy}" Color="{DynamicResource LargaPrimaryBlue}" HeightRequest="20" WidthRequest="20" />
+                    <Label Text="Reading the license..." FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" VerticalTextAlignment="Center" />
+                </HorizontalStackLayout>
+
+                <Button Text="Confirm" Command="{Binding ConfirmScanCommand}" IsEnabled="{Binding IsNotBusy}"
+                        BackgroundColor="{DynamicResource LargaPrimaryBlue}" TextColor="{DynamicResource LargaWhite}"
+                        CornerRadius="25" HeightRequest="55" FontSize="16" FontAttributes="Bold" Margin="0,10,0,0" />
+            </VerticalStackLayout>
+
+            <!-- Verify Step -->
+            <VerticalStackLayout Spacing="12" IsVisible="{Binding IsVerifyStep}">
+                <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeThickness="0" StrokeShape="RoundRectangle 8" Padding="10">
+                    <Label Text="VERIFY LICENSE INFORMATION" FontSize="12" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" HorizontalTextAlignment="Center" />
+                </Border>
+
+                <Label Text="Scanning successful." FontSize="22" FontAttributes="Bold" TextColor="{DynamicResource LargaDarkText}" />
+                <Label Text="⚠ Please check if the scanned information is correct. Tap any field to fix or fill it in." FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" />
+
+                <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Name" FontSize="12" TextColor="{DynamicResource LargaPrimaryBlue}" FontAttributes="Bold" />
+                        <Entry Text="{Binding NameDisplay}" Placeholder="Not detected - enter manually" FontSize="15"
+                               TextColor="{DynamicResource LargaDarkText}" BackgroundColor="Transparent" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Sex" FontSize="12" TextColor="{DynamicResource LargaPrimaryBlue}" FontAttributes="Bold" />
+                        <Entry Text="{Binding SexDisplay}" Placeholder="Not detected - enter manually" FontSize="15"
+                               TextColor="{DynamicResource LargaDarkText}" BackgroundColor="Transparent" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="DL Codes" FontSize="12" TextColor="{DynamicResource LargaPrimaryBlue}" FontAttributes="Bold" />
+                        <Entry Text="{Binding DlCodesDisplay}" Placeholder="Not detected - enter manually" FontSize="15"
+                               TextColor="{DynamicResource LargaDarkText}" BackgroundColor="Transparent" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="License Number" FontSize="12" TextColor="{DynamicResource LargaPrimaryBlue}" FontAttributes="Bold" />
+                        <Entry Text="{Binding LicenseNumberDisplay}" Placeholder="Not detected - enter manually" FontSize="15"
+                               TextColor="{DynamicResource LargaDarkText}" BackgroundColor="Transparent" />
+                        <Label Text="⚠ Glare made this hard to read - check it against the card." IsVisible="{Binding LicenseNumberNeedsCheck}"
+                               FontSize="12" TextColor="{DynamicResource ThemeWarningText}" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="15">
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Expiry Date" FontSize="12" TextColor="{DynamicResource LargaPrimaryBlue}" FontAttributes="Bold" />
+                        <DatePicker Date="{Binding ExpiryDate}" Format="MMM d, yyyy" FontSize="15"
+                                    TextColor="{DynamicResource LargaDarkText}" BackgroundColor="Transparent" />
+                        <Label Text="⚠ Couldn't read this for sure - check it against the card." IsVisible="{Binding ExpiryNeedsCheck}"
+                               FontSize="12" TextColor="{DynamicResource ThemeWarningText}" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border BackgroundColor="{DynamicResource LargaLightBlue}" StrokeShape="RoundRectangle 10" StrokeThickness="0" Padding="10">
+                    <Image Source="{Binding CapturedImage}" HeightRequest="150" Aspect="AspectFit" />
+                </Border>
+
+                <!-- Saving uploads the photo and the face crop before the details - a few seconds -->
+                <HorizontalStackLayout Spacing="8" HorizontalOptions="Center" IsVisible="{Binding IsBusy}">
+                    <ActivityIndicator IsRunning="{Binding IsBusy}" Color="{DynamicResource LargaPrimaryBlue}" HeightRequest="20" WidthRequest="20" />
+                    <Label Text="Saving the license..." FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" VerticalTextAlignment="Center" />
+                </HorizontalStackLayout>
+
+                <Button Text="Confirm &amp; Save" Command="{Binding ConfirmAndSaveCommand}" IsEnabled="{Binding IsNotBusy}"
+                        BackgroundColor="{DynamicResource LargaPrimaryBlue}" TextColor="{DynamicResource LargaWhite}"
+                        CornerRadius="25" HeightRequest="55" FontSize="16" FontAttributes="Bold" Margin="0,10,0,20" />
+            </VerticalStackLayout>
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

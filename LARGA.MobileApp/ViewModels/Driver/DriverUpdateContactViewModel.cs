@@ -1,0 +1,184 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using System.Windows.Input;
+using LARGA.SharedCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Maui.Controls;
+using Plugin.Firebase.Auth;
+using Plugin.Firebase.Firestore;
+
+namespace LARGA.MobileApp.ViewModels.Driver;
+
+public class DriverUpdateContactViewModel : BindableObject
+{
+    private string _currentNumber = string.Empty;
+    public string CurrentNumber
+    {
+        get => _currentNumber;
+        set { _currentNumber = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasChanges)); }
+    }
+
+    private string _newNumber = string.Empty;
+    public string NewNumber
+    {
+        get => _newNumber;
+        set { _newNumber = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasChanges)); }
+    }
+
+    private string _confirmNewNumber = string.Empty;
+    public string ConfirmNewNumber
+    {
+        get => _confirmNewNumber;
+        set { _confirmNewNumber = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasChanges)); }
+    }
+
+    private bool _isBusy;
+    public bool IsBusy
+    {
+        get => _isBusy;
+        set { _isBusy = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsNotBusy)); }
+    }
+
+    public bool IsNotBusy => !IsBusy;
+
+    // The number on file when the screen opened, so a prefilled field doesn't count as an edit.
+    private string _loadedNumber = string.Empty;
+
+    /// <summary>Anything typed that leaving the screen would throw away.</summary>
+    public bool HasChanges => NewNumber.Length > 0 || ConfirmNewNumber.Length > 0 || CurrentNumber != _loadedNumber;
+
+    public ICommand LoadCurrentNumberCommand { get; }
+    // One save at a time - a second tap while the first is still validating or saving is ignored.
+    private readonly LARGA.MobileApp.Services.BusyGate _saveGate = new();
+
+    public ICommand SaveCommand { get; }
+    public ICommand GoBackCommand { get; }
+
+    public DriverUpdateContactViewModel()
+    {
+        LoadCurrentNumberCommand = new Command(async () => await LoadCurrentNumberAsync());
+        SaveCommand = new Command(async () => await _saveGate.RunAsync(SaveAsync, showLoading: false));
+        GoBackCommand = new Command(async () => await GoBackAsync());
+    }
+
+    /// <summary>Back (nav bar arrow or the phone's back button): asks first when something was typed.</summary>
+    public Task GoBackAsync() => LARGA.MobileApp.Services.NavigationGate.RunAsync(async () =>
+    {
+        if (await LARGA.MobileApp.ViewModels.Shared.UnsavedChangesPrompt.ConfirmLeaveAsync(HasChanges))
+        {
+            await Shell.Current.GoToAsync("..");
+        }
+    });
+
+    private async Task LoadCurrentNumberAsync()
+    {
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
+        try
+        {
+            var user = CrossFirebaseAuth.Current.CurrentUser;
+            if (user == null) return;
+
+            var doc = await CrossFirebaseFirestore.Current
+                .GetCollection("users")
+                .GetDocument(user.Uid)
+                .GetDocumentSnapshotAsync<ContactNumberProxy>();
+
+            if (doc?.Data == null) return;
+
+            _loadedNumber = doc.Data.PhoneNumber ?? string.Empty;
+            CurrentNumber = _loadedNumber;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Driver Load Contact Number Error: {ex.Message}");
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        // Everything below (including the validation alerts) is inside this try: an unhandled
+        // exception here would otherwise escape the async-void Command/BusyGate and crash the app
+        // (BETA-062, same bug as the manager's screen).
+        try
+        {
+            if (string.IsNullOrWhiteSpace(CurrentNumber) || string.IsNullOrWhiteSpace(NewNumber) || string.IsNullOrWhiteSpace(ConfirmNewNumber))
+            {
+                await Shell.Current.DisplayAlert("Missing Info", "Please fill in all fields.", "OK");
+                return;
+            }
+
+            if (!InputValidator.SamePhone(NewNumber, ConfirmNewNumber))
+            {
+                await Shell.Current.DisplayAlert("Numbers Don't Match", "New number and confirmation must match.", "OK");
+                return;
+            }
+
+            // Same rule as ManagerWeb (InputValidator): a Philippine mobile number, stored as +639XXXXXXXXX.
+            if (InputValidator.ValidatePhilippineMobile(NewNumber) is string phoneError)
+            {
+                await Shell.Current.DisplayAlert("Invalid Number", phoneError, "OK");
+                return;
+            }
+            var normalizedNew = InputValidator.NormalizePhilippineMobile(NewNumber)!;
+
+            IsBusy = true;
+            var user = CrossFirebaseAuth.Current.CurrentUser;
+            if (user == null)
+            {
+                await Shell.Current.DisplayAlert("Error", "You are not logged in.", "OK");
+                return;
+            }
+
+            var doc = await CrossFirebaseFirestore.Current
+                .GetCollection("users")
+                .GetDocument(user.Uid)
+                .GetDocumentSnapshotAsync<ContactNumberProxy>();
+
+            // 0917... and +63917... are the same number, however either was typed.
+            if (!InputValidator.SamePhone(doc?.Data?.PhoneNumber, CurrentNumber))
+            {
+                await Shell.Current.DisplayAlert("Doesn't Match", "Current number does not match our records.", "OK");
+                return;
+            }
+
+            var updates = new Dictionary<object, object>
+            {
+                ["phoneNumber"] = normalizedNew
+            };
+
+            await CrossFirebaseFirestore.Current
+                .GetCollection("users")
+                .GetDocument(user.Uid)
+                .UpdateDataAsync(updates);
+
+            // The next SOS must carry the new number, or caller validation would reject it.
+            Application.Current?.Handler?.MauiContext?.Services
+                .GetService<LARGA.MobileApp.Services.IEmergencyAlertService>()?
+                .ForgetCachedDriverDetails();
+
+            _loadedNumber = string.Empty;
+            CurrentNumber = string.Empty;
+            NewNumber = string.Empty;
+            ConfirmNewNumber = string.Empty;
+
+            await Shell.Current.DisplayAlert("Success", "Your contact number has been updated.", "OK");
+            await Shell.Current.GoToAsync("..");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Driver Update Contact Number Error: {ex.Message}");
+            await LARGA.MobileApp.Services.SafeAlert.ShowAsync("Error", "Unable to update your contact number.");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private class ContactNumberProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("phoneNumber")]
+        public string PhoneNumber { get; set; } = string.Empty;
+    }
+}

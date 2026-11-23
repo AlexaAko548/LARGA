@@ -102,6 +102,11 @@ public class HandoverChecklist
     [FirestoreProperty("exteriorScratches")]
     public bool ExteriorScratches { get; set; }
 
+    // Nullable: the mobile pre/end-shift checklist inspects lights, but older documents (and
+    // the seed data) predate this field - null means "not recorded", not "failed".
+    [FirestoreProperty("lightsCondition")]
+    public bool? LightsCondition { get; set; }
+
     [FirestoreProperty("fuelVerification", ConverterType = typeof(FuelVerificationConverter))]
     public FuelVerification FuelVerification { get; set; } = FuelVerification.HalfTank;
 
@@ -110,6 +115,9 @@ public class HandoverChecklist
 
     [FirestoreProperty("fuelDashboardUrl")]
     public string? FuelDashboardUrl { get; set; }
+
+    [FirestoreProperty("odometerPhotoUrl")]
+    public string? OdometerPhotoUrl { get; set; }
 
     [FirestoreProperty("timestamp")]
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;

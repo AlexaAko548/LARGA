@@ -54,19 +54,41 @@ public class FuelLog
     [FirestoreProperty("shiftId")]
     public string ShiftId { get; set; } = string.Empty;
 
-    [FirestoreProperty("litersRefueled")]
+    [FirestoreProperty("fuelStation")]
+    public string? FuelStation { get; set; }
+
+    [FirestoreProperty("litersRefueled", ConverterType = typeof(DecimalConverter))]
     public decimal LitersRefueled { get; set; }
 
-    [FirestoreProperty("fuelCost")]
+    [FirestoreProperty("fuelCost", ConverterType = typeof(DecimalConverter))]
     public decimal FuelCost { get; set; }
+
+    [FirestoreProperty("orNumber")] 
+    public string? ORNumber { get; set; }
 
     [FirestoreProperty("receiptImageUrl")]
     public string? ReceiptImageUrl { get; set; }
 
+    [FirestoreProperty("receiptTimestamp")]
+    public DateTime? ReceiptTimestamp { get; set; }
+
+    // LAR-107: real event timestamps, distinct from ReceiptTimestamp (the date printed on
+    // the receipt, which the driver controls). SubmittedAt is stamped once by the Firestore
+    // server at upload (FuelService; missing on older reports); VerifiedAt/FlaggedAt are written by ManagerWeb when a manager acts on
+    // the submission - see FuelVerificationService.Verify/Flag/ResolveFlagAsync.
+    [FirestoreProperty("submittedAt")]
+    public DateTime? SubmittedAt { get; set; }
+
+    [FirestoreProperty("verifiedAt")]
+    public DateTime? VerifiedAt { get; set; }
+
+    [FirestoreProperty("flaggedAt")]
+    public DateTime? FlaggedAt { get; set; }
+
     [FirestoreProperty("verificationStatus", ConverterType = typeof(FuelVerificationStatusConverter))]
     public FuelVerificationStatus VerificationStatus { get; set; } = FuelVerificationStatus.Pending;
 
-    [FirestoreProperty("fuelLogDetails")]
+    [FirestoreProperty("fuelLogDetails")] 
     public string? FuelLogDetails { get; set; }
 
     [FirestoreProperty("odometerReading")]
@@ -74,4 +96,40 @@ public class FuelLog
 
     [FirestoreProperty("odometerPhotoUrl")]
     public string? OdometerPhotoUrl { get; set; }
+
+    [FirestoreProperty("driverId")] // new property to store the driver ID
+    public string DriverId { get; set; } = string.Empty;
+
+    [FirestoreProperty("isCostManuallyEdited")]
+    public bool IsCostManuallyEdited { get; set; }
+
+    [FirestoreProperty("isQuantityManuallyEdited")]
+    public bool IsQuantityManuallyEdited { get; set; }
+
+    [FirestoreProperty("isFuelStationManuallyEdited")]
+    public bool IsFuelStationManuallyEdited { get; set; }
+
+    [FirestoreProperty("isReceiptDateManuallyEdited")]
+    public bool IsReceiptDateManuallyEdited { get; set; }
+
+    [FirestoreProperty("isOrNumberManuallyEdited")]
+    public bool IsOrNumberManuallyEdited { get; set; }
+
+    [FirestoreProperty("isAnyFieldManuallyEdited")]
+    public bool IsAnyFieldManuallyEdited { get; set; }
+
+    /// <summary>Flagged by the system rather than a manager - on submit for a station other than
+    /// Petron/Shell (FUEL-004), or by ManagerWeb's odometer-vs-GPS check (FUEL-017). The reason is in
+    /// FuelLogDetails. Stays true after a manager verifies it, as a record of why it was flagged.</summary>
+    [FirestoreProperty("autoFlagged")]
+    public bool AutoFlagged { get; set; }
+
+    /// <summary>When ManagerWeb's automatic odometer-vs-GPS check (FUEL-017) ran on this
+    /// submission - set whether or not it flagged it, so it's checked once.</summary>
+    [FirestoreProperty("autoCheckedAt")]
+    public DateTime? AutoCheckedAt { get; set; }
+
+    /// <summary>When the bell alert (system_alerts/fuel_{fuelId}) for an automatic flag was raised.</summary>
+    [FirestoreProperty("autoFlagAlertAt")]
+    public DateTime? AutoFlagAlertAt { get; set; }
 }

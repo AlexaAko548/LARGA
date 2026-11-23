@@ -109,10 +109,10 @@ public class MaintenanceRecord
     [FirestoreProperty("dateResolved")]
     public DateTime? DateResolved { get; set; }
 
-    [FirestoreProperty("laborCost")]
+    [FirestoreProperty("laborCost", ConverterType = typeof(DecimalConverter))]
     public decimal LaborCost { get; set; }
 
-    [FirestoreProperty("totalCost")]
+    [FirestoreProperty("totalCost", ConverterType = typeof(DecimalConverter))]
     public decimal TotalCost { get; set; }
 
     [FirestoreProperty("supportingPhotoUrl")]
@@ -120,4 +120,48 @@ public class MaintenanceRecord
 
     [FirestoreProperty("priorityLevel", ConverterType = typeof(PriorityLevelConverter))]
     public PriorityLevel PriorityLevel { get; set; } = PriorityLevel.Low;
+
+    // --- Added 2026-09-10 for the Garage / Maintenance Scheduler page ---
+
+    /// <summary>Driver who filed this as a defect report from mobile. Null for a manager- or
+    /// system-initiated record (e.g. a routine check turned into a work order).</summary>
+    [FirestoreProperty("reportedByDriverId")]
+    public string? ReportedByDriverId { get; set; }
+
+    /// <summary>"Reported" (driver flagged it, no ticket yet) / "Scheduled" (ticket booked for a
+    /// later shop day - ScheduledDate) / "InProgress" (in the shop) / "Resolved" / "Dismissed". Plain string, same convention as
+    /// ShiftLog.Status/TaxiUnit.Status elsewhere in this codebase - not stored redundantly
+    /// with DateResolved, since "Dismissed" needs its own state DateResolved can't express.</summary>
+    [FirestoreProperty("status")]
+    public string Status { get; set; } = "Reported";
+
+    /// <summary>Set when a pending driver report is turned into a work order via "Create Ticket".</summary>
+    [FirestoreProperty("mechanicInstructions")]
+    public string? MechanicInstructions { get; set; }
+
+    [FirestoreProperty("estimatedCompletionDate")]
+    public DateTime? EstimatedCompletionDate { get; set; }
+
+    /// <summary>The day the unit goes into the shop, set when the Garage creates the ticket
+    /// (midnight UTC of that calendar day, like EstimatedCompletionDate). Null on tickets made
+    /// before scheduling existed - those count from DateLogged.</summary>
+    [FirestoreProperty("scheduledDate")]
+    public DateTime? ScheduledDate { get; set; }
+
+    /// <summary>For a job booked from a recurring routine check: its type (RoutineCheckItem.RoutineType),
+    /// so the next check is generated from this job's completion date.</summary>
+    [FirestoreProperty("routineType")]
+    public string? RoutineType { get; set; }
+
+    // Proposal §4.2.4.7 (DayOffReminderRules): when the work order was booked for its shop day, the
+    // shop day the unit's driver was last told about, and the shop day the week-ahead reminder went
+    // out for. Null on work orders booked before these existed.
+    [FirestoreProperty("bookedAt")]
+    public DateTime? BookedAt { get; set; }
+
+    [FirestoreProperty("driverNotifiedShopDay")]
+    public DateTime? DriverNotifiedShopDay { get; set; }
+
+    [FirestoreProperty("dayOffReminderSentFor")]
+    public DateTime? DayOffReminderSentFor { get; set; }
 }

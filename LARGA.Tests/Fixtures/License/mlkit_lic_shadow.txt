@@ -1,0 +1,35 @@
+# ML Kit reads of tests/lic_shadow (degraded copy of license2.jfif), one pass per section,
+# captured from the emulator with the DEBUG OcrBatchReceiver (LicenseScanPipeline, LARGA-LIC lines).
+=== pass original
+REPUBLIC OF THE PHILIPPINES
+DEPARTMENT OF TRANSPORTATION
+LAND TRANSPORTATION OFFICE
+DRIVER'S LICENSE
+Signature of Licensee
+Last Narme. First Name. Middie Narme
+MINOZA, ALEXA ROSE INSO
+Nationality Sex Date of Birth
+PHL
+F 2005/09/27
+Address
+CEBU, 6000
+License No.
+NASIPIT, TALAMBAN, CEBU CITY (CAPITAL),
+Blood Type
+0+
+GO1-25-009637 2030/09/27
+DL Codes
+A,B,B1,B2
+Expiration Date
+Eyes Color
+BLACK
+Conditions
+1
+Weight (kg) Height(m)
+FORTAT
+70
+1.60
+Agency Code
+GO1
+MARKU. LÃCANILAO
+Assistant Secretary

@@ -5,27 +5,42 @@
              x:Class="LARGA.MobileApp.Views.Auth.LandingPage"
              x:DataType="vm:LandingViewModel"
              Shell.NavBarIsVisible="False"
-             BackgroundColor="White">
+             Shell.FlyoutBehavior="Disabled"
+             BackgroundColor="{DynamicResource ThemeSurface}">
 
-    <Grid RowDefinitions="*, Auto">
+    <Grid RowDefinitions="40*, 25*">
+
         <!-- Top Blue Area -->
         <Border Grid.Row="0"
-                BackgroundColor="{StaticResource LargaLightBlue}"
+                BackgroundColor="{DynamicResource LargaLightBlue}"
                 StrokeShape="RoundRectangle 0,0,50,50"
-                StrokeThickness="0">
-            <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center">
-                <Image Source="larga_logo.webp" WidthRequest="300" Aspect="AspectFit" />
+                StrokeThickness="0"
+                VerticalOptions="Fill">
+
+            <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="0">
+                <!-- Same 555x246 artwork for both, so the size never changes; follows Dark, or System + dark OS. -->
+                <Image Source="{AppThemeBinding Light=larga_logo.webp, Dark=larga_logo_light.png}" WidthRequest="300" Aspect="AspectFit" />
+                <Label Text="LARGA" 
+                       Style="{StaticResource LogoTitleStyle}" 
+                       HorizontalOptions="Center" 
+                       TextColor="{DynamicResource LargaDarkText}" 
+                       Margin="0,-20,0,0" />
             </VerticalStackLayout>
+
         </Border>
 
         <!-- Bottom White Area -->
-        <VerticalStackLayout Grid.Row="1" Padding="30,20,30,40" Spacing="15">
+        <VerticalStackLayout Grid.Row="1" Padding="30,0,30,0" Spacing="5" VerticalOptions="Center">
+
             <Button Text="Driver" 
-                    BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="50" FontAttributes="Bold"
-                    Command="{Binding SelectRoleCommand}" CommandParameter="Driver"/>
+                    Style="{StaticResource LargaButtonStyle}"
+                    Command="{Binding SelectRoleCommand}" FontSize="18" CommandParameter="Driver"/>
+
             <Button Text="Manager" 
-                    BackgroundColor="#0099CC" TextColor="White" CornerRadius="25" HeightRequest="50" FontAttributes="Bold"
-                    Command="{Binding SelectRoleCommand}" CommandParameter="Manager"/>
+                    Style="{StaticResource LargaButtonStyle}"
+                    Command="{Binding SelectRoleCommand}" FontSize="18" CommandParameter="Manager"/>
+
         </VerticalStackLayout>
+
     </Grid>
 </ContentPage>

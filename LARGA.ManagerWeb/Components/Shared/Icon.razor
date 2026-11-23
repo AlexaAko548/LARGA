@@ -1,0 +1,27 @@
+@* One Lucide outline icon (see LucideIcons.cs), e.g. <Icon Name="phone" />. It's 1em square and
+   drawn in currentColor, so it takes the size and color of the text around it - the same way the
+   old emoji/symbol icons did, without looking different on every OS. Decorative by default
+   (hidden from screen readers); pass Title when the icon is the only thing saying what a button does. *@
+
+<svg class="icon @Class" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"
+     aria-hidden="@(Title is null ? "true" : null)" role="@(Title is null ? null : "img")">
+    @if (Title is not null)
+    {
+        <title>@Title</title>
+    }
+    @((MarkupString)Markup)
+</svg>
+
+@code {
+    /// <summary>Lucide icon name, e.g. "phone", "triangle-alert".</summary>
+    [Parameter, EditorRequired] public string Name { get; set; } = string.Empty;
+
+    /// <summary>Extra CSS classes, e.g. for a fixed size inside a sidebar or stat card.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Accessible label; leave null when text next to the icon already says it.</summary>
+    [Parameter] public string? Title { get; set; }
+
+    private string Markup => LucideIcons.Paths.TryGetValue(Name, out var markup) ? markup : string.Empty;
+}

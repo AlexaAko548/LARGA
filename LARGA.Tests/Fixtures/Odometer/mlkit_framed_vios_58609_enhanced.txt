@@ -1,0 +1,4 @@
+LARGA-OCR block 0 img=246x150 px=[L46 T56 R202 B117] norm=[x0.187 y0.3733 w0.6341 h0.4067] text="S8509"
+LARGA-OCR line 0 norm=[x0.187 y0.3733 w0.6341 h0.4067] slope=0.05359 text="S8509"
+LARGA-OCR block 1 img=246x150 px=[L103 T111 R127 B125] norm=[x0.4187 y0.74 w0.0976 h0.0933] text="Im"
+LARGA-OCR line 1 norm=[x0.4187 y0.74 w0.0976 h0.0933] slope=0 text="Im"

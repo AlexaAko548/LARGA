@@ -32,6 +32,14 @@ jobs:
       - name: Restore NuGet packages
         run: dotnet restore "LARGA.sln"
 
+      - name: Provide MapTiler config placeholder
+        # MapTilerConfig.cs is gitignored (real key stays local-only, never committed - see
+        # MapTilerConfig.cs.example), so a clean CI checkout never has it and the build fails
+        # with CS0103 on MapTilerConfig.ApiKey. CI only needs the code to compile, not to
+        # actually reach MapTiler, so the placeholder key from the example file is enough.
+        run: Copy-Item "LARGA.MobileApp/Services/MapTilerConfig.cs.example" "LARGA.MobileApp/Services/MapTilerConfig.cs"
+        shell: pwsh
+
       - name: Build solution (Release)
         run: dotnet build "LARGA.sln" --configuration Release
 

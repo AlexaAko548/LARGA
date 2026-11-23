@@ -1,0 +1,33 @@
+using System;
+
+namespace LARGA.SharedCore;
+
+/// <summary>
+/// How long personal data is kept (audit H-01, RA 10173 storage limitation). New documents carry an
+/// <see cref="ExpireAtField"/> timestamp; a Firestore TTL policy on that field (set up in the Firebase
+/// Console - see SECURITY_AUDIT.md, H-01) deletes them after that date. Nothing is deleted until that
+/// policy is switched on, and documents written before this change have no expireAt and are kept.
+///
+/// GPS telemetry: 7 days, BLM Taxi's decision (consistency audit row #79). The SOS and chat periods are
+/// still proposals to confirm with BLM. firestore.rules checks the same numbers (expiresWithin /
+/// expiresAfterDays), so change both together.
+/// </summary>
+public static class RetentionRules
+{
+    public const string ExpireAtField = "expireAt";
+
+    /// <summary>gps_telemetry: the 30-second location trail of a shift. SRS §6.2.3 and the live
+    /// Firestore TTL policy both use 7 days (consistency audit row #39) - this constant previously
+    /// said 90, which matched neither.</summary>
+    public static readonly TimeSpan GpsTelemetry = TimeSpan.FromDays(7);
+
+    /// <summary>emergency_alerts: SOS location, address and caller details. Stamped by ManagerWeb's
+    /// SosPushService (server time), not by the phone.</summary>
+    public static readonly TimeSpan EmergencyAlert = TimeSpan.FromDays(365);
+
+    /// <summary>chats/{driverId}/messages.</summary>
+    public static readonly TimeSpan ChatMessage = TimeSpan.FromDays(365);
+
+    public static DateTime ExpireAt(DateTime createdUtc, TimeSpan keep) =>
+        DateTime.SpecifyKind(createdUtc, DateTimeKind.Utc) + keep;
+}

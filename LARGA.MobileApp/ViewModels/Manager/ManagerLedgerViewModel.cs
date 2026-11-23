@@ -1,0 +1,329 @@
+using System;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Globalization;
+using System.Threading.Tasks;
+using System.Windows.Input;
+using LARGA.MobileApp.Services;
+using LARGA.SharedCore;
+using LARGA.SharedCore.Ledger;
+using Microsoft.Maui.ApplicationModel;
+using Microsoft.Maui.Controls;
+using Plugin.Firebase.Firestore;
+
+namespace LARGA.MobileApp.ViewModels.Manager;
+
+public class ManagerLedgerViewModel : BindableObject
+{
+    private readonly QuickLedgerService _service;
+    private QuickLedgerSnapshot? _snapshot;
+    private bool _isLoading;
+    private bool _reloadRequested;
+    private bool _isRefreshing;
+    private string? _auditWarning;
+    private string _warningText = string.Empty;
+    private bool _hasError;
+    private string _errorMessage = string.Empty;
+    private string _pendingCountText = string.Empty;
+    private string _dateText = string.Empty;
+
+    public ObservableCollection<PendingBoundaryItem> PendingBoundaries { get; } = new();
+    public ObservableCollection<PaymentDoneItem> PaymentsDoneToday { get; } = new();
+
+    public RecordPaymentViewModel RecordPayment { get; }
+
+    public ICommand LoadCommand { get; }
+    public ICommand RefreshCommand { get; }
+    public ICommand RetryCommand { get; }
+    public ICommand OpenOtherPaymentCommand { get; }
+    public ICommand OpenPendingCommand { get; }
+
+    public ManagerLedgerViewModel(QuickLedgerService service, RecordPaymentViewModel recordPayment)
+    {
+        _service = service;
+        RecordPayment = recordPayment;
+        RecordPayment.Saved += async (_, _) =>
+        {
+            _auditWarning = RecordPayment.AuditWarning;
+            await LoadAsync(force: true);
+        };
+
+        LoadCommand = new Command(async () => await LoadAsync());
+        RetryCommand = new Command(async () => await LoadAsync(force: true));
+        RefreshCommand = new Command(async () => await RefreshAsync());
+        OpenOtherPaymentCommand = new Command(() => OpenOther(null));
+        OpenPendingCommand = new Command<PendingBoundaryItem>(item => OpenPending(item));
+    }
+
+    public bool HasError
+    {
+        get => _hasError;
+        private set { _hasError = value; OnPropertyChanged(); }
+    }
+
+    public string ErrorMessage
+    {
+        get => _errorMessage;
+        private set { _errorMessage = value; OnPropertyChanged(); }
+    }
+
+    public string PendingCountText
+    {
+        get => _pendingCountText;
+        private set { _pendingCountText = value; OnPropertyChanged(); }
+    }
+
+    public string WarningText
+    {
+        get => _warningText;
+        private set
+        {
+            _warningText = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasWarning));
+        }
+    }
+
+    // The warning label takes no space when there is nothing to warn about.
+    public bool HasWarning => !string.IsNullOrEmpty(_warningText);
+
+    // Drives RefreshView's own spinner on a pull-down. Separate from LoadingState's app-wide overlay, which still
+    // covers OnAppearing and other loads that don't come from a pull.
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        private set { _isRefreshing = value; OnPropertyChanged(); }
+    }
+
+    public string DateText
+    {
+        get => _dateText;
+        private set { _dateText = value; OnPropertyChanged(); }
+    }
+
+    // Empty-state flags. ObservableCollection doesn't raise change notifications the view can bind to,
+    // so these are set explicitly after each load.
+    public bool HasPending { get; private set; }
+    public bool HasPaymentsDoneToday { get; private set; }
+
+    // Switching back to this tab within ReuseWindow keeps what's on screen instead of re-reading all 7
+    // collections (PERFORMANCE_REPORT.md P7). A saved payment, pull-to-refresh and Retry always reload; and a
+    // payment planned on older figures is still refused at save time (ledger_locks version check).
+    private static readonly TimeSpan ReuseWindow = TimeSpan.FromSeconds(30);
+    private DateTime _lastLoadedUtc = DateTime.MinValue;
+
+    public async Task LoadAsync(bool force = false)
+    {
+        if (!force && _snapshot is not null && !HasError && DateTime.UtcNow - _lastLoadedUtc < ReuseWindow)
+        {
+            return;
+        }
+
+        // OnAppearing or a saved payment can ask for a reload while one is still running. Remember the request and
+        // run it afterwards, instead of dropping it, so the page never keeps rows from before the save.
+        if (_isLoading)
+        {
+            _reloadRequested = true;
+            return;
+        }
+
+        _isLoading = true;
+        try
+        {
+            do
+            {
+                _reloadRequested = false;
+                await LoadOnceAsync();
+            }
+            while (_reloadRequested);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    // Pull-to-refresh: same reload, but tracked separately so RefreshView can turn its spinner off once this
+    // particular pull's reload is done, even if LoadAsync's dedupe (_reloadRequested) runs it again right after.
+    private async Task RefreshAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            await LoadAsync(force: true);
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
+    }
+
+    private async Task LoadOnceAsync()
+    {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Quick Ledger load");
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
+        DateText = PhilippineTime.Now.ToString("dddd, MMM d", CultureInfo.InvariantCulture);
+
+        try
+        {
+            _snapshot = await _service.LoadAsync();
+            QuickLedgerResult result = _snapshot.Result;
+
+            PendingBoundaries.Clear();
+            foreach (PendingBoundaryRow row in result.Pending)
+            {
+                PendingBoundaries.Add(new PendingBoundaryItem
+                {
+                    Row = row,
+                    DriverName = row.DriverName,
+                    PlateText = row.TaxiPlate,
+                    BalanceText = Money(row.Remaining),
+                    ProgressText = $"{Money(row.Paid)} paid of {Money(row.Expected)}",
+                });
+            }
+
+            PaymentsDoneToday.Clear();
+            foreach (PaymentDoneRow row in result.PaymentsDone)
+            {
+                PaymentsDoneToday.Add(new PaymentDoneItem
+                {
+                    DriverName = row.DriverName,
+                    // One row per transaction: the exact amount of this payment, how it was paid, and when.
+                    DetailText = $"{MethodLabel(row.PaymentMethod)} · {row.TimestampUtc.ToPhilippineTime().ToString("h:mm tt", CultureInfo.InvariantCulture)}",
+                    StatusText = Money(row.AmountPaid),
+                });
+            }
+
+            int pendingCount = result.Pending.Count;
+            PendingCountText = $"{pendingCount} pending clearance{(pendingCount == 1 ? string.Empty : "s")}";
+            // Records the ledger could not read are left out of the figures, so say so rather than hide them.
+            var warnings = new List<string>();
+            if (!string.IsNullOrEmpty(_auditWarning)) warnings.Add(_auditWarning!);
+            if (_snapshot.Warnings.Count > 0)
+            {
+                warnings.Add($"{_snapshot.Warnings.Count} record(s) could not be read and are not included: {string.Join("; ", _snapshot.Warnings.Take(3))}");
+            }
+            WarningText = string.Join("  ", warnings);
+            HasError = false;
+            ErrorMessage = string.Empty;
+            _lastLoadedUtc = DateTime.UtcNow;
+        }
+        catch (Exception ex)
+        {
+            // Full exception (step, type, Firestore code) to logcat under the LARGA tag, Release builds included.
+            FirestoreErrors.Log("Quick Ledger load", ex);
+            HasError = true;
+            ErrorMessage = LoadErrorMessage(ex);
+        }
+        finally
+        {
+            HasPending = PendingBoundaries.Count > 0;
+            HasPaymentsDoneToday = PaymentsDoneToday.Count > 0;
+            OnPropertyChanged(nameof(HasPending));
+            OnPropertyChanged(nameof(HasPaymentsDoneToday));
+        }
+    }
+
+    // One message per cause, so the manager knows whether to check the connection, the account, or call for help.
+    private static string LoadErrorMessage(Exception ex)
+    {
+        string step = ex is QuickLedgerLoadException load ? $" ({load.Step.ToLowerInvariant()})" : string.Empty;
+        return FirestoreErrors.Classify(ex) switch
+        {
+            FirestoreErrorKind.Offline =>
+                "Can't reach the server. Check your internet connection, then tap Retry.",
+            FirestoreErrorKind.PermissionDenied =>
+                $"This account isn't allowed to read the ledger{step}. Make sure you're logged in as a Manager, then tap Retry. If it keeps happening, the Firestore rules on the server need updating.",
+            FirestoreErrorKind.SignedOut =>
+                "Your session has expired. Please log out and log in again.",
+            FirestoreErrorKind.MissingIndex =>
+                $"The server is missing a database index{step}. Tell the system admin, then tap Retry.",
+            _ =>
+                $"Something went wrong while loading the ledger{step}. Tap Retry.",
+        };
+    }
+
+    // -- Live updates: a payment recorded on another phone (or the web) moves between Pending/Done Today
+    // here without pulling to refresh (test gap: "doesn't automatically reflect in the pending section").
+    // Manager sees every driver, so these listen unfiltered - they only trigger the existing full reload,
+    // never read the documents themselves, debounced so one payment write's several events collapse into
+    // a single reload.
+    private IDisposable? _shiftsListener;
+    private IDisposable? _paymentsListener;
+    private DebouncedAction? _reloadDebounced;
+    private bool _isListening;
+
+    public void StartListening()
+    {
+        if (_isListening) return;
+        _isListening = true;
+
+        _reloadDebounced ??= new DebouncedAction(() =>
+        {
+            MainThread.BeginInvokeOnMainThread(async () => await LoadAsync(force: true));
+            return Task.CompletedTask;
+        }, TimeSpan.FromMilliseconds(400));
+        SessionEvents.SigningOut += OnSigningOut;
+
+        _shiftsListener = CrossFirebaseFirestore.Current
+            .GetCollection("shifts")
+            .AddSnapshotListener<QuickLedgerService.ShiftProxy>(
+                _ => _reloadDebounced.Trigger(),
+                ex => Debug.WriteLine($"Quick Ledger shifts listener error: {ex.Message}"));
+
+        _paymentsListener = CrossFirebaseFirestore.Current
+            .GetCollection("boundary_payments")
+            .AddSnapshotListener<QuickLedgerService.BoundaryPaymentProxy>(
+                _ => _reloadDebounced.Trigger(),
+                ex => Debug.WriteLine($"Quick Ledger payments listener error: {ex.Message}"));
+    }
+
+    public void StopListening()
+    {
+        _isListening = false;
+        SessionEvents.SigningOut -= OnSigningOut;
+        _shiftsListener?.Dispose();
+        _paymentsListener?.Dispose();
+        _shiftsListener = _paymentsListener = null;
+        _reloadDebounced?.Dispose();
+        _reloadDebounced = null;
+    }
+
+    private void OnSigningOut(object? sender, EventArgs e) => StopListening();
+
+    private void OpenPending(PendingBoundaryItem? item)
+    {
+        if (_snapshot is null || item is null) return;
+        RecordPayment.OpenForBoundary(_snapshot, item.Row);
+    }
+
+    private void OpenOther(string? driverId)
+    {
+        if (_snapshot is null) return;
+        RecordPayment.OpenForOther(_snapshot, driverId);
+    }
+
+    private static string MethodLabel(string method) =>
+        string.Equals(method, QuickLedgerCalculator.EWalletMethod, StringComparison.OrdinalIgnoreCase) ? "E-WALLET" : "CASH";
+
+    private static string Money(decimal amount) =>
+        "₱ " + amount.ToString("#,##0.00", CultureInfo.InvariantCulture);
+}
+
+public class PendingBoundaryItem
+{
+    public PendingBoundaryRow Row { get; set; } = null!;
+    public string DriverName { get; set; } = string.Empty;
+    public string PlateText { get; set; } = string.Empty;
+    public string BalanceText { get; set; } = string.Empty;
+    public string ProgressText { get; set; } = string.Empty;
+}
+
+public class PaymentDoneItem
+{
+    public string DriverName { get; set; } = string.Empty;
+    public string DetailText { get; set; } = string.Empty;
+    public string StatusText { get; set; } = string.Empty;
+}
+

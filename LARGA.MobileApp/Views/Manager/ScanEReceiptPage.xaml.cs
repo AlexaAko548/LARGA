@@ -1,0 +1,261 @@
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.Messaging;
+using LARGA.MobileApp.Services;
+using LARGA.SharedCore;
+using LARGA.SharedCore.Ledger;
+using Microsoft.Maui.Controls;
+using Microsoft.Maui.Graphics;
+using Microsoft.Maui.Storage;
+
+namespace LARGA.MobileApp.Views.Manager;
+
+/// <summary>
+/// Captures a GCash e-receipt, reads it with OCR, and shows the amount, date and reference number as read-only
+/// details. Nothing is sent back to the payment form until every field is read and the manager confirms.
+/// </summary>
+public partial class ScanEReceiptPage : ContentPage
+{
+    private readonly EReceiptOcrService _ocr;
+    private string? _photoPath;
+    private EReceiptData? _scanned;
+    private PayoutAccountCheck? _accountCheck;
+
+    public ScanEReceiptPage(EReceiptOcrService ocr)
+    {
+        InitializeComponent();
+        _ocr = ocr;
+    }
+
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+        if (_scanned is null)
+        {
+            await StartCameraAsync();
+            await LoadAuthorizedAccountsAsync();
+        }
+    }
+
+    // BETA-065: shown upfront, before a receipt is even captured, so the manager has something
+    // to read out to the driver / compare against while verifying a GCash payment in person.
+    private async Task LoadAuthorizedAccountsAsync()
+    {
+        // ReadAuthorizedPayoutAccountsAsync returns null specifically when the read failed
+        // (offline, etc.) - distinct from an empty list, which means it loaded fine and nothing
+        // is configured (review follow-up on BETA-065).
+        IReadOnlyList<string>? authorized = await QuickLedgerService.ReadAuthorizedPayoutAccountsAsync();
+        LblAuthorizedAccounts.Text = authorized switch
+        {
+            null => "Couldn't load the approved accounts (offline?). Check your connection and try again.",
+            { Count: > 0 } => "Approved GCash/bank account(s): " + string.Join(", ", authorized),
+            _ => "No approved GCash/bank accounts are set up yet.",
+        };
+    }
+
+    protected override async void OnDisappearing()
+    {
+        base.OnDisappearing();
+        await StopCameraAsync();
+    }
+
+    private async void Camera_CamerasLoaded(object? sender, EventArgs e)
+    {
+        if (_scanned is null)
+        {
+            await StartCameraAsync();
+        }
+    }
+
+    // Never throw: these run from async void page events (appearing, cameras loaded, retake,
+    // cancel), where an exception would crash the app. A camera that won't start stays blank.
+    private async Task StartCameraAsync()
+    {
+        try
+        {
+            if (ReceiptCamera.Cameras.Count == 0) return;
+
+            ReceiptCamera.Camera = ReceiptCamera.Cameras.FirstOrDefault(c => c.Position == Camera.MAUI.CameraPosition.Back)
+                                   ?? ReceiptCamera.Cameras.FirstOrDefault();
+            ReceiptCamera.ZoomFactor = 0f;
+            await ReceiptCamera.StopCameraAsync();
+            await ReceiptCamera.StartCameraAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"E-receipt camera start failed: {ex.Message}");
+        }
+    }
+
+    private async Task StopCameraAsync()
+    {
+        try
+        {
+            if (ReceiptCamera.Cameras.Count > 0)
+            {
+                await ReceiptCamera.StopCameraAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"E-receipt camera stop failed: {ex.Message}");
+        }
+    }
+
+    private async void OnCaptureClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            await CaptureOrConfirmAsync();
+        }
+        catch (Exception ex)
+        {
+            // Snapshot, OCR or navigation failed: let the manager try again instead of crashing.
+            System.Diagnostics.Debug.WriteLine($"E-receipt capture failed: {ex}");
+            ResetCapture("Couldn't read the receipt. Please try again.");
+        }
+    }
+
+    private async Task CaptureOrConfirmAsync()
+    {
+        // Once the receipt has been read, the same button confirms it.
+        if (_scanned is { IsComplete: true } complete)
+        {
+            await SendResultAsync(complete);
+            return;
+        }
+
+        BtnCapture.IsEnabled = false;
+        BtnCapture.Text = "READING RECEIPT...";
+
+        string path = Path.Combine(FileSystem.CacheDirectory, $"ereceipt_{Guid.NewGuid():N}.jpg");
+        bool saved = await ReceiptCamera.SaveSnapShot(Camera.MAUI.ImageFormat.JPEG, path);
+        if (!saved || !File.Exists(path))
+        {
+            ResetCapture("Capture failed. Please try again.");
+            return;
+        }
+
+        _photoPath = path;
+        CapturedReceiptPreview.Source = ImageSource.FromFile(path);
+        CapturedReceiptPreview.IsVisible = true;
+        ReceiptCamera.IsVisible = false;
+        await StopCameraAsync();
+
+        _scanned = await _ocr.ReadAsync(path, PhilippineTime.Now);
+
+        // Target account verification: was the money sent to one of the manager's authorized accounts?
+        IReadOnlyList<string>? authorized = await QuickLedgerService.ReadAuthorizedPayoutAccountsAsync();
+        _accountCheck = authorized is null ? null : PayoutAccountMatcher.Check(_scanned.Target, authorized);
+        ShowScan(_scanned);
+    }
+
+    private async void OnRetakeClicked(object? sender, EventArgs e)
+    {
+        _scanned = null;
+        _accountCheck = null;
+        _photoPath = null;
+        CapturedReceiptPreview.IsVisible = false;
+        CapturedReceiptPreview.Source = null;
+        ReceiptCamera.IsVisible = true;
+
+        LblAmount.Text = "---";
+        LblDate.Text = "---";
+        LblReference.Text = "---";
+        LblTarget.Text = "---";
+        LblTargetStatus.IsVisible = false;
+        BtnRetake.IsVisible = false;
+        ResetCapture("Line up the receipt and capture it.");
+
+        await StartCameraAsync();
+    }
+
+    private async void OnCancelClicked(object? sender, TappedEventArgs e)
+    {
+        // Gated: a double tap would otherwise close this scanner and then the screen under it.
+        await LARGA.MobileApp.Services.NavigationGate.RunAsync(async () =>
+        {
+            await StopCameraAsync();
+            try
+            {
+                await Navigation.PopModalAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Close e-receipt scan failed: {ex.Message}");
+            }
+        });
+    }
+
+    private void ShowScan(EReceiptData data)
+    {
+        LblAmount.Text = data.Amount?.ToString("#,##0.00") ?? "---";
+        LblDate.Text = data.Date?.ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture) ?? "---";
+        LblReference.Text = data.ReferenceNumber ?? "---";
+        ShowAccountCheck(data);
+
+        BtnRetake.IsVisible = true;
+        BtnRetake.IsEnabled = true;
+
+        if (data.IsComplete)
+        {
+            ScanStatusLabel.Text = "Receipt read. Check the details, then confirm.";
+            BtnCapture.Text = "CONFIRM";
+            BtnCapture.IsEnabled = true;
+        }
+        else
+        {
+            ScanStatusLabel.Text = "Some details weren't read. Retake the photo.";
+            BtnCapture.Text = "NOT ALL DETAILS FOUND";
+            BtnCapture.IsEnabled = false;
+        }
+    }
+
+    private void ShowAccountCheck(EReceiptData data)
+    {
+        LblTarget.Text = data.Target?.Display ?? "---";
+        LblTargetStatus.IsVisible = true;
+
+        string colorKey;
+        if (_accountCheck is null)
+        {
+            LblTargetStatus.Text = "Couldn't load the authorized accounts to check the recipient (offline?).";
+            colorKey = "ThemeTextTertiary";
+        }
+        else
+        {
+            LblTargetStatus.Text = (_accountCheck.Status == PayoutAccountStatus.Verified ? "✓ " : _accountCheck.NeedsWarning ? "⚠ " : string.Empty)
+                                   + _accountCheck.Message;
+            colorKey = _accountCheck.Status switch
+            {
+                PayoutAccountStatus.Verified => "LargaSuccess",
+                PayoutAccountStatus.Mismatch or PayoutAccountStatus.NotFound => "LargaDanger",
+                _ => "ThemeTextTertiary",
+            };
+        }
+        LblTargetStatus.TextColor = ThemeColors.Get(colorKey, Colors.Gray);
+    }
+
+    private void ResetCapture(string message)
+    {
+        BtnCapture.Text = "CAPTURE";
+        BtnCapture.IsEnabled = true;
+        ScanStatusLabel.Text = message;
+    }
+
+    private async Task SendResultAsync(EReceiptData data)
+    {
+        WeakReferenceMessenger.Default.Send(new EReceiptScanResult(
+            Amount: data.Amount!.Value,
+            Date: data.Date!.Value,
+            ReferenceNumber: data.ReferenceNumber!,
+            PhotoFilePath: _photoPath ?? string.Empty,
+            AccountCheck: _accountCheck));
+
+        await StopCameraAsync();
+        await Navigation.PopModalAsync();
+    }
+}

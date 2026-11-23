@@ -1,0 +1,9 @@
+{
+  "Firestore": {
+    "ProjectId": "larga-blmtaxi",
+    "CredentialsPath": "C:\\path\\to\\your-service-account-key.json"
+  },
+  "MapTiler": {
+    "ApiKey": "YOUR_MAPTILER_API_KEY_HERE"
+  }
+}

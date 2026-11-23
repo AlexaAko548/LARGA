@@ -34,6 +34,36 @@ public class ShiftLog
     [FirestoreProperty("status")]
     public string Status { get; set; } = string.Empty;
 
+    [FirestoreProperty("isOnBreak")]
+    public bool IsOnBreak { get; set; }
+
+    /// <summary>Speed (km/h) of the phone's latest GPS point, copied onto the shift with every point
+    /// (GpsTelemetryService) - lets the dashboard tell moving from idle without reading gps_telemetry.</summary>
+    [FirestoreProperty("currentSpeed")]
+    public double? CurrentSpeed { get; set; }
+
+    /// <summary>When the latest GPS point was taken (same value as that point's timestamp).</summary>
+    [FirestoreProperty("currentPositionUpdatedAt")]
+    public DateTime? CurrentPositionUpdatedAt { get; set; }
+
+    /// <summary>When the phone last wrote a GPS point with speed above 0 (GPS-014) - lets the dashboard
+    /// tell a unit stopped at a red light from one parked for the whole idle threshold. Null until the
+    /// unit first moves this shift (and on shifts from older app builds).</summary>
+    [FirestoreProperty("lastMovingAt")]
+    public DateTime? LastMovingAt { get; set; }
+
     [FirestoreProperty("managerNote")]
     public string ManagerNote { get; set; } = string.Empty;
+
+    /// <summary>Late-return fee (₱) worked out at clock-out from ShiftRules. Null when the
+    /// shift hasn't ended through a normal clock-out (still active, auto-closed, or older
+    /// shifts from before this field existed) - the ledger then falls back to whatever late
+    /// fee is on the payment record.</summary>
+    [FirestoreProperty("lateFee")]
+    public double? LateFee { get; set; }
+
+    /// <summary>Low-fuel penalty set at clock-out when the driver reports below half-tank
+    /// (ShiftRules.LowFuelPenalty); 0 when the tank was at least half, null on older shifts.</summary>
+    [FirestoreProperty("fuelPenalty")]
+    public double? FuelPenalty { get; set; }
 }

@@ -1,0 +1,111 @@
+using System;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Input;
+using LARGA.MobileApp.Services;
+using Microsoft.Maui.Controls;
+using Microsoft.Maui.Graphics;
+using Plugin.Firebase.Firestore;
+
+namespace LARGA.MobileApp.ViewModels.Manager;
+
+public class DriverManagementViewModel : BindableObject
+{
+    public ObservableCollection<DriverListItem> Drivers { get; } = new();
+
+    public ICommand LoadDriversCommand { get; }
+    public ICommand ViewDriverCommand { get; }
+    public ICommand GoBackCommand { get; }
+    public ICommand RefreshCommand { get; }
+
+    private bool _isRefreshing;
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        private set { _isRefreshing = value; OnPropertyChanged(); }
+    }
+
+    public DriverManagementViewModel()
+    {
+        LoadDriversCommand = new Command(async () => await LoadDriversAsync());
+        RefreshCommand = new Command(async () => await RefreshAsync());
+        ViewDriverCommand = new Command<DriverListItem>(async (item) =>
+        {
+            if (item == null || string.IsNullOrEmpty(item.Id)) return;
+            await LARGA.MobileApp.Services.NavigationGate.GoToAsync($"manager-driver-profile?id={item.Id}");
+        });
+        GoBackCommand = new Command(async () => await LARGA.MobileApp.Services.NavigationGate.GoToAsync(".."));
+    }
+
+    private async Task RefreshAsync()
+    {
+        IsRefreshing = true;
+        try
+        {
+            await LoadDriversAsync();
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
+    }
+
+    private async Task LoadDriversAsync()
+    {
+        // P0 timing (PERFORMANCE_REPORT.md).
+        using var _perf = LARGA.SharedCore.PerfLog.Start("Driver Management load");
+        using var _loading = LARGA.MobileApp.Services.LoadingState.Begin(); // LAR-117: app-wide loading indicator
+        try
+        {
+            var snapshot = await CrossFirebaseFirestore.Current
+                .GetCollection("users")
+                .WhereEqualsTo("role", "Driver")
+                .GetDocumentsAsync<DriverProxy>();
+
+            var items = snapshot.Documents
+                .Where(d => d.Data != null)
+                .Select(d =>
+                {
+                    var (statusText, statusColor) = LicenseStatusHelper.Describe(d.Data.LicenseExpiryDate);
+                    return new DriverListItem
+                    {
+                        Id = d.Reference.Id,
+                        FullName = string.IsNullOrWhiteSpace(d.Data.FullName) ? "(Unnamed driver)" : d.Data.FullName,
+                        StatusText = statusText,
+                        StatusColor = statusColor
+                    };
+                })
+                .OrderBy(i => i.FullName)
+                .ToList();
+
+            Drivers.Clear();
+            foreach (var item in items)
+            {
+                Drivers.Add(item);
+            }
+        }
+        catch (Exception ex)
+        {
+            await FirestoreErrors.ShowLoadFailureAsync("Driver management", ex, "the driver list", canPullToRefresh: true);
+        }
+    }
+
+    private class DriverProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("fullName")]
+        public string FullName { get; set; } = string.Empty;
+
+        // DateTimeOffset?, not DateTime? - see LicenseStatusHelper.Describe for why.
+        [Plugin.Firebase.Firestore.FirestoreProperty("licenseExpiryDate")]
+        public DateTimeOffset? LicenseExpiryDate { get; set; }
+    }
+}
+
+public class DriverListItem
+{
+    public string Id { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string StatusText { get; set; } = string.Empty;
+    public Color StatusColor { get; set; } = Colors.Gray;
+}

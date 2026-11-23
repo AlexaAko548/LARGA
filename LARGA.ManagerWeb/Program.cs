@@ -1,12 +1,256 @@
+using System.IO;
+using FirebaseAdmin;
+using FirebaseAdmin.Auth;
+using Google.Apis.Auth.OAuth2;
+using Google.Cloud.Firestore;
+using Google.Cloud.Firestore.V1;
+using Google.Cloud.Storage.V1;
 using LARGA.ManagerWeb.Components;
+using LARGA.ManagerWeb.Services;
+using LARGA.SharedCore.Services;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Options;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// PDF exports (Audit Logs, Generate Reports - PdfReportRenderer).
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+
+// Untracked, developer-local config overrides (Firestore service account path, etc.) -
+// see appsettings.Local.json.example. Never commit the real appsettings.Local.json.
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// Server-side (admin) Firestore access for reporting/dashboard reads. Configure
+// "Firestore:CredentialsPath" in appsettings.Development.json / an untracked
+// appsettings.Local.json to point at a service account key (see LARGA.SeedTool/README.md
+// for how to get one - the same key works here). Omit it to fall back to Application
+// Default Credentials.
+//
+// Wrapped in Lazy<T> so a missing/misconfigured credential does NOT throw here - this
+// factory runs the moment any component/service that depends on it is instantiated
+// (e.g. as soon as Dashboard.razor is rendered), which is *before* that page's own
+// try/catch around GetDashboardSnapshotAsync() gets a chance to run, and would otherwise
+// crash the whole page with an unhandled exception. Deferring to Lazy<T> means the
+// failure only happens - and only gets caught - when FleetReportingService actually
+// reads .Value inside a method call.
+builder.Services.AddSingleton(sp => new Lazy<FirestoreDb>(() =>
+{
+    IConfiguration config = sp.GetRequiredService<IConfiguration>();
+    string projectId = config["Firestore:ProjectId"] ?? "larga-blmtaxi";
+    string? credentialsPath = config["Firestore:CredentialsPath"];
+
+    if (string.IsNullOrWhiteSpace(credentialsPath))
+    {
+        return FirestoreDb.Create(projectId);
+    }
+
+    if (!File.Exists(credentialsPath))
+    {
+        throw new FileNotFoundException(
+            $"Firestore:CredentialsPath is set to '{credentialsPath}' but that file does not exist. " +
+            "See LARGA.SeedTool/README.md for how to get a service account key.");
+    }
+
+    // GoogleCredential.FromFile is obsolete in favor of CredentialFactory, but for a
+    // developer-supplied config path this is fine - same tradeoff as LARGA.SeedTool.
+#pragma warning disable CS0618
+    GoogleCredential credential = GoogleCredential.FromFile(credentialsPath);
+#pragma warning restore CS0618
+    FirestoreClient client = new FirestoreClientBuilder { GoogleCredential = credential }.Build();
+    return FirestoreDb.Create(projectId, client);
+}));
+
+// Listener-backed collections for the background checks (PERFORMANCE_REPORT.md P2).
+builder.Services.AddSingleton<CollectionCache>();
+builder.Services.AddSingleton<FleetReportingService>();
+
+// Firebase Admin SDK - lets ManagerWeb create/manage driver Auth accounts server-side
+// (drivers never self-register; a manager provisions every driver login via the
+// Driver & Shift Management page). Same credentials + same Lazy<T> deferral rationale
+// as the FirestoreDb registration above.
+builder.Services.AddSingleton(sp => new Lazy<FirebaseAuth>(() =>
+{
+    IConfiguration config = sp.GetRequiredService<IConfiguration>();
+    string projectId = config["Firestore:ProjectId"] ?? "larga-blmtaxi";
+    string? credentialsPath = config["Firestore:CredentialsPath"];
+
+    AppOptions options = new() { ProjectId = projectId };
+    if (!string.IsNullOrWhiteSpace(credentialsPath))
+    {
+        if (!File.Exists(credentialsPath))
+        {
+            throw new FileNotFoundException(
+                $"Firestore:CredentialsPath is set to '{credentialsPath}' but that file does not exist. " +
+                "See LARGA.SeedTool/README.md for how to get a service account key.");
+        }
+
+#pragma warning disable CS0618
+        options.Credential = GoogleCredential.FromFile(credentialsPath);
+#pragma warning restore CS0618
+    }
+    else
+    {
+        options.Credential = GoogleCredential.GetApplicationDefault();
+    }
+
+    FirebaseApp firebaseApp = FirebaseApp.Create(options, "LargaManagerWeb");
+    return FirebaseAuth.GetAuth(firebaseApp);
+}));
+
+// Admin Cloud Storage access for photos the manager uploads (scanned LTO licenses on the
+// Driver & Shifts profile). Same credentials + Lazy<T> deferral as Firestore above; the
+// bucket is the project's default Firebase Storage bucket unless "Firestore:StorageBucket"
+// overrides it.
+builder.Services.AddSingleton(sp => new Lazy<PhotoStorageTarget>(() =>
+{
+    IConfiguration config = sp.GetRequiredService<IConfiguration>();
+    string bucket = config["Firestore:StorageBucket"] ?? "larga-blmtaxi.firebasestorage.app";
+    string? credentialsPath = config["Firestore:CredentialsPath"];
+
+    if (string.IsNullOrWhiteSpace(credentialsPath))
+    {
+        return new PhotoStorageTarget(StorageClient.Create(), bucket);
+    }
+
+    if (!File.Exists(credentialsPath))
+    {
+        throw new FileNotFoundException(
+            $"Firestore:CredentialsPath is set to '{credentialsPath}' but that file does not exist. " +
+            "See LARGA.SeedTool/README.md for how to get a service account key.");
+    }
+
+#pragma warning disable CS0618
+    GoogleCredential credential = GoogleCredential.FromFile(credentialsPath);
+#pragma warning restore CS0618
+    return new PhotoStorageTarget(StorageClient.Create(credential), bucket);
+}));
+
+builder.Services.AddSingleton<DriverManagementService>();
+builder.Services.AddSingleton<FinancialLedgerService>();
+// Authorized GCash / bank accounts for boundary payments (Manager Settings).
+builder.Services.AddSingleton<PayoutAccountService>();
+// Assistant Manager access requests (/register) and the owner's Team & Access panel.
+builder.Services.AddSingleton<AccessRequestService>();
+builder.Services.AddSingleton<DuressPinService>();
+builder.Services.AddSingleton<GarageService>();
+builder.Services.AddSingleton<AlertService>();
+builder.Services.AddSingleton<InventoryAuditService>();
+builder.Services.AddSingleton<ShiftDeadlineService>();
+builder.Services.AddSingleton<ClockInApprovalService>();
+builder.Services.AddSingleton<SosDispatchService>();
+// SOS street addresses (MapTiler Geocoding API). Key: "MapTiler:ApiKey" in the untracked
+// appsettings.Local.json - the same key as the mobile app's MapTilerConfig. Without it the SOS
+// screens fall back to showing coordinates.
+builder.Services.AddSingleton(sp => new MapTilerGeocoder(sp.GetRequiredService<IConfiguration>()["MapTiler:ApiKey"]));
+// Checks each SOS came from the driver assigned to that unit's active shift.
+builder.Services.AddSingleton<SosCallerVerificationService>();
+builder.Services.AddSingleton<ManagerChatService>();
+builder.Services.AddSingleton<DriverNotifier>();
+builder.Services.AddScoped<LARGA.ManagerWeb.Services.ChatDrawerState>();
+builder.Services.AddScoped<LARGA.ManagerWeb.Services.SosBannerState>();
+builder.Services.AddScoped<LARGA.ManagerWeb.Services.Tours.TourService>();
+builder.Services.AddHostedService<IdleAlertMonitorService>();
+builder.Services.AddHostedService<PaymentDriverIdBackfillService>();
+// BRP-008: one-time claim of the GCash reference numbers on boundary_payments saved before the duplicate check.
+builder.Services.AddHostedService<PaymentReferenceBackfillService>();
+// Clears mustChangePassword for users who already replaced their temporary password (startup, then hourly).
+builder.Services.AddHostedService<MustChangePasswordCleanupService>();
+// LAR-86/87: mirror Manager and Assistant Manager numbers into the driver app's SOS auto-answer allowlist (live).
+builder.Services.AddHostedService<ManagerPhoneAllowlistSyncService>();
+// Every push goes through here: each user's own users/{uid}/fcmTokens, dead tokens removed.
+builder.Services.AddSingleton<PushTokenStore>();
+// Keeps each push token on one account only (a shared phone or PC that changed hands).
+builder.Services.AddHostedService<PushTokenOwnershipService>();
+// Pushes each new SOS to every Manager/Assistant Manager phone (FCM), app open or not.
+builder.Services.AddHostedService<SosPushService>();
+// Pushes each new chat message to the driver / staff in that conversation (never the sender).
+builder.Services.AddHostedService<ChatPushService>();
+builder.Services.AddSingleton<FuelVerificationService>();
+builder.Services.AddSingleton<ShiftRouteService>();
+// FUEL-017 / FUEL-004: auto-flags fuel submissions outside the system_configs tolerances, and
+// raises a bell alert for every automatic flag.
+builder.Services.AddHostedService<FuelAutoCheckService>();
+// Proposal §4.2.4.5: one-time claim of the OR numbers on fuel logs saved before the duplicate check.
+builder.Services.AddHostedService<FuelOrNumberBackfillService>();
+// REQ-4.3-7 / REQ-4.4-8: a bell alert for every defect report (plus a staff push) and fuel submission.
+builder.Services.AddHostedService<SubmissionAlertService>();
+// REQ-4.1-9: 5:30 AM pre-shift reminder push to each driver working today.
+builder.Services.AddHostedService<PreShiftReminderService>();
+// MNT-014/015/016: recurring routine checks + due/overdue bell alerts, on startup and hourly.
+builder.Services.AddHostedService<MaintenanceSchedulerService>();
+builder.Services.AddScoped<IManagerAuthService, ManagerAuthService>();
+builder.Services.AddSingleton<ManagerSignInService>();
+builder.Services
+    .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/login";
+        options.AccessDeniedPath = "/login";
+        // Re-checks the manager's access on page requests every ManagerSignInService.RecheckInterval (15 s).
+        options.Events.OnValidatePrincipal = ManagerSessionValidator.ValidateAsync;
+    });
+// [Authorize] requires the Manager role claim, which only ManagerSignInService issues after
+// verifying the Firebase ID token + users/{uid}.role. This also invalidates any cookie minted by
+// the old unauthenticated /auth/signin?uid=... endpoint (those have no role claim).
+builder.Services.AddAuthorization(options =>
+{
+    // Manager and Assistant Manager may open the portal; pages needing a full Manager opt into ManagerOnlyPolicy.
+    options.DefaultPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .RequireRole(ManagerSignInService.ManagerRole, ManagerSignInService.AssistantManagerRole)
+        .Build();
+    options.AddPolicy(ManagerSignInService.ManagerOnlyPolicy, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireRole(ManagerSignInService.ManagerRole));
+});
+builder.Services.AddCascadingAuthenticationState();
+
+// Hosted on Cloud Run (K_SERVICE is set there): Google ends HTTPS in front of the app and forwards
+// plain HTTP, so trust its X-Forwarded-Proto/For (the proxy's address isn't fixed, hence the
+// cleared lists), and keep the login-cookie keys in Firestore so a restart or redeploy doesn't
+// sign every manager out. Running locally, neither applies.
+bool onCloudRun = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("K_SERVICE"));
+if (onCloudRun)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+
+    builder.Services.AddDataProtection().SetApplicationName("LARGA.ManagerWeb");
+    builder.Services.AddSingleton<IConfigureOptions<KeyManagementOptions>>(sp =>
+        new ConfigureOptions<KeyManagementOptions>(options =>
+            options.XmlRepository = new FirestoreDataProtectionRepository(sp.GetRequiredService<Lazy<FirestoreDb>>())));
+}
+// Same 10-minute re-check for open Blazor circuits, which make no new HTTP requests.
+builder.Services.AddScoped<AuthenticationStateProvider, ManagerRevalidatingAuthStateProvider>();
+
 var app = builder.Build();
+
+// P0 load timings (PERFORMANCE_REPORT.md): on in Development, or anywhere with the setting Perf:Enabled=true
+// (e.g. Cloud Run env var Perf__Enabled=true). Lines go to the normal log under category LARGA.Perf.
+LARGA.SharedCore.PerfLog.Enabled = app.Configuration.GetValue("Perf:Enabled", app.Environment.IsDevelopment());
+LARGA.SharedCore.PerfLog.Build = "Web";
+ILogger perfLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("LARGA.Perf");
+LARGA.SharedCore.PerfLog.Sink = line => perfLogger.LogInformation("{PerfLine}", line);
+
+if (onCloudRun)
+{
+    app.UseForwardedHeaders();
+}
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -17,9 +261,49 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
-
+// Framing, MIME-sniffing, referrer and CSP (Report-Only) headers on every response (audit G-01).
+app.UseLargaSecurityHeaders();
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
+
+// Only accepts a single-use ticket from ManagerSignInService (issued after the Firebase ID token and
+// Manager role were verified server-side). Never trust a uid/email passed in the URL.
+app.MapGet("/auth/signin", async (HttpContext context, ManagerSignInService signIn, string? ticket, string? returnUrl) =>
+{
+    ClaimsPrincipal? principal = signIn.RedeemTicket(ticket);
+    if (principal is null)
+    {
+        return Results.LocalRedirect("/login");
+    }
+
+    string target = "/dashboard";
+    // "//host" and "/\host" are protocol-relative (open redirect); LocalRedirect would throw on them.
+    if (!string.IsNullOrWhiteSpace(returnUrl) && returnUrl.StartsWith('/')
+        && !returnUrl.StartsWith("//") && !returnUrl.StartsWith("/\\")
+        && Uri.IsWellFormedUriString(returnUrl, UriKind.Relative))
+    {
+        target = returnUrl;
+    }
+
+    await context.SignInAsync(
+        CookieAuthenticationDefaults.AuthenticationScheme,
+        principal,
+        new AuthenticationProperties
+        {
+            IsPersistent = true,
+            AllowRefresh = true,
+            ExpiresUtc = DateTimeOffset.UtcNow.AddHours(8)
+        });
+
+    return Results.LocalRedirect(target);
+}).AllowAnonymous();
+
+app.MapGet("/auth/signout", async (HttpContext context) =>
+{
+    await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+    return Results.LocalRedirect("/login");
+}).AllowAnonymous();
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()

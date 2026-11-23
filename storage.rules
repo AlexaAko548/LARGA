@@ -1,0 +1,52 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function role() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role.trim().lower();
+    }
+
+    function isManager() {
+      return request.auth != null && role() == 'manager';
+    }
+
+    function isStaff() {
+      return request.auth != null && role() in ['manager', 'assistant manager'];
+    }
+
+    function isDriverSelf(uid) {
+      return request.auth != null && request.auth.uid == uid && role() == 'driver';
+    }
+
+    function isPhoto() {
+      return request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    match /lto_ids/{userId}/{file} {
+      allow read: if isStaff() || (request.auth != null && request.auth.uid == userId);
+      allow create, update: if isManager() && isPhoto();
+      allow delete: if isManager();
+    }
+
+    match /receipts/ewallet/{file} {
+      allow read: if isStaff();
+      allow create: if isStaff() && isPhoto();
+    }
+
+    match /fuel_logs/{driverId}/{rest=**} {
+      allow read: if isStaff() || isDriverSelf(driverId);
+      allow create, update: if isDriverSelf(driverId) && isPhoto();
+    }
+
+    match /maintenance_logs/{driverId}/{rest=**} {
+      allow read: if isStaff() || isDriverSelf(driverId);
+      allow create, update: if isDriverSelf(driverId) && isPhoto();
+    }
+
+    match /handover_checklists/{driverId}/{rest=**} {
+      allow read: if isStaff() || isDriverSelf(driverId);
+      allow create, update: if isDriverSelf(driverId) && isPhoto();
+    }
+  }
+}

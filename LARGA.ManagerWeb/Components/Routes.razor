@@ -1,6 +1,26 @@
-﻿<Router AppAssembly="typeof(Program).Assembly">
-    <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
-        <FocusOnNavigate RouteData="routeData" Selector="h1" />
-    </Found>
-</Router>
+﻿@using Microsoft.AspNetCore.Authorization
+
+<CascadingAuthenticationState>
+    <Router AppAssembly="typeof(Program).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.AuthLayout)">
+                <NotAuthorized>
+                    @if (AllowsAnonymous(routeData.PageType))
+                    {
+                        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.AuthLayout)" />
+                    }
+                    else
+                    {
+                        <LARGA.ManagerWeb.Components.Layout.RedirectToLogin />
+                    }
+                </NotAuthorized>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </Found>
+    </Router>
+</CascadingAuthenticationState>
+
+@code {
+    private static bool AllowsAnonymous(Type pageType)
+        => Attribute.IsDefined(pageType, typeof(AllowAnonymousAttribute), inherit: true);
+}

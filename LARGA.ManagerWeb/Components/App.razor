@@ -5,7 +5,36 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
+    @* Theme (System / Light / Dark, per browser). Runs before the stylesheets so a prerendered
+       page never flashes the wrong theme; ManagerProfileMenu calls largaTheme.get/set. *@
+    <script>
+        (function () {
+            var key = 'larga-theme';
+            var media = window.matchMedia('(prefers-color-scheme: dark)');
+            function read() {
+                try { return localStorage.getItem(key) || 'system'; } catch (e) { return 'system'; }
+            }
+            function apply() {
+                var mode = read();
+                var theme = mode === 'system' ? (media.matches ? 'dark' : 'light') : mode;
+                document.documentElement.setAttribute('data-theme', theme);
+                document.documentElement.setAttribute('data-bs-theme', theme);
+            }
+            window.largaTheme = {
+                get: read,
+                apply: apply,
+                set: function (mode) {
+                    try { localStorage.setItem(key, mode); } catch (e) { }
+                    apply();
+                }
+            };
+            media.addEventListener('change', apply);
+            apply();
+        })();
+    </script>
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    @* driver.js 1.3.6 (MIT), served from here on purpose - no CDN. Used by the page tours (tour.js). *@
+    <link rel="stylesheet" href="@Assets["lib/driver.js/driver.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["LARGA.ManagerWeb.styles.css"]" />
     <ImportMap />
@@ -16,6 +45,15 @@
 <body>
     <Routes />
     <script src="_framework/blazor.web.js"></script>
+    @* LAR-117: top progress bar while the server answers a click (every Firestore call goes through it). *@
+    <script src="@Assets["busy-indicator.js"]"></script>
+    <script src="@Assets["modal-backdrop.js"]"></script>
+    <script src="@Assets["popups.js"]"></script>
+    <script src="@Assets["lib/driver.js/driver.js.iife.js"]"></script>
+    <script src="@Assets["password-strength.js"]"></script>
+    <script src="@Assets["password-toggle.js"]"></script>
+    @* Enhanced navigation can patch <html>'s attributes back to the server's markup. *@
+    <script>Blazor.addEventListener('enhancedload', window.largaTheme.apply);</script>
 </body>
 
 </html>

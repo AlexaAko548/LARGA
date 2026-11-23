@@ -1,0 +1,242 @@
+@page "/login"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+@using System.Text.Json
+@using LARGA.ManagerWeb.Services
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject ManagerSignInService SignInService
+@inject ILogger<Login> Logger
+
+<PageTitle>Login - web</PageTitle>
+
+<div class="auth-page">
+        <div class="back-link">
+            <a href="/"><Icon Name="arrow-left" /> Back to Home</a>
+        </div>
+
+        <EditForm Model="_model" FormName="manager-login" OnValidSubmit="HandleLogin" class="auth-card">
+            <DataAnnotationsValidator />
+
+            <div class="brand-lockup">
+                <img class="mini-logo" src="/images/larga-logo-taxi.png" alt="LARGA Fleet OS logo" />
+                <div class="brand-title">Manager Portal</div>
+            </div>
+
+            <h2>Welcome back</h2>
+            <p>Sign in to your manager account to continue.</p>
+
+            @if (!string.IsNullOrWhiteSpace(_errorMessage))
+            {
+                <div class="login-error">@_errorMessage</div>
+            }
+
+            <div class="form-block">
+                <label for="email">EMAIL ADDRESS</label>
+                <InputText id="email" @bind-Value="_model.Email" class="form-control" type="email" maxlength="254" placeholder="manager@company.com" />
+                <ValidationMessage For="() => _model.Email" class="field-error" />
+            </div>
+
+            <div class="form-block">
+                <label for="password">PASSWORD</label>
+                <div class="password-field">
+                    <InputText id="password" @bind-Value="_model.Password" class="form-control" type="@(_showPassword ? "text" : "password")" maxlength="64" placeholder="Enter your password" />
+                    <button type="button" class="password-toggle" @onclick="() => _showPassword = !_showPassword"
+                            aria-label="@(_showPassword ? "Hide password" : "Show password")" title="@(_showPassword ? "Hide password" : "Show password")">
+                        <Icon Name="@(_showPassword ? "eye-off" : "eye")" />
+                    </button>
+                </div>
+                <ValidationMessage For="() => _model.Password" class="field-error" />
+            </div>
+
+            <div class="inline-action">
+                <a href="/forgot-password">Forgot password?</a>
+            </div>
+
+            <button class="primary-btn full-width" type="submit" disabled="@_isSubmitting" aria-busy="@_isSubmitting">
+                @(_isSubmitting ? "SIGNING IN..." : "SIGN IN TO DASHBOARD")
+            </button>
+
+            <div class="auth-divider"><span>OR</span></div>
+
+            <div class="switch-copy">
+                Don't have a manager account? <a href="/register">Request Access</a>
+            </div>
+        </EditForm>
+
+        <div class="portal-note">
+            <span class="shield-icon"><Icon Name="shield-check" /></span>
+            <span>Manager-only portal</span>
+            <span class="dot-separator">•</span>
+            <span>Drivers use the mobile app</span>
+        </div>
+</div>
+
+@code {
+    private readonly LoginFormModel _model = new();
+    private bool _isSubmitting;
+    private bool _showPassword;
+    private string? _errorMessage;
+    private IJSObjectReference? _firebaseModule;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                // Safely import Firebase
+                _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+            }
+            catch { }
+
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleLogin()
+    {
+        if (_isSubmitting) return; // a second click while this is still running is ignored
+        _errorMessage = string.Empty;
+        _isSubmitting = true;
+
+        try
+        {
+            if (_firebaseModule is null)
+            {
+                _firebaseModule = await JS.InvokeAsync<IJSObjectReference>("import", "/firebase-auth.js");
+            }
+
+            var result = await _firebaseModule.InvokeAsync<JsonElement>("largaFirebaseSignIn", _model.Email, _model.Password);
+
+            if (result.TryGetProperty("ok", out var okProp) && okProp.ValueKind == JsonValueKind.True)
+            {
+                // The browser-side role check is only for UX; the server re-verifies the ID token and
+                // the Manager role before issuing a one-time ticket for the cookie endpoint.
+                string? idToken = result.TryGetProperty("idToken", out var tokenProp) && tokenProp.ValueKind == JsonValueKind.String
+                    ? tokenProp.GetString()
+                    : null;
+
+                var (ticket, error) = await SignInService.CreateTicketAsync(idToken);
+                if (ticket is null)
+                {
+                    // Rejected on the server (e.g. a driver whose browser skipped the early role check):
+                    // end the browser's Firebase session too, like the "manager-only" path does.
+                    try
+                    {
+                        await _firebaseModule.InvokeAsync<bool>("largaFirebaseSignOut");
+                    }
+                    catch (Exception signOutError)
+                    {
+                        Logger.LogWarning(signOutError, "Couldn't end the browser Firebase session after a rejected sign-in.");
+                    }
+                    _errorMessage = error;
+                    return;
+                }
+
+                var signInUrl = $"/auth/signin?ticket={ticket}&returnUrl={Uri.EscapeDataString(GetSafeReturnUrl())}";
+                Navigation.NavigateTo(signInUrl, forceLoad: true, replace: true);
+                return;
+            }
+
+            if (result.TryGetProperty("code", out var codeProp) && codeProp.ValueKind == JsonValueKind.String && codeProp.GetString() == "manager-only")
+            {
+                // A Firebase account with no LARGA profile isn't a LARGA account (DSM-012): answered
+                // like an unknown email. A real LARGA account without manager access (a driver) is
+                // told so, since the portal isn't for them.
+                string? reason = result.TryGetProperty("message", out var reasonProp) && reasonProp.ValueKind == JsonValueKind.String ? reasonProp.GetString() : null;
+                _errorMessage = reason?.Contains("No user profile", StringComparison.OrdinalIgnoreCase) == true
+                    ? IncorrectCredentialsMessage
+                    : ManagerSignInService.NotAuthorizedMessage;
+                return;
+            }
+
+            _errorMessage = FriendlySignInError(result.TryGetProperty("message", out var msgProp) && msgProp.ValueKind == JsonValueKind.String
+                ? msgProp.GetString()
+                : null);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = FriendlySignInError(ex.Message);
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    /// <summary>
+    /// Firebase's own text ("Firebase: Error (auth/invalid-credential).") turned into a message a
+    /// manager can act on (DSM-012). the error code is read from the message here
+    /// rather than relying on firebase-auth.js to send it separately.
+    /// Wrong password and unknown email get the same message on purpose: saying which one was
+    /// wrong would tell a stranger which emails have accounts.
+    /// </summary>
+    // Same wording as the mobile app (FirebaseAuthService.IncorrectCredentialsMessage).
+    private const string IncorrectCredentialsMessage = ManagerSignInService.IncorrectCredentialsMessage;
+
+    private static string FriendlySignInError(string? raw)
+    {
+        string code = raw is null ? string.Empty
+            : System.Text.RegularExpressions.Regex.Match(raw, @"auth/[a-z-]+").Value;
+        return code switch
+        {
+            "auth/invalid-credential" or "auth/wrong-password" or "auth/user-not-found" or "auth/invalid-login-credentials"
+                => IncorrectCredentialsMessage,
+            "auth/invalid-email" => "Enter a valid email address, e.g. juan.delacruz@gmail.com.",
+            // Also what a Request Access login gets until the owner approves it (AccessRequestService) -
+            // the same words for both, so the page doesn't reveal which one it is. Same wording as the
+            // mobile app (FirebaseAuthService.DisabledAccountMessage).
+            "auth/user-disabled" => "This account isn't active. If you sent an access request, it's still waiting for the owner's approval; otherwise, contact your manager.",
+            "auth/too-many-requests" => "Too many sign-in attempts. Wait a few minutes, then try again (or reset your password).",
+            "auth/network-request-failed" => "Can't reach the sign-in server. Check your internet connection, then try again.",
+            "" when !string.IsNullOrWhiteSpace(raw) && !raw.Contains("Firebase", StringComparison.OrdinalIgnoreCase) => raw,
+            _ => "Sign-in failed. Please try again, or contact the system administrator if it keeps happening.",
+        };
+    }
+
+    private class LoginFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your email address.")]
+        [LARGA.ManagerWeb.Validation.StrictEmail]
+        public string Email { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your password.")]
+        [LARGA.ManagerWeb.Validation.LoginPassword]
+        public string Password { get; set; } = string.Empty;
+    }
+
+    private string GetSafeReturnUrl()
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        string? candidate = null;
+
+        string queryText = uri.Query;
+        if (!string.IsNullOrWhiteSpace(queryText))
+        {
+            foreach (var segment in queryText.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var parts = segment.Split('=', 2);
+                var key = Uri.UnescapeDataString(parts[0]);
+
+                if (key.Equals("ReturnUrl", StringComparison.OrdinalIgnoreCase))
+                {
+                    candidate = parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : string.Empty;
+                    break;
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(candidate)
+            && Uri.IsWellFormedUriString(candidate, UriKind.Relative)
+            && candidate.StartsWith('/')
+            && !candidate.StartsWith("//")
+            && !candidate.StartsWith("/\\"))
+        {
+            return candidate;
+        }
+
+        return "/dashboard";
+    }
+}

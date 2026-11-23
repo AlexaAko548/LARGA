@@ -1,14 +1,221 @@
-﻿namespace LARGA.MobileApp;
+﻿using Plugin.Firebase.CloudMessaging;
+using LARGA.MobileApp.Services;
+using Microsoft.Maui.Controls;
+using Microsoft.Maui.ApplicationModel;
+using System.Threading.Tasks;
+
+
+namespace LARGA.MobileApp;
 
 public partial class App : Application
 {
-	public App()
+	private readonly LARGA.MobileApp.Services.EmergencyCountdownCoordinator _countdown;
+	private Page? _countdownPage;
+	private bool _syncingCountdown;
+	private readonly LARGA.MobileApp.Services.UnreadBadgeService _badges;
+
+	public App(LARGA.MobileApp.Services.EmergencyCountdownCoordinator countdown, LARGA.MobileApp.Services.IThemeService themeService,
+		LARGA.SharedCore.Services.IGpsTelemetryService telemetryService, LARGA.MobileApp.Services.IEmergencyMonitor emergencyMonitor,
+		LARGA.MobileApp.Services.UnreadBadgeService badges)
 	{
 		InitializeComponent();
+
+		// Unread badges: created here so it's listening for the login that starts its listeners.
+		_badges = badges;
+
+		// Saved System / Light / Dark choice, before the first page is built.
+		themeService.Initialize();
+
+		// LAR-77 auto-cutoff: the shift was closed elsewhere (ManagerWeb's 6:00 AM auto-close, or a
+		// manager) - GPS tracking has already stopped; end emergency monitoring and forget the shift,
+		// the same cleanup a normal clock-out does (EndShiftStep2ViewModel).
+		telemetryService.ShiftClosedRemotely += async (_, shiftId) =>
+		{
+			emergencyMonitor.Stop();
+			try
+			{
+				if (await SecureStorage.GetAsync("ActiveShiftDocumentId") == shiftId)
+				{
+					SecureStorage.Remove("ActiveShiftDocumentId");
+				}
+				Preferences.Remove("IsShiftActive");
+				Preferences.Remove("CurrentShiftId");
+				LastShiftStore.RememberEnded(shiftId);
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"Remote shift close cleanup failed: {ex.Message}");
+			}
+		};
+
+		// LAR-86/87: show the cancel pop-up whenever an automated SOS countdown starts, and close
+		// it when the countdown ends (sent or cancelled). Changed can fire from any thread.
+		_countdown = countdown;
+		_countdown.Changed += (_, _) => MainThread.BeginInvokeOnMainThread(() => _ = SyncCountdownPageAsync());
+
+		// 1. Handle notification tapped/opened by the driver
+        CrossFirebaseCloudMessaging.Current.NotificationTapped += async (sender, e) =>
+        {
+            if (e.Notification?.Data != null)
+            {
+                // Every push names the account it's for: a tap on one for someone else (a user who
+                // was signed in on this phone before) does nothing. No one signed in yet (cold
+                // start): the routes below wait for the login and check again.
+                string? signedIn = Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser?.Uid;
+                if (signedIn != null && !LARGA.SharedCore.Push.PushTokenRules.IsForSignedInUser(e.Notification.Data, signedIn))
+                {
+                    return;
+                }
+
+                // SOS push to a manager (ManagerWeb SosPushService), or a new defect report
+                // (SubmissionAlertService): open the Alert Center.
+                if (e.Notification.Data.TryGetValue("type", out var sosType)
+                    && (sosType?.ToString() == "sos_alert" || sosType?.ToString() == LARGA.SharedCore.Alerts.SubmissionAlerts.DefectPushType))
+                {
+                    // Scroll the Alert Center to this alert (emergency type and address are on the card).
+                    if (e.Notification.Data.TryGetValue("alertId", out var alertId) && !string.IsNullOrWhiteSpace(alertId?.ToString()))
+                    {
+                        LARGA.MobileApp.ViewModels.Manager.AlertCenterViewModel.PendingFocusAlertId = alertId.ToString();
+                    }
+
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
+                    {
+                        while (Shell.Current == null)
+                        {
+                            await Task.Delay(100);
+                        }
+
+                        try
+                        {
+                            await Shell.Current.GoToAsync("//manager-dashboard/alerts");
+                        }
+                        catch (Exception ex)
+                        {
+                            // Not signed in as a manager yet (cold start on the landing page) -
+                            // the alert is still waiting in the Alert Center after login.
+                            System.Diagnostics.Debug.WriteLine($"SOS notification routing failed: {ex.Message}");
+                        }
+                    });
+                    return;
+                }
+
+                // New chat message (ManagerWeb ChatPushService): the driver's Message Manager, or for
+                // staff the Chats tab and then that driver's conversation.
+                if (e.Notification.Data.TryGetValue("type", out var chatType) && chatType == LARGA.SharedCore.Chats.ChatPushPolicy.PushType
+                    && e.Notification.Data.TryGetValue(LARGA.SharedCore.Chats.ChatPushPolicy.ConversationIdKey, out var chatDriverId) && !string.IsNullOrWhiteSpace(chatDriverId))
+                {
+                    e.Notification.Data.TryGetValue(LARGA.SharedCore.Chats.ChatPushPolicy.DriverNameKey, out var chatDriverName);
+                    e.Notification.Data.TryGetValue(LARGA.SharedCore.Push.PushTokenRules.RecipientUidKey, out var chatRecipient);
+                    await MainThread.InvokeOnMainThreadAsync(() => ChatNotificationRouter.OpenAsync(chatDriverId, chatDriverName, chatRecipient));
+                    return;
+                }
+
+                // Check payload key sent by the backend
+                if (e.Notification.Data.TryGetValue("type", out var type) && type?.ToString() == "pre_shift_reminder")
+                {
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
+                    {
+                        // Wait briefly if the shell is still initializing during cold start
+                        while (Shell.Current == null)
+                        {
+                            await Task.Delay(100);
+                        }
+
+                        // The driver dashboard: its Start Shift runs the eligibility checks (license,
+                        // unit, 6:00 AM) before opening the pre-shift inspection. ("//PreShiftStep1Page"
+                        // was never a registered route.) Not signed in as a driver yet: stay put.
+                        try
+                        {
+                            if (Plugin.Firebase.Auth.CrossFirebaseAuth.Current.CurrentUser != null
+                                && LARGA.MobileApp.Services.StaffSession.Role is string role
+                                && LARGA.SharedCore.StaffRoles.IsDriver(role))
+                            {
+                                await Shell.Current.GoToAsync("//driver-dashboard/home");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Pre-shift reminder routing failed: {ex.Message}");
+                        }
+                    });
+                }
+            }
+        };
+
+        // 2. Handle foreground notifications while the app is actively open
+        CrossFirebaseCloudMessaging.Current.NotificationReceived += (sender, e) =>
+        {
+            System.Diagnostics.Debug.WriteLine($"FCM Received in foreground: {e.Notification?.Body}");
+        };
 	}
 
 	protected override Window CreateWindow(IActivationState? activationState)
 	{
-		return new Window(new AppShell());
+		var window = new Window(new AppShell());
+		// Brought forward by the countdown's full-screen notification (screen off / app in the
+		// background): the countdown may have started before the page could be shown.
+		window.Resumed += (_, _) => _ = SyncCountdownPageAsync();
+		// The chat on screen is only kept read (and its pushes silenced) while someone can see it.
+		window.Resumed += (_, _) => _badges.SetForeground(true);
+		window.Activated += (_, _) => _badges.SetForeground(true);
+		window.Stopped += (_, _) => _badges.SetForeground(false);
+		// LAR-117: one loading indicator over every page (added once the window has its platform view).
+		window.Created += (_, _) => window.AddOverlay(new LARGA.MobileApp.Controls.LoadingWindowOverlay(window));
+		return window;
 	}
+
+	private async Task SyncCountdownPageAsync()
+	{
+		if (_syncingCountdown) return;
+		_syncingCountdown = true;
+		try
+		{
+			// Shell can still be initializing when the full-screen intent cold-starts the UI.
+			for (int i = 0; i < 20 && Shell.Current == null; i++)
+			{
+				await Task.Delay(100);
+			}
+
+			INavigation? navigation = Shell.Current?.Navigation;
+			if (navigation == null) return;
+
+			if (WantsCountdownPage && _countdownPage == null)
+			{
+				_countdownPage = new Views.Shared.EmergencyCountdownPage(_countdown);
+				await navigation.PushModalAsync(_countdownPage, false);
+			}
+			else if (!WantsCountdownPage && _countdownPage != null)
+			{
+				Page page = _countdownPage;
+				_countdownPage = null;
+				if (navigation.ModalStack.Count > 0 && navigation.ModalStack[^1] == page)
+				{
+					await navigation.PopModalAsync(false);
+				}
+			}
+		}
+		catch (Exception ex)
+		{
+			// The countdown notification (with its own Cancel action) is still showing.
+			System.Diagnostics.Debug.WriteLine($"Emergency countdown pop-up failed: {ex.Message}");
+			return;
+		}
+		finally
+		{
+			_syncingCountdown = false;
+		}
+
+		// A Changed that arrived while this was running may have flipped the state again.
+		bool shown = _countdownPage != null;
+		if (shown != WantsCountdownPage)
+		{
+			await SyncCountdownPageAsync();
+		}
+	}
+
+	// Crash only. A Hostile countdown must not take over the screen in front of whoever is in the
+	// cab: it runs behind a disguised notification instead (EmergencyDetectionService), cancelled
+	// from that notification or by repeating the volume-button pattern.
+	private bool WantsCountdownPage =>
+		_countdown.Active is { } active && active.TriggerType != LARGA.Shared.Models.Entities.EmergencyAlert.Hostile;
 }

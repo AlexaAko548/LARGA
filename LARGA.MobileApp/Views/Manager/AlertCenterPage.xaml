@@ -1,0 +1,345 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:controls="clr-namespace:LARGA.MobileApp.Controls"
+             xmlns:vm="clr-namespace:LARGA.MobileApp.ViewModels.Manager"
+             xmlns:local="clr-namespace:LARGA.MobileApp.Views.Manager"
+             x:Class="LARGA.MobileApp.Views.Manager.AlertCenterPage"
+             x:Name="Root"
+             x:DataType="vm:AlertCenterViewModel"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="{DynamicResource ThemeSurface}">
+
+    <ContentPage.Resources>
+        <ResourceDictionary>
+
+            <!-- SOS TEMPLATE -->
+            <!-- The emergency type (emergency_alerts.triggerType, also in the SOS push payload) drives
+                 the colour of the accent stripe and the badge: Standard Breakdown amber, Hostile
+                 Protocol red, Crash Protocol magenta. -->
+            <DataTemplate x:Key="SosTemplate" x:DataType="vm:AlertItem">
+                <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource LargaWarning}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="5,0,0,0" Margin="0,0,0,12">
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsHostileSos}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{DynamicResource LargaDanger}" />
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsCrashSos}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{DynamicResource SosCrash}" />
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsCallerRejected}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{DynamicResource ThemeTextTertiary}" />
+                        </DataTrigger>
+                    </Border.Triggers>
+                <Border BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 0,12,0,12" StrokeThickness="0" Padding="16">
+                    <VerticalStackLayout Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Border Grid.Column="0" StrokeThickness="0" StrokeShape="RoundRectangle 14" Padding="10,4"
+                                    BackgroundColor="{DynamicResource LargaWarningBg}" HorizontalOptions="Start" VerticalOptions="Center">
+                                <Border.Triggers>
+                                    <DataTrigger TargetType="Border" Binding="{Binding IsHostileSos}" Value="True">
+                                        <Setter Property="BackgroundColor" Value="{DynamicResource LargaDangerBg}" />
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Border" Binding="{Binding IsCrashSos}" Value="True">
+                                        <Setter Property="BackgroundColor" Value="{DynamicResource SosCrashBg}" />
+                                    </DataTrigger>
+                                </Border.Triggers>
+                                <HorizontalStackLayout Spacing="6">
+                                    <Image controls:ThemedIcon.IsEnabled="True" Source="warning_icon.png" WidthRequest="14" HeightRequest="14" VerticalOptions="Center" />
+                                    <Label Text="{Binding EmergencyLabel}" FontAttributes="Bold" FontSize="12" CharacterSpacing="0.5"
+                                           TextColor="{DynamicResource LargaWarning}" VerticalOptions="Center">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding IsHostileSos}" Value="True">
+                                                <Setter Property="TextColor" Value="{DynamicResource LargaDanger}" />
+                                            </DataTrigger>
+                                            <DataTrigger TargetType="Label" Binding="{Binding IsCrashSos}" Value="True">
+                                                <Setter Property="TextColor" Value="{DynamicResource SosCrash}" />
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
+                                </HorizontalStackLayout>
+                            </Border>
+                            <Label Grid.Column="1" Text="SOS" FontAttributes="Bold" FontSize="13"
+                                   TextColor="{DynamicResource ThemeTextTertiary}" Margin="8,0,0,0" VerticalOptions="Center" />
+                        </Grid>
+                        <Label Text="{Binding CallerFlagText}" IsVisible="{Binding IsCallerFlagged}" FontSize="12" FontAttributes="Bold"
+                               TextColor="{DynamicResource ThemeTextTertiary}" />
+                        <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
+                        <Label Text="{Binding Subtitle}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />
+                        <Label Text="{Binding Timestamp}" FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" />
+
+                        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10" Margin="0,8,0,0">
+                            <Border Grid.Column="0" BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="46">
+                                <Border.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.ViewLocationCommand}"
+                                                           CommandParameter="{Binding .}" />
+                                </Border.GestureRecognizers>
+                                <Image controls:ThemedIcon.IsEnabled="True" Source="car.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                            </Border>
+                            <Border Grid.Column="1" BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="46">
+                                <Border.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.CallDriverCommand}"
+                                                           CommandParameter="{Binding .}" />
+                                </Border.GestureRecognizers>
+                                <Image controls:ThemedIcon.IsEnabled="True" Source="phone.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                            </Border>
+                            <Border Grid.Column="2" BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="46">
+                                <Border.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.MessageDriverCommand}"
+                                                           CommandParameter="{Binding .}" />
+                                </Border.GestureRecognizers>
+                                <Image controls:ThemedIcon.IsEnabled="True" Source="send_icon.svg" WidthRequest="16" HeightRequest="16" HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True" />
+                            </Border>
+                        </Grid>
+
+                        <!-- BETA-067: resolving was only the unlabelled X in the card's corner. Same command
+                             (it still asks to confirm) and the same Manager-only visibility, now a labelled
+                             button on the card itself. -->
+                        <Border BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="48"
+                                IsVisible="{Binding Source={x:Reference Root}, Path=BindingContext.CanDecide}">
+                            <Button Text="MARK AS RESOLVED" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontAttributes="Bold" FontSize="14"
+                                    Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
+                                    CommandParameter="{Binding .}" />
+                        </Border>
+                    </VerticalStackLayout>
+                </Border>
+                </Border>
+            </DataTemplate>
+
+            <!-- FUEL DISCREPANCY TEMPLATE -->
+            <DataTemplate x:Key="FuelDiscrepancyTemplate" x:DataType="vm:AlertItem">
+                <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
+                    <VerticalStackLayout Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="report.svg" WidthRequest="18" HeightRequest="18" />
+                            <Label Grid.Column="1" Text="FUEL DISCREPANCY" FontAttributes="Bold" FontSize="13"
+                                   TextColor="#E53935" Margin="8,0,0,0" VerticalOptions="Center" />
+                        </Grid>
+                        <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
+                        <Label Text="{Binding Subtitle}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />
+                        <Label Text="{Binding Timestamp}" FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" />
+
+                        <Label Text="Waiting for a Manager to resolve this." FontSize="13" Margin="0,8,0,0"
+                               TextColor="{DynamicResource ThemeTextSecondary}"
+                               IsVisible="{Binding Source={x:Reference Root}, Path=BindingContext.IsDecisionManagerOnly}" />
+                        <Border BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="48" Margin="0,8,0,0"
+                                IsVisible="{Binding Source={x:Reference Root}, Path=BindingContext.CanDecide}">
+                            <Button Text="RESOLVE" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontAttributes="Bold" FontSize="14"
+                                    Command="{Binding Source={x:Reference Root}, Path=BindingContext.ResolveFuelCommand}"
+                                    CommandParameter="{Binding .}" />
+                        </Border>
+                    </VerticalStackLayout>
+                </Border>
+            </DataTemplate>
+
+            <!-- SHIFT APPROVAL TEMPLATE -->
+            <DataTemplate x:Key="ShiftApprovalTemplate" x:DataType="vm:AlertItem">
+                <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
+                    <VerticalStackLayout Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
+                            <Label Grid.Column="1" Text="SHIFT APPROVAL REQUIRED" FontAttributes="Bold" FontSize="13"
+                                   TextColor="#D32F2F" Margin="8,0,0,0" VerticalOptions="Center" />
+                        </Grid>
+                        <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
+                        <Label Text="{Binding Timestamp}" FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" />
+
+                        <BoxView HeightRequest="1" Color="{DynamicResource ThemeDivider}" Margin="0,6" />
+
+                        <Label Text="🔴 PRE-SHIFT INSPECTION FLAGGED - WAITING TO CLOCK IN" FontAttributes="Bold" FontSize="12" TextColor="#E53935" />
+
+                        <Label Text="FLAGGED:" FontSize="12" TextColor="{DynamicResource ThemeTextTertiary}" />
+                        <Label Text="{Binding FailedItem}" FontSize="14" TextColor="{DynamicResource ThemeTextBlack}" />
+
+                        <Label Text="DEFECT REPORTS:" FontSize="12" TextColor="{DynamicResource ThemeTextTertiary}" Margin="0,4,0,0" />
+                        <Label Text="{Binding DriverDescription}" FontSize="14" TextColor="{DynamicResource ThemeTextBlack}" />
+
+                        <!-- The inspection photos the manager reviews before deciding (fuel gauge, odometer, defect photos):
+                             the same ones the web shows. Tap one to view it full screen. -->
+                        <VerticalStackLayout Spacing="6" IsVisible="{Binding HasPhotos}">
+                            <Label Text="PHOTOS (tap to enlarge):" FontSize="12" TextColor="{DynamicResource ThemeTextTertiary}" Margin="0,4,0,0" />
+                            <ScrollView Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
+                                <HorizontalStackLayout Spacing="10" BindableLayout.ItemsSource="{Binding Photos}">
+                                    <BindableLayout.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ApprovalPhoto">
+                                            <VerticalStackLayout Spacing="4" WidthRequest="96">
+                                                <Border StrokeShape="RoundRectangle 10" StrokeThickness="1" Stroke="{DynamicResource ThemeDivider}"
+                                                        WidthRequest="96" HeightRequest="96" BackgroundColor="{DynamicResource ThemeSurface}">
+                                                    <Image Source="{Binding Url}" Aspect="AspectFill" />
+                                                    <Border.GestureRecognizers>
+                                                        <TapGestureRecognizer Command="{Binding Source={x:Reference Root}, Path=BindingContext.OpenPhotoCommand}"
+                                                                              CommandParameter="{Binding .}" />
+                                                    </Border.GestureRecognizers>
+                                                </Border>
+                                                <Label Text="{Binding Label}" FontSize="11" TextColor="{DynamicResource ThemeTextSecondary}"
+                                                       HorizontalTextAlignment="Center" LineBreakMode="TailTruncation" />
+                                            </VerticalStackLayout>
+                                        </DataTemplate>
+                                    </BindableLayout.ItemTemplate>
+                                </HorizontalStackLayout>
+                            </ScrollView>
+                        </VerticalStackLayout>
+
+                        <BoxView HeightRequest="1" Color="{DynamicResource ThemeDivider}" Margin="0,6" />
+
+                        <!-- Approve / Deny: the Manager and the Assistant Manager both decide flagged clock-ins. -->
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                            <Border Grid.Column="0" BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="50">
+                                <Button Text="Deny" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontSize="14" FontAttributes="Bold"
+                                        Command="{Binding Source={x:Reference Root}, Path=BindingContext.DenyShiftCommand}"
+                                        CommandParameter="{Binding .}" />
+                            </Border>
+                            <Border Grid.Column="1" BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="50">
+                                <Button Text="Approve Shift" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontSize="14" FontAttributes="Bold"
+                                        Command="{Binding Source={x:Reference Root}, Path=BindingContext.ApproveShiftCommand}"
+                                        CommandParameter="{Binding .}" />
+                            </Border>
+                        </Grid>
+                    </VerticalStackLayout>
+                </Border>
+            </DataTemplate>
+
+            <!-- DRIVER IDLE TEMPLATE -->
+            <DataTemplate x:Key="DriverIdleTemplate" x:DataType="vm:AlertItem">
+                <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemeWarningSoft}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
+                    <VerticalStackLayout Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
+                            <Label Grid.Column="1" Text="DRIVER IDLE" FontAttributes="Bold" FontSize="13"
+                                   TextColor="{DynamicResource ThemeWarningText}" Margin="8,0,0,0" VerticalOptions="Center" />
+                        </Grid>
+                        <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="18" TextColor="{DynamicResource ThemeTextBlack}" />
+                        <Label Text="{Binding Subtitle}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />
+                        <Label Text="{Binding Timestamp}" FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" />
+
+                        <Border IsVisible="{Binding IsUnread}" BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="48" Margin="0,8,0,0">
+                            <Button Text="MARK AS READ" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontAttributes="Bold" FontSize="14"
+                                    Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
+                                    CommandParameter="{Binding .}" />
+                        </Border>
+                    </VerticalStackLayout>
+                </Border>
+            </DataTemplate>
+
+            <!-- LOW STOCK TEMPLATE -->
+            <DataTemplate x:Key="LowStockTemplate" x:DataType="vm:AlertItem">
+                <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemeOrangeSoft}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
+                    <VerticalStackLayout Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
+                            <Label Grid.Column="1" Text="LOW STOCK" FontAttributes="Bold" FontSize="13"
+                                   TextColor="{DynamicResource ThemeOrangeText}" Margin="8,0,0,0" VerticalOptions="Center" />
+                        </Grid>
+                        <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
+                        <Label Text="{Binding Subtitle}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />
+                        <Label Text="{Binding Timestamp}" FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" />
+
+                        <Border IsVisible="{Binding IsUnread}" BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="48" Margin="0,8,0,0">
+                            <Button Text="MARK AS READ" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontAttributes="Bold" FontSize="14"
+                                    Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
+                                    CommandParameter="{Binding .}" />
+                        </Border>
+                    </VerticalStackLayout>
+                </Border>
+            </DataTemplate>
+
+            <!-- NOTICE TEMPLATE: every other system_alerts type the web bell shows (unpaid debt,
+                 maintenance due/overdue, late return, missed clock-out, ...). -->
+            <DataTemplate x:Key="NoticeTemplate" x:DataType="vm:AlertItem">
+                <Border Opacity="{Binding CardOpacity}" BackgroundColor="{DynamicResource ThemePanel}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16" Margin="0,0,0,12">
+                    <VerticalStackLayout Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <Image controls:ThemedIcon.IsEnabled="True" Grid.Column="0" Source="warning_icon.png" WidthRequest="18" HeightRequest="18" />
+                            <Label Grid.Column="1" Text="{Binding TypeTitle}" FontAttributes="Bold" FontSize="13"
+                                   TextColor="{DynamicResource ThemeTextSecondary}" Margin="8,0,0,0" VerticalOptions="Center" />
+                        </Grid>
+                        <Label Text="{Binding DriverName}" FontAttributes="Bold" FontSize="16" TextColor="{DynamicResource ThemeTextBlack}" />
+                        <Label Text="{Binding Subtitle}" FontSize="13" TextColor="{DynamicResource ThemeTextSecondary}" />
+                        <Label Text="{Binding Timestamp}" FontSize="13" TextColor="{DynamicResource ThemeTextTertiary}" />
+
+                        <Border IsVisible="{Binding IsUnread}" BackgroundColor="{DynamicResource ThemeSurface}" StrokeShape="RoundRectangle 12" HeightRequest="48" Margin="0,8,0,0">
+                            <Button Text="MARK AS READ" BackgroundColor="Transparent" TextColor="{DynamicResource ThemeTextBlack}" FontAttributes="Bold" FontSize="14"
+                                    Command="{Binding Source={x:Reference Root}, Path=BindingContext.DismissAlertCommand}"
+                                    CommandParameter="{Binding .}" />
+                        </Border>
+                    </VerticalStackLayout>
+                </Border>
+            </DataTemplate>
+
+            <local:AlertTemplateSelector x:Key="AlertSelector"
+                                          SosTemplate="{StaticResource SosTemplate}"
+                                          FuelDiscrepancyTemplate="{StaticResource FuelDiscrepancyTemplate}"
+                                          ShiftApprovalTemplate="{StaticResource ShiftApprovalTemplate}"
+                                          DriverIdleTemplate="{StaticResource DriverIdleTemplate}"
+                                          LowStockTemplate="{StaticResource LowStockTemplate}"
+                                          NoticeTemplate="{StaticResource NoticeTemplate}" />
+
+        </ResourceDictionary>
+    </ContentPage.Resources>
+
+    <!-- The title, filter and states stay above the list; the CollectionView scrolls on its own so it only builds
+         the cards on screen and recycles them. Inside a ScrollView it laid out every card at once, which made the
+         page lag. -->
+    <Grid RowDefinitions="Auto,*" Padding="20,20,20,0">
+        <VerticalStackLayout Grid.Row="0" Spacing="10" Margin="0,0,0,6">
+            <Label Text="Alert Center" FontSize="28" FontAttributes="Bold" TextColor="{DynamicResource ThemeTextBlack}" />
+            <Label Text="{Binding HeaderText}" FontSize="14" TextColor="{DynamicResource ThemeTextGray}" Margin="0,0,0,8" />
+
+            <!-- BETA-054: show every alert, or only the unread ones (this phone only - nothing is saved).
+                 Same tab look as the driver's Reports page. -->
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="0">
+                <Border Grid.Column="0" StrokeThickness="0" StrokeShape="RoundRectangle 12" Padding="10">
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsAllSelected}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{DynamicResource LargaLightBlue}" />
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsAllSelected}" Value="False">
+                            <Setter Property="BackgroundColor" Value="Transparent" />
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <Button Text="ALL" Command="{Binding ShowAllCommand}" FontAttributes="Bold"
+                            BackgroundColor="Transparent" TextColor="{DynamicResource LargaDarkText}" FontSize="12" />
+                </Border>
+                <Border Grid.Column="1" StrokeThickness="0" StrokeShape="RoundRectangle 12" Padding="10">
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding ShowUnreadOnly}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{DynamicResource LargaLightBlue}" />
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding ShowUnreadOnly}" Value="False">
+                            <Setter Property="BackgroundColor" Value="Transparent" />
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <Button Text="UNREAD" Command="{Binding ShowUnreadCommand}" FontAttributes="Bold"
+                            BackgroundColor="Transparent" TextColor="{DynamicResource LargaDarkText}" FontSize="12" />
+                </Border>
+            </Grid>
+
+            <!-- BETA-055: the two buttons testers mixed up. Plus when read notices leave the list (AlertFeed.HideReadAfter). -->
+            <Label Text="Mark as read only clears the highlight. Resolve closes the issue. Read alerts leave this list after 7 days." FontSize="13"
+                   TextColor="{DynamicResource ThemeTextSecondary}" Margin="0,0,0,4" />
+
+            <Border IsVisible="{Binding HasError}" BackgroundColor="{DynamicResource LargaDangerBg}" StrokeShape="RoundRectangle 12" StrokeThickness="0" Padding="16">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="{Binding ErrorMessage}" FontSize="14" TextColor="{DynamicResource LargaDanger}" />
+                    <Button Text="Retry" Command="{Binding RetryCommand}" HorizontalOptions="Start"
+                            Style="{StaticResource LargaButtonStyle}" HeightRequest="40" Padding="24,0" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Label IsVisible="{Binding IsEmpty}" Text="No alerts right now." FontSize="15" HorizontalOptions="Center"
+                   TextColor="{DynamicResource ThemeTextTertiary}" Margin="0,40,0,0" />
+            <Label IsVisible="{Binding IsUnreadEmpty}" Text="No unread alerts." FontSize="15" HorizontalOptions="Center"
+                   TextColor="{DynamicResource ThemeTextTertiary}" Margin="0,40,0,0" />
+        </VerticalStackLayout>
+
+        <CollectionView Grid.Row="1" x:Name="AlertsList" ItemsSource="{Binding AlertGroups}" IsGrouped="True" ItemTemplate="{StaticResource AlertSelector}">
+            <CollectionView.GroupHeaderTemplate>
+                <DataTemplate x:DataType="vm:AlertGroup">
+                    <Label Text="{Binding Title}" FontAttributes="Bold" FontSize="14" TextColor="{DynamicResource ThemeTextSecondary}" Margin="0,8,0,4" />
+                </DataTemplate>
+            </CollectionView.GroupHeaderTemplate>
+            <CollectionView.Footer>
+                <ContentView HeightRequest="8" />
+            </CollectionView.Footer>
+        </CollectionView>
+    </Grid>
+</ContentPage>

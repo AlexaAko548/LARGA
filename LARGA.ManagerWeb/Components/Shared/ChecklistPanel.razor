@@ -1,0 +1,73 @@
+@* Renders one Pre-Shift or Post-Shift inspection checklist. Used twice, side by side, by
+   DriverShifts.razor's checklist modal - deliberately NOT merged into a single combined
+   view, so a manager can compare the two directly instead of switching between tabs. *@
+@using LARGA.SharedCore
+@using LARGA.SharedCore.Models.DriverShifts
+
+<div class="checklist-column">
+    <div class="checklist-column-header">@Title</div>
+    @if (Detail is null)
+    {
+        <div class="table-empty">No @Title.ToLowerInvariant() checklist was submitted for this shift.</div>
+    }
+    else
+    {
+        <div class="checklist-timestamp">Submitted @Detail.Timestamp.ToPhilippineTime().ToString("MMM d, yyyy 'at' h:mm:ss tt")</div>
+
+        <div class="checklist-summary @(Detail.AllPassed ? "pass" : "warn")">
+            <strong>@(Detail.AllPassed ? "All Items Passed" : "Some Items Need Attention")</strong>
+            <span>@Detail.PassedCount/@Detail.TotalCheckableCount checks completed</span>
+        </div>
+
+        <div class="checklist-photos-label">DRIVER PHOTOS</div>
+        <div class="checklist-photos">
+            @PhotoSlot(Detail.PrimaryPhotoUrl, Detail.PrimaryPhotoLabel)
+            @PhotoSlot(Detail.SecondaryPhotoUrl, Detail.SecondaryPhotoLabel)
+        </div>
+
+        <div class="checklist-items-label">CHECKLIST ITEMS</div>
+        <div class="checklist-items">
+            @foreach (ChecklistItemResult item in Detail.Items)
+            {
+                <div class="checklist-item-row">
+                    <span>@item.Label</span>
+                    @if (item.Passed is bool passed)
+                    {
+                        <span class="status-pill small @(passed ? "status-success" : "status-danger")">@(passed ? "PASS" : "FAIL")</span>
+                    }
+                    else
+                    {
+                        <span class="status-pill small status-neutral">@item.ValueText</span>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public ChecklistDetail? Detail { get; set; }
+
+    // Firebase Storage download URLs carry their own access token, so the browser can load
+    // them directly - click opens the full-size photo in a new tab.
+    private static RenderFragment PhotoSlot(string? url, string? label) => @<div class="checklist-photo-slot @(string.IsNullOrEmpty(url) ? "" : "has-photo")">
+        @if (string.IsNullOrEmpty(url))
+        {
+            <span>Not submitted</span>
+        }
+        else
+        {
+            <a href="@url" target="_blank" rel="noopener" title="Open full-size photo">
+                @* Seeded demo checklists point at placeholder URLs with no file behind them -
+                   swap a broken image for text instead of the browser's broken-image icon. *@
+                <img class="checklist-photo-thumb" src="@url" alt="@label" loading="lazy"
+                     onerror="this.parentElement.replaceWith(Object.assign(document.createElement('span'), { textContent: 'Photo unavailable' }))" />
+            </a>
+        }
+        <small>@label</small>
+    </div>;
+}

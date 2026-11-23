@@ -1,0 +1,1261 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Input;
+using LARGA.MobileApp.Controls;
+using LARGA.MobileApp.Services;
+using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore;
+using LARGA.SharedCore.Alerts;
+using LARGA.SharedCore.Emergency;
+using LARGA.SharedCore.Services;
+using Microsoft.Maui.ApplicationModel;
+using Microsoft.Maui.ApplicationModel.Communication;
+using Microsoft.Maui.Controls;
+using Plugin.Firebase.Firestore;
+
+namespace LARGA.MobileApp.ViewModels.Manager;
+
+public class AlertCenterViewModel : BindableObject
+{
+    // Four independent live feeds merged into one list for the UI. Each Firestore snapshot listener owns its slice
+    // and rebuilds it in full on every change. _bellItems is system_alerts - the same rows, in the same order and
+    // limit, as ManagerWeb's notification bell (AlertFeed). The other three are the source records behind the SOS,
+    // fuel and clock-in bell rows, kept because their cards need them for Resolve / Approve / Deny.
+    private readonly List<AlertItem> _sosItems = new();
+    private readonly List<AlertItem> _fuelItems = new();
+    private readonly List<AlertItem> _defectItems = new();
+    private readonly List<AlertItem> _bellItems = new();
+
+    private readonly Dictionary<string, DriverLookup> _driverCache = new();
+    private readonly Dictionary<string, ShiftProxy> _shiftCache = new();
+
+    private bool _isListening;
+    private IDisposable? _sosListener;
+    private IDisposable? _fuelListener;
+    private IDisposable? _defectListener;
+    private IDisposable? _bellListener;
+    private IDisposable? _firstLoad;
+
+    private readonly BusyGate _actionGate = new();
+    private string _errorMessage = string.Empty;
+    private int _unreadCount;
+    private bool _hasLoaded;
+    private bool _showUnreadOnly;
+    private bool _refreshQueued;
+
+    // Feeds that answer within this long of each other share one list rebuild (they all fire together on open).
+    private static readonly TimeSpan RefreshCoalesceDelay = TimeSpan.FromMilliseconds(100);
+
+    // Not bound - the list shows AlertGroups. Replaced whole on each rebuild.
+    public IReadOnlyList<AlertItem> Alerts { get; private set; } = new List<AlertItem>();
+
+    /// <summary>Set when the manager opened the app from an SOS push (App.xaml.cs); the page
+    /// scrolls to that alert once it's in the list.</summary>
+    public static string? PendingFocusAlertId { get; set; }
+
+    /// <summary>Raised (main thread) with the alert to scroll to after PendingFocusAlertId lands.</summary>
+    public event EventHandler<AlertItem>? FocusRequested;
+
+    // Same alerts as Alerts (only the unread ones under the Unread filter), newest first, sectioned by date
+    // for the CollectionView.
+    public AlertGroupCollection AlertGroups { get; } = new();
+
+    public ICommand LoadAlertsCommand { get; }
+    public ICommand RetryCommand { get; }
+
+    /// <summary>BETA-054: the Unread / All filter at the top of the list. Only changes what this phone shows;
+    /// nothing is written. All by default.</summary>
+    public ICommand ShowAllCommand { get; }
+    public ICommand ShowUnreadCommand { get; }
+
+    public bool ShowUnreadOnly
+    {
+        get => _showUnreadOnly;
+        private set
+        {
+            if (_showUnreadOnly == value) return;
+            _showUnreadOnly = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsAllSelected));
+            RebuildGroups();
+        }
+    }
+
+    public bool IsAllSelected => !ShowUnreadOnly;
+
+    /// <summary>How many cards the Unread tab shows: unread notices plus every pending SOS / fuel / clock-in card.
+    /// Can differ from the web badge, which also counts web-only rows (AlertFeed.ShownOnPhone) and reads the
+    /// action cards' rows.</summary>
+    public int UnreadCount
+    {
+        get => _unreadCount;
+        private set { _unreadCount = value; OnPropertyChanged(); OnPropertyChanged(nameof(HeaderText)); }
+    }
+
+    public string HeaderText => $"{UnreadCount} unread · {Alerts.Count} alert{(Alerts.Count == 1 ? string.Empty : "s")}";
+
+    public string ErrorMessage
+    {
+        get => _errorMessage;
+        private set { _errorMessage = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasError)); OnPropertyChanged(nameof(IsEmpty)); OnPropertyChanged(nameof(IsUnreadEmpty)); }
+    }
+
+    public bool HasError => !string.IsNullOrEmpty(_errorMessage);
+
+    // "No alerts right now" - only once a feed has answered, so it doesn't flash while loading.
+    public bool IsEmpty => _hasLoaded && !HasError && Alerts.Count == 0;
+
+    // "No unread alerts" - the Unread filter hides every alert there is.
+    public bool IsUnreadEmpty => _hasLoaded && !HasError && Alerts.Count > 0 && ShowUnreadOnly && !Alerts.Any(a => a.IsUnread);
+
+    /// <summary>Resolving an SOS (SOS-007) and resolving a fuel flag are a Manager's decisions - an
+    /// Assistant Manager sees the cards (and can call or message the driver) but not those buttons, and
+    /// firestore.rules refuse the writes too. Approving / denying a flagged clock-in is open to both
+    /// (user decision 2026-11-15), so those buttons don't use this.</summary>
+    public bool CanDecide => !StaffSession.IsAssistantManager;
+    public bool IsDecisionManagerOnly => !CanDecide;
+    public ICommand DismissAlertCommand { get; }
+    public ICommand ApproveShiftCommand { get; }
+    public ICommand DenyShiftCommand { get; }
+    public ICommand ResolveFuelCommand { get; }
+    public ICommand CallDriverCommand { get; }
+    public ICommand MessageDriverCommand { get; }
+    public ICommand ViewLocationCommand { get; }
+
+    /// <summary>Opens one of a clock-in approval's photos full screen.</summary>
+    public ICommand OpenPhotoCommand { get; }
+
+    private bool _openingPhoto;
+
+    public AlertCenterViewModel()
+    {
+        OpenPhotoCommand = new Command<ApprovalPhoto>(async photo => await OpenPhotoAsync(photo));
+        // Idempotent - OnAppearing calls this every time the tab is revisited, but the
+        // listeners themselves should only ever be started once for this VM's lifetime.
+        LoadAlertsCommand = new Command(StartListening);
+        RetryCommand = new Command(() =>
+        {
+            StopListening();
+            StartListening();
+        });
+        ShowAllCommand = new Command(() => ShowUnreadOnly = false);
+        ShowUnreadCommand = new Command(() => ShowUnreadOnly = true);
+
+        // One card action at a time: a second tap (or a tap on another card) while one is saving is ignored, so an
+        // approval or a denial's garage report can't be written twice. No loading pill here - these actions wait on
+        // the manager's own answers (notes, confirmations); the writes themselves show it.
+        DismissAlertCommand = new Command<AlertItem>(async (alert) => await _actionGate.RunAsync(() => DismissAsync(alert), showLoading: false));
+        ApproveShiftCommand = new Command<AlertItem>(async (alert) => await _actionGate.RunAsync(() => ApproveClockInAsync(alert), showLoading: false));
+        DenyShiftCommand = new Command<AlertItem>(async (alert) => await _actionGate.RunAsync(() => DenyClockInAsync(alert), showLoading: false));
+        ResolveFuelCommand = new Command<AlertItem>(async (alert) => await _actionGate.RunAsync(() => ResolveFuelFlagAsync(alert), showLoading: false));
+
+        CallDriverCommand = new Command<AlertItem>((alert) =>
+        {
+            if (alert == null || string.IsNullOrWhiteSpace(alert.PhoneNumber)) return;
+            if (PhoneDialer.Default.IsSupported)
+            {
+                PhoneDialer.Default.Open(alert.PhoneNumber);
+            }
+        });
+
+        MessageDriverCommand = new Command<AlertItem>(async (alert) =>
+        {
+            if (alert == null || string.IsNullOrWhiteSpace(alert.DriverId)) return;
+
+            // Switch to the Chats tab first so the bottom bar reflects where the user lands,
+            // then push the thread onto it - same route/parameters ChatsViewModel.OnOpenChat
+            // uses to open a driver's thread (dictionary parameters keep DriverName intact if
+            // it has spaces).
+            await LARGA.MobileApp.Services.NavigationGate.RunAsync(async () =>
+            {
+                await Shell.Current.GoToAsync("//manager-dashboard/chats");
+                await Shell.Current.GoToAsync("ChatsDetailPage", new Dictionary<string, object>
+                {
+                    { "DriverId", alert.DriverId },
+                    // Plain name, not the "Name · TX-01" card label - ChatService writes it to
+                    // chats/{driverId}.driverName, which the web inbox displays.
+                    { "DriverName", alert.ChatDriverName }
+                });
+            });
+        });
+
+        ViewLocationCommand = new Command<AlertItem>(async (alert) =>
+        {
+            if (alert == null || alert.Latitude == null || alert.Longitude == null) return;
+            try
+            {
+                // Redirect into the app's own Live Fleet map (Map tab) centered on this
+                // driver, rather than handing off to an external maps app - a manager
+                // responding to an SOS wants the same map they already use for the fleet,
+                // not a separate app switch.
+                MapFocusRequest.Request(alert.DriverId, alert.Latitude.Value, alert.Longitude.Value);
+                await Shell.Current.GoToAsync("//manager-dashboard/home");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"View Location Error: {ex.Message}");
+            }
+        });
+    }
+
+    private void StartListening()
+    {
+        if (_isListening) return;
+        _isListening = true;
+        ErrorMessage = string.Empty;
+        SessionEvents.SigningOut += OnSigningOut;
+
+        // LAR-117: the app-wide loading indicator until the first feed answers (or fails).
+        _firstLoad = LARGA.MobileApp.Services.LoadingState.Begin();
+
+        _sosListener = CrossFirebaseFirestore.Current
+            .GetCollection("emergency_alerts")
+            .WhereEqualsTo("isResolved", false)
+            .AddSnapshotListener<EmergencyAlertProxy>(async snapshot =>
+            {
+                FirstSnapshotArrived();
+                var items = new List<AlertItem>();
+                foreach (var doc in snapshot.Documents)
+                {
+                    if (doc.Data == null) continue;
+                    // The alert carries its driver and unit (EmergencyAlertService), so the shift is only
+                    // looked up for older alerts without them (PERFORMANCE_REPORT.md P9). The driver lookup
+                    // (cached) still supplies the name and phone shown, exactly as before.
+                    var shift = !string.IsNullOrWhiteSpace(doc.Data.DriverId) && !string.IsNullOrWhiteSpace(doc.Data.TaxiId)
+                        ? new ShiftProxy { DriverId = doc.Data.DriverId!, TaxiId = doc.Data.TaxiId! }
+                        : await GetShiftAsync(doc.Data.ShiftId);
+                    var driver = shift != null ? await GetDriverAsync(shift.DriverId) : null;
+
+                    // 0/0 = the driver's phone had no GPS fix (EmergencyAlertService still sends
+                    // the SOS). No coordinates then, so View Location stays a no-op.
+                    bool hasLocation = doc.Data.Latitude != 0 || doc.Data.Longitude != 0;
+                    string? address = doc.Data.AddressSource == MapTilerGeocoder.SourceMapTiler && !string.IsNullOrWhiteSpace(doc.Data.Address)
+                        ? doc.Data.Address
+                        : null;
+
+                    items.Add(new AlertItem
+                    {
+                        Id = doc.Reference.Id,
+                        Type = AlertType.Sos,
+                        TriggerType = EmergencyTypes.Normalize(doc.Data.TriggerType),
+                        CallerCheck = doc.Data.CallerCheck,
+                        CallerVerificationReason = doc.Data.CallerVerificationReason,
+                        DriverId = shift?.DriverId,
+                        DriverName = BuildDriverLabel(driver, shift),
+                        ChatDriverName = string.IsNullOrWhiteSpace(driver?.FullName) ? "Unknown Driver" : driver!.FullName,
+                        Address = address,
+                        Subtitle = SosLocationText(hasLocation, address, doc.Data.Latitude, doc.Data.Longitude),
+                        SortTime = FirestoreDateTimeFix.Apply(doc.Data.Timestamp),
+                        Timestamp = FormatAlertTime(FirestoreDateTimeFix.Apply(doc.Data.Timestamp)),
+                        BellId = AlertFeed.SosBellId(doc.Reference.Id),
+                        Latitude = hasLocation ? doc.Data.Latitude : null,
+                        Longitude = hasLocation ? doc.Data.Longitude : null,
+                        PhoneNumber = driver?.PhoneNumber?.ToString()
+                    });
+                }
+
+                MainThread.BeginInvokeOnMainThread(() => ReplaceSlice(_sosItems, items));
+
+                // Alerts ManagerWeb hasn't geocoded yet (or that came in while it was down):
+                // look the address up here and redraw once it's known.
+                foreach (AlertItem item in items.Where(i => i.Address is null && i.Latitude is not null))
+                {
+                    _ = FillAddressAsync(item);
+                }
+            }, ex => OnListenerError("SOS alerts", ex));
+
+        _fuelListener = CrossFirebaseFirestore.Current
+            .GetCollection("fuel_logs")
+            .WhereEqualsTo("verificationStatus", "Flagged")
+            .AddSnapshotListener<FuelLogProxy>(async snapshot =>
+            {
+                var items = new List<AlertItem>();
+                foreach (var doc in snapshot.Documents)
+                {
+                    if (doc.Data == null) continue;
+                    var shift = await GetShiftAsync(doc.Data.ShiftId);
+                    // A log with no real shift (mobile falls back to "UNKNOWN_SHIFT" when it
+                    // can't find an active one) has no shift-level driver to borrow, so resolve
+                    // the log's own driverId instead of showing "Unknown Driver".
+                    var driver = shift != null
+                        ? await GetDriverAsync(shift.DriverId)
+                        : (!string.IsNullOrWhiteSpace(doc.Data.DriverId) ? await GetDriverAsync(doc.Data.DriverId!) : null);
+
+                    var subtitle = !string.IsNullOrWhiteSpace(doc.Data.FuelLogDetails)
+                        ? doc.Data.FuelLogDetails
+                        : $"Fuel receipt flagged for review ({doc.Data.LitersRefueled}L, ₱{doc.Data.FuelCost}).";
+
+                    // Submission time, not the receipt's own date (OCR-read or edited, and
+                    // sometimes never set at all - see LAR-107 on the web Fuel Verification page).
+                    DateTimeOffset? eventTime = doc.Data.SubmittedAt ?? doc.Data.ReceiptTimestamp;
+
+                    items.Add(new AlertItem
+                    {
+                        Id = doc.Reference.Id,
+                        Type = AlertType.FuelDiscrepancy,
+                        DriverName = BuildDriverLabel(driver, shift),
+                        Subtitle = subtitle,
+                        SortTime = eventTime != null
+                            ? FirestoreDateTimeFix.Apply(eventTime.Value.UtcDateTime)
+                            : DateTime.MinValue,
+                        Timestamp = eventTime != null
+                            ? FormatAlertTime(FirestoreDateTimeFix.Apply(eventTime.Value.UtcDateTime))
+                            : "--",
+                        BellId = AlertFeed.FuelBellId(doc.Reference.Id),
+                        PhoneNumber = driver?.PhoneNumber?.ToString()
+                    });
+                }
+
+                MainThread.BeginInvokeOnMainThread(() => ReplaceSlice(_fuelItems, items));
+            }, ex => OnListenerError("Flagged fuel logs", ex));
+
+        // LAR-99: same trigger as ManagerWeb's Driver & Shifts approvals - a clock-in request the
+        // driver sent after finishing a flagged pre-shift inspection (clockin_requests, Pending),
+        // not each defect report on its own. Defects are shown as part of the request.
+        _defectListener = CrossFirebaseFirestore.Current
+            .GetCollection("clockin_requests")
+            .WhereEqualsTo("status", "Pending")
+            .AddSnapshotListener<ClockInRequestAlertProxy>(async snapshot =>
+            {
+                var docs = snapshot.Documents.Where(doc => doc.Data != null).ToList();
+                // Every request's defect reports are read at once, not one after another.
+                DefectInfo?[][] defectInfos = await Task.WhenAll(docs.Select(doc =>
+                    Task.WhenAll(SplitIds(doc.Data!.DefectReportIds).Select(DefectInfoAsync))));
+
+                var items = new List<AlertItem>();
+                for (int i = 0; i < docs.Count; i++)
+                {
+                    var doc = docs[i];
+                    var driver = await GetDriverAsync(doc.Data!.DriverId ?? string.Empty);
+                    DateTime createdAt = FirestoreDateTimeFix.Apply(doc.Data.CreatedAt);
+                    var defects = defectInfos[i].OfType<DefectInfo>().ToList();
+
+                    // The inspection photos, as the web's Driver & Shifts approval shows them: the fuel gauge,
+                    // the odometer, and the photo of each defect report.
+                    var photos = new List<ApprovalPhoto>();
+                    if (!string.IsNullOrWhiteSpace(doc.Data.FuelDashboardUrl)) photos.Add(new ApprovalPhoto("Fuel", doc.Data.FuelDashboardUrl));
+                    if (!string.IsNullOrWhiteSpace(doc.Data.OdometerPhotoUrl)) photos.Add(new ApprovalPhoto("Odometer", doc.Data.OdometerPhotoUrl));
+                    photos.AddRange(defects.Where(d => d.PhotoUrl is not null).Select(d => new ApprovalPhoto(d.Title, d.PhotoUrl!)));
+
+                    items.Add(new AlertItem
+                    {
+                        Id = doc.Reference.Id,
+                        Type = AlertType.ShiftApproval,
+                        DriverId = doc.Data.DriverId,
+                        TaxiId = doc.Data.TaxiId,
+                        DriverName = BuildDriverLabel(driver, null, doc.Data.TaxiId),
+                        SortTime = createdAt,
+                        Timestamp = FormatAlertTime(createdAt),
+                        FailedItem = string.Join("\n", (doc.Data.FlagReasons ?? string.Empty)
+                            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
+                        DriverDescription = defects.Count == 0 ? "No defect report filed." : string.Join("\n", defects.Select(d => d.Line)),
+                        Photos = photos,
+                        HasFailedItems = !(doc.Data.TireCondition && doc.Data.UnderTheHood && doc.Data.LightsCondition
+                            && doc.Data.InteriorCleanliness && doc.Data.ExteriorCondition),
+                        DefectReportIds = doc.Data.DefectReportIds,
+                        OdometerPhotoUrl = string.IsNullOrWhiteSpace(doc.Data.OdometerPhotoUrl) ? null : doc.Data.OdometerPhotoUrl,
+                        BellId = AlertFeed.ClockInBellId(doc.Reference.Id),
+                        PhoneNumber = driver?.PhoneNumber?.ToString()
+                    });
+                }
+
+                MainThread.BeginInvokeOnMainThread(() => ReplaceSlice(_defectItems, items));
+            }, ex => OnListenerError("Clock-in requests", ex));
+
+        // system_alerts: the web bell's query (AlertFeed) - every type, read and unread, newest 50. orderBy on one
+        // field only, so Firestore's automatic single-field index covers it.
+        _bellListener = CrossFirebaseFirestore.Current
+            .GetCollection(AlertFeed.Collection)
+            .OrderBy(AlertFeed.TimestampField, true)
+            .LimitedTo(AlertFeed.Limit)
+            .AddSnapshotListener<SystemAlertProxy>(snapshot =>
+            {
+                FirstSnapshotArrived();
+                // Every fuel submission is a web-bell notice only (AlertFeed.ShownOnPhone).
+                var items = snapshot.Documents
+                    .Where(doc => doc.Data != null && AlertFeed.ShownOnPhone(doc.Data.Type))
+                    .Select(doc => BellItem(doc.Reference.Id, doc.Data!))
+                    .ToList();
+
+                MainThread.BeginInvokeOnMainThread(() => ReplaceSlice(_bellItems, items));
+            }, ex => OnListenerError("Notifications (system_alerts)", ex));
+    }
+
+    private async Task OpenPhotoAsync(ApprovalPhoto? photo)
+    {
+        if (photo is null || _openingPhoto || Shell.Current?.Navigation is not INavigation navigation) return;
+
+        _openingPhoto = true; // a second tap while the viewer is opening mustn't stack another one
+        try
+        {
+            await navigation.PushModalAsync(new LARGA.MobileApp.Views.Shared.PhotoViewerPage(photo.Label, photo.Url));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Opening approval photo failed: {ex.Message}");
+            await Shell.Current.DisplayAlert("Couldn't open the photo", "Please check your connection and try again.", "OK");
+        }
+        finally
+        {
+            _openingPhoto = false;
+        }
+    }
+
+    // One of a clock-in request's defect reports as the approval card shows it: the "• Title (Priority): description"
+    // line, and its title and photo (if the driver attached one) for the photo strip.
+    private sealed record DefectInfo(string Line, string Title, string? PhotoUrl);
+
+    // Null if the defect report can't be read.
+    private static async Task<DefectInfo?> DefectInfoAsync(string defectId)
+    {
+        try
+        {
+            var defect = await CrossFirebaseFirestore.Current
+                .GetCollection("maintenance_logs")
+                .GetDocument(defectId)
+                .GetDocumentSnapshotAsync<MaintenanceLogProxy>();
+            if (defect?.Data == null) return null;
+            string line = $"• {defect.Data.IssueTitle} ({defect.Data.PriorityLevel})";
+            return new DefectInfo(
+                string.IsNullOrWhiteSpace(defect.Data.IssueDescription) ? line : $"{line}: {defect.Data.IssueDescription}",
+                string.IsNullOrWhiteSpace(defect.Data.IssueTitle) ? "Defect" : defect.Data.IssueTitle,
+                string.IsNullOrWhiteSpace(defect.Data.SupportingPhotoUrl) ? null : defect.Data.SupportingPhotoUrl);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Clock-in defect read error ({defectId}): {ex.Message}");
+            return null;
+        }
+    }
+
+    // Main thread only, like RefreshCombinedAlerts, so a rebuild never reads a slice mid-update.
+    private void ReplaceSlice(List<AlertItem> slice, List<AlertItem> items)
+    {
+        slice.Clear();
+        slice.AddRange(items);
+        QueueRefresh();
+    }
+
+    // One rebuild for every change that lands within RefreshCoalesceDelay - each rebuild redraws the whole list.
+    private void QueueRefresh()
+    {
+        if (_refreshQueued) return;
+        _refreshQueued = true;
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            await Task.Delay(RefreshCoalesceDelay);
+            _refreshQueued = false;
+            RefreshCombinedAlerts();
+        });
+    }
+
+    private static AlertItem BellItem(string id, SystemAlertProxy data)
+    {
+        AlertType type = data.Type switch
+        {
+            AlertFeed.DriverIdleType => AlertType.DriverIdle,
+            AlertFeed.LowStockType => AlertType.LowStock,
+            _ => AlertType.Notice,
+        };
+        DateTime time = FirestoreDateTimeFix.Apply(data.Timestamp);
+
+        return new AlertItem
+        {
+            Id = id,
+            BellId = id,
+            Type = type,
+            BellType = data.Type,
+            TypeTitle = AlertFeed.TitleFor(data.Type).ToUpperInvariant(),
+            IsRead = data.IsRead,
+            DriverId = data.DriverId,
+            TaxiId = data.TaxiId,
+            DriverName = type switch
+            {
+                AlertType.DriverIdle => $"{data.DriverName} · {data.UnitLabel}",
+                AlertType.LowStock => "Spare Parts Inventory",
+                _ => string.IsNullOrWhiteSpace(data.DriverName)
+                    ? data.UnitLabel
+                    : string.IsNullOrWhiteSpace(data.UnitLabel) ? data.DriverName : $"{data.DriverName} · {data.UnitLabel}",
+            },
+            Subtitle = data.Message,
+            SortTime = time,
+            Timestamp = FormatAlertTime(time),
+        };
+    }
+
+    private void FirstSnapshotArrived()
+    {
+        _firstLoad?.Dispose();
+        _firstLoad = null;
+    }
+
+    // A listener that fails stops for good, so say so (with Retry) instead of showing a list that looks complete.
+    private void OnListenerError(string feed, Exception ex)
+    {
+        FirestoreErrors.Log($"Alert Center listener: {feed}", ex);
+        FirstSnapshotArrived();
+        string message = FirestoreErrors.Classify(ex) switch
+        {
+            FirestoreErrorKind.Offline => "Can't reach the server. Check your internet connection, then tap Retry.",
+            FirestoreErrorKind.PermissionDenied => "This account isn't allowed to read these alerts. Make sure you're logged in as a Manager, then tap Retry.",
+            FirestoreErrorKind.SignedOut => "Your session has expired. Please log out and log in again.",
+            _ => "Some alerts could not be loaded. Tap Retry.",
+        };
+        MainThread.BeginInvokeOnMainThread(() => ErrorMessage = message);
+    }
+
+    private void OnSigningOut(object? sender, EventArgs e) => StopListening();
+
+    /// <summary>Removes every listener (logout, or before Retry starts them again).</summary>
+    public void StopListening()
+    {
+        SessionEvents.SigningOut -= OnSigningOut;
+        _sosListener?.Dispose();
+        _fuelListener?.Dispose();
+        _defectListener?.Dispose();
+        _bellListener?.Dispose();
+        _sosListener = _fuelListener = _defectListener = _bellListener = null;
+        FirstSnapshotArrived();
+        _isListening = false;
+    }
+
+    private static string SosLocationText(bool hasLocation, string? address, double latitude, double longitude)
+    {
+        if (!hasLocation) return "Location unavailable - call the driver";
+        string coordinates = MapTilerGeocoder.FormatCoordinates(latitude, longitude);
+        return address is null ? $"Location: {coordinates}" : $"{address}\n{coordinates}";
+    }
+
+    private async Task FillAddressAsync(AlertItem item)
+    {
+        string? address = await MapTilerGeocoding.Shared.ReverseGeocodeAsync(item.Latitude!.Value, item.Longitude!.Value);
+        if (address is null) return;
+
+        item.Address = address;
+        item.Subtitle = SosLocationText(true, address, item.Latitude.Value, item.Longitude.Value);
+        MainThread.BeginInvokeOnMainThread(QueueRefresh);
+    }
+
+    private void RefreshCombinedAlerts()
+    {
+        // An SOS / fuel / clock-in card stands for its bell row, so that row isn't shown again. The card is unread
+        // until it's handled (Resolve / Approve / Deny take it off the list), whatever the web bell says - opening
+        // the row there doesn't make the pending work go away.
+        List<AlertItem> actionCards = _sosItems.Concat(_fuelItems).Concat(_defectItems).ToList();
+        foreach (AlertItem card in actionCards)
+        {
+            card.IsRead = false;
+        }
+        var cardIds = actionCards.Select(card => card.Id).ToHashSet();
+        DateTime nowUtc = DateTime.UtcNow;
+        // Same rule as the Alerts tab badge (UnreadBadgeService), so the two always agree.
+        IEnumerable<AlertItem> bellRows = _bellItems
+            .Where(row => AlertCenterUnread.ShowsBellRow(BellRowOf(row), cardIds, nowUtc));
+
+        // Newest day first across all alert types. GroupBy keeps that order, so the newest date
+        // section comes first. Within a day, unread alerts come before read ones (beta feedback:
+        // read ones were landing on top), then SOS alerts lead, the most severe emergency type
+        // (Crash, Hostile, Standard) first, then newest first.
+        Alerts = actionCards.Concat(bellRows)
+            .OrderByDescending(item => item.SortTime == DateTime.MinValue ? DateTime.MinValue : item.SortTime.ToPhilippineTime().Date)
+            .ThenBy(item => item.IsRead)
+            .ThenByDescending(item => item.IsSos)
+            .ThenByDescending(item => item.IsSos ? EmergencyTypes.Severity(item.TriggerType) : 0)
+            .ThenByDescending(item => item.SortTime)
+            .ToList();
+
+        // The cards the Unread tab shows - counted by the same shared rule as the Alerts tab badge.
+        UnreadCount = AlertCenterUnread.Count(actionCards.Select(card => card.Id).ToList(), _bellItems.Select(BellRowOf), nowUtc);
+
+        _hasLoaded = true;
+        RebuildGroups();
+        OnPropertyChanged(nameof(HeaderText));
+        OnPropertyChanged(nameof(IsEmpty));
+
+        ApplyPendingFocus();
+    }
+
+    private static AlertCenterUnread.BellRow BellRowOf(AlertItem row) => new(row.Id, row.BellType, row.IsRead, row.SortTime);
+
+    private void RebuildGroups()
+    {
+        DateTime philippineNow = PhilippineTime.Now;
+        AlertGroups.ReplaceAll(Alerts.Where(item => !ShowUnreadOnly || item.IsUnread)
+            .GroupBy(item => AlertFeed.SectionTitle(item.SortTime, philippineNow))
+            .Select(group => new AlertGroup(group.Key, group)));
+        OnPropertyChanged(nameof(IsUnreadEmpty));
+    }
+
+    /// <summary>Scrolls to the alert an SOS push was opened for, once it's in the list.</summary>
+    public void ApplyPendingFocus()
+    {
+        if (PendingFocusAlertId is string focusId && Alerts.FirstOrDefault(i => i.Id == focusId) is AlertItem focus)
+        {
+            PendingFocusAlertId = null;
+            // The Unread filter would hide an SOS already marked read - show everything so it can be scrolled to.
+            if (focus.IsRead) ShowUnreadOnly = false;
+            FocusRequested?.Invoke(this, focus);
+        }
+    }
+
+    // Time-only for alerts from today, date + time for older ones, so a card from last week
+    // doesn't look like it happened this morning. Philippine time, like the web, whatever the
+    // phone's own timezone is.
+    private static string FormatAlertTime(DateTime utc) => AlertFeed.TimeLabel(utc, PhilippineTime.Now);
+
+    private async Task<DriverLookup?> GetDriverAsync(string driverId)
+    {
+        if (string.IsNullOrWhiteSpace(driverId)) return null;
+        if (_driverCache.TryGetValue(driverId, out var cached)) return cached;
+
+        var doc = await CrossFirebaseFirestore.Current
+            .GetCollection("users")
+            .GetDocument(driverId)
+            .GetDocumentSnapshotAsync<DriverLookup>();
+        if (doc?.Data == null) return null;
+
+        _driverCache[driverId] = doc.Data;
+        return doc.Data;
+    }
+
+    private async Task<ShiftProxy?> GetShiftAsync(string shiftId)
+    {
+        if (string.IsNullOrWhiteSpace(shiftId)) return null;
+        if (_shiftCache.TryGetValue(shiftId, out var cached)) return cached;
+
+        var doc = await CrossFirebaseFirestore.Current
+            .GetCollection("shifts")
+            .GetDocument(shiftId)
+            .GetDocumentSnapshotAsync<ShiftProxy>();
+        if (doc?.Data == null) return null;
+
+        _shiftCache[shiftId] = doc.Data;
+        return doc.Data;
+    }
+
+    private static string BuildDriverLabel(DriverLookup? driver, ShiftProxy? shift, string? taxiIdOverride = null)
+    {
+        var name = string.IsNullOrWhiteSpace(driver?.FullName) ? "Unknown Driver" : driver!.FullName;
+        var taxiId = taxiIdOverride ?? shift?.TaxiId;
+        return string.IsNullOrWhiteSpace(taxiId) ? name : $"{name} · {taxiId}";
+    }
+
+    private async Task DismissAsync(AlertItem? alert)
+    {
+        if (alert == null) return;
+
+        try
+        {
+            switch (alert.Type)
+            {
+                case AlertType.Sos:
+                    if (!await EnsureCanDecideAsync()) return;
+                    // Unlike a notice's Mark as Read, the SOS card's Mark as Resolved is a real
+                    // decision (same writes as the web's SOS Dispatch Resolved toggle) - confirm
+                    // first so a stray tap can't silently close out an active emergency.
+                    bool confirmedResolved = await ConfirmationPopup.ShowAsync(Shell.Current,
+                        "Mark This SOS Resolved?",
+                        $"This marks the alert from {alert.DriverName} as handled. Make sure the situation is actually resolved first.",
+                        confirmText: "Mark Resolved", isDangerous: false);
+                    if (!confirmedResolved) return;
+
+                    using (LoadingState.Begin())
+                    await CrossFirebaseFirestore.Current
+                        .GetCollection("emergency_alerts")
+                        .GetDocument(alert.Id)
+                        .UpdateDataAsync(new Dictionary<object, object>
+                        {
+                            ["isResolved"] = true,
+                            ["resolvedAt"] = FieldValue.ServerTimestamp(),
+                        });
+                    await MarkSosBellReadAsync(alert.Id);
+                    AuditLogWriter.Record("SosResolved",
+                        $"Resolved SOS alert for {alert.TaxiId} ({alert.DriverName}).");
+                    break;
+
+                case AlertType.FuelDiscrepancy:
+                case AlertType.ShiftApproval:
+                    // Pending work: these cards have no Mark as Read - only Resolve / Approve / Deny,
+                    // which take them off the list.
+                    return;
+
+                default:
+                    // A notice's MARK AS READ (system_alerts/{id}). A failure shows "Not saved" below.
+                    using (LoadingState.Begin())
+                    {
+                        await MarkAlertReadAsync(alert.Id);
+                    }
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            FirestoreErrors.Log("Alert Center dismiss", ex);
+            await Shell.Current.DisplayAlert("Not saved", "Could not update this alert. Check your connection and try again.", "OK");
+        }
+    }
+
+    /// <summary>
+    /// Same as ManagerWeb's ClockInApprovalService.ApproveAsync: refused when the driver has no
+    /// valid license or the unit is under maintenance (ShiftEligibilityRules), otherwise the
+    /// request becomes Approved and the driver's phone clocks in. A Manager or an Assistant Manager.
+    /// </summary>
+    private async Task ApproveClockInAsync(AlertItem? alert)
+    {
+        if (alert == null || alert.Type != AlertType.ShiftApproval) return;
+
+        // Approving lets a unit with a flagged inspection go out - confirm, like Deny asks for a note.
+        string flagged = string.IsNullOrWhiteSpace(alert.FailedItem) ? "the flagged items" : alert.FailedItem.Replace("\n", ", ");
+        bool confirmed = await ConfirmationPopup.ShowAsync(Shell.Current,
+            "Approve This Clock-in?",
+            $"{alert.DriverName} will start the shift even though the inspection flagged: {flagged}.",
+            confirmText: "Approve", isDangerous: false);
+        if (!confirmed) return;
+
+        using IDisposable loading = LoadingState.Begin();
+        try
+        {
+            var (blocked, _) = await LARGA.SharedCore.Services.ShiftManagementService.GetBlockReasonAsync(
+                alert.DriverId ?? string.Empty, alert.TaxiId ?? string.Empty, LARGA.SharedCore.PhilippineTime.Now.Date);
+            if (blocked != null)
+            {
+                await Shell.Current.DisplayAlert("Can't approve", $"Can't approve: {blocked}. Deny it instead, or fix that first.", "OK");
+                return;
+            }
+
+            var request = CrossFirebaseFirestore.Current.GetCollection("clockin_requests").GetDocument(alert.Id);
+            if (!await IsStillPendingAsync(request))
+            {
+                await Shell.Current.DisplayAlert("Already decided", "This clock-in was already approved, denied or withdrawn.", "OK");
+                return;
+            }
+
+            // One batch (gap #13): the decision and its bell row land together or not at all.
+            IDocumentReference? bell = await ExistingBellAsync(AlertFeed.ClockInBellId(alert.Id));
+            IWriteBatch batch = CrossFirebaseFirestore.Current.CreateBatch();
+            batch.UpdateData(request, new Dictionary<object, object>
+            {
+                ["status"] = "Approved",
+                ["decidedAt"] = DateTime.UtcNow,
+                ["managerNote"] = string.Empty,
+            });
+            if (bell is not null) batch.UpdateData(bell, new Dictionary<object, object> { ["isRead"] = true });
+            await batch.CommitAsync();
+            AuditLogWriter.Record("ClockInApproved",
+                $"Clock-in approved for {alert.DriverName} on {alert.TaxiId} despite: {alert.FailedItem?.Replace("\n", "; ")}.");
+            await Shell.Current.DisplayAlert("Clock-in approved", $"{alert.DriverName} can now start the shift.", "OK");
+        }
+        catch (Exception ex)
+        {
+            FirestoreErrors.Log("Approve clock-in", ex);
+            await Shell.Current.DisplayAlert("Not saved", FirestoreErrors.FriendlyMessage(ex, "save the approval"), "OK");
+        }
+    }
+
+    /// <summary>
+    /// Same as ManagerWeb's ClockInApprovalService.DenyAsync: a note for the driver is required;
+    /// the driver's defect reports go to the Garage queue at High priority (failed checklist items
+    /// with no report get one created); optionally the unit is marked Under Maintenance. A Manager or
+    /// an Assistant Manager: every Garage / unit write names the request (clockInRequestId,
+    /// groundedByClockInRequestId) so firestore.rules can check it belongs to this denial.
+    /// </summary>
+    private async Task DenyClockInAsync(AlertItem? alert)
+    {
+        if (alert == null || alert.Type != AlertType.ShiftApproval) return;
+
+        string? note = await Shell.Current.DisplayPromptAsync(
+            "Deny clock-in", "Tell the driver why (required).", "Next", "Cancel",
+            placeholder: "e.g. Bring the unit to the garage first", maxLength: 300);
+        if (note is null) return; // cancelled
+        note = note.Trim();
+        if (note.Length == 0)
+        {
+            await Shell.Current.DisplayAlert("Note required", "Tell the driver why - a note is required when denying.", "OK");
+            return;
+        }
+
+        List<string> defectIds = SplitIds(alert.DefectReportIds);
+        bool markUnderMaintenance = false;
+        if (!string.IsNullOrWhiteSpace(alert.TaxiId))
+        {
+            string suggestion = alert.HasFailedItems || defectIds.Count > 0 ? "" : " (only fuel was flagged)";
+            markUnderMaintenance = await ConfirmationPopup.ShowAsync(Shell.Current,
+                "Send Unit to the Garage?",
+                $"Mark {alert.TaxiId} as Under Maintenance{suggestion}? The Shift Scheduler then offers a substitute unit.",
+                confirmText: "Mark Under Maintenance", cancelText: "No", isDangerous: false);
+        }
+
+        using IDisposable loading = LoadingState.Begin();
+        try
+        {
+            var request = CrossFirebaseFirestore.Current.GetCollection("clockin_requests").GetDocument(alert.Id);
+            if (!await IsStillPendingAsync(request))
+            {
+                await Shell.Current.DisplayAlert("Already decided", "This clock-in was already approved, denied or withdrawn.", "OK");
+                return;
+            }
+
+            // Every write of the denial in one batch (gap #13): a failure part-way can no longer leave
+            // the unit under maintenance with the request still Pending, or the reverse.
+            DateTime now = DateTime.UtcNow;
+            IFirebaseFirestore firestore = CrossFirebaseFirestore.Current;
+            IDocumentReference? bell = await ExistingBellAsync(AlertFeed.ClockInBellId(alert.Id));
+            // A listed report that no longer exists is skipped (same as ManagerWeb's DenyAsync) -
+            // updating a missing document would fail the whole batch.
+            var defects = new List<IDocumentReference>();
+            foreach (string defectId in defectIds)
+            {
+                IDocumentReference defect = firestore.GetCollection("maintenance_logs").GetDocument(defectId);
+                if ((await defect.GetDocumentSnapshotAsync<MaintenanceLogProxy>())?.Data != null) defects.Add(defect);
+            }
+            IWriteBatch batch = firestore.CreateBatch();
+
+            foreach (IDocumentReference defect in defects)
+            {
+                batch.UpdateData(defect, new Dictionary<object, object>
+                {
+                    ["priorityLevel"] = "High",
+                    ["clockInRequestId"] = alert.Id,
+                });
+            }
+
+            if (defects.Count == 0 && alert.HasFailedItems)
+            {
+                // Same fields ManagerWeb's DenyAsync writes for a new Garage report (with the odometer photo).
+                var report = new Dictionary<object, object>
+                {
+                    ["taxiId"] = alert.TaxiId ?? string.Empty,
+                    ["maintenanceType"] = "Breakdown Repair",
+                    ["issueTitle"] = "Failed pre-shift inspection",
+                    ["issueDescription"] = $"Clock-in denied. Flagged: {alert.FailedItem?.Replace("\n", "; ")}. Manager: {note}",
+                    ["dateLogged"] = now,
+                    ["priorityLevel"] = "High",
+                    ["reportedByDriverId"] = alert.DriverId ?? string.Empty,
+                    ["status"] = "Reported",
+                    ["clockInRequestId"] = alert.Id,
+                };
+                if (alert.OdometerPhotoUrl is not null) report["supportingPhotoUrl"] = alert.OdometerPhotoUrl;
+                batch.SetData(firestore.GetCollection("maintenance_logs").CreateDocument(), report, SetOptions.Merge());
+            }
+
+            if (markUnderMaintenance && !string.IsNullOrWhiteSpace(alert.TaxiId))
+            {
+                batch.UpdateData(firestore.GetCollection("taxis").GetDocument(alert.TaxiId),
+                    new Dictionary<object, object>
+                    {
+                        ["status"] = LARGA.SharedCore.TaxiStatusRules.UnderMaintenance,
+                        ["groundedByClockInRequestId"] = alert.Id,
+                    });
+            }
+
+            batch.UpdateData(request, new Dictionary<object, object>
+            {
+                ["status"] = "Denied",
+                ["decidedAt"] = now,
+                ["managerNote"] = note,
+            });
+            if (bell is not null) batch.UpdateData(bell, new Dictionary<object, object> { ["isRead"] = true });
+            await batch.CommitAsync();
+            AuditLogWriter.Record("ClockInDenied",
+                $"Clock-in denied for {alert.DriverName} on {alert.TaxiId}: {note}." + (markUnderMaintenance ? " Unit put under maintenance." : ""));
+
+            await Shell.Current.DisplayAlert("Clock-in denied",
+                markUnderMaintenance
+                    ? $"{alert.DriverName} has been told why. {alert.TaxiId} is marked Under Maintenance and the report is in the Garage queue."
+                    : $"{alert.DriverName} has been told why.", "OK");
+        }
+        catch (Exception ex)
+        {
+            FirestoreErrors.Log("Deny clock-in", ex);
+            await Shell.Current.DisplayAlert("Not saved", FirestoreErrors.FriendlyMessage(ex, "save the decision"), "OK");
+        }
+    }
+
+    private async Task<bool> EnsureCanDecideAsync()
+    {
+        if (CanDecide) return true;
+        await Shell.Current.DisplayAlert("Manager only", "Only a Manager can make this decision.", "OK");
+        return false;
+    }
+
+    private static async Task<bool> IsStillPendingAsync(IDocumentReference request)
+    {
+        var snapshot = await request.GetDocumentSnapshotAsync<ClockInRequestAlertProxy>();
+        return snapshot?.Data != null && snapshot.Data.Status == "Pending";
+    }
+
+    private static List<string> SplitIds(string? ids) =>
+        (ids ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    /// <summary>The ManagerWeb bell entry system_alerts/{docId}, or null when there is none - read before a batch,
+    /// since updating a missing document would fail the whole batch.</summary>
+    private static async Task<IDocumentReference?> ExistingBellAsync(string docId)
+    {
+        var bell = CrossFirebaseFirestore.Current.GetCollection(AlertFeed.Collection).GetDocument(docId);
+        var snapshot = await bell.GetDocumentSnapshotAsync<BellProxy>();
+        return snapshot?.Data != null ? bell : null;
+    }
+
+    /// <summary>Marks a ManagerWeb bell entry (system_alerts/{docId}) read, if there is one.</summary>
+    private static async Task MarkBellReadAsync(string docId)
+    {
+        try
+        {
+            var bell = CrossFirebaseFirestore.Current.GetCollection("system_alerts").GetDocument(docId);
+            var snapshot = await bell.GetDocumentSnapshotAsync<BellProxy>();
+            if (snapshot?.Data != null)
+            {
+                await bell.UpdateDataAsync(new Dictionary<object, object> { ["isRead"] = true });
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Bell update error ({docId}): {ex.Message}");
+        }
+    }
+
+    private class ClockInRequestAlertProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")] public string? DriverId { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")] public string? TaxiId { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")] public string? Status { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("flagReasons")] public string? FlagReasons { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("defectReportIds")] public string? DefectReportIds { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("tireCondition")] public bool TireCondition { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("underTheHood")] public bool UnderTheHood { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("lightsCondition")] public bool LightsCondition { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("interiorCleanliness")] public bool InteriorCleanliness { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("exteriorCondition")] public bool ExteriorCondition { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("createdAt")] public DateTime CreatedAt { get; set; }
+        // The inspection photos the driver attached (uploaded with the request - SubmitForApprovalAsync).
+        [Plugin.Firebase.Firestore.FirestoreProperty("fuelDashboardUrl")] public string? FuelDashboardUrl { get; set; }
+        [Plugin.Firebase.Firestore.FirestoreProperty("odometerPhotoUrl")] public string? OdometerPhotoUrl { get; set; }
+    }
+
+    /// <summary>The bell entry ManagerWeb raised for this SOS ({alertId}_SOS), if any.</summary>
+    private static Task MarkSosBellReadAsync(string alertId) => MarkBellReadAsync($"{alertId}_SOS");
+
+    /// <summary>
+    /// Resolves a flagged fuel log the same way as the web's Fuel Verification
+    /// (FuelVerificationService.ResolveFlagAsync): a resolution note is required, it's added to
+    /// fuelLogDetails as "Resolved: ...", and the log moves to Verified.
+    /// </summary>
+    private async Task ResolveFuelFlagAsync(AlertItem? alert)
+    {
+        if (!await EnsureCanDecideAsync()) return;
+        if (alert == null || alert.Type != AlertType.FuelDiscrepancy) return;
+
+        string? note = await Shell.Current.DisplayPromptAsync(
+            "Resolve fuel flag", "How was this discrepancy resolved?", "Resolve", "Cancel",
+            placeholder: "e.g. Receipt re-checked with the driver", maxLength: 500);
+        if (note is null) return; // cancelled
+        note = note.Trim();
+        if (note.Length == 0)
+        {
+            await Shell.Current.DisplayAlert("Note required", "Enter a short note on how this was resolved.", "OK");
+            return;
+        }
+
+        using IDisposable loading = LoadingState.Begin();
+        try
+        {
+            var document = CrossFirebaseFirestore.Current.GetCollection("fuel_logs").GetDocument(alert.Id);
+            var snapshot = await document.GetDocumentSnapshotAsync<FuelLogProxy>();
+            string existing = snapshot?.Data?.FuelLogDetails ?? string.Empty;
+            string combined = string.IsNullOrWhiteSpace(existing) ? $"Resolved: {note}" : $"{existing}\n\nResolved: {note}";
+
+            await document.UpdateDataAsync(new Dictionary<object, object>
+            {
+                ["verificationStatus"] = "Verified",
+                ["fuelLogDetails"] = combined,
+            });
+            // Same as the web's ResolveFlagAsync: the flag's bell row (fuel_{id}) is read once it's resolved.
+            await MarkBellReadAsync(AlertFeed.FuelBellId(alert.Id));
+            await MarkBellReadAsync(LARGA.SharedCore.Alerts.SubmissionAlerts.FuelSubmittedAlertId(alert.Id)); // REQ-4.4-8: reviewed
+            AuditLogWriter.Record("FuelFlagResolved",
+                $"Resolved the flag on {(string.IsNullOrWhiteSpace(alert.DriverName) ? "a" : alert.DriverName + "'s")} fuel report" +
+                (string.IsNullOrWhiteSpace(alert.TaxiId) ? string.Empty : $" ({alert.TaxiId})") + $": {note}");
+            await Shell.Current.DisplayAlert("Fuel flag resolved", "The receipt is now marked Verified with your note.", "OK");
+        }
+        catch (Exception ex)
+        {
+            FirestoreErrors.Log("Resolve fuel flag", ex);
+            await Shell.Current.DisplayAlert("Not saved", FirestoreErrors.FriendlyMessage(ex, "resolve this flag"), "OK");
+        }
+    }
+
+    private class BellProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("isRead")]
+        public bool IsRead { get; set; }
+    }
+
+    private class DriverLookup
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("fullName")]
+        public string FullName { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("phoneNumber")]
+        public object? PhoneNumber { get; set; }
+    }
+
+    private class ShiftProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
+        public string DriverId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
+        public string TaxiId { get; set; } = string.Empty;
+    }
+
+    private class EmergencyAlertProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
+        public string ShiftId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
+        public string? DriverId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
+        public string? TaxiId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("latitude")]
+        public double Latitude { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("longitude")]
+        public double Longitude { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("isResolved")]
+        public bool IsResolved { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
+        public DateTime Timestamp { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("triggerType")]
+        public string? TriggerType { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("address")]
+        public string? Address { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("addressSource")]
+        public string? AddressSource { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("callerCheck")]
+        public string? CallerCheck { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("callerVerificationReason")]
+        public string? CallerVerificationReason { get; set; }
+    }
+
+    private class FuelLogProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
+        public string ShiftId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("litersRefueled")]
+        public double LitersRefueled { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("fuelCost")]
+        public double FuelCost { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("fuelLogDetails")]
+        public string? FuelLogDetails { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("receiptTimestamp")]
+        public DateTimeOffset? ReceiptTimestamp { get; set; }
+
+        // A log submitted without a real shift (mobile writes "UNKNOWN_SHIFT" when it can't
+        // find an active shift) still carries its own driverId, so the alert can fall back to
+        // that instead of showing "Unknown Driver" - see the fuel listener above.
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
+        public string? DriverId { get; set; }
+
+        // Server-stamped at upload (FuelService) - the real event time, unlike ReceiptTimestamp
+        // (whatever date the receipt itself was printed with, OCR-read or edited, and sometimes
+        // never set at all).
+        [Plugin.Firebase.Firestore.FirestoreProperty("submittedAt")]
+        public DateTimeOffset? SubmittedAt { get; set; }
+    }
+
+    private class MaintenanceLogProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("issueTitle")]
+        public string IssueTitle { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("issueDescription")]
+        public string IssueDescription { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("priorityLevel")]
+        public string PriorityLevel { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("dateLogged")]
+        public DateTime DateLogged { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("reportedByDriverId")]
+        public string? ReportedByDriverId { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
+        public string? TaxiId { get; set; }
+
+        // The photo the driver attached to the defect report (shown on the clock-in approval card).
+        [Plugin.Firebase.Firestore.FirestoreProperty("supportingPhotoUrl")]
+        public string? SupportingPhotoUrl { get; set; }
+    }
+
+    private class SystemAlertProxy
+    {
+        [Plugin.Firebase.Firestore.FirestoreProperty("type")]
+        public string Type { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverId")]
+        public string DriverId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("driverName")]
+        public string DriverName { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("taxiId")]
+        public string TaxiId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("unitLabel")]
+        public string UnitLabel { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("shiftId")]
+        public string ShiftId { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("timestamp")]
+        public DateTime Timestamp { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("isRead")]
+        public bool IsRead { get; set; }
+
+        // LowStock only: "Low Stock" / "Critical" / "Resolved" (AlertService, INV-010).
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
+        public string? Status { get; set; }
+    }
+
+    // Failures reach DismissAsync, which tells the manager.
+    private static Task MarkAlertReadAsync(string alertId) =>
+        CrossFirebaseFirestore.Current
+            .GetCollection(AlertFeed.Collection)
+            .GetDocument(alertId)
+            .UpdateDataAsync(new Dictionary<object, object> { { "isRead", true } });
+}
+
+// The Alert Center's sections. ReplaceAll swaps every section with one Reset notification - Clear() plus an Add
+// per section made the list re-layout once per section on every rebuild.
+public class AlertGroupCollection : ObservableCollection<AlertGroup>
+{
+    public void ReplaceAll(IEnumerable<AlertGroup> groups)
+    {
+        Items.Clear();
+        foreach (AlertGroup group in groups)
+        {
+            Items.Add(group);
+        }
+        OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs(nameof(Count)));
+        OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(new System.Collections.Specialized.NotifyCollectionChangedEventArgs(
+            System.Collections.Specialized.NotifyCollectionChangedAction.Reset));
+    }
+}
+
+// One date section in the Alert Center list ("Today", "Yesterday", "October 3, 2026").
+public class AlertGroup : ObservableCollection<AlertItem>
+{
+    public AlertGroup(string title, IEnumerable<AlertItem> items) : base(items)
+    {
+        Title = title;
+    }
+
+    public string Title { get; }
+}
+
+public enum AlertType
+{
+    Sos,
+    FuelDiscrepancy,
+    ShiftApproval,
+    DriverIdle,
+    LowStock,
+    // Any other system_alerts type (debt, maintenance, late return, missed clock-out, ...).
+    Notice
+}
+
+/// <summary>One inspection photo on a clock-in approval card: what it shows and where it is.</summary>
+public sealed record ApprovalPhoto(string Label, string Url);
+
+public class AlertItem
+{
+    public string Id { get; set; } = string.Empty;
+    public AlertType Type { get; set; }
+
+    // The system_alerts row this card is (bell rows) or stands for (SOS / fuel / clock-in cards), and its type.
+    public string? BellId { get; set; }
+    public string? BellType { get; set; }
+    public string TypeTitle { get; set; } = string.Empty;
+
+    // Read notices stay in the list, dimmed, for AlertFeed.HideReadAfter - the web bell shows them the same way.
+    // SOS / fuel / clock-in cards are never read (RefreshCombinedAlerts).
+    public bool IsRead { get; set; }
+    public bool IsUnread => !IsRead;
+    public double CardOpacity => IsRead ? 0.55 : 1.0;
+    public string? DriverId { get; set; }
+    public string? TaxiId { get; set; }
+    public string DriverName { get; set; } = string.Empty;
+    // Driver's full name alone (DriverName is the card label and may carry " · <unit>").
+    public string ChatDriverName { get; set; } = string.Empty;
+    public string Subtitle { get; set; } = string.Empty;
+    public string Timestamp { get; set; } = string.Empty;
+    // Real UTC moment the alert happened. Drives newest-first ordering and date sections;
+    // Timestamp is display text only.
+    public DateTime SortTime { get; set; }
+    public string? FailedItem { get; set; }
+    public string? Priority { get; set; }
+    public string? DriverDescription { get; set; }
+
+    // Clock-in approvals: a checklist item failed (vs. only low fuel), and the driver's defect
+    // reports (maintenance_logs IDs, comma-separated).
+    public bool HasFailedItems { get; set; }
+    public string? DefectReportIds { get; set; }
+
+    // Clock-in approvals: the odometer photo, attached to the Garage report a denial files (as the web does).
+    public string? OdometerPhotoUrl { get; set; }
+
+    // Clock-in approvals: the inspection photos the manager reviews before deciding (fuel gauge, odometer,
+    // each defect's photo) - the same ones the web shows.
+    public List<ApprovalPhoto> Photos { get; set; } = new();
+    public bool HasPhotos => Photos.Count > 0;
+
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public string? PhoneNumber { get; set; }
+
+    // SOS only: "Standard", "Hostile" or "Crash" (emergency_alerts.triggerType), the street
+    // address (MapTiler) and the caller validation outcome (SosCallerCheck; null = not checked yet).
+    public string TriggerType { get; set; } = string.Empty;
+    public string? Address { get; set; }
+    public string? CallerCheck { get; set; }
+    public string? CallerVerificationReason { get; set; }
+
+    public string EmergencyLabel => EmergencyTypes.Label(TriggerType).ToUpperInvariant();
+    public bool IsHostileSos => IsSos && EmergencyTypes.Normalize(TriggerType) == EmergencyAlert.Hostile;
+    public bool IsCrashSos => IsSos && EmergencyTypes.Normalize(TriggerType) == EmergencyAlert.Crash;
+    // Rejected: positively the wrong sender (not pushed, card greyed). Unverified: couldn't be
+    // confirmed (pushed, just noted). Both show the reason.
+    public bool IsCallerRejected => IsSos && CallerCheck == SosCallerCheck.Rejected;
+    public bool IsCallerFlagged => IsSos && CallerCheck is SosCallerCheck.Rejected or SosCallerCheck.Unverified;
+    public string CallerFlagText => IsCallerRejected
+        ? $"Rejected caller (not pushed): {CallerVerificationReason}"
+        : $"Unverified caller: {CallerVerificationReason}";
+
+    public bool IsSos => Type == AlertType.Sos;
+    public bool IsFuelDiscrepancy => Type == AlertType.FuelDiscrepancy;
+    public bool IsShiftApproval => Type == AlertType.ShiftApproval;
+    public bool IsDriverIdle => Type == AlertType.DriverIdle;
+}

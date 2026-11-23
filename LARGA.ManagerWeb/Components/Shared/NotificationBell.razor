@@ -1,0 +1,172 @@
+@* Notification bell shown in every dashboard-style page header (replaces the old placeholder
+   "Notifications" icon-btn). Loads recent system_alerts on init, polls every 60s while
+   mounted, and lets a manager open the dropdown / mark an alert read. Clicking an alert also opens the
+   page that handles it (AlertLinks). *@
+@implements IAsyncDisposable
+@using LARGA.SharedCore.Models.Alerts
+@using LARGA.SharedCore.Services
+@inject AlertService AlertService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+<div class="notification-bell-wrap" data-popup>
+    <button class="icon-btn notification-bell-btn" type="button" aria-label="Notifications" aria-expanded="@_isOpen" data-popup-toggle @onclick="ToggleOpen">
+        <Icon Name="bell" />
+        @if (UnreadCount > 0)
+        {
+            <span class="notification-badge">@(UnreadCount > 9 ? "9+" : UnreadCount.ToString())</span>
+        }
+    </button>
+
+    @if (_isOpen)
+    {
+        <div class="notification-dropdown" data-popup-panel>
+            <div class="notification-dropdown-header">
+                <span>Notifications</span>
+                @if (UnreadCount > 0)
+                {
+                    <span class="notification-unread-count">@UnreadCount unread</span>
+                    <button type="button" class="notification-mark-all" disabled="@_isMarkingAll" @onclick="MarkAllReadAsync" aria-busy="@_isMarkingAll">
+                        <Icon Name="check" /> @(_isMarkingAll ? "Marking…" : "Mark all as read")
+                    </button>
+                }
+            </div>
+
+            @if (_alerts.Count == 0)
+            {
+                <div class="notification-empty">No recent notifications.</div>
+            }
+            else
+            {
+                @foreach (AlertNotice alert in _alerts)
+                {
+                    <button type="button" class="notification-item @(alert.IsRead ? "" : "unread")" @onclick="() => OnAlertClickAsync(alert)">
+                        <span class="notification-item-dot"></span>
+                        <span class="notification-item-body">
+                            <span class="notification-item-message">@alert.Message</span>
+                            <span class="notification-item-time">@RelativeTime(alert.Timestamp)</span>
+                        </span>
+                    </button>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<AlertNotice> _alerts = new();
+    private bool _isOpen;
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource? _timerCts;
+
+    // Unread rows among the newest 50 (AlertFeed). The phone's header counts its Unread tab instead.
+    private int UnreadCount => LARGA.SharedCore.Alerts.AlertFeed.UnreadCount(_alerts);
+    private bool _isMarkingAll;
+
+    // Assistant Managers don't see Manager-only rows (AlertFeed.ManagerOnly - access requests).
+    private bool _isManager;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _isManager = authState.User.IsInRole(ManagerSignInService.ManagerRole);
+
+        await RefreshAsync();
+
+        _timerCts = new CancellationTokenSource();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(60));
+        _ = PollLoopAsync(_timerCts.Token);
+    }
+
+    private async Task PollLoopAsync(CancellationToken token)
+    {
+        try
+        {
+            while (_timer is not null && await _timer.WaitForNextTickAsync(token))
+            {
+                await RefreshAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the component is disposed.
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            List<AlertNotice> alerts = await AlertService.GetRecentAlertsAsync();
+            // Read rows older than a week drop off, as in the mobile Alert Center (AlertFeed.HideReadAfter).
+            DateTime nowUtc = DateTime.UtcNow;
+            _alerts = alerts
+                .Where(a => _isManager || !LARGA.SharedCore.Alerts.AlertFeed.ManagerOnly(a.Type))
+                .Where(a => !LARGA.SharedCore.Alerts.AlertFeed.IsHiddenRead(a.IsRead, a.Timestamp, nowUtc))
+                .ToList();
+        }
+        catch
+        {
+            // Same "don't blow up the page header over a Firestore hiccup" stance as the
+            // rest of ManagerWeb's dashboard-adjacent reads - just leave the last-known list.
+        }
+    }
+
+    private void ToggleOpen()
+    {
+        _isOpen = !_isOpen;
+    }
+
+    private async Task OnAlertClickAsync(AlertNotice alert)
+    {
+        if (!alert.IsRead)
+        {
+            alert.IsRead = true;
+            await AlertService.MarkReadAsync(alert.AlertId);
+        }
+
+        if (AlertLinks.PageFor(alert.Type, _isManager) is string page)
+        {
+            _isOpen = false;
+            Navigation.NavigateTo(page);
+        }
+    }
+
+    private async Task MarkAllReadAsync()
+    {
+        if (_isMarkingAll) return; // a second click while this is still running is ignored
+        _isMarkingAll = true;
+        try
+        {
+            if (await AlertService.MarkAllReadAsync(includeManagerOnly: _isManager))
+            {
+                foreach (AlertNotice alert in _alerts)
+                {
+                    alert.IsRead = true;
+                }
+            }
+        }
+        finally
+        {
+            _isMarkingAll = false;
+        }
+    }
+
+    private static string RelativeTime(DateTime timestampUtc)
+    {
+        TimeSpan elapsed = DateTime.UtcNow - timestampUtc;
+        if (elapsed < TimeSpan.FromMinutes(1)) return "just now";
+        if (elapsed < TimeSpan.FromHours(1)) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed < TimeSpan.FromDays(1)) return $"{(int)elapsed.TotalHours}h ago";
+        return $"{(int)elapsed.TotalDays}d ago";
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _timerCts?.Cancel();
+        _timer?.Dispose();
+        _timerCts?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

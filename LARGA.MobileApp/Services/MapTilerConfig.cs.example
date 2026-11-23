@@ -1,0 +1,8 @@
+namespace LARGA.MobileApp.Services;
+
+// Copy this file to MapTilerConfig.cs (gitignored) and put your real key in.
+// Get a free key at https://www.maptiler.com/ (Account > Keys).
+public static class MapTilerConfig
+{
+    public const string ApiKey = "YOUR_MAPTILER_API_KEY_HERE";
+}

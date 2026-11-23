@@ -1,0 +1,2 @@
+LARGA-OCR block 0 img=447x204 px=[L77 T62 R360 B163] norm=[x0.1723 y0.3039 w0.6331 h0.4951] text="I6098"
+LARGA-OCR line 0 norm=[x0.1723 y0.3039 w0.6331 h0.4951] slope=0 text="I6098"
