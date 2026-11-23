@@ -33,7 +33,6 @@ public partial class AppShell : Shell
         Routing.RegisterRoute("fleet-registry", typeof(Views.Manager.FleetRegistryPage));
         Routing.RegisterRoute("change-password", typeof(Views.Manager.ChangePasswordPage));
         Routing.RegisterRoute("update-contact-number", typeof(Views.Manager.UpdateContactNumberPage));
-        Routing.RegisterRoute("coming-soon", typeof(Views.Shared.ComingSoonPage));
         Routing.RegisterRoute("fuel-report-page", typeof(Views.Driver.FuelReportPage));
         Routing.RegisterRoute(nameof(FuelReportDetailPage), typeof(Views.Driver.FuelReportDetailPage));
         Routing.RegisterRoute("ChatsDetailPage", typeof(ChatsDetailPage));
