@@ -25,16 +25,12 @@ public class DriverPerformance
     public int BoundariesDue { get; set; }
     public int BoundariesPaidOnTime { get; set; }
 
-    /// <summary>Accident / damage reports from their shifts.</summary>
+    /// <summary>Accident / damage reports from their shifts ("Accidents/Damage"). Shown, not ranked.</summary>
     public int DamageIncidents { get; set; }
 
-    /// <summary>SOS alerts they raised in the period (resolved or not).</summary>
+    /// <summary>SOS alerts they raised in the period (resolved or not). Shown, not ranked - an SOS
+    /// (a robbery, a medical emergency) isn't necessarily the driver's fault.</summary>
     public int SosAlerts { get; set; }
-
-    /// <summary>Everything shown as "Incidents": SOS alerts plus accident / damage reports.
-    /// Informational only - it isn't part of the ranking score, since an SOS (a robbery, a
-    /// medical emergency) isn't necessarily the driver's fault.</summary>
-    public int Incidents => SosAlerts + DamageIncidents;
     public decimal BoundariesRemitted { get; set; }
 
     /// <summary>Worked days / expected days; null when no day was expected.</summary>

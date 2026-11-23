@@ -18,9 +18,11 @@ namespace LARGA.ManagerWeb.Services;
 /// work today (PreShiftReminderRules). Checks every few minutes; inside the send window it takes
 /// today's Schedule Planner cell for each driver (DriverManagementService.GetWeekScheduleAsync -
 /// assigned or lent unit, no DayOff, license eligible, unit not blocked), skips drivers with a shift
-/// already open, claims pre_shift_reminders/{driverId}_{yyyyMMdd} with Create and only then pushes
-/// (DriverNotifier), so each driver gets it once a day across restarts and instances. Same
-/// hosted-service pattern as MaintenanceSchedulerService; never throws out of the host.
+/// already open, claims each try on pre_shift_reminders/{driverId}_{yyyyMMdd} in a transaction and
+/// only then pushes (DriverNotifier), so a try is sent by one instance only, across restarts and
+/// instances (PreShiftReminderRules.CanClaim). Retry checks reuse the day's plan (schedule and plates
+/// are read once a day) and only go through the drivers whose push failed. Same hosted-service
+/// pattern as MaintenanceSchedulerService; never throws out of the host.
 /// </summary>
 public class PreShiftReminderService : BackgroundService
 {
@@ -31,6 +33,14 @@ public class PreShiftReminderService : BackgroundService
     private readonly DriverNotifier _notifier;
     private readonly ILogger<PreShiftReminderService> _logger;
     private DateTime? _doneForDayPh;
+
+    /// <summary>Today's reminders (built on the day's first check) and the drivers not finished with yet:
+    /// not reached (a check that stopped partway) or due a retry.</summary>
+    private DateTime? _planDayPh;
+    private List<PlannedReminder> _plan = new();
+    private readonly HashSet<string> _pendingDriverIds = new();
+
+    private sealed record PlannedReminder(string DriverId, string TaxiId, string UnitLabel);
 
     public PreShiftReminderService(Lazy<FirestoreDb> db, DriverManagementService drivers, DriverNotifier notifier,
         ILogger<PreShiftReminderService> logger)
@@ -78,15 +88,20 @@ public class PreShiftReminderService : BackgroundService
     private async Task<bool> SendTodaysRemindersAsync(DateTime nowPh)
     {
         DateTime todayPh = nowPh.Date;
-        WeekSchedule week = await _drivers.GetWeekScheduleAsync(todayPh);
-
-        // The message names the unit by plate (what the driver knows), falling back to the taxi ID.
-        Dictionary<string, string> plates = (await _db.Value.Collection("taxis").GetSnapshotAsync()).Documents
-            .Select(d => (Id: d.TryGetValue("taxiId", out string? id) ? id : d.Id,
-                          Plate: d.TryGetValue("plateNumber", out string? plate) ? plate : null))
-            .Where(t => !string.IsNullOrWhiteSpace(t.Id) && !string.IsNullOrWhiteSpace(t.Plate))
-            .GroupBy(t => t.Id!)
-            .ToDictionary(g => g.Key, g => g.First().Plate!);
+        if (_planDayPh != todayPh)
+        {
+            // The day's first check (or the first after a restart): everyone on today's schedule.
+            _plan = await BuildPlanAsync(todayPh);
+            _planDayPh = todayPh;
+            _pendingDriverIds.Clear();
+            _pendingDriverIds.UnionWith(_plan.Select(p => p.DriverId));
+        }
+        // Later checks only go through the drivers not finished with (a failed push, or not reached).
+        List<PlannedReminder> due = _plan.Where(p => _pendingDriverIds.Contains(p.DriverId)).ToList();
+        if (due.Count == 0)
+        {
+            return false;
+        }
 
         QuerySnapshot open = await _db.Value.Collection("shifts").WhereEqualTo("status", "Active").GetSnapshotAsync();
         HashSet<string> onShift = open.Documents
@@ -94,57 +109,122 @@ public class PreShiftReminderService : BackgroundService
             .OfType<string>()
             .ToHashSet();
 
-        int sent = 0;
-        bool retriesLeft = false;
-        foreach (DriverScheduleRow row in week.Rows)
+        int sent = 0, noDevice = 0, failed = 0;
+        foreach (PlannedReminder reminder in due)
         {
-            ScheduleDayCell? today = row.Days.FirstOrDefault(c => c.Date.Date == todayPh.Date);
-            if (today?.TaxiId is not string taxiId || onShift.Contains(row.DriverId))
+            if (onShift.Contains(reminder.DriverId))
             {
+                _pendingDriverIds.Remove(reminder.DriverId); // already clocked in: no reminder needed
                 continue;
             }
 
             DocumentReference marker = _db.Value.Collection(PreShiftReminderRules.MarkerCollection)
-                .Document(PreShiftReminderRules.MarkerId(row.DriverId, todayPh));
-            int attempts;
-            try
+                .Document(PreShiftReminderRules.MarkerId(reminder.DriverId, todayPh));
+            int? attempt = await ClaimTryAsync(marker, reminder, todayPh);
+            if (attempt is not int attempts)
             {
-                await marker.CreateAsync(new Dictionary<string, object>
-                {
-                    ["driverId"] = row.DriverId,
-                    ["taxiId"] = taxiId,
-                    ["day"] = todayPh.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                    ["createdAt"] = DateTime.UtcNow,
-                    ["attempts"] = 0,
-                    ["pushed"] = false,
-                    // Housekeeping only (a Firestore TTL policy on expireAt can clear old markers).
-                    ["expireAt"] = DateTime.UtcNow.AddDays(30),
-                });
-                attempts = 0;
-            }
-            catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
-            {
-                // Already claimed today: only a failed push with tries left goes again. Markers from before
-                // retries existed carry no "attempts" - treat them as one try.
-                DocumentSnapshot existing = await marker.GetSnapshotAsync();
-                bool alreadyPushed = existing.TryGetValue("pushed", out bool p) && p;
-                attempts = existing.TryGetValue("attempts", out long a) ? (int)a : 1;
-                if (!PreShiftReminderRules.ShouldRetry(alreadyPushed, attempts))
-                {
-                    continue;
-                }
+                // Already sent, not retryable, or another instance is on it (its own retries are its job).
+                _pendingDriverIds.Remove(reminder.DriverId);
+                continue;
             }
 
-            string unitLabel = PreShiftReminderRules.UnitLabel(taxiId, plates.GetValueOrDefault(taxiId));
-            bool pushed = await _notifier.SendPreShiftReminderAsync(row.DriverId, taxiId, unitLabel, nowPh);
-            attempts++;
-            await marker.UpdateAsync(new Dictionary<string, object> { ["pushed"] = pushed, ["attempts"] = attempts });
-            if (pushed) sent++;
-            else if (PreShiftReminderRules.ShouldRetry(false, attempts)) retriesLeft = true;
+            PreShiftPushOutcome outcome = await _notifier.SendPreShiftReminderAsync(reminder.DriverId, reminder.TaxiId, reminder.UnitLabel, nowPh);
+            await marker.UpdateAsync(new Dictionary<string, object>
+            {
+                ["outcome"] = PreShiftReminderRules.OutcomeValue(outcome),
+                ["outcomeAt"] = DateTime.UtcNow,
+            });
+
+            if (outcome == PreShiftPushOutcome.Sent) sent++;
+            else if (outcome == PreShiftPushOutcome.NoDevice) noDevice++;
+            else failed++;
+            if (!PreShiftReminderRules.RetryLeft(outcome, attempts))
+            {
+                _pendingDriverIds.Remove(reminder.DriverId);
+            }
         }
 
-        _logger.LogInformation("Pre-shift reminders for {Day:yyyy-MM-dd}: {Sent} sent{Retry}.", todayPh, sent,
-            retriesLeft ? "; failed pushes will be retried" : string.Empty);
+        bool retriesLeft = _pendingDriverIds.Count > 0;
+        _logger.LogInformation(
+            "Pre-shift reminders for {Day:yyyy-MM-dd}: {Sent} sent, {NoDevice} with no registered phone, {Failed} failed{Retry}.",
+            todayPh, sent, noDevice, failed, retriesLeft ? $"; {_pendingDriverIds.Count} will be retried" : string.Empty);
         return retriesLeft;
     }
+
+    /// <summary>Who gets a reminder today, read once a day: the Schedule Planner's cell for each driver,
+    /// with the unit named by plate (what the driver knows), falling back to the taxi ID.</summary>
+    private async Task<List<PlannedReminder>> BuildPlanAsync(DateTime todayPh)
+    {
+        WeekSchedule week = await _drivers.GetWeekScheduleAsync(todayPh);
+
+        Dictionary<string, string> plates = (await _db.Value.Collection("taxis").GetSnapshotAsync()).Documents
+            .Select(d => (Id: d.TryGetValue("taxiId", out string? id) ? id : d.Id,
+                          Plate: d.TryGetValue("plateNumber", out string? plate) ? plate : null))
+            .Where(t => !string.IsNullOrWhiteSpace(t.Id) && !string.IsNullOrWhiteSpace(t.Plate))
+            .GroupBy(t => t.Id!)
+            .ToDictionary(g => g.Key, g => g.First().Plate!);
+
+        var plan = new List<PlannedReminder>();
+        foreach (DriverScheduleRow row in week.Rows)
+        {
+            ScheduleDayCell? today = row.Days.FirstOrDefault(c => c.Date.Date == todayPh.Date);
+            if (today?.TaxiId is string taxiId)
+            {
+                plan.Add(new PlannedReminder(row.DriverId, taxiId,
+                    PreShiftReminderRules.UnitLabel(taxiId, plates.GetValueOrDefault(taxiId))));
+            }
+        }
+        return plan;
+    }
+
+    /// <summary>
+    /// Claims the next try for this driver today in one transaction: creates the marker on the first try,
+    /// otherwise bumps "attempts" when PreShiftReminderRules.CanClaim allows it. Returns the try's number,
+    /// or null when nothing should be sent. Firestore retries the transaction if another instance touched
+    /// the marker meanwhile, and that retry sees the other claim - so a try is only ever sent once.
+    /// </summary>
+    private Task<int?> ClaimTryAsync(DocumentReference marker, PlannedReminder reminder, DateTime todayPh) =>
+        _db.Value.RunTransactionAsync(async tx =>
+        {
+            DocumentSnapshot snapshot = await tx.GetSnapshotAsync(marker);
+            DateTime nowUtc = DateTime.UtcNow;
+
+            if (!snapshot.Exists)
+            {
+                tx.Create(marker, new Dictionary<string, object>
+                {
+                    ["driverId"] = reminder.DriverId,
+                    ["taxiId"] = reminder.TaxiId,
+                    ["day"] = todayPh.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    ["createdAt"] = nowUtc,
+                    ["attempts"] = 1,
+                    ["lastClaimAt"] = nowUtc,
+                    // Housekeeping only (a Firestore TTL policy on expireAt can clear old markers).
+                    ["expireAt"] = nowUtc.AddDays(30),
+                });
+                return (int?)1;
+            }
+
+            // Markers from before claims were counted carry no "attempts" (one try) and no "lastClaimAt".
+            int attempts = snapshot.TryGetValue("attempts", out long a) ? (int)a : 1;
+            PreShiftPushOutcome? outcome = PreShiftReminderRules.ParseOutcome(
+                snapshot.TryGetValue("outcome", out string? value) ? value : null,
+                snapshot.TryGetValue("pushed", out bool pushed) ? pushed : null);
+            DateTime? lastClaimUtc = snapshot.TryGetValue("lastClaimAt", out Timestamp claimed) ? claimed.ToDateTime()
+                : snapshot.TryGetValue("createdAt", out Timestamp created) ? created.ToDateTime()
+                : null;
+
+            if (!PreShiftReminderRules.CanClaim(outcome, attempts, lastClaimUtc, nowUtc))
+            {
+                return null;
+            }
+
+            tx.Update(marker, new Dictionary<string, object>
+            {
+                ["attempts"] = attempts + 1,
+                ["lastClaimAt"] = nowUtc,
+                ["outcome"] = FieldValue.Delete,
+            });
+            return attempts + 1;
+        });
 }

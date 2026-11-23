@@ -7,6 +7,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject ManagerSignInService SignInService
+@inject ILogger<Login> Logger
 
 <PageTitle>Login - web</PageTitle>
 
@@ -120,6 +121,16 @@
                 var (ticket, error) = await SignInService.CreateTicketAsync(idToken);
                 if (ticket is null)
                 {
+                    // Rejected on the server (e.g. a driver whose browser skipped the early role check):
+                    // end the browser's Firebase session too, like the "manager-only" path does.
+                    try
+                    {
+                        await _firebaseModule.InvokeAsync<bool>("largaFirebaseSignOut");
+                    }
+                    catch (Exception signOutError)
+                    {
+                        Logger.LogWarning(signOutError, "Couldn't end the browser Firebase session after a rejected sign-in.");
+                    }
                     _errorMessage = error;
                     return;
                 }
@@ -137,7 +148,7 @@
                 string? reason = result.TryGetProperty("message", out var reasonProp) && reasonProp.ValueKind == JsonValueKind.String ? reasonProp.GetString() : null;
                 _errorMessage = reason?.Contains("No user profile", StringComparison.OrdinalIgnoreCase) == true
                     ? IncorrectCredentialsMessage
-                    : "This account is not authorized to access the manager portal.";
+                    : ManagerSignInService.NotAuthorizedMessage;
                 return;
             }
 
@@ -163,8 +174,7 @@
     /// wrong would tell a stranger which emails have accounts.
     /// </summary>
     // Same wording as the mobile app (FirebaseAuthService.IncorrectCredentialsMessage).
-    private const string IncorrectCredentialsMessage =
-        "Incorrect email or password. Check your details, or contact your manager if you don't have an account yet.";
+    private const string IncorrectCredentialsMessage = ManagerSignInService.IncorrectCredentialsMessage;
 
     private static string FriendlySignInError(string? raw)
     {

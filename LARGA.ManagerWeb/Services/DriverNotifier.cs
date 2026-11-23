@@ -111,29 +111,28 @@ public class DriverNotifier
 
     /// <summary>
     /// SRS REQ-4.1-9: the 5:30 AM pre-shift reminder (PreShiftReminderService) - a push only, on the
-    /// driver app's pre_shift_channel; tapping it opens the pre-shift inspection. False when the driver
-    /// has no registered phone or the push failed (logged). Never throws.
+    /// driver app's pre_shift_channel; tapping it opens the pre-shift inspection. NoDevice when the
+    /// driver has no registered Android phone (a retry can't help), Failed when the push didn't reach
+    /// any of them (logged). Never throws.
     /// </summary>
     /// <param name="unitLabel">What the message calls the unit (PreShiftReminderRules.UnitLabel: the plate).</param>
-    public async Task<bool> SendPreShiftReminderAsync(string driverId, string taxiId, string unitLabel, DateTime philippineNow)
+    public async Task<PreShiftPushOutcome> SendPreShiftReminderAsync(string driverId, string taxiId, string unitLabel, DateTime philippineNow)
     {
         try
         {
             var data = new Dictionary<string, string> { ["type"] = PreShiftReminderRules.PushType, ["taxiId"] = taxiId };
-            (int sent, _) = await _tokens.SendToUsersAsync(new[] { driverId },
+            (int sent, int total) = await _tokens.SendToUsersAsync(new[] { driverId },
                 device => PushTokenStore.NotificationMessage(device, PreShiftReminderRules.Title, PreShiftReminderRules.Body(unitLabel, philippineNow),
                     data, PreShiftReminderRules.AndroidChannelId),
                 platforms: p => p == PushTokenRules.AndroidPlatform);
-            if (sent == 0)
-            {
-                return false;
-            }
-            return true;
+            return total == 0 ? PreShiftPushOutcome.NoDevice
+                : sent == 0 ? PreShiftPushOutcome.Failed
+                : PreShiftPushOutcome.Sent;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Pre-shift reminder to driver {DriverId} failed", driverId);
-            return false;
+            return PreShiftPushOutcome.Failed;
         }
     }
 
