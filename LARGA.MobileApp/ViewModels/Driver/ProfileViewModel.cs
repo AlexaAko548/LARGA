@@ -304,39 +304,6 @@ public class ProfileViewModel : BindableObject
             Debug.WriteLine($"[ProfileViewModel] Damage History Load Error: {ex.Message}");
             SetPropertyOnMainThread(() => DamageHistoryDisplay = DescribeDamageHistory(null));
         }
-
-        // Try standalone driverPerformance collection metrics
-        try
-        {
-            var performanceDoc = await CrossFirebaseFirestore.Current
-                .GetCollection("driverPerformance")
-                .GetDocument(uid)
-                .GetDocumentSnapshotAsync<DriverPerformanceProxy>();
-
-            if (performanceDoc?.Data != null)
-            {
-                var data = performanceDoc.Data;
-
-                SetPropertyOnMainThread(() =>
-                {
-                    if (!string.IsNullOrWhiteSpace(data.PaymentReliability))
-                    {
-                        PaymentReliability = data.PaymentReliability.ToUpperInvariant();
-                    }
-
-                    if (data.ShiftPunctuality != null)
-                    {
-                        var punctuality = data.ShiftPunctuality.Value;
-                        if (punctuality <= 1) punctuality *= 100;
-                        ShiftPunctualityDisplay = $"{Math.Clamp(Math.Round(punctuality), 0, 100)}%";
-                    }
-                });
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[ProfileViewModel] DriverPerformance Collection Load Error: {ex.Message}");
-        }
     }
 
     private void SetPropertyOnMainThread(Action action)
@@ -490,14 +457,5 @@ public class ProfileViewModel : BindableObject
 
         [FirestoreProperty("shiftPunctualityRate")]
         public double? ShiftPunctualityRate { get; set; }
-    }
-
-    public class DriverPerformanceProxy
-    {
-        [FirestoreProperty("paymentReliability")]
-        public string PaymentReliability { get; set; } = string.Empty;
-
-        [FirestoreProperty("shiftPunctuality")]
-        public double? ShiftPunctuality { get; set; }
     }
 }

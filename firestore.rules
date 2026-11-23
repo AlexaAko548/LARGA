@@ -206,12 +206,6 @@ service cloud.firestore {
                     && request.resource.data.driverId is string && request.resource.data.driverId.size() > 0;
     }
 
-    // Performance stats: the driver and staff can read, only the Manager writes.
-    match /driverPerformance/{driverId} {
-      allow read: if isOwner(driverId) || isStaff();
-      allow write: if isManager();
-    }
-
     // One conversation per driver: only that driver and staff can open it.
     match /chats/{driverId} {
       allow read, delete: if isStaff() || isOwner(driverId);
