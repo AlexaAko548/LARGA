@@ -277,7 +277,7 @@ public class FleetReportingService
         Dictionary<string, List<(EmergencyAlert Alert, ShiftLog Shift)>> sosByTaxi =
             await UnresolvedSosByTaxiAsync(alerts, activeShifts.Concat(recentShifts));
 
-        foreach (TaxiUnit taxi in taxis.OrderBy(t => t.TaxiId, StringComparer.OrdinalIgnoreCase))
+        foreach (TaxiUnit taxi in taxis.Where(t => !TaxiStatusRules.IsRetired(t.Status)).OrderBy(t => t.TaxiId, StringComparer.OrdinalIgnoreCase))
         {
             ShiftLog? activeShift = activeShifts.FirstOrDefault(s => s.TaxiId == taxi.TaxiId);
 

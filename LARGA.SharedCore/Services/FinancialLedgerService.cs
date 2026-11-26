@@ -491,6 +491,8 @@ public class FinancialLedgerService
                 IsDebtFlagged = daysUnpaid >= ShiftRules.DebtFlagDays,
             };
         })
+        // A deleted driver is listed only if something is owed again (e.g. a payment removed afterwards).
+        .Where(r => r.TotalDebt > 0 || !drivers.Any(d => d.UserId == r.DriverId && StaffRoles.IsFormerDriver(d.Role)))
         .OrderByDescending(r => r.TotalDebt)
         .ThenBy(r => r.DriverName)
         .ToList();
@@ -678,6 +680,18 @@ public class FinancialLedgerService
             CurrentOutstandingDebt = TotalOwed(charges, driverAdjustments),
             Transactions = Enumerable.Reverse(chronological).ToList(),
         };
+    }
+
+    /// <summary>What one driver owes and the advance credit they hold - the same figures as the Master
+    /// Debt Ledger. At most one of the two is above zero.</summary>
+    public async Task<(decimal Owed, decimal Credit)> GetDriverBalanceAsync(string driverId)
+    {
+        (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetDriverLedgerDataAsync(driverId);
+        List<ShiftCharge> charges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync())
+            .Where(c => c.DriverId == driverId)
+            .ToList();
+        decimal net = NetShiftBalance(charges) + adjustments.Where(a => a.DriverId == driverId).Sum(a => a.Amount);
+        return (Math.Max(0, net), Math.Max(0, -net));
     }
 
     private static string DayLabel(DateTime utc) => utc == DateTime.MinValue ? "Unknown day" : utc.ToPhilippineTime().ToString("ddd, MMM d");
@@ -1134,7 +1148,7 @@ public class FinancialLedgerService
         List<ShiftCharge> charges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync());
         DateTime now = DateTime.UtcNow;
 
-        foreach (UserProfile driver in drivers)
+        foreach (UserProfile driver in drivers.Where(d => StaffRoles.IsDriver(d.Role)))
         {
             try
             {
@@ -1463,7 +1477,8 @@ public class FinancialLedgerService
 
     private async Task<List<UserProfile>> GetDriversAsync(bool fromCache = false) =>
         (await GetAllAsync<UserProfile>("users", fromCache))
-            .Where(u => string.Equals(u.Role, "Driver", StringComparison.OrdinalIgnoreCase))
+            // Deleted drivers too, so their past settlements still show a name.
+            .Where(u => StaffRoles.IsDriverOrFormer(u.Role))
             .ToList();
 
     private async Task<List<T>> GetAllAsync<T>(string collection, bool fromCache = false) where T : class

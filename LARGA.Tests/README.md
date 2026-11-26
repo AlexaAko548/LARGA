@@ -17,6 +17,7 @@ anything that only lives there is tested on the emulator instead (see "Alpha tes
 | `Chats/` | Messaging | Who a chat push goes to (`ChatPushPolicy`: sender excluded, only the conversation's driver and staff, the small per-recipient payload), per-person unread and the badge numbers (`ChatReadState`) |
 | `Push/` | Push tokens | Which device a push may go to (`PushTokenRules`): own tokens only, a shared phone belongs to whoever registered last, the token doc ID, and the on-device `recipientUid` check |
 | `Ledger/` | Payments & reports | Boundary payments (BRP-014 configured rate), ledger updates, report driver names (BETA-098), reading `system_configs/global` field by field, payment-reference claim backfill (BRP-008) |
+| `Fleet/` | Taxi units & driver deletion | `FleetUnitRules` / `DriverRemovalRules`, and `FleetUnitService` / `DriverRemovalService` on the emulator (Manager-only, retire vs delete, what blocks each) |
 | `Shifts/` | Clock-in | Pre-shift reminder rules, manager approve/deny of a clock-in request (emulator) |
 | `Live/` | – | Helpers that talk to the **live** project. They do nothing unless their env vars are set (see below) |
 | `Support/` | – | Shared test helpers (`Emulator.cs`: local Firestore emulator setup) |

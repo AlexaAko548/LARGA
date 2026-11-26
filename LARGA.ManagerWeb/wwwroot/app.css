@@ -6743,3 +6743,31 @@ cursor: pointer;
 .webpush-prompt-on:disabled { opacity: 0.6; cursor: default; }
 .webpush-prompt-later { background: transparent; color: var(--muted); }
 .webpush-prompt button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* Fleet Units table actions, delete blockers, and the Delete Driver button. */
+.row-actions {
+    display: flex;
+    gap: 0.4rem;
+    white-space: nowrap;
+}
+
+.profile-btn.danger,
+.profile-action-btn.danger {
+    color: var(--danger, #e50000);
+    border-color: var(--danger, #e50000);
+}
+
+.profile-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.blocker-list {
+    margin: 0;
+    padding-left: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--ink);
+}

@@ -190,7 +190,8 @@ public class DriverManagementService
         DateTime weekEnd = weekStart.AddDays(7);
 
         List<UserProfile> drivers = await GetDriversAsync();
-        List<TaxiUnit> taxis = await GetAllAsync<TaxiUnit>("taxis");
+        // Retired units aren't counted or offered anywhere in the planner and the assignment lists.
+        List<TaxiUnit> taxis = (await GetAllAsync<TaxiUnit>("taxis")).Where(t => !TaxiStatusRules.IsRetired(t.Status)).ToList();
         List<ShiftSchedule> exceptions = await GetBetweenAsync<ShiftSchedule>("shift_schedules", "scheduledStartTime", weekStart, weekEnd.AddTicks(-1));
         // In the shop now, or booked for a coming day - both block the unit on their days.
         List<MaintenanceRecord> activeJobs = await GetWhereEqualAsync<MaintenanceRecord>("maintenance_logs", "status", WorkOrderRules.InProgress);
@@ -278,7 +279,6 @@ public class DriverManagementService
             var inUse = rows.Select(r => r.Days[i].TaxiId).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
             unitsByDay.Add(rows.Count(r => r.Days[i].TaxiId is not null));
             freeByDay.Add(taxis
-                .Where(t => !string.Equals(t.Status, "Decommissioned", StringComparison.OrdinalIgnoreCase))
                 .Select(t => t.TaxiId)
                 .Where(id => !inUse.Contains(id) && maintenanceNote(id, day) is null)
                 .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
@@ -503,7 +503,7 @@ public class DriverManagementService
     public async Task<List<ShiftLogEntry>> GetShiftLogsAsync(DateTime fromUtc, DateTime toUtc)
     {
         List<ShiftLog> shifts = await GetBetweenAsync<ShiftLog>("shifts", "shiftStart", fromUtc, toUtc);
-        List<UserProfile> drivers = await GetDriversAsync();
+        List<UserProfile> drivers = await GetDriversAndFormerAsync(); // names on past shifts
         List<HandoverChecklist> checklists = await GetBetweenAsync<HandoverChecklist>("handover_checklists", "timestamp", fromUtc, toUtc.AddDays(1));
 
         return shifts
@@ -565,7 +565,7 @@ public class DriverManagementService
         }
 
         ShiftLog shift = shiftDoc.ConvertTo<ShiftLog>();
-        List<UserProfile> drivers = await GetDriversAsync();
+        List<UserProfile> drivers = await GetDriversAndFormerAsync(); // names on past shifts
         List<HandoverChecklist> checklists = await GetWhereInAsync<HandoverChecklist>("handover_checklists", "shiftId", IdsOf(shift));
 
         return new ShiftChecklists
@@ -840,10 +840,16 @@ public class DriverManagementService
         {
             DocumentSnapshot current = await userRef.GetSnapshotAsync();
             string? currentTaxi = current.Exists && current.TryGetValue("assignedTaxiId", out string? taxi) ? taxi : null;
-            if (!string.Equals(currentTaxi, assignedTaxiId, StringComparison.OrdinalIgnoreCase)
-                && await GetOtherDriverOnUnitAsync(assignedTaxiId, driverId) is string holder)
+            if (!string.Equals(currentTaxi, assignedTaxiId, StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException($"{assignedTaxiId} is already assigned to {holder}. Give {holder} another unit first - a unit can only have one driver.");
+                if (await GetUnassignableUnitReasonAsync(assignedTaxiId) is string unavailable)
+                {
+                    throw new InvalidOperationException(unavailable);
+                }
+                if (await GetOtherDriverOnUnitAsync(assignedTaxiId, driverId) is string holder)
+                {
+                    throw new InvalidOperationException($"{assignedTaxiId} is already assigned to {holder}. Give {holder} another unit first - a unit can only have one driver.");
+                }
             }
         }
 
@@ -945,6 +951,20 @@ public class DriverManagementService
         return other.TryGetValue("fullName", out string? name) && !string.IsNullOrWhiteSpace(name) ? name : "another driver";
     }
 
+    // A unit deleted or retired on the Fleet Units page while another page's dropdown still listed it.
+    private async Task<string?> GetUnassignableUnitReasonAsync(string taxiId)
+    {
+        DocumentSnapshot unit = await Db.Collection("taxis").Document(taxiId).GetSnapshotAsync();
+        if (!unit.Exists)
+        {
+            return $"{taxiId} no longer exists - pick another unit.";
+        }
+
+        return unit.TryGetValue("status", out string? status) && TaxiStatusRules.IsRetired(status)
+            ? $"{taxiId} is retired - restore it on the Fleet Units page, or pick another unit."
+            : null;
+    }
+
     public async Task<CreateDriverResult> CreateDriverAsync(string fullName, string phoneNumber, string? temporaryPassword, string? assignedTaxiId = null, string? email = null, string? actorUserId = null)
     {
         fullName = InputValidator.NormalizeSpaces(fullName);
@@ -954,6 +974,10 @@ public class DriverManagementService
         if (inputError is not null)
         {
             return new CreateDriverResult { Ok = false, ErrorMessage = inputError };
+        }
+        if (!string.IsNullOrWhiteSpace(assignedTaxiId) && await GetUnassignableUnitReasonAsync(assignedTaxiId) is string unavailable)
+        {
+            return new CreateDriverResult { Ok = false, ErrorMessage = unavailable };
         }
         if (!string.IsNullOrWhiteSpace(assignedTaxiId) && await GetOtherDriverOnUnitAsync(assignedTaxiId, null) is string holder)
         {
@@ -1297,6 +1321,11 @@ public class DriverManagementService
     private async Task<List<UserProfile>> GetDriversAsync() =>
         (await GetAllAsync<UserProfile>("users"))
             .Where(u => string.Equals(u.Role, "Driver", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    private async Task<List<UserProfile>> GetDriversAndFormerAsync() =>
+        (await GetAllAsync<UserProfile>("users"))
+            .Where(u => StaffRoles.IsDriverOrFormer(u.Role))
             .ToList();
 
     private async Task<List<T>> GetAllAsync<T>(string collection) where T : class

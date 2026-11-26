@@ -13,6 +13,13 @@ public static class TaxiStatusRules
     /// <summary>In service - what a unit goes back to once its last open Garage job is closed.</summary>
     public const string ActiveUnit = "Active Unit";
 
+    /// <summary>A unit taken out of service on the Fleet Units page. Its records are kept; it can't be
+    /// assigned or booked until it is restored.</summary>
+    public const string Decommissioned = "Decommissioned";
+
+    public static bool IsRetired(string? status) =>
+        string.Equals(status?.Trim(), Decommissioned, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>maintenance_logs statuses that keep a unit in maintenance: a pending driver
     /// report not yet reviewed, or a work order in the shop.</summary>
     public static bool IsOpenJob(string? maintenanceStatus) =>

@@ -1,0 +1,494 @@
+@page "/fleet"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using LARGA.SharedCore
+@using LARGA.SharedCore.Models.Fleet
+@using LARGA.SharedCore.Services
+@* Rendered once, live (PERFORMANCE_REPORT.md P1): with prerendering its data loaded twice - once for the
+   prerendered HTML and again when the live connection started. The page shows its loading spinner meanwhile. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Security.Claims
+@inject AuthenticationStateProvider AuthStateProvider
+@inject FleetUnitService FleetUnits
+
+<PageTitle>Fleet Units</PageTitle>
+
+@if (_isLoading)
+{
+    <div class="auth-page">
+        <div class="auth-card">
+            <LoadingSpinner Text="Loading…" Size="lg" />
+        </div>
+    </div>
+}
+else
+{
+<div class="dashboard-shell">
+    <DashboardSidebar ActiveItem="Fleet" />
+
+    <main class="dashboard-main">
+        <header class="dashboard-header">
+            <div class="header-title-wrap">
+                <h1>FLEET UNITS</h1>
+                <div class="header-date">Taxi registry &amp; unit status</div>
+            </div>
+
+            <div class="header-actions">
+                <TourButton />
+                <NotificationBell />
+                <MessagesButton />
+                <ManagerProfileMenu />
+            </div>
+        </header>
+
+        @if (_loadError is not null)
+        {
+            <div class="data-warning-banner">Fleet data unavailable: @_loadError</div>
+        }
+        @if (_actionError is not null)
+        {
+            <div class="report-error">@_actionError</div>
+        }
+        @if (_notice is not null)
+        {
+            <div class="info-banner success">@_notice</div>
+        }
+
+        <section class="stats-grid" data-tour="fleet-stats">
+            <article class="stat-card">
+                <div class="stat-icon"><Icon Name="car-taxi-front" /></div>
+                <div class="stat-body">
+                    <div class="stat-value">@InService.Count()</div>
+                    <div class="stat-label">Units In Service</div>
+                </div>
+            </article>
+            <article class="stat-card">
+                <div class="stat-icon"><Icon Name="users" /></div>
+                <div class="stat-body">
+                    <div class="stat-value">@InService.Count(u => u.AssignedDriverName is not null)</div>
+                    <div class="stat-label">With a Driver</div>
+                </div>
+            </article>
+            <article class="stat-card">
+                <div class="stat-icon"><Icon Name="wrench" /></div>
+                <div class="stat-body">
+                    <div class="stat-value">@InService.Count(u => TaxiStatusRules.IsUnderMaintenance(u.Status))</div>
+                    <div class="stat-label">Under Maintenance</div>
+                </div>
+            </article>
+            <article class="stat-card">
+                <div class="stat-icon"><Icon Name="archive" /></div>
+                <div class="stat-body">
+                    <div class="stat-value">@_units.Count(u => u.IsRetired)</div>
+                    <div class="stat-label">Retired</div>
+                </div>
+            </article>
+        </section>
+
+        <section class="tab-bar">
+            <label class="archived-toggle" data-tour="show-retired">
+                <input type="checkbox" @bind="_showRetired" />
+                Show retired units
+            </label>
+            <div class="tab-actions">
+                @if (_canManage) { <button class="solid-btn" data-tour="add-unit" type="button" @onclick="OpenAddUnit">+ Add Unit</button> }
+            </div>
+        </section>
+
+        <div class="data-table-wrap" data-tour="fleet-table">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Unit</th>
+                        <th>Plate No.</th>
+                        <th>Model</th>
+                        <th>Year</th>
+                        <th>Mileage</th>
+                        <th>Status</th>
+                        <th>Assigned Driver</th>
+                        @if (_canManage) { <th>Actions</th> }
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!ShownUnits.Any())
+                    {
+                        <tr><td colspan="@(_canManage ? 8 : 7)" class="table-empty">@(_units.Count == 0 ? "No taxi units yet." : "No units in service. Tick \"Show retired units\" to see the others.")</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (FleetUnitEntry unit in ShownUnits)
+                        {
+                            FleetUnitEntry u = unit;
+                            <tr @key="u.TaxiId">
+                                <td><strong>@u.TaxiId</strong></td>
+                                <td>@(string.IsNullOrWhiteSpace(u.PlateNumber) ? "—" : u.PlateNumber)</td>
+                                <td>@(string.IsNullOrWhiteSpace(u.Model) ? "—" : u.Model)</td>
+                                <td>@(u.YearManufactured > 0 ? u.YearManufactured.ToString() : "—")</td>
+                                <td>@u.CurrentMileage.ToString("N0") km</td>
+                                <td><span class="status-pill @StatusCss(u)"><span class="dot"></span> @StatusLabel(u)</span></td>
+                                <td>@(u.AssignedDriverName ?? "—")</td>
+                                @if (_canManage)
+                                {
+                                    <td>
+                                        <div class="row-actions">
+                                            <button class="profile-btn" type="button" disabled="@_isBusy" @onclick="() => OpenEditUnit(u)"><Icon Name="pencil" /> Edit</button>
+                                            @if (u.IsRetired)
+                                            {
+                                                <button class="profile-btn" type="button" disabled="@_isBusy" @onclick="() => RequestRestore(u)"><Icon Name="rotate-ccw" /> Restore</button>
+                                            }
+                                            <button class="profile-btn danger" type="button" disabled="@_isBusy" @onclick="() => RequestDeleteAsync(u)">Delete</button>
+                                        </div>
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+@if (_showForm)
+{
+    <div class="report-overlay" @onclick="CloseForm">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>@(_editing is null ? "Add Taxi Unit" : $"Edit {_editing.TaxiId}")</h3>
+                <button type="button" class="close-modal" @onclick="CloseForm">×</button>
+            </div>
+            <div class="report-body">
+                <div class="report-section">
+                    <label for="unit-plate">Plate Number</label>
+                    <input id="unit-plate" class="text-input @InvalidCss(Show(_form.PlateNumber), PlateError)" maxlength="15" @bind="_form.PlateNumber" @bind:event="oninput" placeholder="e.g. GAB 1234" autocomplete="off" />
+                    <FieldError Show="Show(_form.PlateNumber)" Message="@PlateError" />
+                </div>
+                <div class="report-section">
+                    <label for="unit-model">Model</label>
+                    <input id="unit-model" class="text-input @InvalidCss(Show(_form.Model), ModelError)" maxlength="@FleetUnitRules.MaxModelLength" @bind="_form.Model" @bind:event="oninput" placeholder="e.g. Toyota Vios" />
+                    <FieldError Show="Show(_form.Model)" Message="@ModelError" />
+                </div>
+                <div class="report-section">
+                    <label for="unit-year">Year Manufactured</label>
+                    <input id="unit-year" type="number" class="text-input @InvalidCss(_submitted || _form.YearManufactured is not null, YearError)" min="@FleetUnitRules.MinYear" max="@(PhilippineTime.Now.Year + 1)" @bind="_form.YearManufactured" @bind:event="oninput" placeholder="e.g. 2022" />
+                    <FieldError Show="_submitted || _form.YearManufactured is not null" Message="@YearError" />
+                </div>
+                <div class="report-section">
+                    <label for="unit-mileage">@(_editing is null ? "Starting Mileage (km)" : "Recorded Mileage (km)")</label>
+                    <input id="unit-mileage" type="number" class="text-input @InvalidCss(_submitted || _form.Mileage is not null, MileageError)" min="0" max="@FleetUnitRules.MaxMileage" @bind="_form.Mileage" @bind:event="oninput" placeholder="Odometer reading" />
+                    <FieldError Show="_submitted || _form.Mileage is not null" Message="@MileageError" />
+                    @if (_editing is not null && _editing.CurrentMileage != _editing.RecordedMileage)
+                    {
+                        <small class="receipt-hint">A recent shift read @_editing.CurrentMileage.ToString("N0") km, so the mileage can't be set below that.</small>
+                    }
+                </div>
+                @if (_editing is { IsRetired: false })
+                {
+                    <div class="report-section">
+                        <label for="unit-status">Status</label>
+                        <select id="unit-status" class="text-input" @bind="_formStatus">
+                            <option value="@TaxiStatusRules.ActiveUnit">@TaxiStatusRules.ActiveUnit</option>
+                            <option value="@TaxiStatusRules.UnderMaintenance">@TaxiStatusRules.UnderMaintenance</option>
+                        </select>
+                        <small class="receipt-hint">A driver can't clock in on a unit that is Under Maintenance.</small>
+                    </div>
+                }
+                @if (_editing is null)
+                {
+                    <div class="info-banner">The unit ID is assigned automatically. Assign a driver to the unit from their profile on Driver &amp; Shifts.</div>
+                }
+                @if (_formError is not null)
+                {
+                    <div class="report-error">@_formError</div>
+                }
+            </div>
+            <div class="report-actions">
+                <button class="cancel-btn" type="button" disabled="@_isBusy" @onclick="CloseForm">Cancel</button>
+                <button class="download-btn" type="button" disabled="@_isBusy" @onclick="SaveUnitAsync" aria-busy="@_isBusy">@(_isBusy ? "Saving…" : _editing is null ? "Add Unit" : "Save Changes")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_blockedUnit is not null)
+{
+    <div class="report-overlay" @onclick="() => _blockedUnit = null">
+        <div class="report-modal" @onclick:stopPropagation="true">
+            <div class="report-header">
+                <h3>@_blockedUnit can't be deleted yet</h3>
+                <button type="button" class="close-modal" @onclick="() => _blockedUnit = null">×</button>
+            </div>
+            <div class="report-body">
+                <ul class="blocker-list">
+                    @foreach (string blocker in _blockers)
+                    {
+                        <li>@blocker</li>
+                    }
+                </ul>
+            </div>
+            <div class="report-actions">
+                <button class="download-btn" type="button" @onclick="() => _blockedUnit = null">Close</button>
+            </div>
+        </div>
+    </div>
+}
+}
+
+<ConfirmationModal Show="_showConfirm" Title="@_confirmTitle" Message="@_confirmMessage" ConfirmText="@_confirmButtonText"
+    IsDangerous="_confirmDangerous" IsBusy="_isBusy" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm" />
+
+@code {
+    // Assistant Managers can look at the fleet; only the Manager changes it (FleetUnitService checks too).
+    private bool _canManage;
+    private string _managerUserId = string.Empty;
+
+    // True until the first data load finishes. Access itself is enforced server-side by [Authorize].
+    private bool _isLoading = true;
+    private List<FleetUnitEntry> _units = new();
+    private bool _showRetired;
+    private bool _isBusy;
+    private string? _loadError;
+    private string? _actionError;
+    private string? _notice;
+
+    private IEnumerable<FleetUnitEntry> InService => _units.Where(u => !u.IsRetired);
+    private IEnumerable<FleetUnitEntry> ShownUnits => _showRetired ? _units : InService;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        AuthenticationState authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _canManage = authState.User.IsInRole(ManagerSignInService.ManagerRole);
+        _managerUserId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+
+        await LoadAsync();
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _units = await FleetUnits.GetUnitsAsync();
+            _loadError = null;
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+        }
+    }
+
+    private static string StatusLabel(FleetUnitEntry u) =>
+        u.IsRetired ? "RETIRED"
+        : TaxiStatusRules.IsUnderMaintenance(u.Status) ? "UNDER MAINTENANCE"
+        : string.IsNullOrWhiteSpace(u.Status) ? "NOT SET"
+        : u.Status.ToUpperInvariant();
+
+    private static string StatusCss(FleetUnitEntry u) =>
+        u.IsRetired || string.IsNullOrWhiteSpace(u.Status) ? "status-neutral"
+        : TaxiStatusRules.IsUnderMaintenance(u.Status) ? "status-warning"
+        : "status-success";
+
+    // -- Add / edit ----------------------------------------------------------
+
+    private bool _showForm;
+    private bool _submitted;
+    private FleetUnitEntry? _editing;
+    private FleetUnitInput _form = new();
+    private string _formStatus = TaxiStatusRules.ActiveUnit;
+    private string _originalFormStatus = TaxiStatusRules.ActiveUnit;
+    private string? _formError;
+
+    // The same rules FleetUnitService enforces. A field's error shows once something is typed in it,
+    // or for every field after Save is pressed.
+    private string? PlateError => FleetUnitRules.ValidatePlate(_form.PlateNumber);
+    private string? ModelError => FleetUnitRules.ValidateModel(_form.Model);
+    private string? YearError => FleetUnitRules.ValidateYear(_form.YearManufactured, PhilippineTime.Now);
+    private string? MileageError => FleetUnitRules.ValidateMileage(_form.Mileage);
+    private bool Show(string value) => _submitted || !string.IsNullOrEmpty(value);
+    private static string InvalidCss(bool show, string? error) => show && error is not null ? "invalid" : string.Empty;
+
+    private void OpenAddUnit()
+    {
+        _editing = null;
+        _form = new FleetUnitInput();
+        OpenForm();
+    }
+
+    private void OpenEditUnit(FleetUnitEntry unit)
+    {
+        _editing = unit;
+        _form = new FleetUnitInput
+        {
+            PlateNumber = unit.PlateNumber,
+            Model = unit.Model,
+            YearManufactured = unit.YearManufactured > 0 ? unit.YearManufactured : null,
+            Mileage = unit.RecordedMileage,
+        };
+        _formStatus = _originalFormStatus = TaxiStatusRules.IsUnderMaintenance(unit.Status)
+            ? TaxiStatusRules.UnderMaintenance
+            : TaxiStatusRules.ActiveUnit;
+        OpenForm();
+    }
+
+    private void OpenForm()
+    {
+        _submitted = false;
+        _formError = null;
+        _notice = null;
+        _actionError = null;
+        _showForm = true;
+    }
+
+    private void CloseForm()
+    {
+        if (!_isBusy)
+        {
+            _showForm = false;
+        }
+    }
+
+    private async Task SaveUnitAsync()
+    {
+        if (_isBusy) return; // a second click while this is still running is ignored
+        _submitted = true;
+        if ((PlateError ?? ModelError ?? YearError ?? MileageError) is not null)
+        {
+            _formError = "Fix the highlighted fields first.";
+            return;
+        }
+
+        _isBusy = true;
+        _formError = null;
+        try
+        {
+            // Sent only when the manager changed it, so saving other details never touches the status.
+            _form.Status = _editing is { IsRetired: false } && _formStatus != _originalFormStatus ? _formStatus : null;
+            FleetActionResult result = _editing is null
+                ? await FleetUnits.AddUnitAsync(_form, _managerUserId)
+                : await FleetUnits.UpdateUnitAsync(_editing.TaxiId, _form, _managerUserId);
+            if (!result.Ok)
+            {
+                _formError = result.ErrorMessage;
+                return;
+            }
+
+            _notice = _editing is null ? $"Added {result.TaxiId}." : $"Saved the changes to {result.TaxiId}.";
+            _showForm = false;
+            await LoadAsync();
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    // -- Delete / restore ----------------------------------------------------
+
+    private string? _blockedUnit;
+    private List<string> _blockers = new();
+
+    private bool _showConfirm;
+    private bool _confirmDangerous;
+    private string _confirmTitle = "";
+    private string _confirmMessage = "";
+    private string _confirmButtonText = "Confirm";
+    private Func<Task<FleetActionResult>>? _pendingAction;
+
+    private async Task RequestDeleteAsync(FleetUnitEntry unit)
+    {
+        if (_isBusy) return;
+        _isBusy = true;
+        _notice = null;
+        _actionError = null;
+        try
+        {
+            UnitRemovalPlan plan = await FleetUnits.GetRemovalPlanAsync(unit.TaxiId);
+            if (plan.Blockers.Count > 0)
+            {
+                _blockedUnit = unit.TaxiId;
+                _blockers = plan.Blockers;
+                return;
+            }
+            if (plan.HasHistory && unit.IsRetired)
+            {
+                _actionError = $"{unit.TaxiId} is already retired. Its records keep it from being removed completely.";
+                return;
+            }
+
+            string name = $"{unit.TaxiId} ({unit.PlateNumber})";
+            Confirm(
+                plan.HasHistory ? $"Retire {unit.TaxiId}?" : $"Delete {unit.TaxiId}?",
+                plan.HasHistory
+                    ? $"{name} has shift or Garage records, so it will be retired instead of erased. Its history is kept, it can't be assigned to anyone, and you can restore it later."
+                    : $"{name} has no records, so it will be permanently deleted. This can't be undone.",
+                plan.HasHistory ? "Retire Unit" : "Delete Unit",
+                dangerous: true,
+                () => FleetUnits.DeleteUnitAsync(unit.TaxiId, _managerUserId));
+        }
+        catch (Exception ex)
+        {
+            _actionError = $"Couldn't check {unit.TaxiId}: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void RequestRestore(FleetUnitEntry unit)
+    {
+        _notice = null;
+        _actionError = null;
+        Confirm($"Restore {unit.TaxiId}?", $"{unit.TaxiId} ({unit.PlateNumber}) goes back into service as an Active Unit.", "Restore Unit",
+            dangerous: false, () => FleetUnits.RestoreUnitAsync(unit.TaxiId, _managerUserId));
+    }
+
+    private void Confirm(string title, string message, string buttonText, bool dangerous, Func<Task<FleetActionResult>> action)
+    {
+        _confirmTitle = title;
+        _confirmMessage = message;
+        _confirmButtonText = buttonText;
+        _confirmDangerous = dangerous;
+        _pendingAction = action;
+        _showConfirm = true;
+    }
+
+    private async Task ConfirmActionAsync()
+    {
+        if (_isBusy || _pendingAction is null) return;
+        _isBusy = true;
+        try
+        {
+            bool restoring = !_confirmDangerous;
+            FleetActionResult result = await _pendingAction();
+            if (result.Ok)
+            {
+                _notice = restoring ? $"{result.TaxiId} is back in service."
+                    : result.Retired ? $"Retired {result.TaxiId}. Tick \"Show retired units\" to see it."
+                    : $"Deleted {result.TaxiId}.";
+            }
+            else
+            {
+                _actionError = result.ErrorMessage;
+            }
+            await LoadAsync();
+        }
+        finally
+        {
+            _isBusy = false;
+            CancelConfirm();
+        }
+    }
+
+    private void CancelConfirm()
+    {
+        _showConfirm = false;
+        _pendingAction = null;
+    }
+}

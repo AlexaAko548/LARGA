@@ -44,6 +44,14 @@ public static class TourCatalog
             new("view-route", "Route review", "View route opens a map of where the unit went during that shift. Locations are only recorded while a shift is running, and old routes expire."),
         ]),
 
+        new("fleet", 1, "fleet",
+        [
+            new("fleet-stats", "Fleet counts", "How many units are in service, how many have a driver, how many are under maintenance, and how many are retired."),
+            new("fleet-table", "Unit list", "One row per taxi with its plate, model, mileage, status and assigned driver."),
+            new("show-retired", "Retired units", "Units taken out of service are hidden but keep their history. Tick this to see them."),
+            new("add-unit", "Add or change units", "Add a taxi here. Edit and Delete are on each row. Only the Manager can do this.", ManagerOnly: true),
+        ]),
+
         new("financial-ledger", 1, "ledger",
         [
             new("ledger-tabs", "Two views", "Daily Settlements shows what each shift owes today. Master Debt Ledger shows what each driver still owes in total."),
