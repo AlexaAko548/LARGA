@@ -123,7 +123,7 @@ public class ManagerProfileViewModel : BindableObject
             var taxiSnapshot = await CrossFirebaseFirestore.Current
                 .GetCollection("taxis")
                 .GetDocumentsAsync<TaxiCountProxy>();
-            var taxiCount = taxiSnapshot.Documents.Count();
+            var taxiCount = taxiSnapshot.Documents.Count(d => !LARGA.SharedCore.TaxiStatusRules.IsRetired(d.Data?.Status));
             FleetCountDisplay = $"{taxiCount} unit{(taxiCount == 1 ? "" : "s")} assigned";
         }
         catch (Exception ex)
@@ -138,7 +138,7 @@ public class ManagerProfileViewModel : BindableObject
         public string FullName { get; set; } = string.Empty;
     }
 
-    // Only need document *count* for these two - the plugin still requires a mappable type.
+    // Only counted (taxis: without the retired ones) - the plugin still requires a mappable type.
     private class DriverCountProxy
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("fullName")]
@@ -147,7 +147,7 @@ public class ManagerProfileViewModel : BindableObject
 
     private class TaxiCountProxy
     {
-        [Plugin.Firebase.Firestore.FirestoreProperty("plateNumber")]
-        public string PlateNumber { get; set; } = string.Empty;
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
+        public string Status { get; set; } = string.Empty;
     }
 }
