@@ -374,8 +374,8 @@ public class FleetMapViewModel : BindableObject
 
         try
         {
-            // Unit shortcuts show every taxi in the fleet, not just the ones with a pin - a
-            // manager should be able to jump to (or find out there's nothing to jump to for)
+            // Unit shortcuts show every taxi in service (retired units are left out), not just
+            // the ones with a pin - a manager should be able to jump to (or find out there's nothing to jump to for)
             // any unit from this same row. The roster itself changes rarely, so this is a
             // one-shot fetch per tab-visit rather than something the live listeners need to
             // track.
@@ -384,7 +384,7 @@ public class FleetMapViewModel : BindableObject
                 .GetDocumentsAsync<TaxiLookup>();
 
             _allTaxiIds = allTaxisSnapshot.Documents
-                .Where(d => d.Data != null)
+                .Where(d => d.Data != null && !LARGA.SharedCore.TaxiStatusRules.IsRetired(d.Data.Status))
                 .Select(d => d.Reference.Id)
                 .ToList();
         }
@@ -733,5 +733,8 @@ public class FleetMapViewModel : BindableObject
         // into a C# int property throws System.ArgumentException: Int64 cannot be converted to Int32).
         [Plugin.Firebase.Firestore.FirestoreProperty("yearManufactured")]
         public double YearManufactured { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("status")]
+        public string Status { get; set; } = string.Empty;
     }
 }

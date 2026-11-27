@@ -80,7 +80,7 @@ public class QuickLedgerService
         Task<IReadOnlyList<BoundaryPaymentRecord>> paymentsTask = Step(ReadPaymentsAsync(paymentWarnings), "Reading boundary payments");
         Task<IReadOnlyList<DebtAdjustmentRecord>> adjustmentsTask = Step(ReadAdjustmentsAsync(adjustmentWarnings), "Reading debt adjustments");
         Task<UserDirectory> usersTask = Step(ReadUsersAsync(), "Reading users");
-        Task<decimal> rateTask = Step(ReadDefaultBoundaryRateAsync(), "Reading boundary rate");
+        Task<BoundaryRateSchedule> rateTask = Step(ReadDefaultBoundaryRateAsync(), "Reading boundary rate");
         // Plates are only labels: if taxis can't be read, rows show the taxi ID instead of failing the whole page.
         Task<IReadOnlyDictionary<string, string>> platesTask = ReadTaxiPlatesBestEffortAsync();
 
@@ -90,7 +90,7 @@ public class QuickLedgerService
         IReadOnlyList<BoundaryPaymentRecord> payments = paymentsTask.Result;
         IReadOnlyList<DebtAdjustmentRecord> adjustments = adjustmentsTask.Result;
         UserDirectory users = usersTask.Result;
-        decimal defaultRate = rateTask.Result;
+        BoundaryRateSchedule defaultRate = rateTask.Result;
         IReadOnlyDictionary<string, string> taxiPlates = platesTask.Result;
         warnings.AddRange(shiftWarnings);
         warnings.AddRange(paymentWarnings);
@@ -555,7 +555,7 @@ public class QuickLedgerService
     }
 
     // Falls back to the same default the web ledger uses when the config is missing or unreadable.
-    internal static async Task<decimal> ReadDefaultBoundaryRateAsync(Source source = Source.Default)
+    internal static async Task<BoundaryRateSchedule> ReadDefaultBoundaryRateAsync(Source source = Source.Default)
     {
         try
         {
@@ -564,8 +564,9 @@ public class QuickLedgerService
                 .GetDocument("global")
                 .GetDocumentSnapshotAsync<SystemConfigProxy>(source);
 
-            decimal rate = ToDecimal(snapshot?.Data?.DefaultBoundaryRate);
-            return rate > 0 ? rate : QuickLedgerCalculator.FallbackBoundaryRate;
+            return BoundaryRateSchedule.From(
+                ToDecimal(snapshot?.Data?.DefaultBoundaryRate),
+                snapshot?.Data?.BoundaryRateHistory?.Select(StringOf));
         }
         catch (Exception ex)
         {
@@ -827,6 +828,9 @@ public class QuickLedgerService
     {
         [Plugin.Firebase.Firestore.FirestoreProperty("defaultBoundaryRate")]
         public object? DefaultBoundaryRate { get; set; }
+
+        [Plugin.Firebase.Firestore.FirestoreProperty("boundaryRateHistory")]
+        public List<object>? BoundaryRateHistory { get; set; }
 
         [Plugin.Firebase.Firestore.FirestoreProperty("authorizedPayoutAccounts")]
         public List<object>? AuthorizedPayoutAccounts { get; set; }

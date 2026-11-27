@@ -118,6 +118,7 @@ public class GarageService
             .ToList();
 
         List<RoutineCheckEntry> upcoming = checks
+            .Where(c => !(taxiById.TryGetValue(c.TaxiId, out TaxiUnit? unit) && TaxiStatusRules.IsRetired(unit.Status)))
             .Select(c =>
             {
                 int? dueInKm = null;
@@ -704,7 +705,10 @@ public class GarageService
         DateTime todayPh = PhilippineTime.Now.Date;
 
         var wanted = new List<(DocumentReference Ref, SystemAlert Alert)>();
-        foreach (RoutineCheckItem check in checks)
+        HashSet<string> retired = taxis.Where(t => TaxiStatusRules.IsRetired(t.Status))
+            .Select(t => string.IsNullOrWhiteSpace(t.TaxiId) ? t.DocumentId : t.TaxiId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (RoutineCheckItem check in checks.Where(c => !retired.Contains(c.TaxiId)))
         {
             string unit = FormatUnitLabel(check.TaxiId);
             DateTime? dueDatePh = check.DueDate?.Date; // stored as the Philippine calendar date

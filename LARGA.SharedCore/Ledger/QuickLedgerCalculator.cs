@@ -86,7 +86,7 @@ public static class QuickLedgerCalculator
                 return new PaymentDoneRow(
                     ShiftId: first.ShiftId,
                     DriverName: NameFor(input, state?.Shift.DriverId ?? string.Empty),
-                    Expected: state?.Expected ?? ExpectedFor(first, input.DefaultBoundaryRate),
+                    Expected: state?.Expected ?? ExpectedFor(first, input.DefaultBoundaryRate.CurrentRate),
                     AmountPaid: group.Sum(p => p.AmountPaid),
                     IsCleared: state?.IsCleared ?? false,
                     TimestampUtc: group.Max(p => p.TimestampUtc) ?? DateTime.MinValue,
@@ -364,11 +364,11 @@ public static class QuickLedgerCalculator
                 .OrderByDescending(p => p.TimestampUtc ?? DateTime.MinValue)
                 .FirstOrDefault();
 
-            // The expected boundary comes from the target if it has one, else the default rate. Late fee and fuel
+            // The expected boundary comes from the target if it has one, else the rate when the shift started. Late fee and fuel
             // penalty come from the shift itself when clock-out set them, else from the target - the web's ExtrasFor.
             decimal expectedBoundary = target is not null && target.ExpectedBoundary > 0
                 ? target.ExpectedBoundary
-                : input.DefaultBoundaryRate;
+                : input.DefaultBoundaryRate.RateFor(shift.StartUtc);
             decimal lateFees = ShiftRules.EffectiveLateFee(shift.LateFee, shift.StartUtc, shift.EndUtc) ?? target?.LateFees ?? 0m;
             decimal fuelPenalty = shift.FuelPenalty ?? target?.FuelPenalty ?? 0m;
 
@@ -557,7 +557,7 @@ public sealed record QuickLedgerInput(
     IReadOnlyDictionary<string, string> DriverNames,
     IReadOnlyList<string> DriverIds,
     IReadOnlyDictionary<string, string> TaxiPlates,
-    decimal DefaultBoundaryRate);
+    BoundaryRateSchedule DefaultBoundaryRate);
 
 // ---------------------------------------------------------------------
 // Outputs: one row per thing the page shows.

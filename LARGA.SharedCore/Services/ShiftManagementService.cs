@@ -91,8 +91,9 @@ public class ClockInRequestStatus
     public HandoverChecklistSubmission Checklist { get; set; } = new();
 }
 
-/// <summary>What clock-out added on top of the boundary (ShiftRules).</summary>
-public record ShiftEndCharges(decimal LateFee, decimal FuelPenalty)
+/// <summary>What clock-out added on top of the boundary (ShiftRules). ShiftStartUtc picks the
+/// boundary rate the shift is charged; null when it couldn't be read back.</summary>
+public record ShiftEndCharges(decimal LateFee, decimal FuelPenalty, DateTime? ShiftStartUtc = null)
 {
     public decimal Total => LateFee + FuelPenalty;
 }
@@ -570,12 +571,14 @@ public class ShiftManagementService : IShiftManagementService
             // Only for the Shift Completed screen: the same fee the ledgers will compute, from
             // the server's own timestamps now that they're saved.
             decimal lateFee = 0m;
+            DateTime? shiftStartUtc = null;
             try
             {
                 var snapshot = await shiftDoc.GetDocumentSnapshotAsync<ShiftTimesProxy>();
                 DateTime? start = snapshot?.Data is null ? null : ReadPluginDate(snapshot.Data.ShiftStart);
                 DateTime? end = snapshot?.Data is null ? null : ReadPluginDate(snapshot.Data.ShiftEnd);
                 lateFee = ShiftRules.EffectiveLateFee(null, start, end ?? ShiftClock.UtcNow) ?? 0m;
+                shiftStartUtc = start;
             }
             catch (Exception ex)
             {
@@ -583,7 +586,7 @@ public class ShiftManagementService : IShiftManagementService
                 System.Diagnostics.Debug.WriteLine($"Late Fee Preview Error: {ex.Message}");
             }
 
-            return new ShiftEndCharges(lateFee, fuelPenalty);
+            return new ShiftEndCharges(lateFee, fuelPenalty, shiftStartUtc);
         }
         catch (Exception ex)
         {

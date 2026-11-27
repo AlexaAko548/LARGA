@@ -12,6 +12,11 @@ public class SystemConfig
     [FirestoreProperty("defaultBoundaryRate")]
     public double DefaultBoundaryRate { get; set; }
 
+    // Rates that were replaced, as "<until UTC>|<rate>", so a shift keeps the rate in effect when
+    // it started (BoundaryRateSchedule). Written by ManagerWeb's Settings (BoundaryRateService).
+    [FirestoreProperty("boundaryRateHistory")]
+    public List<string> BoundaryRateHistory { get; set; } = new();
+
     [FirestoreProperty("idleThresholdMinutes")]
     public double IdleThresholdMinutes { get; set; } = 15;
 

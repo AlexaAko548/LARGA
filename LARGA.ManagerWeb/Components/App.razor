@@ -35,6 +35,9 @@
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
     @* driver.js 1.3.6 (MIT), served from here on purpose - no CDN. Used by the page tours (tour.js). *@
     <link rel="stylesheet" href="@Assets["lib/driver.js/driver.css"]" />
+    @* Leaflet's stylesheet for the shift route map (route-map.js). It must be listed here: enhanced
+       navigation removes a stylesheet that a script adds to <head>, which broke the map. *@
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["LARGA.ManagerWeb.styles.css"]" />
     <ImportMap />

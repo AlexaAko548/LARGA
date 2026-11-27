@@ -1,7 +1,9 @@
+@using System.Globalization
 @using System.Security.Claims
 @using System.Text.Json
 @using LARGA.ManagerWeb.Models
 @using LARGA.ManagerWeb.Services
+@using LARGA.SharedCore.Services
 @using Microsoft.AspNetCore.Components.Authorization
 @using Google.Cloud.Firestore
 @implements IAsyncDisposable
@@ -12,6 +14,7 @@
 @inject NavigationManager Navigation
 @inject PayoutAccountService PayoutAccounts
 @inject DuressPinService DuressPins
+@inject BoundaryRateService BoundaryRates
 @inject AccessRequestService AccessRequests
 @inject PushTokenStore PushTokens
 
@@ -62,155 +65,220 @@
 @if (_isSettingsModalOpen)
 {
     <div class="report-overlay" @onclick="CloseSettingsModal">
-        <div class="report-modal" @onclick:stopPropagation="true">
+        <div class="report-modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" @onclick:stopPropagation="true">
             <div class="report-header">
-                <h3>Manager Settings</h3>
+                <h3 id="settings-title">Settings</h3>
                 <button type="button" class="close-modal" aria-label="Close" @onclick="CloseSettingsModal">×</button>
             </div>
 
             <div class="report-body">
-                <EditForm Model="_contactModel" FormName="manager-contact" OnValidSubmit="UpdateContactNumberAsync" class="report-section">
-                    <DataAnnotationsValidator />
-                    <label>Update contact number</label>
-
-                    <div class="form-block">
-                        <InputText @bind-Value="_contactModel.CurrentContactNumber" type="tel" maxlength="16" placeholder="Current number" />
-                        <ValidationMessage For="() => _contactModel.CurrentContactNumber" class="field-error" />
-                    </div>
-                    <div class="form-block">
-                        <InputText @bind-Value="_contactModel.NewContactNumber" type="tel" maxlength="16" placeholder="New number, e.g. 0917 123 4567" />
-                        <ValidationMessage For="() => _contactModel.NewContactNumber" class="field-error" />
-                    </div>
-                    <div class="form-block">
-                        <InputText @bind-Value="_contactModel.ConfirmContactNumber" type="tel" maxlength="16" placeholder="Confirm new number" />
-                        <ValidationMessage For="() => _contactModel.ConfirmContactNumber" class="field-error" />
-                    </div>
-
-                    @if (!string.IsNullOrEmpty(_contactMessage))
-                    {
-                        <div class="@(_contactSaved ? "field-ok" : "field-error")">@_contactMessage</div>
-                    }
-
-                    <div class="manager-menu-form-actions">
-                        <button class="download-btn" type="submit" disabled="@_isSavingContact" aria-busy="@_isSavingContact">@(_isSavingContact ? "Saving…" : "Update Number")</button>
-                    </div>
-                </EditForm>
-
                 @if (IsManager)
                 {
+                    <h4 class="settings-group">Fleet &amp; payments</h4>
+
+                    @* The daily boundary. A new rate only applies to shifts that start after it's saved
+                       (BoundaryRateSchedule), so it asks for confirmation first. *@
+                    <section class="settings-section boundary-rate" aria-labelledby="settings-rate-title">
+                        <div class="settings-about">
+                            <h5 id="settings-rate-title">Boundary payment rate</h5>
+                            <p>What a driver owes for one day. A new rate applies to shifts that start after you save it; earlier shifts keep their old rate.</p>
+                        </div>
+                        <div class="settings-controls">
+                            <div class="settings-current">
+                                <span>Current rate</span>
+                                <strong>@(_boundaryRate is decimal rate ? $"₱{rate:N0} per day" : _boundaryRateLoadFailed ? "Unavailable" : "Loading…")</strong>
+                            </div>
+
+                            @if (_pendingBoundaryRate is decimal pending)
+                            {
+                                <div class="settings-confirm" role="alert">
+                                    <span>Change the daily boundary from <strong>₱@($"{_boundaryRate:N0}")</strong> to <strong>₱@($"{pending:N0}")</strong>?</span>
+                                    <div class="settings-actions">
+                                        <button class="cancel-btn" type="button" disabled="@_isSavingBoundaryRate" @onclick="() => _pendingBoundaryRate = null">Cancel</button>
+                                        <button class="download-btn" type="button" disabled="@_isSavingBoundaryRate" aria-busy="@_isSavingBoundaryRate" @onclick="SaveBoundaryRateAsync">@(_isSavingBoundaryRate ? "Saving…" : "Confirm change")</button>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="settings-field">
+                                    <label for="settings-new-rate">New rate (₱ per day)</label>
+                                    <div class="settings-inline">
+                                        <input id="settings-new-rate" class="text-input" type="text" inputmode="numeric" maxlength="6" placeholder="e.g. 900" autocomplete="off"
+                                               @bind="_newBoundaryRate" @bind:event="oninput" />
+                                        <button class="download-btn" type="button" disabled="@(_boundaryRate is null || string.IsNullOrWhiteSpace(_newBoundaryRate))" @onclick="ReviewBoundaryRate">Update rate</button>
+                                    </div>
+                                </div>
+                            }
+
+                            @if (!string.IsNullOrEmpty(_boundaryRateMessage))
+                            {
+                                <div class="@(_boundaryRateSaved ? "field-ok" : "field-error")" role="status">@_boundaryRateMessage</div>
+                            }
+                        </div>
+                    </section>
+
                     @* Target account verification: e-receipts sent to any other account are flagged in the
                        Quick Ledger (mobile) and the Financial Ledger. *@
-                    <div class="report-section payout-accounts">
-                        <label>Authorized payout accounts</label>
-                        <span class="manager-menu-hint">GCash numbers and bank accounts drivers may send boundary payments to. Receipts sent anywhere else are flagged.</span>
-
-                        @if (_payoutAccounts is null)
-                        {
-                            <span class="manager-menu-hint">Loading…</span>
-                        }
-                        else if (_payoutAccounts.Count == 0)
-                        {
-                            <span class="manager-menu-hint">None yet - receipts can't be checked until you add one.</span>
-                        }
-                        else
-                        {
-                            <ul class="payout-account-list">
-                                @foreach (string account in _payoutAccounts)
-                                {
-                                    string current = account;
-                                    <li>
-                                        <span>@current</span>
-                                        <button type="button" class="cancel-btn" disabled="@_isSavingPayout" @onclick="() => RemovePayoutAccountAsync(current)">Remove</button>
-                                    </li>
-                                }
-                            </ul>
-                        }
-
-                        <div class="payout-account-add">
-                            <input class="text-input" type="text" maxlength="@PayoutAccountService.MaxAccountLength" placeholder="e.g. 0917 123 4567 or BDO 001234567890"
-                                   @bind="_newPayoutAccount" @bind:event="oninput" />
-                            <button class="download-btn" type="button" disabled="@(_isSavingPayout || string.IsNullOrWhiteSpace(_newPayoutAccount))" @onclick="AddPayoutAccountAsync">Add</button>
+                    <section class="settings-section payout-accounts" aria-labelledby="settings-payout-title">
+                        <div class="settings-about">
+                            <h5 id="settings-payout-title">Authorized payout accounts</h5>
+                            <p>GCash numbers and bank accounts drivers may send boundary payments to. Receipts sent anywhere else are flagged.</p>
                         </div>
-                        @if (!string.IsNullOrEmpty(_payoutError))
-                        {
-                            <div class="field-error">@_payoutError</div>
-                        }
-                    </div>
+                        <div class="settings-controls">
+                            @if (_payoutAccounts is null)
+                            {
+                                <span class="manager-menu-hint">Loading…</span>
+                            }
+                            else if (_payoutAccounts.Count == 0)
+                            {
+                                <span class="manager-menu-hint">None yet - receipts can't be checked until you add one.</span>
+                            }
+                            else
+                            {
+                                <ul class="payout-account-list">
+                                    @foreach (string account in _payoutAccounts)
+                                    {
+                                        string current = account;
+                                        <li>
+                                            <span>@current</span>
+                                            <button type="button" class="cancel-btn" disabled="@_isSavingPayout" @onclick="() => RemovePayoutAccountAsync(current)">Remove</button>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+
+                            <div class="settings-field">
+                                <label for="settings-new-account">Add an account</label>
+                                <div class="settings-inline">
+                                    <input id="settings-new-account" class="text-input" type="text" maxlength="@PayoutAccountService.MaxAccountLength" placeholder="e.g. 0917 123 4567 or BDO 001234567890"
+                                           @bind="_newPayoutAccount" @bind:event="oninput" />
+                                    <button class="download-btn" type="button" disabled="@(_isSavingPayout || string.IsNullOrWhiteSpace(_newPayoutAccount))" @onclick="AddPayoutAccountAsync">Add</button>
+                                </div>
+                            </div>
+                            @if (!string.IsNullOrEmpty(_payoutError))
+                            {
+                                <div class="field-error">@_payoutError</div>
+                            }
+                        </div>
+                    </section>
 
                     @* Duress PIN: one PIN for every driver. Entered through "Enter PIN" on the app's
                        clock-out screen, it sends a silent Hostile SOS and the clock-out carries on. *@
-                    <div class="report-section duress-pin">
-                        <label>Emergency PIN (drivers)</label>
-                        <span class="manager-menu-hint">
-                            Share this with all drivers. Entering it through "Enter PIN" on the clock-out screen silently sends a hostile-situation SOS,
-                            while the app carries on with a normal clock-out.
-                        </span>
-                        @if (_duressPin is null)
-                        {
-                            <span class="manager-menu-hint">Loading…</span>
-                        }
-                        else
-                        {
-                            <span class="manager-menu-hint">Current PIN: <strong>@(_duressPin.Length == 0 ? "not set" : _duressPin)</strong></span>
-                        }
-                        <div class="payout-account-add">
-                            <input class="text-input" type="text" inputmode="numeric" maxlength="@DuressPinService.MaxLength"
-                                   placeholder="@($"{DuressPinService.MinLength}-{DuressPinService.MaxLength} digits")"
-                                   @bind="_newDuressPin" @bind:event="oninput" />
-                            <button class="download-btn" type="button" disabled="@(_isSavingDuressPin || string.IsNullOrWhiteSpace(_newDuressPin))" @onclick="SaveDuressPinAsync">Save</button>
+                    <section class="settings-section duress-pin" aria-labelledby="settings-pin-title">
+                        <div class="settings-about">
+                            <h5 id="settings-pin-title">Emergency PIN (drivers)</h5>
+                            <p>Share this with all drivers. Entering it through "Enter PIN" on the clock-out screen silently sends a hostile-situation SOS, while the app carries on with a normal clock-out.</p>
                         </div>
-                        @if (!string.IsNullOrEmpty(_duressPinMessage))
-                        {
-                            <div class="@(_duressPinSaved ? "field-ok" : "field-error")">@_duressPinMessage</div>
-                        }
-                    </div>
+                        <div class="settings-controls">
+                            <div class="settings-current">
+                                <span>Current PIN</span>
+                                <strong>@(_duressPin is null ? "Loading…" : _duressPin.Length == 0 ? "Not set" : _duressPin)</strong>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-new-pin">New PIN</label>
+                                <div class="settings-inline">
+                                    <input id="settings-new-pin" class="text-input" type="text" inputmode="numeric" maxlength="@DuressPinService.MaxLength" autocomplete="off"
+                                           placeholder="@($"{DuressPinService.MinLength}-{DuressPinService.MaxLength} digits")"
+                                           @bind="_newDuressPin" @bind:event="oninput" />
+                                    <button class="download-btn" type="button" disabled="@(_isSavingDuressPin || string.IsNullOrWhiteSpace(_newDuressPin))" @onclick="SaveDuressPinAsync">Save</button>
+                                </div>
+                            </div>
+                            @if (!string.IsNullOrEmpty(_duressPinMessage))
+                            {
+                                <div class="@(_duressPinSaved ? "field-ok" : "field-error")">@_duressPinMessage</div>
+                            }
+                        </div>
+                    </section>
                 }
 
-                <EditForm Model="_passwordModel" FormName="manager-password" OnValidSubmit="UpdatePasswordAsync" class="report-section">
-                    <DataAnnotationsValidator />
-                    <label>Update password</label>
+                <h4 class="settings-group">Your account</h4>
 
-                    <div class="form-block">
-                        <div class="password-field">
-                            <InputText @bind-Value="_passwordModel.CurrentPassword" type="@(_showCurrentPassword ? "text" : "password")" maxlength="64" placeholder="Current password" />
-                            <button type="button" class="password-toggle" @onclick="() => _showCurrentPassword = !_showCurrentPassword"
-                                    aria-label="@(_showCurrentPassword ? "Hide password" : "Show password")" title="@(_showCurrentPassword ? "Hide password" : "Show password")">
-                                <Icon Name="@(_showCurrentPassword ? "eye-off" : "eye")" />
-                            </button>
-                        </div>
-                        <ValidationMessage For="() => _passwordModel.CurrentPassword" class="field-error" />
+                <section class="settings-section" aria-labelledby="settings-contact-title">
+                    <div class="settings-about">
+                        <h5 id="settings-contact-title">Contact number</h5>
+                        <p>Your mobile number, used to reach you.</p>
                     </div>
-                    <div class="form-block">
-                        <div class="password-field">
-                            <InputText @bind-Value="_passwordModel.NewPassword" type="@(_showNewPassword ? "text" : "password")" maxlength="64" placeholder="New password" />
-                            <button type="button" class="password-toggle" @onclick="() => _showNewPassword = !_showNewPassword"
-                                    aria-label="@(_showNewPassword ? "Hide password" : "Show password")" title="@(_showNewPassword ? "Hide password" : "Show password")">
-                                <Icon Name="@(_showNewPassword ? "eye-off" : "eye")" />
-                            </button>
+                    <EditForm Model="_contactModel" FormName="manager-contact" OnValidSubmit="UpdateContactNumberAsync" class="settings-controls">
+                        <DataAnnotationsValidator />
+                        <div class="settings-field">
+                            <label for="settings-contact-current">Current number</label>
+                            <InputText id="settings-contact-current" @bind-Value="_contactModel.CurrentContactNumber" type="tel" class="text-input" maxlength="16" placeholder="Current number" />
+                            <ValidationMessage For="() => _contactModel.CurrentContactNumber" class="field-error" />
                         </div>
-                        <ValidationMessage For="() => _passwordModel.NewPassword" class="field-error" />
-                    </div>
-                    <div class="form-block">
-                        <div class="password-field">
-                            <InputText @bind-Value="_passwordModel.ConfirmPassword" type="@(_showConfirmPassword ? "text" : "password")" maxlength="64" placeholder="Confirm new password" />
-                            <button type="button" class="password-toggle" @onclick="() => _showConfirmPassword = !_showConfirmPassword"
-                                    aria-label="@(_showConfirmPassword ? "Hide password" : "Show password")" title="@(_showConfirmPassword ? "Hide password" : "Show password")">
-                                <Icon Name="@(_showConfirmPassword ? "eye-off" : "eye")" />
-                            </button>
+                        <div class="settings-field">
+                            <label for="settings-contact-new">New number</label>
+                            <InputText id="settings-contact-new" @bind-Value="_contactModel.NewContactNumber" type="tel" class="text-input" maxlength="16" placeholder="e.g. 0917 123 4567" />
+                            <ValidationMessage For="() => _contactModel.NewContactNumber" class="field-error" />
                         </div>
-                        <ValidationMessage For="() => _passwordModel.ConfirmPassword" class="field-error" />
-                    </div>
+                        <div class="settings-field">
+                            <label for="settings-contact-confirm">Confirm new number</label>
+                            <InputText id="settings-contact-confirm" @bind-Value="_contactModel.ConfirmContactNumber" type="tel" class="text-input" maxlength="16" placeholder="Type it again" />
+                            <ValidationMessage For="() => _contactModel.ConfirmContactNumber" class="field-error" />
+                        </div>
 
-                    @if (!string.IsNullOrEmpty(_passwordError))
-                    {
-                        <div class="field-error">@_passwordError</div>
-                    }
+                        @if (!string.IsNullOrEmpty(_contactMessage))
+                        {
+                            <div class="@(_contactSaved ? "field-ok" : "field-error")">@_contactMessage</div>
+                        }
 
-                    <div class="manager-menu-form-actions">
-                        <span class="manager-menu-hint">You'll be signed out after changing it.</span>
-                        <button class="download-btn" type="submit" disabled="@_isSavingPassword" aria-busy="@_isSavingPassword">@(_isSavingPassword ? "Saving…" : "Save Password")</button>
+                        <div class="settings-actions">
+                            <button class="download-btn" type="submit" disabled="@_isSavingContact" aria-busy="@_isSavingContact">@(_isSavingContact ? "Saving…" : "Update number")</button>
+                        </div>
+                    </EditForm>
+                </section>
+
+                <section class="settings-section" aria-labelledby="settings-password-title">
+                    <div class="settings-about">
+                        <h5 id="settings-password-title">Password</h5>
+                        <p>You'll be signed out after changing it.</p>
                     </div>
-                </EditForm>
+                    <EditForm Model="_passwordModel" FormName="manager-password" OnValidSubmit="UpdatePasswordAsync" class="settings-controls">
+                        <DataAnnotationsValidator />
+                        <div class="settings-field">
+                            <label for="settings-password-current">Current password</label>
+                            <div class="password-field">
+                                <InputText id="settings-password-current" @bind-Value="_passwordModel.CurrentPassword" type="@(_showCurrentPassword ? "text" : "password")" class="text-input" maxlength="64" autocomplete="current-password" />
+                                <button type="button" class="password-toggle" @onclick="() => _showCurrentPassword = !_showCurrentPassword"
+                                        aria-label="@(_showCurrentPassword ? "Hide password" : "Show password")" title="@(_showCurrentPassword ? "Hide password" : "Show password")">
+                                    <Icon Name="@(_showCurrentPassword ? "eye-off" : "eye")" />
+                                </button>
+                            </div>
+                            <ValidationMessage For="() => _passwordModel.CurrentPassword" class="field-error" />
+                        </div>
+                        <div class="settings-field">
+                            <label for="settings-password-new">New password</label>
+                            <div class="password-field">
+                                <InputText id="settings-password-new" @bind-Value="_passwordModel.NewPassword" type="@(_showNewPassword ? "text" : "password")" class="text-input" maxlength="64" autocomplete="new-password" />
+                                <button type="button" class="password-toggle" @onclick="() => _showNewPassword = !_showNewPassword"
+                                        aria-label="@(_showNewPassword ? "Hide password" : "Show password")" title="@(_showNewPassword ? "Hide password" : "Show password")">
+                                    <Icon Name="@(_showNewPassword ? "eye-off" : "eye")" />
+                                </button>
+                            </div>
+                            <ValidationMessage For="() => _passwordModel.NewPassword" class="field-error" />
+                        </div>
+                        <div class="settings-field">
+                            <label for="settings-password-confirm">Confirm new password</label>
+                            <div class="password-field">
+                                <InputText id="settings-password-confirm" @bind-Value="_passwordModel.ConfirmPassword" type="@(_showConfirmPassword ? "text" : "password")" class="text-input" maxlength="64" autocomplete="new-password" />
+                                <button type="button" class="password-toggle" @onclick="() => _showConfirmPassword = !_showConfirmPassword"
+                                        aria-label="@(_showConfirmPassword ? "Hide password" : "Show password")" title="@(_showConfirmPassword ? "Hide password" : "Show password")">
+                                    <Icon Name="@(_showConfirmPassword ? "eye-off" : "eye")" />
+                                </button>
+                            </div>
+                            <ValidationMessage For="() => _passwordModel.ConfirmPassword" class="field-error" />
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(_passwordError))
+                        {
+                            <div class="field-error">@_passwordError</div>
+                        }
+
+                        <div class="settings-actions">
+                            <button class="download-btn" type="submit" disabled="@_isSavingPassword" aria-busy="@_isSavingPassword">@(_isSavingPassword ? "Saving…" : "Save password")</button>
+                        </div>
+                    </EditForm>
+                </section>
             </div>
 
             <div class="report-actions">
@@ -406,8 +474,71 @@
         _isSettingsModalOpen = true;
         if (IsManager)
         {
+            await LoadBoundaryRateAsync();
             await LoadPayoutAccountsAsync();
             await LoadDuressPinAsync();
+        }
+    }
+
+    private decimal? _boundaryRate;
+    private bool _boundaryRateLoadFailed;
+    private string _newBoundaryRate = string.Empty;
+    private decimal? _pendingBoundaryRate; // typed and checked, waiting for "Confirm change"
+    private string? _boundaryRateMessage;
+    private bool _boundaryRateSaved;
+    private bool _isSavingBoundaryRate;
+
+    private async Task LoadBoundaryRateAsync()
+    {
+        _boundaryRateLoadFailed = false;
+        try
+        {
+            _boundaryRate = await BoundaryRates.GetAsync();
+        }
+        catch (Exception)
+        {
+            _boundaryRate = null;
+            _boundaryRateLoadFailed = true;
+            _boundaryRateSaved = false;
+            _boundaryRateMessage = "Couldn't load the boundary rate. Close Settings and try again.";
+        }
+    }
+
+    private void ReviewBoundaryRate()
+    {
+        _boundaryRateSaved = false;
+        decimal? typed = decimal.TryParse(_newBoundaryRate.Trim(), NumberStyles.AllowDecimalPoint | NumberStyles.AllowThousands,
+            CultureInfo.InvariantCulture, out decimal value) ? value : null;
+        _boundaryRateMessage = BoundaryRateService.Validate(typed)
+            ?? (typed == _boundaryRate ? $"The boundary rate is already ₱{typed:N0}." : null);
+        _pendingBoundaryRate = _boundaryRateMessage is null ? typed : null;
+    }
+
+    private async Task SaveBoundaryRateAsync()
+    {
+        if (_isSavingBoundaryRate || _pendingBoundaryRate is not decimal rate) return;
+        _isSavingBoundaryRate = true;
+        _boundaryRateMessage = null;
+        try
+        {
+            string? error = await BoundaryRates.SetAsync(rate, await CurrentUserIdAsync());
+            if (error is null)
+            {
+                _newBoundaryRate = string.Empty;
+                await LoadBoundaryRateAsync();
+            }
+            _boundaryRateSaved = error is null;
+            _boundaryRateMessage = error ?? $"Saved. Shifts that start from now on are charged ₱{rate:N0}.";
+        }
+        catch (Exception)
+        {
+            _boundaryRateSaved = false;
+            _boundaryRateMessage = "Couldn't save the boundary rate. Please try again.";
+        }
+        finally
+        {
+            _pendingBoundaryRate = null;
+            _isSavingBoundaryRate = false;
         }
     }
 
@@ -531,6 +662,10 @@
         _payoutError = null;
         _newDuressPin = string.Empty;
         _duressPinMessage = null;
+        _boundaryRate = null;
+        _newBoundaryRate = string.Empty;
+        _pendingBoundaryRate = null;
+        _boundaryRateMessage = null;
     }
 
     private async Task UpdateContactNumberAsync()

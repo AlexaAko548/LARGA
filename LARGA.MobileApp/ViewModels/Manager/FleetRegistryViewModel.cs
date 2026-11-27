@@ -54,7 +54,7 @@ public class FleetRegistryViewModel : BindableObject
                 .GetDocumentsAsync<TaxiProxy>();
 
             var items = snapshot.Documents
-                .Where(d => d.Data != null)
+                .Where(d => d.Data != null && !LARGA.SharedCore.TaxiStatusRules.IsRetired(d.Data.Status))
                 .Select(d => new TaxiListItem
                 {
                     PlateNumber = string.IsNullOrWhiteSpace(d.Data.PlateNumber) ? "(No plate set)" : d.Data.PlateNumber,

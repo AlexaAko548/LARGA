@@ -24,6 +24,7 @@ public static class FaqCatalog
     public static readonly IReadOnlyList<FaqCategory> Categories =
     [
         new("drivers", "Drivers & shifts"),
+        new("fleet", "Taxi units"),
         new("ledger", "Payments & debt"),
         new("fuel", "Fuel"),
         new("garage", "Garage & spare parts"),
@@ -85,12 +86,42 @@ public static class FaqCatalog
             """,
             ManagerOnly: true, Keywords: "day off schedule planner substitute unit lend temporary weekly"),
 
+        new("delete-driver", "drivers", "How do I delete a driver?",
+            """
+            Go to Driver & Shifts, press "Profile" on the driver's row, then "Delete Driver". Type the driver's full name to confirm.
+
+            Deleting removes their app login and takes them off the roster and schedule. Their past shifts, payments and fuel reports are kept. It can't be undone.
+
+            A driver can't be deleted while they are on shift, have a clock-in waiting for approval, have an unresolved SOS alert, or still owe money.
+            """,
+            ManagerOnly: true, Keywords: "delete remove driver account resign left terminate"),
+
+        // ---- Taxi units ----
+        new("manage-units", "fleet", "How do I add or edit a taxi unit?",
+            """
+            Go to Fleet Units. Press "+ Add Unit" and enter the plate number, model, year and mileage. The unit ID is made for you. Use "Edit" on a row to change a unit's details or mark it Under Maintenance.
+
+            Give a unit to a driver from the driver's profile on Driver & Shifts.
+            """,
+            ManagerOnly: true, Keywords: "add new taxi unit car vehicle edit plate model mileage status"),
+
+        new("delete-unit", "fleet", "What happens when I delete a taxi unit?",
+            """
+            • A unit with no records (for example, one added by mistake) is permanently deleted. Its unit ID isn't used again.
+            • A unit with shift, Garage or other records is retired instead. Its history is kept, it can't be assigned, and you can restore it with "Show retired units". Its upcoming routine checks and their unread alerts are removed; the regular checks are scheduled again after you restore it.
+
+            To confirm, type the unit's plate number.
+
+            A unit can't be deleted while it has an assigned driver, an active shift, an open Garage job, a clock-in waiting for approval, or an upcoming substitute booking.
+            """,
+            ManagerOnly: true, Keywords: "delete remove retire restore decommission sold taxi unit"),
+
         // ---- Payments & debt ----
         new("amount-due", "ledger", "How is the amount due computed?",
             """
             Amount due = boundary + late fee + low-fuel fee + any debt carried over from earlier days.
 
-            • Boundary: ₱800 a day. (If the owner sets a different boundary in the system settings, that is used instead.)
+            • Boundary: ₱800 a day, unless the owner sets another rate (web: Settings > Boundary payment rate). A new rate applies to shifts that start after the change; earlier shifts keep the rate they started with.
             • Late fee: ₱100 for each hour, or part of an hour, after 10:00 PM. The first 30 minutes are free, so nothing is charged if the unit is back by 10:29 PM. At 10:30 PM it becomes ₱100, after 11:00 PM ₱200, and so on.
             • Low fuel: ₱50 if the unit comes back with less than half a tank.
             • Carried-over debt: whatever the driver still owes from earlier shifts.

@@ -4,6 +4,7 @@
 @using System.Text.Json
 @using LARGA.SharedCore
 @using LARGA.SharedCore.Models.DriverShifts
+@using LARGA.SharedCore.Models.Fleet
 @using LARGA.SharedCore.Services
 @* Rendered once, live (PERFORMANCE_REPORT.md P1): with prerendering its data loaded twice - once for the
    prerendered HTML and again when the live connection started. The page shows its loading spinner meanwhile. *@
@@ -13,6 +14,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject DriverManagementService DriverManagement
+@inject DriverRemovalService DriverRemoval
 @inject ClockInApprovalService ClockInApprovals
 @inject ShiftRouteService ShiftRoutes
 @inject IConfiguration Configuration
@@ -173,6 +175,10 @@ else
         @if (_noteSavedMessage is not null)
         {
             <div class="info-banner success">@_noteSavedMessage</div>
+        }
+        @if (_driverDeletedMessage is not null)
+        {
+            <div class="info-banner @(_driverDeletedWarning ? "warning" : "success")">@_driverDeletedMessage</div>
         }
 
         @if (_activeTab == "roster")
@@ -964,6 +970,7 @@ else
                             </div>
                         </div>
                     }
+                    @if (_canManage) { <button class="profile-action-btn danger" type="button" disabled="@_isCheckingRemoval" @onclick="OpenDeleteDriverAsync">@(_isCheckingRemoval ? "Checking…" : "Delete Driver")</button> }
                 </div>
             }
             else
@@ -1109,6 +1116,54 @@ else
         </aside>
     </div>
 }
+}
+
+@if (_removalPlan is not null)
+{
+    <div class="modal-overlay confirm-overlay" @onclick="CloseDeleteDriver">
+        <div class="modal-card confirm-modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>@(_removalPlan.Blockers.Count > 0 ? "This driver can't be deleted yet" : "Delete Driver?")</h3>
+                <button type="button" class="modal-close-btn" disabled="@_isDeletingDriver" @onclick="CloseDeleteDriver">×</button>
+            </div>
+            <div class="confirm-body">
+                @if (_removalPlan.Blockers.Count > 0)
+                {
+                    <p><strong>@_removalPlan.FullName</strong></p>
+                    <ul class="blocker-list">
+                        @foreach (string blocker in _removalPlan.Blockers)
+                        {
+                            <li>@blocker</li>
+                        }
+                    </ul>
+                }
+                else
+                {
+                    <p><strong>@_removalPlan.FullName</strong> will lose access to the mobile app and their login is permanently deleted. This can't be undone.</p>
+                    <p>Their past shifts, payments and fuel reports are kept.@(_removalPlan.AssignedTaxiId is null ? "" : $" {_removalPlan.AssignedTaxiId} becomes free to assign to someone else.")</p>
+                    @if (_removalPlan.AdvanceCredit > 0)
+                    {
+                        <div class="info-banner warning">They still have ₱@_removalPlan.AdvanceCredit.ToString("N2") of unused advance credit. Return it to them before deleting.</div>
+                    }
+                    <div class="report-section confirm-typed">
+                        <label for="delete-driver-name">Type the driver's full name to confirm</label>
+                        <input id="delete-driver-name" class="text-input" maxlength="80" @bind="_removalNameInput" @bind:event="oninput" placeholder="@_removalPlan.FullName" autocomplete="off" />
+                    </div>
+                }
+                @if (_removalError is not null)
+                {
+                    <div class="report-error">@_removalError</div>
+                }
+            </div>
+            <div class="confirm-actions">
+                <button class="cancel-btn" type="button" disabled="@_isDeletingDriver" @onclick="CloseDeleteDriver">@(_removalPlan.Blockers.Count > 0 ? "Close" : "Cancel")</button>
+                @if (_removalPlan.Blockers.Count == 0)
+                {
+                    <button class="danger-btn" type="button" disabled="@(_isDeletingDriver || !RemovalNameMatches)" @onclick="DeleteDriverAsync" aria-busy="@_isDeletingDriver">@(_isDeletingDriver ? "Deleting…" : "Delete Driver")</button>
+                }
+            </div>
+        </div>
+    </div>
 }
 
 <ConfirmationModal Show="_showConfirm" Title="@_confirmTitle" Message="@_confirmMessage"
@@ -2293,6 +2348,88 @@ else
         finally
         {
             _isSavingProfile = false;
+        }
+    }
+
+    // -- Delete driver (DriverRemovalService) ---------------------------------
+
+    private DriverRemovalPlan? _removalPlan;
+    private string _removalDriverId = string.Empty;
+    private string _removalNameInput = string.Empty;
+    private string? _removalError;
+    private bool _isCheckingRemoval;
+    private bool _isDeletingDriver;
+    private string? _driverDeletedMessage;
+    private bool _driverDeletedWarning;
+
+    private bool RemovalNameMatches => _removalPlan is not null
+        && string.Equals(InputValidator.NormalizeSpaces(_removalNameInput), InputValidator.NormalizeSpaces(_removalPlan.FullName), StringComparison.OrdinalIgnoreCase);
+
+    private async Task OpenDeleteDriverAsync()
+    {
+        if (_isCheckingRemoval || _selectedProfile is null) return;
+        _isCheckingRemoval = true;
+        _profileError = null;
+        try
+        {
+            _removalDriverId = _selectedProfile.DriverId;
+            _removalNameInput = string.Empty;
+            _removalError = null;
+            _removalPlan = await DriverRemoval.GetPlanAsync(_removalDriverId);
+            if (_removalPlan is null)
+            {
+                _profileError = "This driver has already been deleted.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _profileError = $"Couldn't check whether this driver can be deleted: {ex.Message}";
+        }
+        finally
+        {
+            _isCheckingRemoval = false;
+        }
+    }
+
+    private void CloseDeleteDriver()
+    {
+        if (!_isDeletingDriver)
+        {
+            _removalPlan = null;
+        }
+    }
+
+    private async Task DeleteDriverAsync()
+    {
+        if (_isDeletingDriver || !RemovalNameMatches) return;
+        _isDeletingDriver = true;
+        _removalError = null;
+        _driverDeletedMessage = null;
+        try
+        {
+            string name = _removalPlan!.FullName;
+            DriverRemovalResult result = await DriverRemoval.DeleteAsync(_removalDriverId, _managerUserId);
+            if (!result.Ok)
+            {
+                _removalError = result.ErrorMessage;
+                return;
+            }
+
+            _removalPlan = null;
+            DiscardProfileEditsAndClose();
+            _selectedProfile = null;
+            _driverDeletedWarning = result.Warning is not null;
+            _driverDeletedMessage = result.Warning ?? $"Deleted {name}. Their past records are kept.";
+            await LoadRosterAsync();
+            await ReloadDisplayedWeekAsync();
+            if (_shiftLogsLoaded)
+            {
+                await LoadShiftLogsAsync();
+            }
+        }
+        finally
+        {
+            _isDeletingDriver = false;
         }
     }
 

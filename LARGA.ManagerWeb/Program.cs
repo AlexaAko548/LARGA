@@ -138,8 +138,13 @@ builder.Services.AddSingleton(sp => new Lazy<PhotoStorageTarget>(() =>
 
 builder.Services.AddSingleton<DriverManagementService>();
 builder.Services.AddSingleton<FinancialLedgerService>();
+// Fleet Units page (add / edit / delete taxi units) and "Delete Driver" on the driver profile.
+builder.Services.AddSingleton<FleetUnitService>();
+builder.Services.AddSingleton<DriverRemovalService>();
 // Authorized GCash / bank accounts for boundary payments (Manager Settings).
 builder.Services.AddSingleton<PayoutAccountService>();
+// The daily boundary rate (Manager Settings).
+builder.Services.AddSingleton<BoundaryRateService>();
 // Assistant Manager access requests (/register) and the owner's Team & Access panel.
 builder.Services.AddSingleton<AccessRequestService>();
 builder.Services.AddSingleton<DuressPinService>();
