@@ -193,6 +193,31 @@ public class FleetEmulatorTests
     }
 
     [EmulatorFact]
+    public async Task Delete_UnitWithHistory_ClearsItsChecksAndOpenMaintenanceAlerts_Only()
+    {
+        FirestoreDb db = await FreshAsync();
+        await CompletedShift(db);
+        await Put(db, "routine_checks", "c1", new() { ["taxiId"] = "TAXI_001", ["checkName"] = "Oil change" });
+        await Put(db, "routine_checks", "other", new() { ["taxiId"] = "TAXI_002", ["checkName"] = "Oil change" });
+        Task Alert(string id, string type, bool isRead, string taxiId = "TAXI_001") =>
+            Put(db, "system_alerts", id, new() { ["taxiId"] = taxiId, ["type"] = type, ["isRead"] = isRead });
+        await Alert("overdue", "MaintenanceOverdue", false);
+        await Alert("dueSoon", "MaintenanceDueSoon", false);
+        await Alert("readBefore", "MaintenanceOverdue", true);
+        await Alert("debt", "UnpaidDebt", false);
+        await Alert("otherUnit", "MaintenanceOverdue", false, "TAXI_002");
+
+        FleetActionResult result = await Fleet(db).DeleteUnitAsync("TAXI_001", "mgr1");
+
+        Assert.True(result.Retired, result.ErrorMessage);
+        Assert.Equal(["other"], (await db.Collection("routine_checks").GetSnapshotAsync()).Documents.Select(d => d.Id));
+        Assert.Equal(["debt", "otherUnit", "readBefore"],
+            (await db.Collection("system_alerts").GetSnapshotAsync()).Documents.Select(d => d.Id).Order(StringComparer.Ordinal));
+        // A retired unit keeps its document, so its ID needs no entry.
+        Assert.Empty((await db.Collection(FleetUnitService.DeletedIdsCollection).GetSnapshotAsync()).Documents);
+    }
+
+    [EmulatorFact]
     public async Task Delete_UnitInUse_RefusedWithEveryReason()
     {
         FirestoreDb db = await FreshAsync();

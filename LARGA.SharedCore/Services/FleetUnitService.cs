@@ -224,6 +224,14 @@ public class FleetUnitService
                     return FleetActionResult.Fail("This unit is already retired. Its records keep it from being removed completely.");
                 }
 
+                // Its waiting routine checks and their unread alerts go too: a retired unit is never
+                // serviced, so nothing would ever close them. Read alerts and other kinds (e.g. unpaid
+                // debt) stay. Restoring the unit gets the recurring checks scheduled again.
+                (QuerySnapshot waiting, QuerySnapshot raised) = await ReadChecksAndAlertsAsync(transaction, taxiId);
+                foreach (DocumentSnapshot doc in waiting.Documents.Concat(raised.Documents.Where(IsOpenMaintenanceAlert)))
+                {
+                    transaction.Delete(doc.Reference);
+                }
                 transaction.Update(current.Reference, "status", TaxiStatusRules.Decommissioned);
                 CancelApprovedClockIns(transaction, removal.ApprovedClockIns);
                 Audit(transaction, actorUserId, "TaxiUnitRetired", $"Retired taxi unit {taxiId} (plate {plate}); its records are kept.");
@@ -231,8 +239,7 @@ public class FleetUnitService
             }
 
             // Nothing happened on this unit: drop it with the routine checks and alerts made for it.
-            QuerySnapshot checks = await transaction.GetSnapshotAsync(Db.Collection("routine_checks").WhereEqualTo("taxiId", taxiId));
-            QuerySnapshot alerts = await transaction.GetSnapshotAsync(Db.Collection("system_alerts").WhereEqualTo("taxiId", taxiId));
+            (QuerySnapshot checks, QuerySnapshot alerts) = await ReadChecksAndAlertsAsync(transaction, taxiId);
             foreach (DocumentSnapshot doc in checks.Documents.Concat(alerts.Documents))
             {
                 transaction.Delete(doc.Reference);
@@ -302,6 +309,17 @@ public class FleetUnitService
             new UnitRemovalPlan { Blockers = FleetUnitRules.RemovalBlockers(facts), HasHistory = hasHistory },
             clockIns.Documents.Where(c => Text(c, "status") == ClockInRequest.Approved).Select(c => c.Reference).ToList());
     }
+
+    private async Task<(QuerySnapshot Checks, QuerySnapshot Alerts)> ReadChecksAndAlertsAsync(Transaction transaction, string taxiId)
+    {
+        QuerySnapshot checks = await transaction.GetSnapshotAsync(Db.Collection("routine_checks").WhereEqualTo("taxiId", taxiId));
+        QuerySnapshot alerts = await transaction.GetSnapshotAsync(Db.Collection("system_alerts").WhereEqualTo("taxiId", taxiId));
+        return (checks, alerts);
+    }
+
+    private static bool IsOpenMaintenanceAlert(DocumentSnapshot alert) =>
+        Text(alert, "type") is MaintenanceSchedule.DueSoonAlertType or MaintenanceSchedule.OverdueAlertType
+        && !(alert.TryGetValue("isRead", out bool read) && read);
 
     // An approval the driver's phone never used would otherwise still start a shift on the retired unit.
     private static void CancelApprovedClockIns(Transaction transaction, List<DocumentReference> requests)

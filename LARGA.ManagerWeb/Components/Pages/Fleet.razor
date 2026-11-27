@@ -425,7 +425,7 @@ else
             Confirm(
                 plan.HasHistory ? $"Retire {unit.TaxiId}?" : $"Delete {unit.TaxiId}?",
                 plan.HasHistory
-                    ? $"{name} has shift or Garage records, so it will be retired instead of erased. Its history is kept, it can't be assigned to anyone, and you can restore it later."
+                    ? $"{name} has shift or Garage records, so it will be retired instead of erased. Its history is kept, it can't be assigned to anyone, and you can restore it later. Its upcoming routine checks and their unread alerts are removed."
                     : $"{name} has no records, so it will be permanently deleted. This can't be undone.",
                 plan.HasHistory ? "Retire Unit" : "Delete Unit",
                 dangerous: true,
