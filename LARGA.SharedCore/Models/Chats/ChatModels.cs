@@ -1,6 +1,7 @@
 ﻿using System;
 using System.ComponentModel;
 using System.Linq;
+using LARGA.SharedCore;
 
 namespace LARGA.SharedCore.Models.Chats;
 
@@ -24,7 +25,7 @@ public class ChatSession : INotifyPropertyChanged
     public string PreviewText => HasConversation ? LastMessage : "Send your first message";
 
     public string DisplayTime => !HasConversation ? string.Empty
-        : Timestamp.Date == DateTime.Today ? Timestamp.ToString("h:mm tt").ToLower() : Timestamp.ToString("ddd").ToLower();
+        : Timestamp.Date == PhilippineTime.Now.Date ? Timestamp.ToString("h:mm tt").ToLower() : Timestamp.ToString("ddd").ToLower();
 
     private bool _isUnread;
     public bool IsUnread
