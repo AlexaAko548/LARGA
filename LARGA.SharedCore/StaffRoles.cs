@@ -14,10 +14,19 @@ public static class StaffRoles
     public const string Manager = "Manager";
     public const string AssistantManager = "Assistant Manager";
 
+    /// <summary>A deleted driver. The profile is kept so past shifts and payments still show their name,
+    /// but no app, page or security rule treats this as a role that can do anything.</summary>
+    public const string FormerDriver = "Former Driver";
+
     public const string DriverDashboardRoute = "//driver-dashboard";
     public const string ManagerDashboardRoute = "//manager-dashboard";
 
     public static bool IsDriver(string? role) => Is(role, Driver);
+    public static bool IsFormerDriver(string? role) => Is(role, FormerDriver);
+
+    /// <summary>For looking up names on past records: current and deleted drivers.</summary>
+    public static bool IsDriverOrFormer(string? role) => IsDriver(role) || IsFormerDriver(role);
+
     public static bool IsManager(string? role) => Is(role, Manager);
     public static bool IsAssistantManager(string? role) => Is(role, AssistantManager);
     public static bool IsStaff(string? role) => IsManager(role) || IsAssistantManager(role);

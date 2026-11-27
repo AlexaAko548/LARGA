@@ -43,6 +43,10 @@
             <span class="nav-icon"><Icon Name="users" Class="nav-svg" /></span>
             <span class="nav-label">Driver &amp; Shifts</span>
         </a>
+        <a href="/fleet" class="nav-item @(ActiveItem == "Fleet" ? "active" : "")" title="Fleet Units">
+            <span class="nav-icon"><Icon Name="car-taxi-front" Class="nav-svg" /></span>
+            <span class="nav-label">Fleet Units</span>
+        </a>
         <a href="/sos-dispatch" class="nav-item @(ActiveItem == "SosDispatch" ? "active" : "")" title="@(_sosActiveCount > 0 ? $"SOS Dispatch - {_sosActiveCount} unresolved" : "SOS Dispatch")">
             <span class="nav-icon">
                 <Icon Name="siren" Class="nav-svg" />

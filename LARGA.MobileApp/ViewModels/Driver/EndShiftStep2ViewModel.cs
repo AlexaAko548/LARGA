@@ -253,6 +253,8 @@ public class EndShiftStep2ViewModel : BindableObject, IQueryAttributable
                 {
                     { "lateFee", charges.LateFee },
                     { "fuelPenalty", charges.FuelPenalty },
+                    // Picks the boundary rate in effect when this shift started.
+                    { "shiftStartUtc", charges.ShiftStartUtc! },
                 });
             }
             catch (Exception ex)

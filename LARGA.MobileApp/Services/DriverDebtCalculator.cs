@@ -131,7 +131,7 @@ public static class DriverDebtCalculator
         Task<IReadOnlyList<ShiftRecord>> shifts = QuickLedgerService.ReadShiftsAsync(shiftWarnings, driverId, source, origin);
         Task<IReadOnlyList<BoundaryPaymentRecord>> payments = QuickLedgerService.ReadPaymentsAsync(paymentWarnings, driverId, source, origin);
         Task<IReadOnlyList<DebtAdjustmentRecord>> adjustments = QuickLedgerService.ReadAdjustmentsAsync(adjustmentWarnings, driverId, source, origin);
-        Task<decimal> rate = QuickLedgerService.ReadDefaultBoundaryRateAsync(source);
+        Task<BoundaryRateSchedule> rate = QuickLedgerService.ReadDefaultBoundaryRateAsync(source);
         await Task.WhenAll(shifts, payments, adjustments, rate);
 
         // Nothing saved on this phone yet: an empty ledger would read as "owes ₱0.00", so it's a load failure

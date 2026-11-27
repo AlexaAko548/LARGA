@@ -2,10 +2,10 @@
 // MapTiler map with Leaflet. The points and the distance come from ShiftRouteService; this only
 // draws them.
 //
-// Leaflet loads lazily, the first time a route is opened - same approach as ocr.js and Tesseract.
+// Leaflet's script loads lazily, the first time a route is opened - same approach as ocr.js and
+// Tesseract. Its stylesheet is linked in App.razor (same version).
 
 const LEAFLET_JS = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js";
-const LEAFLET_CSS = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css";
 
 let leafletLoading = null;
 const maps = new Map();
@@ -16,11 +16,6 @@ function loadLeaflet() {
     }
 
     leafletLoading ??= new Promise((resolve, reject) => {
-        const css = document.createElement("link");
-        css.rel = "stylesheet";
-        css.href = LEAFLET_CSS;
-        document.head.appendChild(css);
-
         const script = document.createElement("script");
         script.src = LEAFLET_JS;
         script.onload = () => resolve(window.L);
