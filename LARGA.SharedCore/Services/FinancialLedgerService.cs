@@ -683,11 +683,24 @@ public class FinancialLedgerService
     }
 
     /// <summary>What one driver owes and the advance credit they hold - the same figures as the Master
-    /// Debt Ledger. At most one of the two is above zero.</summary>
-    public async Task<(decimal Owed, decimal Credit)> GetDriverBalanceAsync(string driverId)
+    /// Debt Ledger. At most one of the two is above zero. Everything is read through
+    /// <paramref name="transaction"/>, so what the caller writes can't be based on a balance that changed
+    /// before it committed.</summary>
+    public async Task<(decimal Owed, decimal Credit)> GetDriverBalanceAsync(Transaction transaction, string driverId)
     {
-        (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetDriverLedgerDataAsync(driverId);
-        List<ShiftCharge> charges = BuildCharges(shifts, payments, await GetDefaultBoundaryRateAsync())
+        async Task<List<T>> Mine<T>(string collection) where T : class
+        {
+            QuerySnapshot snapshot = await transaction.GetSnapshotAsync(Db.Collection(collection).WhereEqualTo("driverId", driverId));
+            PerfLog.Reads(collection, snapshot.Count);
+            return ConvertDocuments<T>(snapshot, collection);
+        }
+
+        List<ShiftLog> shifts = await Mine<ShiftLog>("shifts");
+        List<BoundaryPayment> payments = await Mine<BoundaryPayment>("boundary_payments");
+        List<DebtAdjustment> adjustments = await Mine<DebtAdjustment>("debt_adjustments");
+        DocumentSnapshot config = await transaction.GetSnapshotAsync(SystemConfigRef);
+
+        List<ShiftCharge> charges = BuildCharges(shifts, payments, DefaultRateFrom(config))
             .Where(c => c.DriverId == driverId)
             .ToList();
         decimal net = NetShiftBalance(charges) + adjustments.Where(a => a.DriverId == driverId).Sum(a => a.Amount);
@@ -1465,9 +1478,12 @@ public class FinancialLedgerService
         }
     }
 
-    private async Task<decimal> GetDefaultBoundaryRateAsync()
+    private DocumentReference SystemConfigRef => Db.Collection("system_configs").Document("global");
+
+    private async Task<decimal> GetDefaultBoundaryRateAsync() => DefaultRateFrom(await SystemConfigRef.GetSnapshotAsync());
+
+    private decimal DefaultRateFrom(DocumentSnapshot snapshot)
     {
-        DocumentSnapshot snapshot = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
         SystemConfig config = SystemConfigReader.Read(snapshot, LogBadConfigField);
         return config.DefaultBoundaryRate > 0 ? (decimal)config.DefaultBoundaryRate : DefaultBoundaryRate;
     }

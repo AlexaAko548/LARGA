@@ -43,21 +43,18 @@ public class DriverRemovalService
 
     /// <summary>What <see cref="DeleteAsync"/> would run into right now (null: not a driver any more).
     /// Delete checks everything again.</summary>
-    public async Task<DriverRemovalPlan?> GetPlanAsync(string driverId)
-    {
-        (decimal owed, decimal credit) = await _ledger.GetDriverBalanceAsync(driverId);
-        return await Db.RunTransactionAsync(async transaction =>
+    public Task<DriverRemovalPlan?> GetPlanAsync(string driverId) =>
+        Db.RunTransactionAsync(async transaction =>
         {
             DriverState? state = await ReadAsync(transaction, driverId);
             return state is null ? null : new DriverRemovalPlan
             {
                 FullName = state.FullName,
                 AssignedTaxiId = state.AssignedTaxiId,
-                AdvanceCredit = credit,
-                Blockers = state.Blockers(owed),
+                AdvanceCredit = state.AdvanceCredit,
+                Blockers = state.Blockers(),
             };
         });
-    }
 
     public async Task<DriverRemovalResult> DeleteAsync(string driverId, string actorUserId)
     {
@@ -69,7 +66,6 @@ public class DriverRemovalService
                 return DriverRemovalResult.Fail(ManagerOnlyMessage);
             }
 
-            (decimal owed, decimal credit) = await _ledger.GetDriverBalanceAsync(driverId);
             DateTime now = DateTime.UtcNow;
 
             (string? error, string name) = await Db.RunTransactionAsync(async transaction =>
@@ -80,7 +76,7 @@ public class DriverRemovalService
                     return ((string?)NotADriverMessage, string.Empty);
                 }
 
-                List<string> blockers = state.Blockers(owed);
+                List<string> blockers = state.Blockers();
                 if (blockers.Count > 0)
                 {
                     return (string.Join(" ", blockers), state.FullName);
@@ -109,7 +105,7 @@ public class DriverRemovalService
                     ActionType = "DriverDeleted",
                     AuditLogDetails = $"Deleted driver '{state.FullName}' (driver ID: {driverId})"
                         + (state.AssignedTaxiId is null ? "" : $", freeing unit {state.AssignedTaxiId}")
-                        + (credit > 0 ? $", with ₱{credit:N2} unused advance credit" : "")
+                        + (state.AdvanceCredit > 0 ? $", with ₱{state.AdvanceCredit:N2} unused advance credit" : "")
                         + "; shift and payment records are kept.",
                     Timestamp = now,
                 });
@@ -167,10 +163,12 @@ public class DriverRemovalService
         bool HasPendingClockIn,
         int UnresolvedSos,
         List<DocumentReference> UpcomingScheduleDays,
-        List<DocumentReference> ApprovedClockIns)
+        List<DocumentReference> ApprovedClockIns,
+        decimal AmountOwed,
+        decimal AdvanceCredit)
     {
-        public List<string> Blockers(decimal owed) =>
-            DriverRemovalRules.Blockers(IsOnShift, HasPendingClockIn, UnresolvedSos, owed);
+        public List<string> Blockers() =>
+            DriverRemovalRules.Blockers(IsOnShift, HasPendingClockIn, UnresolvedSos, AmountOwed);
     }
 
     private async Task<DriverState?> ReadAsync(Transaction transaction, string driverId)
@@ -191,6 +189,7 @@ public class DriverRemovalService
         // Older SOS alerts carry no driverId, only the shift they came from.
         QuerySnapshot openSos = await transaction.GetSnapshotAsync(Db.Collection("emergency_alerts").WhereEqualTo("isResolved", false));
         HashSet<string> shiftIds = shifts.Documents.Select(s => s.Id).ToHashSet();
+        (decimal owed, decimal credit) = await _ledger.GetDriverBalanceAsync(transaction, driverId);
 
         DateTime today = PhilippineTime.Now.Date;
         string assigned = Text(profile, "assignedTaxiId");
@@ -208,7 +207,9 @@ public class DriverRemovalService
                             && d.GetValue<Timestamp>("scheduledStartTime").ToDateTime().Date >= today)
                 .Select(d => d.Reference)
                 .ToList(),
-            clockIns.Documents.Where(c => Text(c, "status") == ClockInRequest.Approved).Select(c => c.Reference).ToList());
+            clockIns.Documents.Where(c => Text(c, "status") == ClockInRequest.Approved).Select(c => c.Reference).ToList(),
+            owed,
+            credit);
     }
 
     private static string Text(DocumentSnapshot doc, string field) =>

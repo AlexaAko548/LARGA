@@ -31,15 +31,17 @@ public class FleetEmulatorTests
         new(new Lazy<FirestoreDb>(db), NullLogger<FleetUnitService>.Instance);
 
     // No Auth in these tests: deleting the login fails, which the service reports as a warning.
-    private static DriverRemovalService Removal(FirestoreDb db)
+    private static DriverRemovalService Removal(FirestoreDb db) =>
+        new(new Lazy<FirestoreDb>(db),
+            new Lazy<FirebaseAuth>(() => throw new InvalidOperationException("no auth in tests")),
+            Ledger(db), NullLogger<DriverRemovalService>.Instance);
+
+    private static FinancialLedgerService Ledger(FirestoreDb db)
     {
         var lazy = new Lazy<FirestoreDb>(db);
-        var ledger = new FinancialLedgerService(lazy,
+        return new FinancialLedgerService(lazy,
             new Lazy<PhotoStorageTarget>(() => throw new InvalidOperationException("no storage in tests")),
             NullLogger<FinancialLedgerService>.Instance, new CollectionCache(lazy, NullLogger<CollectionCache>.Instance));
-        return new DriverRemovalService(lazy,
-            new Lazy<FirebaseAuth>(() => throw new InvalidOperationException("no auth in tests")),
-            ledger, NullLogger<DriverRemovalService>.Instance);
     }
 
     private static Task Put(FirestoreDb db, string collection, string id, Dictionary<string, object> fields) =>
@@ -240,6 +242,65 @@ public class FleetEmulatorTests
         Assert.Contains("still owe", Assert.Single(plan!.Blockers));
         Assert.False(result.Ok);
         Assert.Equal("Driver", (await Doc(db, "users", "drv1")).GetValue<string>("role"));
+    }
+
+    [EmulatorFact]
+    public async Task DeleteDriver_BalanceCountsPaymentsAndAdjustments()
+    {
+        FirestoreDb db = await FreshAsync();
+        await CompletedShift(db);
+        await Put(db, "system_configs", "global", new() { ["defaultBoundaryRate"] = 900.0 });
+        await Put(db, "boundary_payments", "p1", new()
+        {
+            ["shiftId"] = "s1", ["driverId"] = "drv1", ["expectedBoundary"] = 900.0, ["amountPaid"] = 900.0,
+            ["timestamp"] = DateTime.UtcNow, ["transactionId"] = "t1",
+        });
+        await Put(db, "debt_adjustments", "a1", new()
+        {
+            ["driverId"] = "drv1", ["amount"] = 250.0, ["reason"] = "penalty", ["timestamp"] = DateTime.UtcNow,
+        });
+
+        DriverRemovalResult refused = await Removal(db).DeleteAsync("drv1", "mgr1");
+        await Put(db, "debt_adjustments", "a2", new()
+        {
+            ["driverId"] = "drv1", ["amount"] = -300.0, ["reason"] = "write-off", ["timestamp"] = DateTime.UtcNow,
+        });
+        DriverRemovalPlan? plan = await Removal(db).GetPlanAsync("drv1");
+        DriverRemovalResult deleted = await Removal(db).DeleteAsync("drv1", "mgr1");
+
+        Assert.False(refused.Ok);
+        Assert.Contains("250.00", refused.ErrorMessage);
+        Assert.Empty(plan!.Blockers);
+        Assert.Equal(50m, plan.AdvanceCredit);
+        Assert.True(deleted.Ok, deleted.ErrorMessage);
+    }
+
+    [EmulatorFact]
+    public async Task DeleteDriver_RacingANewCharge_NeverDeletesWithItUnseen()
+    {
+        for (int round = 0; round < 15; round++)
+        {
+            FirestoreDb db = await FreshAsync();
+            Task<DriverRemovalResult> delete = Removal(db).DeleteAsync("drv1", "mgr1");
+            await Task.Delay(round * 8);
+            var charge = await Ledger(db).AddAdjustmentAsync("drv1", 500m, "Damaged side mirror", "mgr1");
+            DriverRemovalResult result = await delete;
+
+            Assert.True(charge.Ok, charge.ErrorMessage);
+            DocumentSnapshot profile = await Doc(db, "users", "drv1");
+            DocumentSnapshot saved = Assert.Single((await db.Collection("debt_adjustments").GetSnapshotAsync()).Documents);
+            if (result.Ok)
+            {
+                // Deleted: only allowed when the charge was saved after the deletion was.
+                Assert.True(saved.CreateTime!.Value.ToDateTimeOffset() >= profile.UpdateTime!.Value.ToDateTimeOffset(),
+                    $"round {round}: deleted although the charge was already saved");
+            }
+            else
+            {
+                Assert.Contains("still owe", result.ErrorMessage);
+                Assert.Equal("Driver", profile.GetValue<string>("role"));
+            }
+        }
     }
 
     [EmulatorFact]
