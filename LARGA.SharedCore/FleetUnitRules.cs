@@ -50,10 +50,11 @@ public static class FleetUnitRules
     public static string? ValidateMileage(int? mileage) =>
         InputValidator.ValidateWholeNumber(mileage, "the mileage", 0, MaxMileage);
 
-    /// <summary>The next free ID after the highest TAXI_nnn in use.</summary>
-    public static string NextTaxiId(IEnumerable<string> existingIds)
+    /// <summary>The next free ID after the highest TAXI_nnn ever used - pass the deleted units' IDs
+    /// as well as the current ones.</summary>
+    public static string NextTaxiId(IEnumerable<string> usedIds)
     {
-        int highest = existingIds
+        int highest = usedIds
             .Select(id => id.StartsWith(IdPrefix, StringComparison.OrdinalIgnoreCase)
                           && int.TryParse(id[IdPrefix.Length..], out int n) ? n : 0)
             .DefaultIfEmpty(0)

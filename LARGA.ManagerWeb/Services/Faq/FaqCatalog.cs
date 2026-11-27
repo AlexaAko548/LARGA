@@ -107,7 +107,7 @@ public static class FaqCatalog
 
         new("delete-unit", "fleet", "What happens when I delete a taxi unit?",
             """
-            • A unit with no records (for example, one added by mistake) is permanently deleted.
+            • A unit with no records (for example, one added by mistake) is permanently deleted. Its unit ID isn't used again.
             • A unit with shift, Garage or other records is retired instead. Its history is kept, it can't be assigned, and you can restore it with "Show retired units".
 
             A unit can't be deleted while it has an assigned driver, an active shift, an open Garage job, a clock-in waiting for approval, or an upcoming substitute booking.

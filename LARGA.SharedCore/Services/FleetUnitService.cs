@@ -18,6 +18,10 @@ public class FleetUnitService
 {
     private const string ManagerOnlyMessage = "Only the Manager can change taxi units.";
 
+    /// <summary>The IDs of units removed completely, so they're never given to another vehicle (audit
+    /// entries still name them). Server-only: firestore.rules grants clients nothing here.</summary>
+    public const string DeletedIdsCollection = "deleted_taxi_ids";
+
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly ILogger<FleetUnitService> _logger;
 
@@ -94,7 +98,8 @@ public class FleetUnitService
                 return FleetActionResult.Fail(owner);
             }
 
-            string taxiId = FleetUnitRules.NextTaxiId(all.Documents.Select(d => d.Id));
+            QuerySnapshot deleted = await transaction.GetSnapshotAsync(Db.Collection(DeletedIdsCollection));
+            string taxiId = FleetUnitRules.NextTaxiId(all.Documents.Concat(deleted.Documents).Select(d => d.Id));
             // Create, not Set: never overwrites a unit that appeared meanwhile.
             transaction.Create(Taxis.Document(taxiId), new TaxiUnit
             {
@@ -233,6 +238,12 @@ public class FleetUnitService
                 transaction.Delete(doc.Reference);
             }
             transaction.Delete(current.Reference);
+            transaction.Set(Db.Collection(DeletedIdsCollection).Document(taxiId), new Dictionary<string, object>
+            {
+                ["plateNumber"] = plate,
+                ["deletedAt"] = DateTime.UtcNow,
+                ["deletedBy"] = actorUserId,
+            });
             Audit(transaction, actorUserId, "TaxiUnitDeleted", $"Deleted taxi unit {taxiId} (plate {plate}); it had no records.");
             return FleetActionResult.Success(taxiId);
         });

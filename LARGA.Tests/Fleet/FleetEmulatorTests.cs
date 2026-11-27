@@ -179,6 +179,20 @@ public class FleetEmulatorTests
     }
 
     [EmulatorFact]
+    public async Task Add_AfterADelete_NeverReissuesTheId()
+    {
+        FirestoreDb db = await FreshAsync();
+
+        Assert.Equal("TAXI_002", (await Fleet(db).AddUnitAsync(Input("GAB 2002"), "mgr1")).TaxiId);
+        Assert.True((await Fleet(db).DeleteUnitAsync("TAXI_002", "mgr1")).Ok);
+        FleetActionResult next = await Fleet(db).AddUnitAsync(Input("GAB 3003"), "mgr1");
+
+        Assert.True(next.Ok, next.ErrorMessage);
+        Assert.Equal("TAXI_003", next.TaxiId);
+        Assert.Equal("GAB 2002", (await Doc(db, FleetUnitService.DeletedIdsCollection, "TAXI_002")).GetValue<string>("plateNumber"));
+    }
+
+    [EmulatorFact]
     public async Task Delete_UnitInUse_RefusedWithEveryReason()
     {
         FirestoreDb db = await FreshAsync();
