@@ -19,10 +19,12 @@ public class ShiftCompletedViewModel : BindableObject, IQueryAttributable
         decimal lateFee = query.TryGetValue("lateFee", out var late) && late is decimal l ? l : 0m;
         decimal fuelPenalty = query.TryGetValue("fuelPenalty", out var fuel) && fuel is decimal f ? f : 0m;
 
+        DateTime? shiftStartUtc = query.TryGetValue("shiftStartUtc", out var start) && start is DateTime s ? s : null;
+
         // Was a hardcoded 800 - a manager-configured system_configs/global.defaultBoundaryRate (e.g. 900)
         // never showed up here even though every other screen already reads it (QuickLedgerCalculator).
         BoundaryAmountDisplay = $"₱ {QuickLedgerCalculator.FallbackBoundaryRate + lateFee + fuelPenalty:N0}";
-        _ = UpdateBoundaryDisplayAsync(lateFee, fuelPenalty);
+        _ = UpdateBoundaryDisplayAsync(shiftStartUtc, lateFee, fuelPenalty);
 
         var notes = new List<string>();
         if (lateFee > 0)
@@ -66,9 +68,9 @@ public class ShiftCompletedViewModel : BindableObject, IQueryAttributable
         set { _boundaryAmountDisplay = value; OnPropertyChanged(); }
     }
 
-    private async Task UpdateBoundaryDisplayAsync(decimal lateFee, decimal fuelPenalty)
+    private async Task UpdateBoundaryDisplayAsync(DateTime? shiftStartUtc, decimal lateFee, decimal fuelPenalty)
     {
-        decimal boundaryRate = await QuickLedgerService.ReadDefaultBoundaryRateAsync();
+        decimal boundaryRate = (await QuickLedgerService.ReadDefaultBoundaryRateAsync()).RateFor(shiftStartUtc);
         BoundaryAmountDisplay = $"₱ {boundaryRate + lateFee + fuelPenalty:N0}";
     }
 

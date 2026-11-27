@@ -5885,13 +5885,6 @@ background: rgba(var(--accent-rgb),0.1);
 color: var(--danger, #c62828);
 }
 
-.manager-menu-form-actions {
-display: flex;
-align-items: center;
-justify-content: flex-end;
-gap: 0.75rem;
-}
-
 .manager-menu-hint {
 margin-right: auto;
 color: var(--muted);
@@ -6304,16 +6297,148 @@ font-size: 0.75rem;
 font-weight: 500;
 }
 
-/* Manager Settings: authorized payout accounts (target account verification). */
-.payout-accounts .manager-menu-hint,
-.duress-pin .manager-menu-hint {
-display: block;
-margin-bottom: 0.4rem;
+/* Manager Settings (ManagerProfileMenu): a wide popup of section cards - what the setting is on
+   the left, its fields on the right - under "Fleet & payments" / "Your account" headings. */
+.report-modal.settings-modal {
+width: min(100%, 780px);
+}
+
+.settings-modal > .report-body {
+gap: var(--space-3);
+padding: var(--space-4) var(--space-5) var(--space-5);
+background: rgba(var(--accent-rgb),0.05);
+}
+
+.settings-group {
+margin: var(--space-3) 0 0;
+font-family: var(--font-body);
+font-size: 0.72rem;
+font-weight: 700;
+letter-spacing: 0.12em;
+text-transform: uppercase;
+color: var(--muted);
+}
+
+.settings-group:first-child {
+margin-top: 0;
+}
+
+.settings-section {
+display: grid;
+grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+gap: var(--space-5);
+flex-shrink: 0;
+padding: var(--space-5);
+background: var(--surface, #ffffff);
+border: 1px solid rgba(var(--accent-rgb),0.24);
+border-radius: var(--radius-xl);
+}
+
+.settings-about h5 {
+margin: 0 0 var(--space-2);
+font-family: var(--font-body);
+font-size: 0.95rem;
+font-weight: 700;
+color: var(--ink);
+}
+
+.settings-about p {
+margin: 0;
+font-size: 0.8rem;
+line-height: 1.5;
+color: var(--muted);
+}
+
+.settings-controls {
+display: flex;
+flex-direction: column;
+gap: var(--space-3);
+min-width: 0;
+}
+
+.settings-field {
+display: flex;
+flex-direction: column;
+gap: 0.3rem;
+}
+
+.settings-field label {
+font-size: 0.75rem;
+font-weight: 600;
+color: var(--muted);
+}
+
+.settings-field .text-input {
+width: 100%;
+margin-top: 0;
+min-height: 2.5rem;
+}
+
+.settings-field .password-field .text-input {
+padding-right: 2.9rem;
+}
+
+.settings-inline {
+display: flex;
+gap: var(--space-2);
+}
+
+.settings-inline .text-input {
+flex: 1;
+min-width: 0;
+}
+
+.settings-inline button {
+white-space: nowrap;
+}
+
+.settings-actions {
+display: flex;
+justify-content: flex-end;
+gap: var(--space-2);
+}
+
+.settings-current {
+display: flex;
+justify-content: space-between;
+align-items: center;
+gap: var(--space-3);
+padding: 0.6rem 0.8rem;
+border-radius: var(--radius-md);
+background: rgba(var(--accent-rgb),0.08);
+font-size: 0.8rem;
+color: var(--muted);
+}
+
+.settings-current strong {
+font-size: 0.95rem;
+color: var(--ink);
+font-variant-numeric: tabular-nums;
+}
+
+.settings-confirm {
+display: flex;
+flex-direction: column;
+gap: var(--space-3);
+padding: 0.75rem 0.85rem;
+border: 1px solid var(--accent);
+border-radius: var(--radius-md);
+font-size: 0.85rem;
+color: var(--ink);
+}
+
+.settings-modal .manager-menu-hint {
+margin: 0;
+}
+
+@media (max-width: 640px) {
+.settings-modal > .report-body { padding: var(--space-3); }
+.settings-section { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); padding: var(--space-4); }
 }
 
 .payout-account-list {
 list-style: none;
-margin: 0 0 0.6rem;
+margin: 0;
 padding: 0;
 display: flex;
 flex-direction: column;
@@ -6328,16 +6453,6 @@ gap: 0.6rem;
 font-family: var(--font-mono);
 font-size: 0.85rem;
 color: var(--ink);
-}
-
-.payout-account-add {
-display: flex;
-gap: 0.5rem;
-}
-
-.payout-account-add .text-input {
-flex: 1;
-min-width: 0;
 }
 
 /* Request Access page (/register): the note box matches the other fields; the honeypot is never shown. */

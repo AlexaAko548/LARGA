@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Google.Cloud.Firestore;
 using LARGA.SharedCore.Models.FinancialLedger;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Ledger;
 using Microsoft.Extensions.Logging;
 
 namespace LARGA.SharedCore.Services;
@@ -21,8 +22,7 @@ namespace LARGA.SharedCore.Services;
 /// </summary>
 public class FinancialLedgerService
 {
-    private const decimal DefaultBoundaryRate = ShiftRules.DefaultBoundaryRate;
-
+    
     private readonly Lazy<FirestoreDb> _dbLazy;
     private readonly Lazy<PhotoStorageTarget> _storageLazy;
     private readonly ILogger<FinancialLedgerService> _logger;
@@ -99,14 +99,14 @@ public class FinancialLedgerService
         List<ShiftLog> Shifts,
         List<BoundaryPayment> Payments,
         List<UserProfile> Drivers,
-        decimal DefaultRate,
+        BoundaryRateSchedule DefaultRate,
         Dictionary<string, ShiftCharge> ChargeByShift,
         Dictionary<string, decimal> OwedAfterCredit);
 
     private async Task<SettlementContext> LoadSettlementContextAsync(bool fromCache = false)
     {
         (List<ShiftLog> allShifts, List<BoundaryPayment> payments, _, List<UserProfile> drivers) = await GetFullLedgerDataAsync(fromCache);
-        decimal defaultRate = await GetDefaultBoundaryRateAsync();
+        BoundaryRateSchedule defaultRate = await GetDefaultBoundaryRateAsync();
 
         // Per shift: what it still owes after credit (shifts not listed owe nothing).
         List<ShiftCharge> charges = BuildCharges(allShifts, payments, defaultRate);
@@ -130,7 +130,7 @@ public class FinancialLedgerService
         DateTime dayStart = phDate - PhilippineTime.Offset;
         DateTime dayEnd = dayStart.AddDays(1).AddTicks(-1);
 
-        (List<ShiftLog> allShifts, List<BoundaryPayment> payments, List<UserProfile> drivers, decimal defaultRate,
+        (List<ShiftLog> allShifts, List<BoundaryPayment> payments, List<UserProfile> drivers, BoundaryRateSchedule defaultRate,
             Dictionary<string, ShiftCharge> chargeByShift, Dictionary<string, decimal> owedAfterCredit) = context;
         List<ShiftLog> todaysShifts = allShifts
             .Where(s => s.ShiftStart is DateTime start && start >= dayStart && start <= dayEnd)
@@ -257,7 +257,7 @@ public class FinancialLedgerService
                 long ledgerVersion = await ReadLedgerVersionAsync(shift.DriverId);
 
                 (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetDriverLedgerDataAsync(shift.DriverId);
-                decimal defaultRate = await GetDefaultBoundaryRateAsync();
+                BoundaryRateSchedule defaultRate = await GetDefaultBoundaryRateAsync();
                 List<ShiftCharge> driverCharges = BuildCharges(shifts, payments, defaultRate).Where(c => c.DriverId == shift.DriverId).ToList();
 
                 // This shift's charge. A still-Active shift nobody has paid on isn't a charge yet
@@ -336,7 +336,7 @@ public class FinancialLedgerService
         }
 
         (List<ShiftLog> shifts, List<BoundaryPayment> payments, List<DebtAdjustment> adjustments, _) = await GetDriverLedgerDataAsync(shift.DriverId);
-        decimal defaultRate = await GetDefaultBoundaryRateAsync();
+        BoundaryRateSchedule defaultRate = await GetDefaultBoundaryRateAsync();
         List<ShiftCharge> driverCharges = BuildCharges(shifts, payments, defaultRate)
             .Where(c => c.DriverId == shift.DriverId)
             .ToList();
@@ -1227,13 +1227,13 @@ public class FinancialLedgerService
         public decimal Overpaid => Math.Max(0, Paid - Expected);
     }
 
-    private static ShiftCharge NewCharge(ShiftLog shift, IReadOnlyList<BoundaryPayment> documents, decimal defaultRate)
+    private static ShiftCharge NewCharge(ShiftLog shift, IReadOnlyList<BoundaryPayment> documents, BoundaryRateSchedule defaultRate)
     {
         // The most recent document carries the shift's current expected boundary (the Quick
         // Ledger's "target" document); the default rate when it has none.
         BoundaryPayment? latest = documents.OrderByDescending(d => d.RecordedAt).FirstOrDefault();
         ExtraCharges extras = ExtrasFor(shift, latest);
-        decimal boundary = latest is not null && latest.ExpectedBoundary > 0 ? latest.ExpectedBoundary : defaultRate;
+        decimal boundary = latest is not null && latest.ExpectedBoundary > 0 ? latest.ExpectedBoundary : defaultRate.RateFor(shift.ShiftStart);
         decimal paid = BoundaryPaymentRules.TotalPaid(documents.Select(d => (d.PaymentId, d.TransactionId, d.AmountPaid)));
         DateTime date = shift.ShiftStart ?? latest?.RecordedAt ?? shift.ShiftEnd ?? DateTime.MinValue;
         return new ShiftCharge(shift.DriverId, shift, latest, documents, date, boundary + extras.Total, extras, paid);
@@ -1246,7 +1246,7 @@ public class FinancialLedgerService
     /// isn't owed yet (the boundary is paid at the end of the day), unless something was
     /// already paid on it.
     /// </summary>
-    private static List<ShiftCharge> BuildCharges(List<ShiftLog> shifts, List<BoundaryPayment> payments, decimal defaultRate)
+    private static List<ShiftCharge> BuildCharges(List<ShiftLog> shifts, List<BoundaryPayment> payments, BoundaryRateSchedule defaultRate)
     {
         Dictionary<string, ShiftLog> shiftsById = BuildShiftLookup(shifts);
         var documentsByShift = new Dictionary<string, List<BoundaryPayment>>();
@@ -1480,12 +1480,12 @@ public class FinancialLedgerService
 
     private DocumentReference SystemConfigRef => Db.Collection("system_configs").Document("global");
 
-    private async Task<decimal> GetDefaultBoundaryRateAsync() => DefaultRateFrom(await SystemConfigRef.GetSnapshotAsync());
+    private async Task<BoundaryRateSchedule> GetDefaultBoundaryRateAsync() => DefaultRateFrom(await SystemConfigRef.GetSnapshotAsync());
 
-    private decimal DefaultRateFrom(DocumentSnapshot snapshot)
+    private BoundaryRateSchedule DefaultRateFrom(DocumentSnapshot snapshot)
     {
         SystemConfig config = SystemConfigReader.Read(snapshot, LogBadConfigField);
-        return config.DefaultBoundaryRate > 0 ? (decimal)config.DefaultBoundaryRate : DefaultBoundaryRate;
+        return BoundaryRateSchedule.From((decimal)config.DefaultBoundaryRate, config.BoundaryRateHistory);
     }
 
     private void LogBadConfigField(string field, Exception ex) =>

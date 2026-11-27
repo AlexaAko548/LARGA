@@ -9,6 +9,7 @@ using LARGA.SharedCore;
 using LARGA.SharedCore.Models.Alerts;
 using LARGA.SharedCore.Models.Dashboard;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Ledger;
 using Microsoft.Extensions.Logging;
 
 namespace LARGA.SharedCore.Services;
@@ -541,7 +542,7 @@ public class FleetReportingService
         List<ShiftSchedule> exceptions = await GetSinceAsync<ShiftSchedule>("shift_schedules", "scheduledStartTime", fromUtc.AddDays(-1));
         // Payments for these shifts are recorded after they start.
         List<BoundaryPayment> payments = await GetSinceAsync<BoundaryPayment>("boundary_payments", "timestamp", fromUtc);
-        decimal defaultRate = await GetDefaultBoundaryRateAsync();
+        BoundaryRateSchedule defaultRate = await GetDefaultBoundaryRateAsync();
 
         List<DriverStanding> standings = drivers.Select(driver =>
         {
@@ -574,15 +575,14 @@ public class FleetReportingService
         return standings;
     }
 
-    private async Task<decimal> GetDefaultBoundaryRateAsync()
+    private async Task<BoundaryRateSchedule> GetDefaultBoundaryRateAsync()
     {
         try
         {
             DocumentSnapshot snapshot = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
-            if (snapshot.Exists && snapshot.ConvertTo<BoundaryRateConfigProxy>().DefaultBoundaryRate is double rate && rate > 0)
-            {
-                return (decimal)rate;
-            }
+            SystemConfig config = SystemConfigReader.Read(snapshot,
+                (field, ex) => _logger.LogWarning(ex, "system_configs/global.{Field} is unreadable - using its default", field));
+            return BoundaryRateSchedule.From((decimal)config.DefaultBoundaryRate, config.BoundaryRateHistory);
         }
         catch (Exception ex)
         {
@@ -863,13 +863,6 @@ public class FleetReportingService
     {
         [FirestoreProperty("idleThresholdMinutes")]
         public double IdleThresholdMinutes { get; set; }
-    }
-
-    [FirestoreData]
-    private sealed class BoundaryRateConfigProxy
-    {
-        [FirestoreProperty("defaultBoundaryRate")]
-        public double DefaultBoundaryRate { get; set; }
     }
 
     private async Task<double> GetIdleThresholdMinutesAsync()

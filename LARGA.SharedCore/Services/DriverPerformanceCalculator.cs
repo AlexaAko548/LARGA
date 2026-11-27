@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Ledger;
 
 namespace LARGA.SharedCore.Services;
 
@@ -84,7 +85,7 @@ public static class DriverPerformanceCalculator
         IReadOnlyList<MaintenanceRecord> maintenance,
         IReadOnlyList<BoundaryPayment> payments,
         IReadOnlyList<EmergencyAlert> alerts,
-        decimal defaultBoundaryRate,
+        BoundaryRateSchedule defaultBoundaryRate,
         DateTime fromPh,
         DateTime nowUtc)
     {
@@ -146,7 +147,7 @@ public static class DriverPerformanceCalculator
             List<BoundaryPayment> docs = payments.Where(p => ids.Contains(p.ShiftId)).ToList();
             BoundaryPayment? latest = docs.OrderByDescending(d => d.RecordedAt).FirstOrDefault();
 
-            decimal boundary = latest is not null && latest.ExpectedBoundary > 0 ? latest.ExpectedBoundary : defaultBoundaryRate;
+            decimal boundary = latest is not null && latest.ExpectedBoundary > 0 ? latest.ExpectedBoundary : defaultBoundaryRate.RateFor(shift.ShiftStart);
             decimal lateFee = ShiftRules.EffectiveLateFee(shift.LateFee is double late ? (decimal)late : null, shift.ShiftStart, shift.ShiftEnd) ?? 0m;
             decimal extras = lateFee + (decimal)(shift.FuelPenalty ?? 0);
             decimal expectedAmount = boundary + extras;

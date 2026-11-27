@@ -8,6 +8,7 @@ using FirebaseAdmin.Auth;
 using Google.Cloud.Firestore;
 using LARGA.SharedCore.Models.DriverShifts;
 using LARGA.Shared.Models.Entities;
+using LARGA.SharedCore.Ledger;
 using Microsoft.Extensions.Logging;
 
 namespace LARGA.SharedCore.Services;
@@ -756,17 +757,14 @@ public class DriverManagementService
     /// <summary>How far back the profile's performance figures look.</summary>
     public const int PerformanceWindowDays = 30;
 
-    private async Task<decimal> GetDefaultBoundaryRateAsync()
+    private async Task<BoundaryRateSchedule> GetDefaultBoundaryRateAsync()
     {
         try
         {
             DocumentSnapshot snapshot = await Db.Collection("system_configs").Document("global").GetSnapshotAsync();
-            double rate = SystemConfigReader.Read(snapshot,
-                (field, ex) => _logger.LogWarning(ex, "system_configs/global.{Field} is unreadable - using its default", field)).DefaultBoundaryRate;
-            if (rate > 0)
-            {
-                return (decimal)rate;
-            }
+            SystemConfig config = SystemConfigReader.Read(snapshot,
+                (field, ex) => _logger.LogWarning(ex, "system_configs/global.{Field} is unreadable - using its default", field));
+            return BoundaryRateSchedule.From((decimal)config.DefaultBoundaryRate, config.BoundaryRateHistory);
         }
         catch (Exception ex)
         {

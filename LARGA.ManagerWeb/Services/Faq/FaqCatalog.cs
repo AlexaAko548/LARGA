@@ -121,7 +121,7 @@ public static class FaqCatalog
             """
             Amount due = boundary + late fee + low-fuel fee + any debt carried over from earlier days.
 
-            • Boundary: ₱800 a day. (If the owner sets a different boundary in the system settings, that is used instead.)
+            • Boundary: ₱800 a day, unless the owner sets another rate (web: Settings > Boundary payment rate). A new rate applies to shifts that start after the change; earlier shifts keep the rate they started with.
             • Late fee: ₱100 for each hour, or part of an hour, after 10:00 PM. The first 30 minutes are free, so nothing is charged if the unit is back by 10:29 PM. At 10:30 PM it becomes ₱100, after 11:00 PM ₱200, and so on.
             • Low fuel: ₱50 if the unit comes back with less than half a tank.
             • Carried-over debt: whatever the driver still owes from earlier shifts.
