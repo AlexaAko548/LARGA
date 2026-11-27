@@ -47,6 +47,29 @@ public class FleetUnitRulesTests
         Assert.Equal("TAXI_008", FleetUnitRules.NextTaxiId(new[] { "TAXI_002", "TAXI_007", "other" }));
     }
 
+    [Theory]
+    [InlineData("GAB 1001", true)]
+    [InlineData("  gab-1001 ", true)]
+    [InlineData("GAB1001", true)]
+    [InlineData("GAB 100", false)]
+    [InlineData("GAB 10011", false)]
+    [InlineData("TAXI_001", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void Removal_is_confirmed_by_the_plate(string? typed, bool expected) =>
+        Assert.Equal(expected, FleetUnitRules.ConfirmsRemoval(typed, "GAB 1001", "TAXI_001"));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" - ")]
+    [InlineData(null)]
+    public void Without_a_plate_removal_is_confirmed_by_the_unit_id(string? plate)
+    {
+        Assert.Equal("TAXI_001", FleetUnitRules.RemovalConfirmationText(plate, "TAXI_001"));
+        Assert.True(FleetUnitRules.ConfirmsRemoval("taxi_001", plate, "TAXI_001"));
+        Assert.False(FleetUnitRules.ConfirmsRemoval("", plate, "TAXI_001"));
+    }
+
     [Fact]
     public void Free_unit_has_no_blockers() =>
         Assert.Empty(FleetUnitRules.RemovalBlockers(new UnitRemovalFacts([], false, 0, false, [])));

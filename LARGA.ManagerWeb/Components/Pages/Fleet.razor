@@ -235,7 +235,8 @@ else
 }
 
 <ConfirmationModal Show="_showConfirm" Title="@_confirmTitle" Message="@_confirmMessage" ConfirmText="@_confirmButtonText"
-    IsDangerous="_confirmDangerous" IsBusy="_isBusy" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm" />
+    IsDangerous="_confirmDangerous" IsBusy="_isBusy" OnConfirm="ConfirmActionAsync" OnCancel="CancelConfirm"
+    IsTypedMatch="_confirmTypedMatch" TypedLabel="@_confirmTypedLabel" TypedPlaceholder="@_confirmTypedPlaceholder" />
 
 @code {
     // Assistant Managers can look at the fleet; only the Manager changes it (FleetUnitService checks too).
@@ -399,6 +400,10 @@ else
     private string _confirmMessage = "";
     private string _confirmButtonText = "Confirm";
     private Func<Task<FleetActionResult>>? _pendingAction;
+    // Only delete / retire ask for the plate number; null for the rest.
+    private Func<string, bool>? _confirmTypedMatch;
+    private string _confirmTypedLabel = "";
+    private string _confirmTypedPlaceholder = "";
 
     private async Task RequestDeleteAsync(FleetUnitEntry unit)
     {
@@ -430,6 +435,11 @@ else
                 plan.HasHistory ? "Retire Unit" : "Delete Unit",
                 dangerous: true,
                 () => FleetUnits.DeleteUnitAsync(unit.TaxiId, _managerUserId));
+
+            string expected = FleetUnitRules.RemovalConfirmationText(unit.PlateNumber, unit.TaxiId);
+            _confirmTypedMatch = typed => FleetUnitRules.ConfirmsRemoval(typed, unit.PlateNumber, unit.TaxiId);
+            _confirmTypedLabel = expected == unit.TaxiId ? "Type the unit ID to confirm" : "Type the plate number to confirm";
+            _confirmTypedPlaceholder = expected;
         }
         catch (Exception ex)
         {
@@ -456,6 +466,7 @@ else
         _confirmButtonText = buttonText;
         _confirmDangerous = dangerous;
         _pendingAction = action;
+        _confirmTypedMatch = null;
         _showConfirm = true;
     }
 

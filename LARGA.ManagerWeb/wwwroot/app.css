@@ -4293,6 +4293,11 @@ grid-template-columns: repeat(3, 1fr);
     margin: 0;
 }
 
+/* The "type the name / plate number to confirm" box. */
+.confirm-typed {
+    margin-top: 0.9rem;
+}
+
 .confirm-list {
     margin: 0.6rem 0 0;
     padding-left: 1.2rem;

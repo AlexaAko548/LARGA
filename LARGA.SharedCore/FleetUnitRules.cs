@@ -62,6 +62,15 @@ public static class FleetUnitRules
         return $"{IdPrefix}{highest + 1:D3}";
     }
 
+    /// <summary>What the Manager types to confirm deleting or retiring a unit: its plate number, or the
+    /// unit ID for a record with no usable plate.</summary>
+    public static string RemovalConfirmationText(string? plate, string taxiId) =>
+        PlateKey(plate).Length > 0 ? NormalizePlate(plate) : taxiId;
+
+    /// <summary>Compared like plates are everywhere else: case, spaces and dashes don't matter.</summary>
+    public static bool ConfirmsRemoval(string? typed, string? plate, string taxiId) =>
+        PlateKey(typed) == PlateKey(RemovalConfirmationText(plate, taxiId));
+
     /// <summary>Why a unit can't be deleted or retired right now; empty when it can.</summary>
     public static List<string> RemovalBlockers(UnitRemovalFacts facts)
     {

@@ -1145,7 +1145,7 @@ else
                     {
                         <div class="info-banner warning">They still have ₱@_removalPlan.AdvanceCredit.ToString("N2") of unused advance credit. Return it to them before deleting.</div>
                     }
-                    <div class="report-section">
+                    <div class="report-section confirm-typed">
                         <label for="delete-driver-name">Type the driver's full name to confirm</label>
                         <input id="delete-driver-name" class="text-input" maxlength="80" @bind="_removalNameInput" @bind:event="oninput" placeholder="@_removalPlan.FullName" autocomplete="off" />
                     </div>

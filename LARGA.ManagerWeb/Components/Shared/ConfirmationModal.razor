@@ -18,10 +18,17 @@
                 {
                     <p>@Message</p>
                 }
+                @if (IsTypedMatch is not null)
+                {
+                    <div class="report-section confirm-typed">
+                        <label for="confirm-typed-input">@TypedLabel</label>
+                        <input id="confirm-typed-input" class="text-input" maxlength="80" disabled="@IsBusy" @bind="_typed" @bind:event="oninput" placeholder="@TypedPlaceholder" autocomplete="off" />
+                    </div>
+                }
             </div>
             <div class="confirm-actions">
                 <button class="cancel-btn" type="button" disabled="@IsBusy" @onclick="HandleCancel">@CancelText</button>
-                <button class="@(IsDangerous ? "danger-btn" : "download-btn")" type="button" disabled="@IsBusy" @onclick="HandleConfirm" aria-busy="@IsBusy">
+                <button class="@(IsDangerous ? "danger-btn" : "download-btn")" type="button" disabled="@(IsBusy || !CanConfirm)" @onclick="HandleConfirm" aria-busy="@IsBusy">
                     @if (IsBusy) { <text>Working…</text> } else { @ConfirmText }
                 </button>
             </div>
@@ -46,7 +53,25 @@
     [Parameter] public EventCallback OnCancel { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
-    private Task HandleConfirm() => IsBusy ? Task.CompletedTask : OnConfirm.InvokeAsync();
+    /// <summary>Set to make the user type something before Confirm is enabled (a name, a plate number):
+    /// whether what they typed is right.</summary>
+    [Parameter] public Func<string, bool>? IsTypedMatch { get; set; }
+    [Parameter] public string TypedLabel { get; set; } = string.Empty;
+    [Parameter] public string TypedPlaceholder { get; set; } = string.Empty;
+
+    private string _typed = string.Empty;
+    private bool CanConfirm => IsTypedMatch is null || IsTypedMatch(_typed);
+
+    // Every opening starts with an empty box.
+    protected override void OnParametersSet()
+    {
+        if (!Show)
+        {
+            _typed = string.Empty;
+        }
+    }
+
+    private Task HandleConfirm() => IsBusy || !CanConfirm ? Task.CompletedTask : OnConfirm.InvokeAsync();
 
     private Task HandleCancel() => IsBusy ? Task.CompletedTask : OnCancel.InvokeAsync();
 }
