@@ -2480,6 +2480,7 @@ color: var(--muted);
 
 .route-map {
 height: min(60vh, 460px);
+flex-shrink: 0; /* on a short screen the pop-up body scrolls instead of squashing the map */
 border-radius: var(--radius-lg);
 overflow: hidden;
 border: 1px solid var(--accent-border);
